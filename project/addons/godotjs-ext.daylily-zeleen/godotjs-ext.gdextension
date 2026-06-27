@@ -1,0 +1,51 @@
+[configuration]
+
+entry_symbol = "gjs_gdextension_init"
+compatibility_minimum = 4.6
+reloadable = false
+
+[libraries]
+windows.debug.x86_32 = "bin/windows/godotjs-ext.windows.template_debug.x86_32.dll"
+windows.release.x86_32 = "bin/windows/godotjs-ext.windows.template_release.x86_32.dll"
+windows.debug.editor.x86_32 = "bin/windows/godotjs-ext.windows.editor.x86_32.dll"
+windows.debug.x86_64 = "bin/windows/godotjs-ext.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "bin/windows/godotjs-ext.windows.template_release.x86_64.dll"
+windows.debug.editor.x86_64 = "bin/windows/godotjs-ext.windows.editor.x86_64.dll"
+windows.debug.arm64 = "bin/windows/godotjs-ext.windows.template_debug.arm64.dll"
+windows.release.arm64 = "bin/windows/godotjs-ext.windows.template_release.arm64.dll"
+windows.debug.editor.arm64 = "bin/windows/godotjs-ext.windows.editor.arm64.dll"
+
+macos.debug = "bin/macos/godotjs-ext.macos.template_debug.framework"
+macos.release = "bin/macos/godotjs-ext.macos.template_release.framework"
+
+linux.debug.x86_32 = "bin/linux/godotjs-ext.linux.template_debug.x86_32.so"
+linux.release.x86_32 = "bin/linux/godotjs-ext.linux.template_release.x86_32.so"
+linux.debug.x86_64 = "bin/linux/godotjs-ext.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "bin/linux/godotjs-ext.linux.template_release.x86_64.so"
+linux.debug.arm32 = "bin/linux/godotjs-ext.linux.template_debug.arm32.so"
+linux.release.arm32 = "bin/linux/godotjs-ext.linux.template_release.arm32.so"
+linux.debug.arm64 = "bin/linux/godotjs-ext.linux.template_debug.arm64.so"
+linux.release.arm64 = "bin/linux/godotjs-ext.linux.template_release.arm64.so"
+linux.debug.rv64 = "bin/linux/godotjs-ext.linux.template_debug.rv64.so"
+linux.release.rv64 = "bin/linux/godotjs-ext.linux.template_release.rv64.so"
+
+android.debug.x86_64 = "bin/android/godotjs-ext.android.template_debug.x86_64.so"
+android.release.x86_64 = "bin/android/godotjs-ext.android.template_release.x86_64.so"
+android.debug.arm64 = "bin/android/godotjs-ext.android.template_debug.arm64.so"
+android.release.arm64 = "bin/android/godotjs-ext.android.template_release.arm64.so"
+
+ios.debug = "bin/ios/godotjs-ext.ios.template_debug.xcframework"
+ios.release = "bin/ios/godotjs-ext.ios.template_release.xcframework"
+
+web.debug.threads.wasm32 = "bin/web/godotjs-ext.web.template_debug.wasm32.wasm"
+web.release.threads.wasm32 = "bin/web/godotjs-ext.web.template_release.wasm32.wasm"
+web.debug.wasm32 = "bin/web/godotjs-ext.web.template_debug.wasm32.nothreads.wasm"
+web.release.wasm32 = "bin/web/godotjs-ext.web.template_release.wasm32.nothreads.wasm"
+
+[dependencies]
+ios.debug = {
+  "bin/libgodot-cpp.ios.template_debug.xcframework": ""
+}
+ios.release = {
+  "bin/libgodot-cpp.ios.template_release.xcframework": ""
+}
