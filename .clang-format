@@ -182,7 +182,7 @@ UseTab:          Always
 ---
 ### C++ specific config ###
 Language:        Cpp
-Standard:        c++17
+Standard:        c++20
 ---
 ### ObjC specific config ###
 Language:        ObjC
