@@ -5,9 +5,9 @@ applyTo: "**/*.h","**/*.hpp","**/*.cpp","**/*.cc"
 
 # C/C++ 编码规范
 
-## 规则 1：头文件中禁止使用 `using namespace`
+## 规则 1：头文件中禁止使用 `using namespace`（函数内等局部作用域除外）
 
-**绝对不要**在头文件（`.h`、`.hpp`）中使用 `using namespace` 声明。
+**绝对不要**在头文件（`.h`、`.hpp`）中使用 `using namespace` 声明，函数内等局部作用域除外。
 
 ### 错误示例 ❌
 
