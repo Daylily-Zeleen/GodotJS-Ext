@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+
+Import("env")
+
+import editor.template_builders as build_template_ts
+
+def get_godot_version_info():
+    try:
+        # it's available since godot 4.3
+        return env.version_info
+    except:
+        # fallback to the tricky way
+        import os
+        import sys
+
+        # We want /methods.py.
+        engine_path = os.path.join(os.curdir, "../..")
+
+        sys.path.insert(0, engine_path)
+        from methods import get_version_info
+
+        version_info = get_version_info("")
+        sys.path.remove(engine_path)
+        return version_info
+
+version_info = get_godot_version_info()
+
+def check_godot_version_newer_than(major, minor, patch):
+    return version_info["major"] > major or (version_info["major"] == major and (version_info["minor"] > minor or (version_info["minor"] == minor and version_info["patch"] >= patch)))
+
+if check_godot_version_newer_than(4, 3, 0):
+    # 4.3.1 changed env.Run() (in methods.py)
+    env["BUILDERS"]["MakeGodotJSTemplateBuilder"] = Builder(
+        action = env.Run(build_template_ts.make_templates),
+        suffix = ".h",
+        src_suffix = ".ts",
+    )
+else:
+    env["BUILDERS"]["MakeGodotJSTemplateBuilder"] = Builder(
+        action = env.Run(build_template_ts.make_templates, "Generating GodotJSScript templates header."),
+        suffix = ".h",
+        src_suffix = ".ts",
+    )
+
+language = "ts" if env["use_typescript"] else "js"
+print("generate templates for", language)
+
+# Template files 
+# the suffix should be `.ts`, but `editor/template_builders.py` hardcoded the delimiter with `.cs`
+templates_sources = Glob(f"*/*.{language}.cs")
+
+env.Alias("editor_template_ts", [env.MakeGodotJSTemplateBuilder("templates.gen.h", templates_sources)])
