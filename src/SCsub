@@ -1,0 +1,638 @@
+#!/usr/bin/env python
+import io
+import os
+import re
+import shutil
+import subprocess
+import time
+import urllib.request
+import zipfile
+import zlib
+from misc.utility.color import print_error, print_info, print_warning
+# from typing import TypedDict, Callable
+
+Import("env")
+Import("env_modules")
+
+class LibraryDetails:
+    # def __init__(self, platform: str, arch: str, libname: str, delimiter: str):
+    def __init__(self, platform, arch, libname, delimiter):
+        self.platform = platform
+        self.arch = arch
+        self.libname = libname
+        self.delimiter = delimiter
+
+    # def platform_base(self) -> str:
+    def platform_base(self):
+        return self.platform + self.delimiter + self.arch + self.delimiter + "release"
+
+class LibraryDescriptor:
+    # def __init__(self, name: str, details: list[LibraryDetails]):
+    def __init__(self, name, details):
+        self.name = name
+        self.details = details
+
+# third-party source
+class ThirdPartyDetails:
+    # def __init__(self, path: str, sources: list[str], validator: Callable[[], bool] = None):
+    def __init__(self, path, sources, validator = None):
+        self.path = path
+        self.sources = sources
+        self.validator = validator if validator is not None else lambda: True
+
+class ThirdPartyDescriptor:
+    # def __init__(self, name: str, details: list[ThirdPartyDetails]):
+    def __init__(self, name, details):
+        self.name = name
+        self.details = details
+
+jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
+jsb_arch = env["arch"]
+
+# Dependencies
+deps_release_tag = "1.1"
+deps_v8_version = "12.4.254.21"
+deps_lws_version = "4.3"
+deps_url = "https://github.com/godotjs/GodotJS-Dependencies/releases"
+module_path = os.path.dirname(os.path.abspath("jsb.h"))
+module_name = os.path.basename(module_path)
+
+# godot 4.3.1 generates `ActiveProjectItemList_` variable name with the path name (see methods.py)
+# it'll fail if the path contains '.' or any other characters invalid as variable name
+# detect and rename them for better compatibility
+
+v8_prebuilt_libs = LibraryDescriptor("v8", \
+[
+    LibraryDetails("windows", "x86_64", "v8_monolith.lib",  "_"),
+    LibraryDetails("windows", "arm64",  "v8_monolith.lib",  "_"),
+    LibraryDetails("linux",   "x86_64", "libv8_monolith.a", "."),
+    LibraryDetails("linux",   "arm64",  "libv8_monolith.a", "."),
+    LibraryDetails("macos",   "x86_64", "libv8_monolith.a", "."),
+    LibraryDetails("macos",   "arm64",  "libv8_monolith.a", "."),
+    LibraryDetails("ios",     "x86_64", "libv8_monolith.a", "."),
+    LibraryDetails("ios",     "arm64",  "libv8_monolith.a", "."),
+    LibraryDetails("ios",     "arm32",  "libv8_monolith.a", "."),
+    LibraryDetails("android", "x86_64", "libv8_monolith.a", "."),
+    LibraryDetails("android", "arm64",  "libv8_monolith.a", "."),
+    LibraryDetails("android", "arm32",  "libv8_monolith.a", "."),
+])
+lws_prebuilt_libs = LibraryDescriptor("lws", \
+[
+    LibraryDetails("windows", "x86_64", "websockets_static.lib",  "_"),
+    LibraryDetails("windows", "arm64",  "websockets_static.lib",  "_"),
+    LibraryDetails("linux",   "x86_64", "libwebsockets.a", "_"),
+    LibraryDetails("linux",   "arm64",  "libwebsockets.a", "_"),
+    LibraryDetails("macos",   "x86_64", "libwebsockets.a", "."),
+    LibraryDetails("macos",   "arm64",  "libwebsockets.a", "_"),
+    LibraryDetails("ios",     "arm64",  "libwebsockets.a", "."),
+    LibraryDetails("android", "x86_64", "libwebsockets.a", "_"),
+    LibraryDetails("android", "arm32",  "libwebsockets.a", "_"),
+    LibraryDetails("android", "arm64",  "libwebsockets.a", "_"),
+])
+quickjs_src_descs = ThirdPartyDescriptor("quickjs", \
+[
+    ThirdPartyDetails("third/quickjs-ng", ["dtoa.c", "libregexp.c", "libunicode.c", "quickjs.c"]),
+    ThirdPartyDetails("quickjs",    ["cutils.c", "libbf.c", "libregexp.c", "libunicode.c", "quickjs.c"]),
+])
+
+class CompileDefines:
+    def __init__(self, name, value, help = None):
+        self.name = name
+        self.value = value
+        self.help = help
+
+def check(condition, text):
+    '''Directly fail the build if the condition is not met'''
+    if not condition:
+        print_error(text)
+        Exit(2)
+
+def is_library_supported(support):
+    for details in support.details:
+        if jsb_platform == details.platform and jsb_arch == details.arch:
+            return True
+    return False
+
+# def validate_library_support(support: LibraryDescriptor) -> tuple[LibraryDescriptor, LibraryDetails]:
+def validate_library_support(support):
+    for details in support.details:
+        if jsb_platform != details.platform or jsb_arch != details.arch:
+            continue
+        libpath = support.name + "/" \
+                  + details.platform_base() + "/" \
+                  + details.libname
+        if os.path.exists(libpath):
+            return (support, details)
+    return None
+
+# def get_thirdparty_support(support: ThirdPartyDescriptor) -> tuple[ThirdPartyDescriptor, ThirdPartyDetails]:
+def get_thirdparty_support(support, path):
+    for details in support.details:
+        if os.path.exists(details.path) and details.path == path:
+            check(details.validator(), f"{details.path} is unsupported in the current environment")
+            return (support, details)
+    return None
+
+# def read_macro_value(name: str, def_val = None):
+def read_macro_value(name, def_val = None):
+    with open("jsb.config.h", "rt", encoding="utf-8") as input:
+        regex = rf"^#define\s+{name}\s+(\d+)$"
+        for line in input:
+            matches = re.finditer(regex, line)
+            for _, match in enumerate(matches, start=1):
+                return match.group(1)
+    if def_val is not None:
+        return def_val
+    raise ValueError(f"no {name} defined in jsb.config.h")
+
+def download_dependency(name, version, target_dir):
+    '''Downloads and extracts a dependency if the target directory does not exist.'''
+    if os.path.exists(target_dir):
+        return
+
+    filename = f"{name}_{version}.zip"
+    url = f"{deps_url}/download/{deps_release_tag}/{filename}"
+
+    print_info(f"Dependency '{name}' not found at '{target_dir}'.")
+    print_info(f"Downloading {filename} from {url} ...")
+
+    try:
+        urllib.request.urlretrieve(url, filename)
+
+        print_info(f"Extracting {filename} ...")
+        with zipfile.ZipFile(filename, 'r') as zip_ref:
+            zip_ref.extractall(".")
+
+        if os.path.exists(filename):
+            os.remove(filename)
+
+        if not os.path.exists(target_dir):
+            check(False, f"Extraction failed: Directory '{target_dir}' was not created.")
+
+        print_info(f"Successfully installed {name}.")
+
+    except Exception as e:
+        check(False, f"Failed to download or extract {name}: {str(e)}")
+
+use_quickjs = "quickjs" if env["use_quickjs"] else ("third/quickjs-ng" if env["use_quickjs_ng"] else None)
+jsc_support = "jsc" if env["use_jsc"] and use_quickjs is None else None
+quickjs_support = get_thirdparty_support(quickjs_src_descs, use_quickjs)
+
+if quickjs_support is None and jsc_support is None and is_library_supported(v8_prebuilt_libs):
+    download_dependency("v8", deps_v8_version, "v8")
+    if is_library_supported(lws_prebuilt_libs):
+        download_dependency("lws", deps_lws_version, "lws")
+
+v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
+lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None else None
+
+jsb_defines = [
+    CompileDefines("JSB_USE_TYPESCRIPT", 1 if env["use_typescript"] else 0),
+    CompileDefines("JSB_WITH_QUICKJS", 1 if quickjs_support is not None else 0),
+    CompileDefines("JSB_PREFER_QUICKJS_NG", 1 if quickjs_support is not None and quickjs_support[1].path == "third/quickjs-ng" else 0, [
+        "(Only effective when `JSB_WITH_QUICKJS` is enabled)",
+        "Use quickjs-ng instead of quickjs",
+    ]),
+    CompileDefines("JSB_WITH_V8", 1 if v8_support is not None else 0, [
+        "Use v8 as the javascript engine.",
+        "A prebuilt v8 library is required to build the project. ",
+        "It should have been automatically downloaded, alternatively you may build it yourself."
+    ]),
+    CompileDefines("JSB_WITH_WEB", 1 if jsb_platform == "web" and quickjs_support is None else 0, [
+        "Use the host browser's javascript engine.",
+        "Be aware that all script sources are evaluated in the host browser, which can be fully debugged with the browser's developer tools.",
+        "It's recommended to obfuscate the script sources before deploying the project in a production environment.",
+        "NOTE: Obfuscation may not work in the current version. It'll be improved in the future versions. Report an issue if it breaks.",
+    ]),
+    CompileDefines("JSB_WITH_JAVASCRIPTCORE", 1 if jsc_support is not None else 0, [
+        "Use JavaScriptCore as the javascript engine.",
+        "NOTE: JavaScriptCore is only supported on macOS/iOS.",
+        "NOTE: THIS FEATURE IS WORK-IN-PROGRESS, DO NOT USE IT.",
+    ]),
+
+    CompileDefines("JSB_WITH_EDITOR_UTILITY_FUNCS", 1 if jsb_platform != "web" and env.editor_build else 0, [
+        "Enables 'jsb.editor'",
+    ]),
+    CompileDefines("JSB_WITH_LWS", 1 if lws_support is not None else 0, [
+        "NOTE: Currently using `libwebsockets` to handle v8 debugger connections, since Godot's `modules/websocket` fails to handshake with `devtools`",
+        "`devtools` does not respond to the upgrade request with a `sec-websocket-protocol` header which does not apply the handshake requirements of `WSLPeer`",
+        "and the connection will break immediately by `devtools` if `selected_protocol` is assigned manually in `WSLPeer`",
+    ]),
+]
+
+def is_defined(name, value = 1):
+    for t in jsb_defines:
+        if t.name == name:
+            return t.value == value
+    return False
+
+# quickjs/emscripten/jsc API require zero-terminated strings (even if string.length is provided)
+zero_terminated = is_defined("JSB_WITH_QUICKJS") or is_defined("JSB_WITH_WEB") or is_defined("JSB_WITH_JAVASCRIPTCORE")
+
+print("compiling:", module_name)
+print("javascript engine:", "v8" if is_defined("JSB_WITH_V8") else "web" if is_defined("JSB_WITH_WEB") else use_quickjs if is_defined("JSB_WITH_QUICKJS") else "JavaScriptCore" if is_defined("JSB_WITH_JAVASCRIPTCORE") else "none")
+print("websocket lib:", "lws" if is_defined("JSB_WITH_LWS") and is_defined("JSB_WITH_V8") else "none")
+print("platform:", jsb_platform)
+print("arch:", jsb_arch)
+print("zero_terminated:", zero_terminated)
+
+if jsb_platform == "android":
+    print("ndk_platform:", env["ndk_platform"])
+    print("ANDROID_NDK_ROOT:", env["ANDROID_NDK_ROOT"])
+
+class PresetTransformer:
+    # def transform(self, data: bytes):
+    def transform(self, data):
+        return data
+
+class PresetDefine:
+    # def __init__(self, sourcename: str, targetname: str, zero_terminated: bool = False, transformer: PresetTransformer = None):
+    def __init__(self, sourcename, targetname, zero_terminated = False, transformer = None):
+        self.sourcename = sourcename
+        self.targetname = targetname
+        self.transformers = []
+        self.zero_terminated = zero_terminated
+        if transformer is not None:
+            self.transformers.append(transformer)
+        if zero_terminated:
+            self.transformers.append(ZeroTerminatedTransformer())
+
+    def transform(self, transformer):
+        self.transformers.append(transformer)
+        return self
+
+    def read_source(self):
+        with open(self.sourcename, "rb") as input:
+            data = input.read()
+            for transformer in self.transformers:
+                data = transformer.transform(data)
+            return data
+
+class AMDSourceTransformer(PresetTransformer):
+    # def transform(self, data: bytes):
+    def transform(self, data):
+        return b"(function(define){"+data+b"\n})"
+
+class ZeroTerminatedTransformer(PresetTransformer):
+    # def transform(self, data: bytes):
+    def transform(self, data):
+        return data+b"\0"
+
+def set_defined(name, value):
+    for t in jsb_defines:
+        if t.name == name:
+            t.value = value
+    check(False, f"can not set value to '{name}' which is not defined")
+
+def remove_file(filename):
+    if os.path.exists(filename):
+        print(f"deleting deprecated file {filename}")
+        os.remove(filename)
+
+# def write_file(filename, ostream: io.StringIO):
+def write_file(filename, ostream):
+    ostream.seek(0)
+    content = ostream.read()
+    if os.path.exists(filename):
+        with open(filename, "rt", encoding="utf-8") as input:
+            if input.read() == content:
+                print(f"generate {filename}: no diff")
+                return
+    with open(filename, "wt", encoding="utf-8") as output:
+        print(f"generating {filename}")
+        output.write(content)
+
+def try_compress(bytes):
+    result = bytes
+    if len(bytes) > 512:
+        result = zlib.compress(bytes, zlib.Z_BEST_SPEED)
+    return result if len(result) < len(bytes) else bytes
+
+# def generate_method_code(output, methodname, indent, preset_defines: list[PresetDefine]):
+def generate_method_code(output, methodname, indent, preset_defines):
+    output.write(f"jsb::internal::PresetSource GodotJSProjectPreset::{methodname}(const String& p_filename)\n")
+    output.write("{\n")
+    output.write(indent+"static const unsigned char data[] = {\n")
+    generated_sources = {}
+    cursor = 0
+    for preset_define in preset_defines:
+        sourcename = preset_define.sourcename
+        targetname = preset_define.targetname
+        if len(targetname) == 0:
+            targetname = os.path.basename(sourcename)
+        newline = 0
+        mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(sourcename)))
+
+        bytes = preset_define.read_source()
+        original_length = len(bytes)
+        compressed_bytes = try_compress(bytes)
+        if compressed_bytes != bytes:
+            bytes = compressed_bytes
+            output.write(indent+indent+f"// target: {targetname} length: {len(bytes)} ({original_length}) modified: {mtime}\n")
+            output.write(indent+indent)
+            generated_sources[targetname] = (cursor, len(bytes), original_length, preset_define.zero_terminated)
+        else:
+            output.write(indent+indent+f"// target: {targetname} length: {len(bytes)} modified: {mtime}\n")
+            output.write(indent+indent)
+            generated_sources[targetname] = (cursor, len(bytes), 0, preset_define.zero_terminated)
+
+        cursor += len(bytes)
+        for byte in bytes:
+            output.write(f"0x{byte:02x}, ")
+            newline += 1
+            if newline >= 64:
+                newline = 0
+                output.write("\n")
+                output.write(indent+indent)
+
+        if newline != 0:
+            newline = 0
+            output.write("\n")
+    output.write("\n")
+    output.write(indent+"};\n")
+    for targetname in generated_sources:
+        start = generated_sources[targetname][0]
+        size = generated_sources[targetname][1]
+        osize = generated_sources[targetname][2] # original size
+        zero_terminated = "true" if generated_sources[targetname][3] else "false"
+        output.write(indent+f"if (p_filename == \"{targetname}\") {{ return jsb::internal::PresetSource(p_filename, (const char *) data+{start}, {size}, {osize}, {zero_terminated}); }}\n")
+    output.write(indent+"return jsb::internal::PresetSource();\n")
+    output.write("}\n")
+
+def generate_code(rt_preset_defines, ed_preset_defines):
+    indent = "    "
+    output = io.StringIO()
+
+    # delete obsolete files
+    remove_file("weaver-editor/jsb_project_preset.cpp")
+    remove_file("jsb_project_preset.cpp")
+
+    outfile = "jsb_project_preset.gen.cpp"
+
+    # with open(outfile, "wt", encoding="utf-8") as output:
+    if True:
+        output.write("// AUTO-GENERATED\n")
+        output.write("\n")
+        output.write("#include \"jsb_project_preset.h\"\n")
+        output.write("#include \"jsb.config.h\"\n")
+
+        # js.bundle version checker
+        JSB_BUNDLE_VERSION = read_macro_value("JSB_BUNDLE_VERSION")
+        output.write(f"static_assert({JSB_BUNDLE_VERSION} == JSB_BUNDLE_VERSION, \"obsolete preset data found, please regenerate project sources with scons\");\n")
+
+        # bundled source for runtime
+        generate_method_code(output, "get_source_rt", indent, rt_preset_defines)
+
+        # bundled source for editor
+        output.write("#ifdef TOOLS_ENABLED\n")
+        generate_method_code(output, "get_source_ed", indent, ed_preset_defines)
+        output.write("#endif\n")
+    write_file(outfile, output)
+
+def generate_jsb_gen_header():
+    output = io.StringIO()
+    if True:
+        output.write("// AUTO-GENERATED\n")
+        output.write("#ifndef GODOTJS_GEN_H\n")
+        output.write("#define GODOTJS_GEN_H\n")
+        output.write("\n")
+        output.write(f"#define JSB_MODULE_NAME {module_name}\n")
+        output.write(f"#define jsb_initialize_module initialize_{module_name}_module\n")
+        output.write(f"#define jsb_uninitialize_module uninitialize_{module_name}_module\n")
+        output.write("\n")
+        first_define = True
+        for t in jsb_defines:
+            if t.help != None:
+                if not first_define:
+                    output.write("\n")
+                if isinstance(t.help, str):
+                    output.write(f"// {t.help}\n")
+                elif isinstance(t.help, list):
+                    for line in t.help:
+                        output.write(f"// {line}\n")
+            output.write(f"#define {t.name} {t.value}\n")
+            first_define = False
+        output.write("\n")
+        output.write("#endif\n")
+    write_file("jsb.gen.h", output)
+
+def get_godot_version_info():
+    try:
+        # it's available since godot 4.3
+        return env.version_info
+    except:
+        # fallback to the tricky way
+        import os
+        import sys
+
+        # We want /methods.py.
+        engine_path = os.path.join(os.curdir, "../..")
+
+        sys.path.insert(0, engine_path)
+        from methods import get_version_info
+
+        version_info = get_version_info("")
+        sys.path.remove(engine_path)
+        return version_info
+
+version_info = get_godot_version_info()
+def check_godot_version_newer_than(major, minor, patch):
+    return version_info["major"] > major or (version_info["major"] == major and (version_info["minor"] > minor or (version_info["minor"] == minor and version_info["patch"] >= patch)))
+
+# def add_natvis(natvis_local_path: str):
+def add_natvis(natvis_local_path):
+    '''
+    natvis_local_path: relative path the in current module, no leading forward slash required
+    NOTE:
+        LINKFLAGS introduced by natvis will make the engine being unexpectedly rebuilt,
+        usually happens when switching between v8 and quickjs.
+    '''
+
+    if env["vsproj"]:
+        natvis_filepath = f"modules/{module_name}/"+natvis_local_path
+        print(f"add natvis: {natvis_filepath}")
+        mspath = natvis_filepath.replace("/", "\\")
+        env.Append(LINKFLAGS=[f"/NATVIS:{mspath}"])
+        try:
+            # vs_srcs is removed since godot 4.4
+            env.vs_srcs += [natvis_filepath]
+        except:
+            pass
+
+env_jsb = env_modules.Clone()
+module_obj = []
+
+print(f"godot engine: {version_info['major']}.{version_info['minor']}")
+check("regex" in env.module_list, "Currently, the 'regex' module is required for using GodotJS. Please rebuild the engine with it enabled.")
+
+# Build JS files before generating
+if not env["skip_js_runtime"]:
+    pnpm_command = shutil.which("pnpm")
+    print(subprocess.run([pnpm_command, "install"], check=True))
+    print(subprocess.run([pnpm_command, "build"], check=True))
+
+if v8_support is not None:
+    # it seems godot always links MT_StaticRelease even if env["dev_build"]
+    # it seems v8_monolith must be compiled with `use_rtti=true` explicitly, or the linker will fail on `v8::ArrayBuffer::Allocator`
+
+    # check existence of v8 (since it's setup manually)
+    v8_missing_msg = f"The v8 engine is not found in GodotJS, please build it initially or download the prebuilt v8 library from {deps_url}"
+    v8_basename = v8_support[1].platform_base()
+    v8_lib_path = f"v8/{v8_basename}/{v8_support[1].libname}"
+    check(os.path.exists("v8/include/v8.h"), v8_missing_msg)
+    check(os.path.exists(v8_lib_path), v8_missing_msg)
+
+    if jsb_platform == "macos":
+        env.Append(LIBPATH=[f'#modules/{module_name}/v8/{v8_basename}'])
+        env.Append(LINKFLAGS=["-lv8_monolith"])
+    elif jsb_platform in ["linux", "windows", "android", "ios"]:
+        env.Append(LIBS=[File(v8_lib_path)])
+    else:
+        check(False, f'v8 is not supported on {env["platform"]}')
+
+    # platform-specific defines
+    if jsb_platform == "windows":
+        env.Append(LINKFLAGS=["winmm.lib", "Dbghelp.lib"])
+    if jsb_platform not in ["ios", "android"]:
+        env_jsb.AppendUnique(CPPDEFINES=["V8_COMPRESS_POINTERS"])
+        env.AppendUnique(CPPDEFINES=["V8_COMPRESS_POINTERS"])
+        env_modules.AppendUnique(CPPDEFINES=["V8_COMPRESS_POINTERS"])
+
+    # env_jsb.AppendUnique(CPPDEFINES=["V8_ENABLE_TURBOFAN"])
+    env_jsb.AppendUnique(CPPDEFINES=["_ITERATOR_DEBUG_LEVEL=0"])
+    env.AppendUnique(CPPDEFINES=["_ITERATOR_DEBUG_LEVEL=0"])
+    env_modules.AppendUnique(CPPDEFINES=["_ITERATOR_DEBUG_LEVEL=0"])
+
+    # headers
+    env_jsb.Append(CPPPATH=[f"#modules/{module_name}/v8/include"])
+
+    # they're required by godot tests (otherwise, it can't find v8 headers)
+    env.Append(CPPPATH=[f"#modules/{module_name}/v8/include"])
+    env_modules.Append(CPPPATH=[f"#modules/{module_name}/v8/include"])
+
+    env_jsb.Append(CPPPATH=["v8/include"])
+    env_jsb.add_source_files(module_obj, "impl/v8/*.cpp")
+
+# lws
+if is_defined("JSB_WITH_LWS"):
+    lws_missing_msg = "The prebuilt lws lib is missing? Please build it at first."
+    lws_basename = lws_support[1].platform_base()
+    lws_lib_path = f"lws/{lws_basename}/{lws_support[1].libname}"
+    check(os.path.exists(lws_lib_path), lws_missing_msg)
+
+    if jsb_platform in ["macos"]:
+        env_jsb.Append(CPPPATH=[f"lws/{lws_basename}/include"])
+        env.Append(LIBPATH=[f'#modules/{module_name}/lws/{lws_basename}'])
+        env.Append(LINKFLAGS=["-lwebsockets"])
+    elif jsb_platform in ["linux", "windows", "android", "ios"]:
+        env_jsb.Append(CPPPATH=[f"lws/{lws_basename}/include"])
+        env.Append(LIBS=[File(lws_lib_path)])
+    else:
+        check(False, f'lws is not supported on {env["platform"]}')
+
+    # platform-specific defines
+    if env.msvc and env["vsproj"]:
+        env.Append(CPPPATH=[f"#modules/{module_name}/lws/{lws_basename}/include"])
+
+quickjs_obj = []
+if quickjs_support is not None:
+    quickjs_dir = quickjs_support[1].path
+    print(f"quickjs support enabled: {quickjs_dir}")
+
+    env_quickjs = env_modules.Clone()
+    # quickjs is directly built from source
+    env_quickjs.add_source_files(quickjs_obj, [f"{quickjs_dir}/{filename}" for filename in quickjs_support[1].sources])
+    add_natvis("impl/quickjs/jsb.quickjs.natvis")
+
+    if env.dev_build and quickjs_dir != "third/quickjs-ng":
+        env_quickjs.Append(CFLAGS=["-DDUMP_LEAKS=1"])
+
+    if env.msvc:
+        # float control causes C2099 in VS2022 (Windows 11 SDK)
+        # https://developercommunity.visualstudio.com/t/NAN-is-no-longer-compile-time-constant-i/10688907
+        if "/fp:strict" in env_quickjs["CCFLAGS"]:
+            # try to avoid complains from cl about D9025 overriding '/fp:strict' with '/fp:precise'
+            env_quickjs["CCFLAGS"].remove("/fp:strict")
+        env_quickjs.Append(CCFLAGS=["/fp:precise"])
+
+        # applying quickjs-ng specific flags
+        if quickjs_dir == "third/quickjs-ng":
+            # c11atomics is required for quickjs-ng
+            env_quickjs.Append(CCFLAGS=["/experimental:c11atomics", "/std:c11"])
+            # remove std:c++ flag due to conflict with std:c11
+            # ! it's added in `godot/SConstruct`.
+            try:
+                env_quickjs["CCFLAGS"].remove("/std:c++17")
+            except:
+                pass
+
+    env.modules_sources += quickjs_obj
+    env_jsb.add_source_files(module_obj, "impl/quickjs/*.cpp")
+
+if is_defined("JSB_WITH_WEB"):
+    check(os.path.exists("impl/web/js"), "impl/web/js (GodotJS web bridge) has not been built")
+
+    env_jsb.add_source_files(module_obj, "impl/web/*.cpp")
+
+    # this script is compiled from impl/web/bridge typescript source
+    env.AddJSPre([ "impl/web/js/jsbb.impl.js" ])
+    env.AddJSLibraries([ "impl/web/js/library_godotjs_jsbi.js" ])
+
+if is_defined("JSB_WITH_JAVASCRIPTCORE"):
+    env_jsb.add_source_files(module_obj, "impl/jsc/*.cpp")
+    env.Append(LINKFLAGS=[ "-framework", "JavaScriptCore" ])
+
+    if jsb_platform not in ["macos", "ios"]:
+        print_warning("INCLUDING JSC HEADERS ONLY FOR DEV, NOT SUPPORTED TO BUILD")
+        env_jsb.Append(CPPPATH=[f"jsc"])
+        if env.msvc and env["vsproj"]:
+            env.Append(CPPPATH=[f"#modules/{module_name}/impl/jsc/_NOT_FOR_INCLUDE_"])
+
+check(os.path.exists("scripts/out"), "scripts/out (GodotJS JavaScript runtime) has not been built")
+
+generate_code([\
+        # presets for runtime
+        PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
+    ], [\
+        # presets for editor only
+        PresetDefine("scripts/out/jsb.editor.bundle.js", "", zero_terminated, AMDSourceTransformer()),
+
+        PresetDefine("scripts/typings/godot.minimal.d.ts", ""),
+        PresetDefine("scripts/typings/godot.mix.d.ts", ""),
+        PresetDefine("scripts/typings/godot.worker.d.ts", ""),
+        PresetDefine("scripts/typings/godot.shadowRealm.d.ts", ""),
+
+        PresetDefine("scripts/out/jsb.runtime.bundle.d.ts", ""),
+        PresetDefine("scripts/out/jsb.runtime.bundle.js.map", ""),
+        PresetDefine("scripts/out/jsb.editor.bundle.d.ts", ""),
+        PresetDefine("scripts/out/jsb.editor.bundle.js.map", ""),
+
+        PresetDefine("scripts/presets/package.json.txt", "package.json"),
+        PresetDefine("scripts/presets/tsconfig.json.txt", "tsconfig.json"),
+        PresetDefine("scripts/presets/jsconfig.json.txt", "jsconfig.json"),
+        PresetDefine("scripts/presets/gdignore.txt", ".gdignore"),
+    ])
+
+# common parts
+env_jsb.add_source_files(module_obj, ["register_types.cpp", "jsb_project_preset.gen.cpp"])
+env_jsb.add_source_files(module_obj, "internal/*.cpp")
+env_jsb.add_source_files(module_obj, "weaver/*.cpp")
+env_jsb.add_source_files(module_obj, "bridge/*.cpp")
+
+# api_tool module: core (runtime)
+env_jsb.add_source_files(module_obj, "api_tool/*.cpp")
+env_jsb.add_source_files(module_obj, "api_tool/core/*.cpp")
+
+# editor functionalities
+if env.editor_build:
+    env_jsb.add_source_files(module_obj, "weaver-editor/*.cpp")
+    SConscript("weaver-editor/templates/SCsub")
+    # api_tool module: editor-only (parser, generator, export plugin)
+    env_jsb.add_source_files(module_obj, "api_tool/editor/*.cpp")
+
+# natvis for non-impl specific types
+add_natvis(f"jsb.natvis")
+
+generate_jsb_gen_header()
+env.modules_sources += module_obj
+env.Depends(module_obj, quickjs_obj)
