@@ -53,3 +53,5 @@ CMakeUserPresets.json
 
 .cache/
 .agent_tmp/
+
+.scons_cache/

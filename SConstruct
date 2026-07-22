@@ -37,7 +37,13 @@ Help(opts.GenerateHelpText(localEnv))
 env = localEnv.Clone()
 env["build_profile"] = "./build_profile.json"
 
-if not (os.path.isdir("godot-cpp") and os.listdir("godot-cpp")):
+# Enable SCons cache to speed up builds
+scons_cache_path = os.path.join(os.getcwd(), ".scons_cache")
+if not os.path.exists(scons_cache_path):
+    os.makedirs(scons_cache_path)
+os.environ["SCONS_CACHE"] = scons_cache_path
+
+if not (os.path.isdir("third/godot-cpp") and os.listdir("third/godot-cpp")):
     print_error("godot-cpp is not available. Initialize git submodules first.")
     sys.exit(1)
 
@@ -48,7 +54,7 @@ if not (os.path.isdir("godot-cpp") and os.listdir("godot-cpp")):
 third_folder_name = "third"
 third_dir = f"GodotJS/{third_folder_name}"
 
-env = SConscript("godot-cpp/SConstruct", {"env": env, "customs": customs})
+env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs})
 
 # Change to GodotJS directory for dependency resolution
 original_cwd = os.getcwd()
@@ -270,49 +276,159 @@ def generate_jsb_gen_header():
     write_file("jsb.gen.h", output)
 
 # =============================================================================
-# Generate API extensions (utility_functions_ext, core_constants, variant_builtin_ext)
+# Generate jsb_project_preset.gen.cpp (embedded JS bundles)
 # =============================================================================
 
-def generate_api_extensions():
-    """Generate API extension files from extension_api.json using external script"""
-    # Use the original_cwd (project root) since cwd was changed to GodotJS/
-    project_root = os.path.dirname(os.path.abspath(os.path.join(original_cwd, "SConstruct")))
+class PresetTransformer:
+    def transform(self, data):
+        return data
 
-    # Resolve extension_api.json path using godot-cpp's env.Dir()
-    extension_dir = env.get("gdextension_dir")
-    if extension_dir is None:
-        extension_dir = env.Dir("godot-cpp/gdextension").srcnode().abspath
+class AMDSourceTransformer(PresetTransformer):
+    def transform(self, data):
+        return b"(function(define){" + data + b"\n})"
 
-    api_version = env.get("api_version", None)
+class ZeroTerminatedTransformer(PresetTransformer):
+    def transform(self, data):
+        return data + b"\0"
 
-    if api_version is None:
-        api_path = os.path.join(extension_dir, "extension_api.json")
-    else:
-        filename = "extension_api-%s.json" % api_version.replace(".", "-")
-        api_path = os.path.join(extension_dir, filename)
-        if not os.path.exists(api_path):
-            print_warning(f"Cannot find {filename} file for api_version {api_version}")
-            return
+class PresetDefine:
+    def __init__(self, sourcename, targetname, zero_terminated=False, transformer=None):
+        self.sourcename = sourcename
+        self.targetname = targetname
+        self.transformers = []
+        self.zero_terminated = zero_terminated
+        if transformer is not None:
+            self.transformers.append(transformer)
+        if zero_terminated:
+            self.transformers.append(ZeroTerminatedTransformer())
 
-    if not os.path.exists(api_path):
-        print_warning(f"extension_api.json not found at {api_path}, skipping API extensions generation")
-        return
+    def transform(self, transformer):
+        self.transformers.append(transformer)
+        return self
 
-    print(f"Generating API extensions from {api_path}...")
+    def read_source(self):
+        with open(self.sourcename, "rb") as input:
+            data = input.read()
+            for transformer in self.transformers:
+                data = transformer.transform(data)
+            return data
 
-    # Use external script to generate all API extension files
-    script_path = os.path.join(project_root, "scripts", "build", "generate_api_extensions.py")
-    if os.path.exists(script_path):
-        import subprocess
-        result = subprocess.run([sys.executable, script_path], env={**os.environ, "GODOT_EXTENSION_API_PATH": api_path})
-        if result.returncode != 0:
-            print_error("Failed to generate API extensions")
-            Exit(1)
-    else:
-        print_warning(f"Generate script not found at {script_path}, skipping API extensions generation")
-        return
-# Generate API extensions before building
-generate_api_extensions()
+def remove_file(filename):
+    if os.path.exists(filename):
+        print(f"deleting deprecated file {filename}")
+        os.remove(filename)
+
+def try_compress(bytes):
+    result = bytes
+    if len(bytes) > 512:
+        result = zlib.compress(bytes, zlib.Z_BEST_SPEED)
+    return result if len(result) < len(bytes) else bytes
+
+def generate_method_code(output, methodname, indent, preset_defines):
+    output.write(f"jsb::internal::PresetSource GodotJSProjectPreset::{methodname}(const String& p_filename)\n")
+    output.write("{\n")
+    output.write(indent + "static const unsigned char data[] = {\n")
+    generated_sources = {}
+    cursor = 0
+    for preset_define in preset_defines:
+        sourcename = preset_define.sourcename
+        targetname = preset_define.targetname
+        if len(targetname) == 0:
+            targetname = os.path.basename(sourcename)
+        newline = 0
+        mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(sourcename)))
+
+        bytes = preset_define.read_source()
+        original_length = len(bytes)
+        compressed_bytes = try_compress(bytes)
+        if compressed_bytes != bytes:
+            bytes = compressed_bytes
+            output.write(indent + indent + f"// target: {targetname} length: {len(bytes)} ({original_length}) modified: {mtime}\n")
+            output.write(indent + indent)
+            generated_sources[targetname] = (cursor, len(bytes), original_length, preset_define.zero_terminated)
+        else:
+            output.write(indent + indent + f"// target: {targetname} length: {len(bytes)} modified: {mtime}\n")
+            output.write(indent + indent)
+            generated_sources[targetname] = (cursor, len(bytes), 0, preset_define.zero_terminated)
+
+        cursor += len(bytes)
+        for byte in bytes:
+            output.write(f"0x{byte:02x}, ")
+            newline += 1
+            if newline >= 64:
+                newline = 0
+                output.write("\n")
+                output.write(indent + indent)
+
+        if newline != 0:
+            newline = 0
+            output.write("\n")
+    output.write("\n")
+    output.write(indent + "};\n")
+    for targetname in generated_sources:
+        start = generated_sources[targetname][0]
+        size = generated_sources[targetname][1]
+        osize = generated_sources[targetname][2]
+        zero_terminated = "true" if generated_sources[targetname][3] else "false"
+        output.write(indent + f'if (p_filename == "{targetname}") {{ return jsb::internal::PresetSource(p_filename, (const char *) data+{start}, {size}, {osize}, {zero_terminated}); }}\n')
+    output.write(indent + "return jsb::internal::PresetSource();\n")
+    output.write("}\n")
+
+def generate_code(rt_preset_defines, ed_preset_defines):
+    indent = "    "
+    output = io.StringIO()
+
+    # delete obsolete files
+    remove_file("weaver-editor/jsb_project_preset.cpp")
+    remove_file("jsb_project_preset.cpp")
+
+    outfile = "jsb_project_preset.gen.cpp"
+
+    output.write("// AUTO-GENERATED\n")
+    output.write("\n")
+    output.write("#include \"jsb_project_preset.h\"\n")
+    output.write("#include \"jsb.config.h\"\n")
+
+    # js.bundle version checker
+    JSB_BUNDLE_VERSION = read_macro_value("JSB_BUNDLE_VERSION")
+    output.write(f"static_assert({JSB_BUNDLE_VERSION} == JSB_BUNDLE_VERSION, \"obsolete preset data found, please regenerate project sources with scons\");\n")
+
+    # bundled source for runtime
+    generate_method_code(output, "get_source_rt", indent, rt_preset_defines)
+
+    # bundled source for editor
+    output.write("#ifdef TOOLS_ENABLED\n")
+    generate_method_code(output, "get_source_ed", indent, ed_preset_defines)
+    output.write("#endif\n")
+
+    write_file(outfile, output)
+
+generate_code([
+    PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
+], [
+    PresetDefine("scripts/out/jsb.editor.bundle.js", "", zero_terminated, AMDSourceTransformer()),
+    PresetDefine("scripts/typings/godot.minimal.d.ts", ""),
+    PresetDefine("scripts/typings/godot.mix.d.ts", ""),
+    PresetDefine("scripts/typings/godot.worker.d.ts", ""),
+    PresetDefine("scripts/typings/godot.shadowRealm.d.ts", ""),
+    PresetDefine("scripts/out/jsb.runtime.bundle.d.ts", ""),
+    PresetDefine("scripts/out/jsb.runtime.bundle.js.map", ""),
+    PresetDefine("scripts/out/jsb.editor.bundle.d.ts", ""),
+    PresetDefine("scripts/out/jsb.editor.bundle.js.map", ""),
+    PresetDefine("scripts/presets/package.json.txt", "package.json"),
+    PresetDefine("scripts/presets/tsconfig.json.txt", "tsconfig.json"),
+    PresetDefine("scripts/presets/jsconfig.json.txt", "jsconfig.json"),
+    PresetDefine("scripts/presets/gdignore.txt", ".gdignore"),
+])
+
+# =============================================================================
+# Generate templates.gen.h
+# =============================================================================
+
+templates_script = os.path.join(original_cwd, "GodotJS", "scripts", "build", "generate_templates_header.py")
+templates_output = os.path.join(original_cwd, "GodotJS", "weaver-editor", "templates", "templates.gen.h")
+if os.path.exists(templates_script):
+    subprocess.run([sys.executable, templates_script, os.path.join(original_cwd, "GodotJS", "weaver-editor", "templates"), templates_output], check=True)
 
 generate_jsb_gen_header()
 
@@ -375,7 +491,6 @@ if lws_support is not None:
 # Add all GodotJS source files
 godotjs_sources = []
 godotjs_sources += Glob("GodotJS/*.cpp")
-godotjs_sources += Glob("GodotJS/gen/*.cpp")
 godotjs_sources += Glob("GodotJS/internal/*.cpp")
 godotjs_sources += Glob("GodotJS/bridge/*.cpp")
 godotjs_sources += Glob("GodotJS/weaver/*.cpp")

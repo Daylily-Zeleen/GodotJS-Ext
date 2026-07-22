@@ -1,0 +1,14 @@
+# Godot 4+ specific ignores
+!.godot/.gdignore
+.godot/
+
+# Generated
+!node_modules/.gdignore
+node_modules/
+extension_api.json
+gen/
+typings/
+package-lock.json
+
+# Binaries
+addons/godotjs-ext.daylily-zeleen/bin/

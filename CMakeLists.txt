@@ -13,7 +13,7 @@ find_package(Python3 3.4 REQUIRED)
 find_program(GIT git REQUIRED)
 
 # Ensure godot-cpp submodule has been updated
-if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/godot-cpp/src")
+if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/third/godot-cpp/src")
     message(NOTICE "godot-cpp bindings source not found")
     message(NOTICE "initializing/updating the godot-cpp submodule...")
 
@@ -24,13 +24,13 @@ if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/godot-cpp/src")
         COMMAND_ERROR_IS_FATAL ANY
     )
 endif()
-add_subdirectory(godot-cpp SYSTEM)
+add_subdirectory(third/godot-cpp SYSTEM)
 
 # When compiling for emscripten, this toolchainhack needs to be included.
 # set(CMAKE_PROJECT_<project-name>_INCLUDE ${godot-cpp_SOURCE_DIR}/cmake/emsdkHack.cmake)
 
 # Create the gen directory at configure time so IDEs can see generated headers immediately after generate_bindings
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/godot-cpp/gen/include")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/third/godot-cpp/gen/include")
 
 # Add godot-cpp's module path and include the exported functions.
 # This is made available for documentation generation
@@ -38,8 +38,8 @@ set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH};${godot-cpp_SOURCE_DIR}/cmake")
 include(GodotCPPModule)
 
 # The godot-cpp target has some of useful properties attached that can be retrieved like so.
-get_target_property(GODOTCPP_SUFFIX godot::cpp GODOTCPP_SUFFIX)
-get_target_property(GODOTCPP_PLATFORM godot::cpp GODOTCPP_PLATFORM)
+get_target_property(GODOTCPP_SUFFIX godot-cpp GODOTCPP_SUFFIX)
+get_target_property(GODOTCPP_PLATFORM godot-cpp GODOTCPP_PLATFORM)
 
 # Now we can specify our own project which will inherit any global cmake properties or variables that have been defined.
 project(godot-cpp-template

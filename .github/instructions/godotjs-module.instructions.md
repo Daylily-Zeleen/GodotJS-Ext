@@ -1,5 +1,5 @@
 ---
-description: "Use when: 修改 GodotJS 子模块代码。限定修改范围仅限于 GodotJS/ 目录及其内部文件，禁止修改 godot-cpp/、src/、project/ 等其他子模块。"
+description: "Use when: 修改 GodotJS 子模块代码。限定修改范围仅限于 GodotJS/ 目录及其内部文件，禁止修改 third/godot-cpp/、src/、project/ 等其他子模块。"
 applyTo:
   "GodotJS/**"
 ---
@@ -31,13 +31,13 @@ applyTo:
 
 ### ❌ 禁止修改的文件（除非明确要求）
 
-- `godot-cpp/` — Godot C++ 绑定库（第三方/依赖）
+- `third/godot-cpp/` — Godot C++ 绑定库（第三方/依赖）
 - `SConstruct` — 顶层构建脚本（除非需要调整 GodotJS 的集成方式）
 - `.github/instructions/` — 指令文件本身
 
 ## 关键约束
 
-1. **不要修改 `godot-cpp/`** — 这是 Godot 的官方 C++ 绑定库，修改它会影响整个扩展系统的兼容性
+1. **不要修改 `third/godot-cpp/`** — 这是 Godot 的官方 C++ 绑定库，修改它会影响整个扩展系统的兼容性
 3. **不要修改 `project/`** — 这是测试用的 Godot 项目，除非明确要求调整项目配置
 4. **第三方库文件夹视为只读** — `lws/`、`quickjs/`、`quickjs-ng/`、`v8/` 是第三方库，原则上不应修改其源码。如需适配，应在 `GodotJS/impl/` 或 `GodotJS/compat/` 中编写兼容层
 

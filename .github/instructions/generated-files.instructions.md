@@ -22,7 +22,7 @@ applyTo: "**.gen.**"
 | `GodotJS/jsb.gen.h` | `SConstruct`（约 173 行起）中的 `jsb.gen.h` 生成逻辑 |
 | `GodotJS/jsb_project_preset.gen.h`/`.cpp` | `SConstruct` 中的对应生成逻辑 |
 | `GodotJS/weaver-editor/templates/templates.gen.h` | `GodotJS/weaver-editor/templates/SCsub` |
-| `godot-cpp/gen/.../*.gen.inc` | `godot-cpp/binding_generator.py` |
+| `third/godot-cpp/gen/.../*.gen.inc` | `third/godot-cpp/binding_generator.py` |
 | 其他 `*.gen.*` 文件 | 搜索项目中的 `SConstruct`、`SCsub` 或 Python 生成脚本 |
 
 ## 通用原则
