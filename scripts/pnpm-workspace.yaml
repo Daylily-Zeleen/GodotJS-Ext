@@ -1,4 +1,3 @@
 packages:
   - .
-  - scripts/*
-  - impl/web/bridge
+  - ../src/impl/web/bridge
