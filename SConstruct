@@ -37,11 +37,11 @@ Help(opts.GenerateHelpText(localEnv))
 env = localEnv.Clone()
 env["build_profile"] = "./build_profile.json"
 
-# Enable SCons cache to speed up builds
-scons_cache_path = os.path.join(os.getcwd(), ".scons_cache")
-if not os.path.exists(scons_cache_path):
-    os.makedirs(scons_cache_path)
-os.environ["SCONS_CACHE"] = scons_cache_path
+# # Enable SCons cache to speed up builds
+# scons_cache_path = os.path.join(os.getcwd(), ".scons_cache")
+# if not os.path.exists(scons_cache_path):
+#     os.makedirs(scons_cache_path)
+# os.environ["SCONS_CACHE"] = scons_cache_path
 
 if not (os.path.isdir("third/godot-cpp") and os.listdir("third/godot-cpp")):
     print_error("godot-cpp is not available. Initialize git submodules first.")
@@ -52,13 +52,12 @@ if not (os.path.isdir("third/godot-cpp") and os.listdir("third/godot-cpp")):
 # =============================================================================
 
 third_folder_name = "third"
-third_dir = f"GodotJS/{third_folder_name}"
+third_dir = third_folder_name
 
 env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs})
 
-# Change to GodotJS directory for dependency resolution
-original_cwd = os.getcwd()
-os.chdir("GodotJS")
+# Source root directory
+src_dir = "src"
 
 jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
 jsb_arch = env["arch"]
@@ -149,7 +148,7 @@ def get_thirdparty_support(support, path):
     return None
 
 def read_macro_value(name, def_val=None):
-    with open("jsb.config.h", "rt", encoding="utf-8") as f:
+    with open(os.path.join(src_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
         regex = rf"^#define\s+{name}\s+(\d+)$"
         for line in f:
             matches = re.finditer(regex, line)
@@ -210,7 +209,7 @@ def is_defined(name):
 
 zero_terminated = is_defined("JSB_WITH_QUICKJS") or is_defined("JSB_WITH_WEB") or is_defined("JSB_WITH_JAVASCRIPTCORE")
 
-module_name = os.path.basename(os.path.dirname(os.path.abspath("jsb.h")))
+module_name = libname.replace("-", "_")
 
 print(f"compiling: {module_name}")
 print(f"javascript engine: {'v8' if is_defined('JSB_WITH_V8') else 'web' if is_defined('JSB_WITH_WEB') else use_quickjs if is_defined('JSB_WITH_QUICKJS') else 'JavaScriptCore' if is_defined('JSB_WITH_JAVASCRIPTCORE') else 'none'}")
@@ -223,13 +222,13 @@ print(f"zero_terminated: {zero_terminated}")
 # Build JS runtime
 # =============================================================================
 
-if not env.get("skip_js_runtime", False) and os.path.exists("package.json"):
+if not env.get("skip_js_runtime", False) and os.path.exists(os.path.join("scripts", "package.json")):
     pnpm_command = shutil.which("pnpm")
     if pnpm_command:
         print("Installing JS dependencies...")
-        subprocess.run([pnpm_command, "install"], check=True)
+        subprocess.run([pnpm_command, "install"], cwd="scripts", check=True)
         print("Building JS runtime...")
-        subprocess.run([pnpm_command, "build"], check=True)
+        subprocess.run([pnpm_command, "build"], cwd="scripts", check=True)
     else:
         print_warning("pnpm not found, skipping JS runtime build")
 
@@ -273,7 +272,7 @@ def generate_jsb_gen_header():
         output.write(f"#define {t.name} {t.value}\n")
     output.write("\n")
     output.write("#endif\n")
-    write_file("jsb.gen.h", output)
+    write_file(os.path.join(src_dir, "jsb.gen.h"), output)
 
 # =============================================================================
 # Generate jsb_project_preset.gen.cpp (embedded JS bundles)
@@ -379,10 +378,10 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     output = io.StringIO()
 
     # delete obsolete files
-    remove_file("weaver-editor/jsb_project_preset.cpp")
-    remove_file("jsb_project_preset.cpp")
+    remove_file(os.path.join(src_dir, "weaver-editor", "jsb_project_preset.cpp"))
+    remove_file(os.path.join(src_dir, "jsb_project_preset.cpp"))
 
-    outfile = "jsb_project_preset.gen.cpp"
+    outfile = "jsb_project_preset.gen.cpp"  # generated into src_dir via write_file
 
     output.write("// AUTO-GENERATED\n")
     output.write("\n")
@@ -401,7 +400,7 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     generate_method_code(output, "get_source_ed", indent, ed_preset_defines)
     output.write("#endif\n")
 
-    write_file(outfile, output)
+    write_file(os.path.join(src_dir, outfile), output)
 
 generate_code([
     PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
@@ -425,18 +424,12 @@ generate_code([
 # Generate templates.gen.h
 # =============================================================================
 
-templates_script = os.path.join(original_cwd, "GodotJS", "scripts", "build", "generate_templates_header.py")
-templates_output = os.path.join(original_cwd, "GodotJS", "weaver-editor", "templates", "templates.gen.h")
+templates_script = os.path.join("misc", "build", "generate_templates_header.py")
+templates_output = os.path.join(src_dir, "weaver-editor", "templates", "templates.gen.h")
 if os.path.exists(templates_script):
-    subprocess.run([sys.executable, templates_script, os.path.join(original_cwd, "GodotJS", "weaver-editor", "templates"), templates_output], check=True)
+    subprocess.run([sys.executable, templates_script, os.path.join(src_dir, "weaver-editor", "templates"), templates_output], check=True)
 
 generate_jsb_gen_header()
-
-# =============================================================================
-# Restore cwd and configure build
-# =============================================================================
-
-os.chdir(original_cwd)
 
 # Use absolute paths to ensure compile_commands.json has correct include paths
 root_dir = Dir('#').abspath
@@ -457,25 +450,25 @@ else:
 env["CXXFLAGS"] = cxx_flags
 
 env.Append(CPPPATH=[
-    os.path.join(root_dir, "GodotJS"),
-    os.path.join(root_dir, "GodotJS/compat"),
-    os.path.join(root_dir, "GodotJS/internal"),
-    os.path.join(root_dir, "GodotJS/weaver"),
-    os.path.join(root_dir, "GodotJS/bridge"),
+    os.path.join(root_dir, src_dir),
+    os.path.join(root_dir, src_dir, "compat"),
+    os.path.join(root_dir, src_dir, "internal"),
+    os.path.join(root_dir, src_dir, "weaver"),
+    os.path.join(root_dir, src_dir, "bridge"),
     os.path.join(root_dir, third_dir),
 ])
 
 # Add v8 include/library path
 if v8_support is not None:
     v8_basename = v8_support[1].platform_base()
-    env.Append(CPPPATH=[os.path.join(root_dir, f"{third_dir}/v8/include")])
+    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "v8", "include")])
     if jsb_platform == "windows":
-        env.Append(LIBS=[File(f"{third_dir}/v8/{v8_basename}/v8_monolith.lib")])
+        env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "v8_monolith.lib"))])
         env.Append(LINKFLAGS=["winmm.lib", "Dbghelp.lib", "advapi32.lib"])
     elif jsb_platform == "linux":
-        env.Append(LIBS=[File(f"{third_dir}/v8/{v8_basename}/libv8_monolith.a")])
+        env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
     elif jsb_platform == "macos":
-        env.Append(LIBS=[File(f"{third_dir}/v8/{v8_basename}/libv8_monolith.a")])
+        env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
     env.Append(CPPDEFINES=["V8_COMPRESS_POINTERS"])
 
 # Add lws include/library path
@@ -483,34 +476,34 @@ if lws_support is not None:
     lws_basename = lws_support[1].platform_base()
     env.Append(CPPPATH=[os.path.join(root_dir, f"{third_dir}/lws/{lws_basename}/include")])
     if jsb_platform == "windows":
-        env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/websockets_static.lib")])
+        env.Append(LIBS=[File(os.path.join(third_dir, "lws", lws_basename, "websockets_static.lib"))])
         env.Append(LIBS=["ws2_32.lib"])
     elif jsb_platform == "linux":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
-# Add all GodotJS source files
+# Add all GodotJS source files (migrated to src/)
 godotjs_sources = []
-godotjs_sources += Glob("GodotJS/*.cpp")
-godotjs_sources += Glob("GodotJS/internal/*.cpp")
-godotjs_sources += Glob("GodotJS/bridge/*.cpp")
-godotjs_sources += Glob("GodotJS/weaver/*.cpp")
+godotjs_sources += Glob(os.path.join(src_dir, "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "internal", "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "bridge", "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "weaver", "*.cpp"))
 # api_tool module: core (runtime)
-godotjs_sources += Glob("GodotJS/api_tool/*.cpp")
-godotjs_sources += Glob("GodotJS/api_tool/core/*.cpp")
+godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
 if env["target"] in ["editor", "template_debug"]:
-    godotjs_sources += Glob("GodotJS/weaver-editor/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "weaver-editor", "*.cpp"))
     # api_tool module: editor-only (parser, generator, export plugin)
-    godotjs_sources += Glob("GodotJS/api_tool/editor/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
 
 # Add engine-specific impl sources
 if is_defined("JSB_WITH_V8"):
-    godotjs_sources += Glob("GodotJS/impl/v8/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "impl", "v8", "*.cpp"))
 elif is_defined("JSB_WITH_QUICKJS"):
-    godotjs_sources += Glob("GodotJS/impl/quickjs/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "impl", "quickjs", "*.cpp"))
 elif is_defined("JSB_WITH_WEB"):
-    godotjs_sources += Glob("GodotJS/impl/web/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "impl", "web", "*.cpp"))
 elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
-    godotjs_sources += Glob("GodotJS/impl/jsc/*.cpp")
+    godotjs_sources += Glob(os.path.join(src_dir, "impl", "jsc", "*.cpp"))
 
 # Add quickjs/quickjs-ng source files (C files) with C11 flags
 quickjs_obj = []
@@ -525,13 +518,10 @@ if quickjs_support is not None:
     else:
         env_c.Append(CCFLAGS=["-std=c11"])
     for src in quickjs_support[1].sources:
-        quickjs_obj.append(env_c.Object(File(os.path.join("GodotJS", quickjs_dir, src))))
-
-# Source files
-sources = Glob("src/*.cpp")
+        quickjs_obj.append(env_c.Object(File(os.path.join(quickjs_dir, src))))
 
 # Combine all sources for compilation
-all_sources = sources + godotjs_sources + quickjs_obj
+all_sources = godotjs_sources + quickjs_obj
 
 # .dev doesn't inhibit compatibility
 suffix = env['suffix'].replace(".dev", "").replace(".universal", "")

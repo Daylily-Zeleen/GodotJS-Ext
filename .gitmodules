@@ -2,6 +2,3 @@
 	path = third/godot-cpp
 	url = https://github.com/godotengine/godot-cpp.git
 	branch = 4.3
-[submodule "GodotJS"]
-	path = GodotJS
-	url = https://github.com/Daylily-Zeleen/GodotJS.git

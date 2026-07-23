@@ -217,7 +217,6 @@ ScriptInstance* ScriptInstance::get_script_instance(Object* p_object) {
 
 void ScriptInstance::set_script_instance(Object *p_object, ScriptInstance *p_instance)
 {
-    // TODO: 接口类型错误 DataPtr: Ptr!!!!!!!!!!!!!
     void *obj_ptr {nullptr};
     PtrToArg<Object*>::encode(p_object, &obj_ptr);
     godot::gdextension_interface::object_set_script_instance(obj_ptr, p_instance ? p_instance->extension_instance_ptr : nullptr);
