@@ -2,3 +2,6 @@
 	path = third/godot-cpp
 	url = https://github.com/godotengine/godot-cpp.git
 	branch = 4.3
+[submodule "third/quickjs-ng"]
+	path = third/quickjs-ng
+	url = https://github.com/quickjs-ng/quickjs.git
