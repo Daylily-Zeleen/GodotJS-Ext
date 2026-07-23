@@ -11,7 +11,7 @@ import urllib.request
 import zipfile
 import zlib
 
-from methods import print_error, print_warning
+from misc.methods import print_error, print_warning
 
 os.system("chcp 65001")
 
@@ -30,6 +30,7 @@ opts.Add(BoolVariable("use_quickjs_ng", "Prefer to use QuickJS-NG rather than th
 opts.Add(BoolVariable("use_jsc", "Prefer to use JavaScriptCore (macos/ios only)", False))
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
+opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
 opts.Update(localEnv)
 
 Help(opts.GenerateHelpText(localEnv))
@@ -504,6 +505,11 @@ elif is_defined("JSB_WITH_WEB"):
     godotjs_sources += Glob(os.path.join(src_dir, "impl", "web", "*.cpp"))
 elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
     godotjs_sources += Glob(os.path.join(src_dir, "impl", "jsc", "*.cpp"))
+
+# Add test sources if tests enabled
+if env.get("tests", False):
+    env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
+    godotjs_sources += Glob(os.path.join(src_dir, "tests", "*.cpp"))
 
 # Add quickjs/quickjs-ng source files (C files) with C11 flags
 quickjs_obj = []

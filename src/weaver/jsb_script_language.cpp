@@ -119,8 +119,7 @@ void GodotJSScriptLanguage::_finish()
     if (monitor_) memdelete(monitor_);
 #endif
     once_inited_ = false;
-    environment_->dispose();
-    environment_.reset();
+
 #if !JSB_WITH_WEB
     jsb::Worker::finish();
 #endif
@@ -137,6 +136,11 @@ void GodotJSScriptLanguage::_finish()
             env.holder->dispose();
         }
     }
+
+    // Now safe to dispose the main environment
+    environment_->dispose();
+    environment_.reset();
+
     JSB_LOG(VeryVerbose, "jsb lang finish");
 }
 

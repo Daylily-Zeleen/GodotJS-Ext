@@ -126,6 +126,9 @@ private:
 public:
     jsb_force_inline static GodotJSScriptLanguage* get_singleton() { return singleton_; }
 
+    /** @brief Check if the language has been initialized. */
+    jsb_force_inline bool is_initialized() const { return once_inited_; }
+
     /**
      * @brief Get the main JS environment.
      * @note Can only be call from the main thread.

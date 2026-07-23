@@ -59,3 +59,5 @@ CMakeUserPresets.json
 
 scripts/out/
 node_modules/
+
+*.bak/

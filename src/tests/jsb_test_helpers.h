@@ -2,7 +2,10 @@
 #define GODOTJS_TESTS_TEST_HELPERS_H
 
 #include "../weaver/jsb_script_language.h"
-#include "tests/test_macros.h"
+
+#define DOCTEST_CONFIG_NO_POSIX_SIGNALS
+#define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
+#include "doctest/doctest.h"
 
 #include <chrono>
 #include <thread>
@@ -46,7 +49,9 @@ namespace jsb::tests
 
         CurrentWorkingDirectory()
         {
-            original_working_dir = DirAccess::get_full_path(".", DirAccess::ACCESS_FILESYSTEM);
+            Ref<DirAccess> da = DirAccess::open("."); // DirAccess::ACCESS_FILESYSTEM
+            CHECK(da.is_valid());
+            original_working_dir = da->get_current_dir();
             CHECK(!original_working_dir.is_empty());
         }
 
@@ -54,7 +59,7 @@ namespace jsb::tests
         static void reset()
         {
             static CurrentWorkingDirectory env;
-            CHECK(OS::get_singleton()->set_cwd(env.original_working_dir) == OK);
+            // CHECK(OS::get_singleton()->set_cwd(env.original_working_dir) == OK); // TODO: gde 没办法改变当前的工作目录
         }
     };
 
@@ -89,26 +94,16 @@ namespace jsb::tests
     struct GodotJSScriptLanguageIniter
     {
     public:
-        GodotJSScriptLanguageIniter() : GodotJSScriptLanguageIniter("modules/" JSB_MODULE_NAME_STRING "/tests/project")
+        GodotJSScriptLanguageIniter()
         {
-        }
-
-        GodotJSScriptLanguageIniter(const String p_base_path)
-        {
-            CurrentWorkingDirectory::reset();
-
-            CHECK(ProjectSettings::get_singleton()->setup(p_base_path, String(), true) == OK);
-            CHECK(OS::get_singleton()->set_cwd(p_base_path) == OK);
             CHECK(FileAccess::file_exists("project.godot"));
-            // MESSAGE("init GodotJSScriptLanguage on thread ", OS::get_singleton()->get_thread_caller_id());
-
             check_required_files();
-            GodotJSScriptLanguage::get_singleton()->init();
+            GodotJSScriptLanguage::get_singleton()->_init();
         }
 
         ~GodotJSScriptLanguageIniter()
         {
-            GodotJSScriptLanguage::get_singleton()->finish();
+            GodotJSScriptLanguage::get_singleton()->_finish();
         }
 
     private:
@@ -117,7 +112,7 @@ namespace jsb::tests
         	CHECK(FileAccess::file_exists("./package.json"));
         	CHECK(FileAccess::file_exists("./tsconfig.json"));
             CHECK(FileAccess::file_exists("./test_01.ts"));
-            CHECK(FileAccess::file_exists("./.godot/GodotJS/test_01.js"));
+            CHECK(FileAccess::file_exists("./.godot/godotjs_ext/test_01.js"));
         }
     };
 

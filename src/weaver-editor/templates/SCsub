@@ -17,7 +17,7 @@ def get_godot_version_info():
         engine_path = os.path.join(os.curdir, "../..")
 
         sys.path.insert(0, engine_path)
-        from methods import get_version_info
+        from misc.methods import get_version_info
 
         version_info = get_version_info("")
         sys.path.remove(engine_path)

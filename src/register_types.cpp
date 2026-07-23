@@ -4,18 +4,19 @@
 #include "weaver/jsb_weaver.h"
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
+#include <godot_cpp/classes/os.hpp>
 
 #ifdef TOOLS_ENABLED
 #include "weaver-editor/jsb_weaver_editor.h"
+#include <godot_cpp/variant/callable_method_pointer.hpp>
+#endif // TOOLS_ENABLED
+
+#ifdef JSB_TESTS_ENABLED
+#include "doctest/doctest.h"
 #endif
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
-
-#ifdef TOOLS_ENABLED
-#include <godot_cpp/variant/callable_method_pointer.hpp>
-#include <godot_cpp/classes/os.hpp>
-#endif // TOOLS_ENABLED
 
 void jsb_initialize_module(ModuleInitializationLevel p_level)
 {
@@ -100,6 +101,24 @@ void jsb_startup() {
         }
     }
 #endif // TOOLS_ENABLED
+
+#ifdef JSB_TESTS_ENABLED
+    // Run doctest unit tests if --jsb-run-tests is passed on command line
+    {
+        const PackedStringArray &args = OS::get_singleton()->get_cmdline_args();
+        bool run_tests = false;
+        for (int i = 0; i < args.size(); i++) {
+            if (args[i] == "--jsb-run-tests") {
+                run_tests = true;
+                break;
+            }
+        }
+        if (run_tests) {
+            doctest::Context context;
+            std::exit(context.run());
+        }
+    }
+#endif // JSB_TESTS_ENABLED
 }
 
 extern "C"

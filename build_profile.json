@@ -4,6 +4,7 @@
 	"enabled_classes": [
 		"Object",
 		"RefCounted",
+		"WeakRef",
 		"Resource",
 		"ScriptExtension",
 		"ScriptLanguageExtension",
