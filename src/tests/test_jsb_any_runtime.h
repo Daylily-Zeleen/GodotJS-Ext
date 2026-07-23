@@ -6,6 +6,8 @@
 #include "../bridge/jsb_object_db.h"
 #include "../bridge/jsb_type_convert.h"
 
+#include <godot_cpp/classes/weak_ref.hpp>
+
 #define JSB_TESTS_OPTION_ENABLED(OptionName) kOption_##OptionName
 #define JSB_TESTS_OPTION_DEFINE(OptionName, IsEnabled) enum { kOption_##OptionName = IsEnabled };
 
@@ -17,19 +19,19 @@ namespace jsb::tests
         static void message(const v8::FunctionCallbackInfo<v8::Value>& info)
         {
             v8::Isolate* isolate = info.GetIsolate();
-            StringBuilder sb;
+            String s;
             int index = 0;
 
             for (const int n = info.Length(); index < n; ++index)
             {
                 if (String str = BridgeHelper::stringify(isolate, info[index]); str.length() > 0)
                 {
-                    sb.append(" ");
-                    sb.append(str);
+                    s += " ";
+                    s += str;
                 }
             }
 
-            MESSAGE("[JS]", sb.as_string());
+            MESSAGE("[JS]", s);
         }
 
         // info[0] - set
@@ -279,6 +281,11 @@ return 1+1;
         isolate->Dispose();
     }
 
+    TEST_CASE("[jsb] GodotJSScriptLanguage Init/Finish")
+    {
+        GodotJSScriptLanguageIniter initer;
+    }
+
     TEST_CASE("[jsb] StringNameCache")
     {
         GodotJSScriptLanguageIniter initer;
@@ -292,7 +299,7 @@ return 1+1;
             {
                 v8::HandleScope scope_1(env->get_isolate());
                 const StringName str_name = cache.get_string_name(env->get_isolate(), impl::Helper::new_string(env->get_isolate(), literal_str));
-                CHECK(str_name == literal_str);
+                CHECK(str_name == StringName(literal_str));
             }
         }
         env.reset();
@@ -315,7 +322,7 @@ return 1+1;
 
                 Essentials::register_(context, context->Global());
 
-                auto exposed = env->expose_godot_object_class(ClassDB::classes.getptr("Object"));
+                auto exposed = env->expose_godot_object_class("Object");
 
                 impl::ClassBuilder builder1 = impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, "B1", StubBindings::constructor, 0);
                 builder1.Static().Value(impl::Helper::new_string(isolate, "Native1"), (uint32_t) 1);
@@ -397,13 +404,13 @@ return 1+1;
             const v8::Local<v8::Object> global_obj = context->Global();
 
             {
-                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("Node"));
-                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("Object"));
-                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("CanvasItem"));
+                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("Node");
+                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("Object");
+                GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("CanvasItem");
             }
-            const NativeClassInfoPtr node_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("Node"));
-            const NativeClassInfoPtr object_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("Object"));
-            const NativeClassInfoPtr canvas_item_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class(ClassDB::classes.getptr("CanvasItem"));
+            const NativeClassInfoPtr node_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("Node");
+            const NativeClassInfoPtr object_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("Object");
+            const NativeClassInfoPtr canvas_item_class = GodotJSScriptLanguage::get_singleton()->get_environment()->expose_godot_object_class("CanvasItem");
             global_obj->Set(context, impl::Helper::new_string(isolate, "GDNode"), node_class->clazz.Get(isolate)).Check();
             global_obj->Set(context, impl::Helper::new_string(isolate, "GDObject"), object_class->clazz.Get(isolate)).Check();
             global_obj->Set(context, impl::Helper::new_string(isolate, "GDCanvasItem"), canvas_item_class->clazz.Get(isolate)).Check();
@@ -447,7 +454,7 @@ console.assert(!gd.is_instance_valid(node));
         Error err;
         GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
 let gd = require("godot");
-let mod = require(".godot/GodotJS/test_01");
+let mod = require(".godot/godotjs_ext/test_01");
 console.assert(typeof mod === "object");
 console.assert(mod.call_me() == 123);
 console.assert(typeof mod.default === "function");
@@ -504,13 +511,14 @@ console.assert(!gd.is_instance_valid(inst));
 
     TEST_CASE("[jsb] RefCounted objects")
     {
-        WeakRef* weak_ref = memnew(WeakRef).ptr();
+        Ref<WeakRef> weak_ref;
+        weak_ref.instantiate();
         {
             GodotJSScriptLanguageIniter initer;
 
             const std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
             Ref<FileAccess> file = FileAccess::open("./.godot/junk.txt", FileAccess::WRITE);
-            weak_ref->set_ref(file);
+            weak_ref = UtilityFunctions::weakref(file);
             CHECK(file->get_reference_count() == 1);
             {
                 JSB_TESTS_EXECUTION_SCOPE(env.get());
@@ -522,7 +530,7 @@ console.assert(!gd.is_instance_valid(inst));
                 env->get_context()->Global()->Set(context, impl::Helper::new_string(isolate, "file"), rval).Check();
                 CHECK(file->get_reference_count() == 2);
                 file.unref();
-                CHECK(!weak_ref->get_ref().is_null());
+                CHECK(weak_ref->get_ref().get_validated_object() != nullptr);
             }
             {
                 Error err;
@@ -534,8 +542,7 @@ file = undefined;
             }
         }
         // There is no strong reference anymore, therefore the FileAccess object should have been deleted by JS GC.
-        CHECK(weak_ref->get_ref().is_null());
-        memdelete(weak_ref);
+        CHECK(weak_ref->get_ref().get_validated_object() == nullptr);
     }
 }
 

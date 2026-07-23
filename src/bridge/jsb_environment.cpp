@@ -2195,7 +2195,13 @@ namespace jsb
         if (p_variant.get_type() == Variant::OBJECT)
         {
             Object* obj = p_variant;
-            jsb_check(obj && object_db_.has_object(obj) && jsb::compat::ObjectDB::get_instance(p_variant));
+            jsb_checkf(
+                obj && object_db_.has_object(obj) && jsb::compat::ObjectDB::get_instance(obj->get_instance_id()),
+                "prepare_transfer_out failed: object %s (class=%s). In jsb object db: %s; In godot object db: %s",
+                    obj, obj ? obj->get_class() : "null",
+                    obj ? object_db_.has_object(obj) : false,
+                    obj ? jsb::compat::ObjectDB::get_instance(obj->get_instance_id()) != nullptr : false
+            );
 
             if (ScriptInstance* script_instance = ScriptInstance::get_script_instance(obj))
             {

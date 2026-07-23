@@ -1,0 +1,143 @@
+name: Upload Release Assets
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  upload-v8:
+    name: Upload V8 Runtime Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Lookup release ID
+        id: lookup
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: json
+          script: |
+            const { repo, owner } = context.repo;
+            const release = await github.rest.repos.getReleaseByTag({
+              owner,
+              repo,
+              tag: '${{ inputs.version }}',
+            });
+            return release.data.id;
+
+      - name: Download V8 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts-v8
+          pattern: "*-v8"
+
+      - name: Package V8 addon
+        shell: bash
+        run: |
+          ADDON_DIR="godotjs-ext-v8-windows-linux-macos"
+          mkdir -p "$ADDON_DIR/bin"
+
+          for artifact_dir in artifacts-v8/*/; do
+            if [ -d "$artifact_dir" ] && [ -n "$(ls -A "$artifact_dir")" ]; then
+              cp -r "$artifact_dir"* "$ADDON_DIR/bin/" 2>/dev/null || true
+            fi
+          done
+
+          cp -v project/addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension "$ADDON_DIR/" 2>/dev/null || true
+
+          echo "=== V8 Addon contents ==="
+          find "$ADDON_DIR" -type f
+
+          zip -r "${ADDON_DIR}.zip" "$ADDON_DIR"
+
+      - name: Upload V8 Asset to GitHub Release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: json
+          script: |
+            const FS = require('node:fs')
+            const { repo, owner } = context.repo;
+            const releaseId = ${{ steps.lookup.outputs.result }};
+            const zipName = 'godotjs-ext-v8-windows-linux-macos.zip';
+            const zipPath = `${github.workspace}/${zipName}`;
+            return await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: releaseId,
+              name: zipName,
+              data: FS.readFileSync(zipPath)
+            });
+
+  upload-qjs-ng:
+    name: Upload QuickJS-NG Runtime Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Lookup release ID
+        id: lookup
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: json
+          script: |
+            const { repo, owner } = context.repo;
+            const release = await github.rest.repos.getReleaseByTag({
+              owner,
+              repo,
+              tag: '${{ inputs.version }}',
+            });
+            return release.data.id;
+
+      - name: Download QJS-NG artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts-qjs-ng
+          pattern: "*-qjs-ng"
+
+      - name: Package QJS-NG addon
+        shell: bash
+        run: |
+          ADDON_DIR="godotjs-ext-qjs-ng-windows-linux-macos"
+          mkdir -p "$ADDON_DIR/bin"
+
+          for artifact_dir in artifacts-qjs-ng/*/; do
+            if [ -d "$artifact_dir" ] && [ -n "$(ls -A "$artifact_dir")" ]; then
+              cp -r "$artifact_dir"* "$ADDON_DIR/bin/" 2>/dev/null || true
+            fi
+          done
+
+          cp -v project/addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension "$ADDON_DIR/" 2>/dev/null || true
+
+          echo "=== QJS-NG Addon contents ==="
+          find "$ADDON_DIR" -type f
+
+          zip -r "${ADDON_DIR}.zip" "$ADDON_DIR"
+
+      - name: Upload QJS-NG Asset to GitHub Release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: json
+          script: |
+            const FS = require('node:fs')
+            const { repo, owner } = context.repo;
+            const releaseId = ${{ steps.lookup.outputs.result }};
+            const zipName = 'godotjs-ext-qjs-ng-windows-linux-macos.zip';
+            const zipPath = `${github.workspace}/${zipName}`;
+            return await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: releaseId,
+              name: zipName,
+              data: FS.readFileSync(zipPath)
+            });

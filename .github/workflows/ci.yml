@@ -1,88 +1,205 @@
-# For syntax, see https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
-# This workflow is automatically triggered for every push and pull request, to verify that everything still builds.
+name: CI
 
-name: Continuous Integration
 on:
-  workflow_call:
-  push:
   pull_request:
-  merge_group:
+  push:
+    branches:
+      - "main"
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}|${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
 
 jobs:
+  environment:
+    name: Set Environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: ./.github/actions/pnpm-install
+
+      - name: Build JS runtime
+        run: pnpm build
+        shell: bash
+
+      - name: Upload scripts/out
+        uses: actions/upload-artifact@v4
+        with:
+          name: scripts-out
+          path: ${{github.workspace}}/scripts/out
+          retention-days: 10
+
   build:
+    name: Build (${{ matrix.platform }}, ${{ matrix.engine }})
+    needs: environment
     strategy:
       fail-fast: false
       matrix:
-        # Test a few selected combinations of parameters ("test case matrix").
-        # While it would be nice to test all needed combinations, in practice this would a waste of CI usage time.
-        # By building just with a few combinations, we only need a few runners,
-        # while still achieving adequate coverage.
-        # To make a full build with all combinations, use the make_build.yml workflow instead.
         include:
-          - target: { platform: linux, arch: x86_64, os: ubuntu-22.04 }
-            target-type: template_debug
-            float-precision: double
-          - target: { platform: windows, arch: x86_64, os: windows-latest }
-            target-type: template_release
-            float-precision: single
-          - target: { platform: macos, arch: universal, os: macos-latest }
-            target-type: template_debug
-            float-precision: single
-          - target: { platform: android, arch: arm64, os: ubuntu-22.04 }
-            target-type: template_debug
-            float-precision: single
-          - target: { platform: web, arch: wasm32, os: ubuntu-22.04 }
-            target-type: template_release
-            float-precision: double
-
-    runs-on: ${{ matrix.target.os }}
+          - platform: windows
+            os: windows-latest
+            engine: v8
+          - platform: windows
+            os: windows-latest
+            engine: qjs-ng
+          - platform: linux
+            os: ubuntu-22.04
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            engine: qjs-ng
+          - platform: macos
+            os: macos-latest
+            engine: v8
+          - platform: macos
+            os: macos-latest
+            engine: qjs-ng
+    runs-on: ${{ matrix.os }}
     steps:
-      # Clone this repository
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          submodules: true
+          submodules: recursive
 
-      # Lint
-      #- name: Setup clang-format
-      #  shell: bash
-      #  run: |
-      #    python -m pip install clang-format
-      #- name: Run clang-format
-      #  shell: bash
-      #  run: |
-      #    clang-format src/** --dry-run --Werror
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      # Add linux x86_32 toolchain
-      - name: Install multilib support
-        if: ${{ matrix.target.platform == 'linux' && matrix.target.arch == 'x86_32' }}
+      - name: Install SCons
+        run: pip install scons
+
+      - name: Download JS runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: scripts-out
+          path: scripts/out
+
+      - name: Restore scons cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCONS_CACHE }}
+          key: scons-${{ matrix.platform }}-${{ matrix.engine }}-${{ hashFiles('SConstruct', 'src/**', 'third/**') }}
+          restore-keys: |
+            scons-${{ matrix.platform }}-${{ matrix.engine }}-
+            scons-${{ matrix.platform }}-
+
+      - name: Build GDExtension
+        shell: bash
         run: |
-          sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib
+          engine_flag="${{ matrix.engine == 'qjs-ng' && 'use_quickjs_ng=yes' || '' }}"
+          scons platform=${{ matrix.platform }} target=editor compiledb=yes debug_symbols=yes dev_build=yes tests=yes $engine_flag -j$(nproc || sysctl -n hw.ncpu)
 
-      # Setup dependencies
-      - name: Setup godot-cpp
-        uses: ./third/godot-cpp/.github/actions/setup-godot-cpp
-        with:
-          platform: ${{ matrix.target.platform }}
-          em-version: 3.1.62
-
-      # Build GDExtension (with caches)
-
-      - name: Restore .scons_cache
-        uses: ./third/godot-cpp/.github/actions/godot-cache-restore
-        with:
-          scons-cache: ${{ github.workspace }}/.scons-cache/
-          cache-name: ${{ matrix.target.platform }}_${{ matrix.target.arch }}_${{ matrix.float-precision }}_${{ matrix.target-type }}
-
-      - name: Build GDExtension Debug Build
-        shell: sh
-        env:
-          SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
+      - name: Prepare artifact
+        shell: bash
         run: |
-          scons target=${{ matrix.target-type }} platform=${{ matrix.target.platform }} arch=${{ matrix.target.arch }} precision=${{ matrix.float-precision }}
+          mkdir -p artifact
+          cp -r bin/* artifact/ 2>/dev/null || true
 
-      - name: Save .scons_cache
-        uses: ./third/godot-cpp/.github/actions/godot-cache-save
+      - name: Upload GDExtension artifact
+        uses: actions/upload-artifact@v4
         with:
-          scons-cache: ${{ github.workspace }}/.scons-cache/
-          cache-name: ${{ matrix.target.platform }}_${{ matrix.target.arch }}_${{ matrix.float-precision }}_${{ matrix.target-type }}
+          name: ${{ matrix.platform }}-editor-${{ matrix.engine }}
+          path: artifact/
+          retention-days: 10
+
+  test:
+    name: Test (${{ matrix.runtime }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [host-v8, host-qjs]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: ./.github/actions/pnpm-install
+
+      - name: Build JS runtime
+        run: pnpm build
+        shell: bash
+
+      - name: Download GDExtension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-editor-${{ matrix.runtime == 'host-v8' && 'v8' || 'qjs-ng' }}
+          path: runtime-artifacts
+
+      - name: Download Godot (Linux)
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot
+          version: tags/4.7-stable
+          file: Godot_v4.7-stable_linux.x86_64.zip
+          target: godot/godot.zip
+
+      - name: Extract Godot
+        run: |
+          unzip -o godot/godot.zip -d tests/bin/
+          chmod +x tests/bin/Godot*
+
+      - name: Setup test project
+        shell: bash
+        run: |
+          mkdir -p tests/project/addons
+          cp -r runtime-artifacts tests/project/addons/godotjs-ext.daylily-zeleen
+
+      - name: Build TypeScript test files
+        shell: bash
+        run: |
+          cd test/project
+          pnpm install
+          pnpm build
+
+      - name: Run C++ unit tests
+        shell: bash
+        run: |
+          tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --path test/project --jsb-run-tests
+
+      - name: Run TypeScript integration tests
+        shell: bash
+        run: |
+          pnpm test -- --runtimes ${{ matrix.runtime }} --skip-builds
+        continue-on-error: true
+
+  changesets:
+    if: github.event_name != 'release' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      pull-requests: write
+    name: Changesets
+    uses: ./.github/workflows/misc_changesets.yml
+
+  release:
+    name: Release
+    needs: [build, changesets]
+    if: needs.changesets.outputs.publish == 'true'
+    permissions:
+      contents: write
+    with:
+      versions: '4.6'
+    uses: ./.github/workflows/misc_release.yml
+    secrets: inherit
+
+  upload-assets:
+    name: Upload Assets
+    needs: [build, release]
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/misc_upload_assets.yml
+    with:
+      version: ${{ github.event.release.tag_name }}
+    secrets: inherit
