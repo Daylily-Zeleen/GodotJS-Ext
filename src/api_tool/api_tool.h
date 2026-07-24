@@ -23,6 +23,8 @@ namespace api_tool {
 // Returns true on success.
 godot::Error initialize();
 
+void finalize();
+
 // Check if API data is loaded.
 bool is_loaded();
 

@@ -6,6 +6,9 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 
 GodotJSScript::GodotJSScript(): script_list_(this)
+#ifdef TOOLS_ENABLED
+    , class_category_{Variant::NIL, StringName(), PROPERTY_HINT_NONE, "", PROPERTY_USAGE_CATEGORY}
+#endif // TOOLS_ENABLED
 {
     {
         JSB_BENCHMARK_SCOPE(GodotJSScript, Construct);
@@ -86,9 +89,12 @@ ScriptInstance* GodotJSScript::instance_and_native_object_create(const v8::Local
     jsb_check(is_valid_internal());
     jsb_check(loaded_);
 
-    Object* owner = ClassDB::instantiate(script_class_info_.native_class_name);
+    // godot 暴露的 ClassDB 绑定，该接口返回 Variant, 如果是 RefCounted 则会自行处理引用
+    const Variant owner_var = ClassDB::instantiate(script_class_info_.native_class_name);
+    Object *owner = (Object *)owner_var;
+
     ScriptInstance* instance = instance_create(p_this, owner, p_is_temp_allowed);
-    if (!instance)
+    if (!instance && !owner->is_class(RefCounted::get_class_static()))
     {
         memdelete(owner);
     }
@@ -314,7 +320,7 @@ String GodotJSScript::_get_class_icon_path() const
     return script_class_info_.icon;
 }
 
-PropertyInfo GodotJSScript::get_class_category() const {
+const jsb::ScriptPropertyInfo &GodotJSScript::get_class_category() const {
     ensure_module_loaded();
     jsb_check(loaded_);
 
@@ -335,7 +341,9 @@ PropertyInfo GodotJSScript::get_class_category() const {
         }
     }
 
-    return PropertyInfo(Variant::NIL, scr_name, PROPERTY_HINT_NONE, path, PROPERTY_USAGE_CATEGORY);
+    const_cast<GodotJSScript*>(this)->class_category_.name = scr_name;
+    const_cast<GodotJSScript*>(this)->class_category_.hint_string = path;
+    return class_category_;
 }
 #endif
 
@@ -405,76 +413,9 @@ bool GodotJSScript::_has_script_signal(const StringName& p_signal) const
     return false;
 }
 
-TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const
-{
-    TypedArray<Dictionary> result;
-    if (!_is_valid()) return result;
-
-    for (const auto& it : script_class_info_.signals)
-    {
-        //TODO details?
-        Dictionary item;
-        item["name"] = it.key;
-        result.push_back(item);
-    }
-
-    if (base.is_valid())
-    {
-        // TODO: 添加引用版本,避免创建新的 数组
-        TypedArray<Dictionary> base_signals = base->_get_script_signal_list();
-        result.append_array(base_signals);
-    }
-    return result;
-}
-
 Variant GodotJSScript::_get_script_method_argument_count(const StringName &p_method) const
 {
     return {}; // JS 函数本身不定参数（TODO: 有没有办法解析出定义的参数个数？）
-}
-
-TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const
-{
-    ensure_module_loaded();
-    jsb_check(loaded_);
-    TypedArray<Dictionary> result;
-
-    for (const auto& it : script_class_info_.methods)
-    {
-        Dictionary item;
-        item["name"] = it.key;
-        result.push_back(item);
-    }
-
-    if (base.is_valid() && base->_is_valid())
-    {
-        // TODO: 添加引用版本,避免创建新的 数组
-        TypedArray<Dictionary> base_methods = base->_get_script_method_list();
-        result.append_array(base_methods);
-    }
-    return result;
-}
-
-TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const
-{
-    ensure_module_loaded();
-    jsb_check(loaded_);
-    TypedArray<Dictionary> result;
-
-#ifdef TOOLS_ENABLED
-    result.push_back(get_class_category().operator Dictionary());
-#endif
-    for (const auto& it : script_class_info_.properties)
-    {
-        result.push_back(((PropertyInfo) it.value).operator Dictionary());
-    }
-
-    if (base.is_valid() && base->_is_valid())
-    {
-        // TODO: 添加引用版本,避免创建新的 数组
-        TypedArray<Dictionary> base_props = base->_get_script_property_list();
-        result.append_array(base_props);
-    }
-    return result;
 }
 
 bool GodotJSScript::_has_property_default_value(const StringName &p_property) const
@@ -718,17 +659,21 @@ Variant GodotJSScript::_new(const Variant** p_args, GDExtensionInt p_argcount, G
     }
 
     r_error.error = GDEXTENSION_CALL_OK;
-    Object *owner = ClassDB::instantiate(script_class_info_.native_class_name);
+    const Variant owner_var = ClassDB::instantiate(script_class_info_.native_class_name);
+    Object *owner = owner_var;
 
     ScriptInstance *instance = instance_construct(owner, false, p_args, p_argcount);
 
-    if (!instance)
-    {
-        memdelete(owner);
-        return Variant();
+    if (RefCounted *rc = Object::cast_to<RefCounted>(owner)) {
+        if (!instance) return {};
+        else return Ref<RefCounted>(rc);
+    } else {
+        if (!instance) {
+            memdelete(owner);
+            return {};
+        }
+        else return owner;
     }
-
-    return owner;
 }
 
 #ifdef TOOLS_ENABLED
@@ -843,3 +788,40 @@ void GodotJSScript::_update_exports_values(TypedArray<Dictionary>& r_props, Dict
 void GodotJSScript::_bind_methods() {
     ClassDB::bind_vararg_method(METHOD_FLAGS_DEFAULT, "new", &GodotJSScript::_new, MethodInfo("new"));
 }
+
+// ============
+Dictionary convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }
+
+TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const
+{
+    TypedArray<Dictionary> result;
+    get_script_property_list<Dictionary, &convert_property_info,TypedArray<Dictionary>>(result);
+    return result;
+}
+
+Dictionary convert_method_info(const StringName &p_name, const  jsb::ScriptMethodInfo &p_info) { 
+    Dictionary dict;
+    dict["name"] = p_name;
+    // TODO: 其他细节
+    return dict;
+}
+
+TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const
+{
+    TypedArray<Dictionary> result;
+    get_script_method_list<Dictionary, &convert_method_info, TypedArray<Dictionary>>(result);
+    return result;
+}
+Dictionary convert_signal_info(const StringName &p_name, const jsb::ScriptSignalInfo &p_info) { 
+    Dictionary dict;
+    dict["name"] = p_name;
+    // TODO: 其他细节
+    return dict;
+}
+TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const
+{
+    TypedArray<Dictionary> result;
+    get_script_signal_list<Dictionary, &convert_signal_info, TypedArray<Dictionary>>(result);
+    return result;
+}
+

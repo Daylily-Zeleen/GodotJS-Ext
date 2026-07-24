@@ -345,7 +345,9 @@ namespace jsb
             {
                 internal::StringNames& names = internal::StringNames::get_singleton();
                 const StringName original_name = names.get_original_name(class_name);
-                Object* gd_object = ClassDB::instantiate(original_name);
+                // Godot 暴露给 GDExtension 的 ClassDB::instantiate 返回 Variant ，直接转换为 Object* 时如果实为 RefCounted 将会自动减少引用计数并释放。
+                const Variant gd_object_var = ClassDB::instantiate(original_name);
+                Object* gd_object = gd_object_var;
 
                 // IS IT A TRUTH that ref_count==1 after creation_func??
                 jsb_check([=]{

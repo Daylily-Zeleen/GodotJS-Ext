@@ -163,6 +163,10 @@ namespace jsb
         Variant default_value;
 
         bool cache;
+
+        ScriptPropertyInfo() = default;
+        ScriptPropertyInfo(Variant::Type p_type, const StringName &p_name, PropertyHint p_hint = PROPERTY_HINT_NONE, const String &p_hint_string = "", uint32_t p_usage = PROPERTY_USAGE_DEFAULT, const StringName &p_class_name = ""):
+            PropertyInfo(p_type, p_name, p_hint, p_hint_string, p_usage, p_class_name) {};
     };
 
     namespace ScriptClassFlags

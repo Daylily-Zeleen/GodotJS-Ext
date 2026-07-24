@@ -60,154 +60,218 @@ static GDExtensionMethodInfo method_info_to_gdextension(const MethodInfo &p_minf
 
 // 只有 GodotJSScriptInstanceBase 才用的上, PlaceholderScriptInstance 的 C 接口本身不携带 GDExtensionScriptInstanceInfo3。
 // TODO: 如果有必要的话考虑不使用 godot::gdextension_interface::placeholder_script_instance_create() 来确保接口一致性
-static GDExtensionScriptInstanceInfo3 script_instance_info {
-    .set_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value)-> GDExtensionBool {
+struct ScriptInstanceInfo {
+public:
+    jsb_force_inline GDExtensionScriptInstanceInfo3 *operator&() {return &script_instance_info_;}
+private:
+    static GDExtensionBool set_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value){
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         const Variant& value = *reinterpret_cast<const Variant *>(p_value);
         return (GDExtensionBool)script_instance->set(name, value);
-    }},
-    .get_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) -> GDExtensionBool {
+    }
+
+    static GDExtensionBool get_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret)  {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         Variant &ret = *reinterpret_cast<Variant *>(r_ret);
         return script_instance->get(name, ret);
-    }},
-    .get_property_list_func {[] (GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) -> const GDExtensionPropertyInfo* {
+    }
+    static const GDExtensionPropertyInfo* get_property_list_func(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
 
-        LocalVector<GDExtensionPropertyInfo> properties;
-        script_instance->get_property_list(&properties);
-        uint32_t count = properties.size();
-
-        *r_count = count;
-        if (count == 0) return nullptr;
+        LocalVector<PropertyInfo> &temporary_property_list = *script_instance->make_temporary_property_list();
+        uint32_t count = temporary_property_list.size();
 
         GDExtensionPropertyInfo* arr = memnew_arr(GDExtensionPropertyInfo, count);
-        memcpy((uint8_t*)arr, (uint8_t*)properties.ptr(), count * sizeof(GDExtensionPropertyInfo));
+        for (uint32_t idx = 0; idx < count; idx++) {
+            arr[idx] = temporary_property_list[idx]._to_gdextension();
+        }
+
         return arr;
-    }},
-    .free_property_list_func {[] (GDExtensionScriptInstanceDataPtr p_instance, const GDExtensionPropertyInfo *p_list, uint32_t p_count) {
+    }
+
+    static void free_property_list_func(GDExtensionScriptInstanceDataPtr p_instance, const GDExtensionPropertyInfo *p_list, uint32_t p_count) {
         memdelete_arr(p_list);
-    }},
+        GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
+        script_instance->free_temporary_property_list();
+    }
+
 #ifdef TOOLS_ENABLED
-    .get_class_category_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_class_category) -> GDExtensionBool{
-        ScriptInstance* script_instance = (ScriptInstance*)p_instance;
-        script_instance->get_script()->get_class_category()._update(p_class_category);
+    static GDExtensionBool get_class_category_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_class_category) {
+        const ScriptInstance* script_instance = (ScriptInstance*)p_instance;
+        *p_class_category = script_instance->get_script()->get_class_category()._to_gdextension();
         return (GDExtensionBool)true;
-    }},
-#else // TOOLS_ENABLED
-    .get_class_category_func = nullptr,
+    }
 #endif // TOOLS_ENABLED
-    .property_can_revert_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) -> GDExtensionBool {
+    static GDExtensionBool property_can_revert_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
         const GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         return (GDExtensionBool)script_instance->property_can_revert(name);
-    }},
-    .property_get_revert_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) -> GDExtensionBool {
+    }
+
+    static GDExtensionBool property_get_revert_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
         const GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         Variant &ret = *reinterpret_cast<Variant *>(r_ret);
         return (GDExtensionBool)script_instance->property_get_revert(name, ret);
-    }},
-    .get_owner_func {[] (GDExtensionScriptInstanceDataPtr p_instance) -> GDExtensionObjectPtr {
+    }
+
+    static GDExtensionObjectPtr get_owner_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
         return (GDExtensionObjectPtr)script_instance->get_owner();
-    }},
-    .get_property_state_func  = nullptr, // 直接使用 godot 的 ScriptInstance::get_property_state 即可。
-    .get_method_list_func {[] (GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) -> const GDExtensionMethodInfo* {
-        const GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
+    }
 
-        LocalVector<GDExtensionMethodInfo> methods;
-        List<Variant> default_value_cache;
-        script_instance->get_method_list(&methods, default_value_cache);
+    static const GDExtensionMethodInfo* get_method_list_func(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
+        GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
+        const LocalVector<MethodInfo> &temporary_method_list = *script_instance->make_temporary_method_list();
 
-        
-        uint32_t count = methods.size();
-        *r_count = count;
-        
+        const uint32_t count = temporary_method_list.size();
         GDExtensionMethodInfo* arr = memnew_arr(GDExtensionMethodInfo, count);
-        memcpy((uint8_t*)arr, (uint8_t*)methods.ptr(), count * sizeof(GDExtensionMethodInfo));
+        for (uint32_t idx = 0; idx < count; idx++) {
+            MethodInfo minfo = temporary_method_list[idx];
 
-        if (!default_value_cache.is_empty()) {
-            default_value_cache_map[arr] = default_value_cache;
+            uint32_t argument_count = minfo.arguments.size();
+            GDExtensionPropertyInfo *arguments{ nullptr };
+            uint32_t default_argument_count = minfo.default_arguments.size();
+            GDExtensionVariantPtr *default_arguments{ nullptr };
+
+            if (argument_count) {
+                arguments = memnew_arr(GDExtensionPropertyInfo, argument_count);
+                for (uint32_t i = 0; i < argument_count; ++i) {
+                    arguments[i] = minfo.arguments[i]._to_gdextension();
+                }
+            }
+            if (default_argument_count) {
+                default_arguments = memnew_arr(GDExtensionVariantPtr, default_argument_count);
+                for (uint32_t i = 0; i < default_argument_count; ++i) {
+                    default_arguments[i] = &minfo.default_arguments[i];
+                }
+            }
+
+            arr[idx] = {
+                .name = minfo.name._native_ptr(),
+                .return_value{ minfo.return_val._to_gdextension() },
+                .flags= minfo.flags ,
+                .id= minfo.id ,
+                .argument_count= argument_count ,
+                .arguments=arguments ,
+                .default_argument_count= default_argument_count ,
+                .default_arguments = default_arguments ,
+            };
         }
+
+        *r_count = count;
         return arr;
-    }},
-    .free_method_list_func {[] (GDExtensionScriptInstanceDataPtr p_instance, const GDExtensionMethodInfo *p_list, uint32_t p_count) {
-        if (default_value_cache_map.has(p_list)) default_value_cache_map.erase(p_list);
+    }
+    static void free_method_list_func(GDExtensionScriptInstanceDataPtr p_instance, const GDExtensionMethodInfo *p_list, uint32_t p_count) {
+        GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         if (p_list->arguments) memdelete_arr(p_list->arguments);
         if (p_list->default_arguments) memdelete_arr(p_list->default_arguments);
         memdelete_arr(p_list);
-    }},
-    .get_property_type_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) -> GDExtensionVariantType {
+        script_instance->free_temporary_method_list();
+    }
+    static GDExtensionVariantType get_property_type_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         bool is_valid = false;
         Variant::Type type = script_instance->get_property_type(name, &is_valid);
         if (r_is_valid) *r_is_valid = (GDExtensionBool)is_valid;
         return (GDExtensionVariantType)type;
-    }},
-    .validate_property_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_property) -> GDExtensionBool {
+    }
+    static GDExtensionBool validate_property_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_property) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         PropertyInfo prop(p_property);
         script_instance->validate_property(prop);
         prop._update(p_property);
         return (GDExtensionBool)true;
-    }},
-    .has_method_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) -> GDExtensionBool {
+    }
+    static GDExtensionBool has_method_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         return (GDExtensionBool)script_instance->has_method(name);
-    }},
-    .get_method_argument_count_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) -> GDExtensionInt {
+    }
+    static GDExtensionInt get_method_argument_count_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionBool *r_is_valid) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         const StringName& name = *reinterpret_cast<const StringName *>(p_name);
         bool is_valid {false};
         GDExtensionInt count =  script_instance->get_method_argument_count(name, &is_valid);
         if (r_is_valid) *r_is_valid = (GDExtensionBool)is_valid;
         return count;
-    }},
-    .call_func {[] (GDExtensionScriptInstanceDataPtr p_self, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
+    }
+    static void call_func(GDExtensionScriptInstanceDataPtr p_self, GDExtensionConstStringNamePtr p_method, const GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return, GDExtensionCallError *r_error) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_self;
         const StringName& method = *reinterpret_cast<const StringName *>(p_method);
         const Variant** args = (const Variant**)p_args;
         Variant& ret = *reinterpret_cast<Variant*>(r_return);
         *r_error = {}; // 进行 0 初始化，GDExtensionCallError 的字段没有定义初始值，所有局部 GDExtensionCallError 都需要初始化，防止出现垃圾值。
         ret = script_instance->callp(method, args, (int)p_argument_count, *r_error);
-    }},
-    .notification_func {[] (GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
+    }
+    static void notification_func(GDExtensionScriptInstanceDataPtr p_instance, int32_t p_what, GDExtensionBool p_reversed) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         script_instance->notification(p_what, (bool)p_reversed);
-    }},
-    .to_string_func {[] (GDExtensionScriptInstanceDataPtr p_instance, GDExtensionBool *r_is_valid, GDExtensionStringPtr r_out) {
+    }
+    static void to_string_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionBool *r_is_valid, GDExtensionStringPtr r_out) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         bool is_valid{false};
         String str = script_instance->to_string(&is_valid);
         if (is_valid) *(String*)r_out = str;
         if (r_is_valid) *r_is_valid = (GDExtensionBool)true;
-    }},
-    .refcount_incremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
-    .refcount_decremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
-    .get_script_func {[] (GDExtensionScriptInstanceDataPtr p_instance) -> GDExtensionObjectPtr {
+    }
+    static GDExtensionObjectPtr get_script_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
         return (GDExtensionObjectPtr)script_instance->get_script().ptr();
-    }},
-    .is_placeholder_func {[] (GDExtensionScriptInstanceDataPtr p_instance) -> GDExtensionBool {
+    }
+    static GDExtensionBool is_placeholder_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
         return script_instance->is_placeholder();
-    }},
-    .set_fallback_func = nullptr,
-    .get_fallback_func = nullptr,
-    .get_language_func {[] (GDExtensionScriptInstanceDataPtr p_instance) -> GDExtensionScriptLanguagePtr {
+    }
+    static GDExtensionScriptLanguagePtr get_language_func(GDExtensionScriptInstanceDataPtr p_instance) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         return (GDExtensionScriptLanguagePtr)GodotJSScriptLanguage::get_singleton();
-    }},
-    .free_func {[] (GDExtensionScriptInstanceDataPtr p_instance) {
+    }
+    static void free_func(GDExtensionScriptInstanceDataPtr p_instance) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
         memdelete(script_instance);
-    }},
+    }
+
+private:
+    GDExtensionScriptInstanceInfo3 script_instance_info_ {
+        .set_func = &ScriptInstanceInfo::set_func,
+        .get_func = &ScriptInstanceInfo::get_func,
+        .get_property_list_func = &ScriptInstanceInfo::get_property_list_func,
+        .free_property_list_func = &ScriptInstanceInfo::free_property_list_func,
+#ifdef TOOLS_ENABLED
+        .get_class_category_func = &ScriptInstanceInfo::get_class_category_func,
+#else // TOOLS_ENABLED
+        .get_class_category_func = nullptr,
+#endif // TOOLS_ENABLED
+        .property_can_revert_func = &ScriptInstanceInfo::property_can_revert_func,
+        .property_get_revert_func = &ScriptInstanceInfo::property_get_revert_func,
+        .get_owner_func = &ScriptInstanceInfo::get_owner_func,
+        .get_property_state_func  = nullptr, // 直接使用 godot 的 ScriptInstance::get_property_state 即可。
+        .get_method_list_func = &ScriptInstanceInfo::get_method_list_func,
+        .free_method_list_func = &ScriptInstanceInfo::free_method_list_func,
+        .get_property_type_func = &ScriptInstanceInfo::get_property_type_func,
+        .validate_property_func = &ScriptInstanceInfo::validate_property_func,
+        .has_method_func = &ScriptInstanceInfo::has_method_func,
+        .get_method_argument_count_func = &ScriptInstanceInfo::get_method_argument_count_func,
+        .call_func = &ScriptInstanceInfo::call_func,
+        .notification_func = &ScriptInstanceInfo::notification_func,
+        .to_string_func = &ScriptInstanceInfo::to_string_func,
+        .refcount_incremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
+        .refcount_decremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
+        .get_script_func = &ScriptInstanceInfo::get_script_func,
+        .is_placeholder_func = &ScriptInstanceInfo::is_placeholder_func,
+        .set_fallback_func = nullptr,
+        .get_fallback_func = nullptr,
+        .get_language_func = &ScriptInstanceInfo::get_language_func,
+        .free_func = &ScriptInstanceInfo::free_func,
+    };
 };
+
+namespace {ScriptInstanceInfo script_instance_info;}
+
 
 ScriptInstance* ScriptInstance::get_script_instance(Object* p_object) {
     void *obj_ptr {nullptr};
@@ -258,35 +322,42 @@ GodotJSScriptInstanceBase::~GodotJSScriptInstanceBase()
     }
 }
 
-template <typename T, typename = void>
-struct has_reserve : std::false_type {};
-
-template <typename T>
-struct has_reserve<T, std::enable_if_t< std::is_invocable<decltype(&T::reserve), T*, int32_t>::value >> : std::true_type {};
-
-template <typename PropertyStateTy>
-static void reserve(PropertyStateTy &p_state, int32_t p_capacity) {
-    if constexpr(has_reserve<PropertyStateTy>::value) {
-        p_state.reserve(p_capacity);
-    }
-}
-
 void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &p_state) const
 {
-    bool sss = has_reserve<List<int>>::value;
-    bool ccc = has_reserve<LocalVector<int>>::value;
-    LocalVector<GDExtensionPropertyInfo> p_properties;
-	get_property_list(&p_properties);
-    reserve(p_properties, p_properties.size());
-	for (const GDExtensionPropertyInfo &E : p_properties) {
-		if (E.usage & PROPERTY_USAGE_STORAGE) {
+    LocalVector<PropertyInfo> p_list = *make_temporary_property_list();
+
+	for (const PropertyInfo &pinfo : p_list) {
+		if (pinfo.usage & PROPERTY_USAGE_STORAGE) {
 			Pair<StringName, Variant> p;
-			p.first = *(StringName*)E.name;
+            p.first = pinfo.name;
 			if (get(p.first, p.second)) {
 				p_state.push_back(p);
 			}
 		}
 	}
+
+    free_temporary_property_list();
+}
+
+PropertyInfo convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info;}
+LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_list() const {
+    jsb_check(!temporary_script_property_list_cache);
+    temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
+    script_->get_script_property_list<PropertyInfo, &convert_property_info, LocalVector<PropertyInfo>>(*temporary_script_property_list_cache);
+    return temporary_script_property_list_cache;
+}
+
+MethodInfo convert_method_info(const StringName&p_name, const jsb::ScriptMethodInfo &p_minfo) {
+    MethodInfo ret(p_name);
+    // TODO: 更多细节
+    return ret;
+}
+
+LocalVector<MethodInfo>* GodotJSScriptInstanceBase::make_temporary_method_list() {
+    jsb_check(!temporary_script_method_list_cache);
+    temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
+    script_->get_script_method_list<MethodInfo, &convert_method_info, LocalVector<MethodInfo>>(*temporary_script_method_list_cache);
+    return temporary_script_method_list_cache;
 }
 
 #ifdef TOOLS_ENABLED
@@ -303,14 +374,6 @@ void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_propertie
 #endif // TOOLS_ENABLED
 
 // ====== GodotJSShadowScriptInstance =====
-void GodotJSShadowScriptInstance::get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const
-{
-    TypedArray<Dictionary> property_list = script_->_get_script_property_list();
-    for (const Dictionary& pinfo : property_list)
-    {
-        p_properties->push_back(PropertyInfo::from_dict(pinfo)._to_gdextension());
-    }
-}
 Variant::Type GodotJSShadowScriptInstance::get_property_type(const StringName& p_name, bool* r_is_valid) const
 {
     if (const jsb::ScriptPropertyInfo* ptr = script_->script_class_info_.properties.getptr(p_name))
@@ -321,14 +384,6 @@ Variant::Type GodotJSShadowScriptInstance::get_property_type(const StringName& p
     return Variant::NIL;
 }
 
-void GodotJSShadowScriptInstance::get_method_list(LocalVector<GDExtensionMethodInfo>* p_list, List<Variant> &r_default_value_caches) const
-{
-    TypedArray<Dictionary> method_list = script_->_get_script_method_list();
-    for (const Dictionary& minfo : method_list)
-    {
-        p_list->push_back(method_info_to_gdextension(MethodInfo::from_dict(minfo), r_default_value_caches));
-    }
-}
 bool GodotJSShadowScriptInstance::has_method(const StringName& p_method) const { return script_->script_class_info_.methods.has(p_method); }
 
 const Variant GodotJSShadowScriptInstance::get_rpc_config() const { return script_->_get_rpc_config(); }
@@ -452,10 +507,12 @@ bool GodotJSScriptInstance::get(const StringName& p_name, Variant& r_ret) const
     return false;
 }
 
-void GodotJSScriptInstance::get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const
-{
+LocalVector<PropertyInfo> *GodotJSScriptInstance::make_temporary_property_list() const {
+    jsb_check(temporary_script_property_list_cache == nullptr);
+    temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
+
     GodotJSScript* sptr = script_.ptr();
-    HashSet<String> properties;
+    HashSet<StringName> properties;
 
     while (sptr)
     {
@@ -465,7 +522,7 @@ void GodotJSScriptInstance::get_property_list(LocalVector<GDExtensionPropertyInf
             Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL)
             {
-                ERR_FAIL_COND_MSG(ret.get_type() != Variant::ARRAY, "Wrong type for _get_property_list, must be an array of dictionaries.");
+                ERR_FAIL_COND_V_MSG(ret.get_type() != Variant::ARRAY, temporary_script_property_list_cache,  "Wrong type for _get_property_list, must be an array of dictionaries.");
 
                 Array arr = ret;
                 for (int i = 0; i < arr.size(); i++)
@@ -482,25 +539,26 @@ void GodotJSScriptInstance::get_property_list(LocalVector<GDExtensionPropertyInf
                     ERR_CONTINUE_MSG(properties.has(pinfo.name), vformat("Duplicate property \"%s\" in script: %s", pinfo.name, script_->get_path()));
 
                     validate_property(pinfo);
-                    p_properties->push_back(pinfo._to_gdextension());
+                    temporary_script_property_list_cache->push_back(pinfo);
                     properties.insert(pinfo.name);
                 }
             }
         }
 
 #ifdef TOOLS_ENABLED
-        p_properties->push_back(sptr->get_class_category()._to_gdextension());
+        temporary_script_property_list_cache->push_back(sptr->get_class_category());
 #endif
         for (const auto& it : sptr->script_class_info_.properties)
         {
             ERR_CONTINUE_MSG(properties.has(it.value.name), vformat("Duplicate property \"%s\" in script: %s", it.value.name, script_->get_path()));
             PropertyInfo pinfo = (PropertyInfo)it.value;
             validate_property(pinfo);
-            p_properties->push_back(pinfo._to_gdextension());
+            temporary_script_property_list_cache->push_back(pinfo);
         }
 
         sptr = sptr->base.ptr();
     }
+    return temporary_script_property_list_cache;
 }
 
 const Variant GodotJSScriptInstance::get_rpc_config() const
@@ -592,15 +650,6 @@ bool GodotJSScriptInstance::property_get_revert(const StringName& p_name, Varian
     }
 
 	return false;
-}
-
-void GodotJSScriptInstance::get_method_list(LocalVector<GDExtensionMethodInfo>* p_list, List<Variant> &r_default_value_caches) const
-{
-    TypedArray<Dictionary> method_list = script_->_get_script_method_list();
-    for (const Dictionary &minfo_dict: method_list)
-    {
-        p_list->push_back(method_info_to_gdextension(MethodInfo::from_dict(minfo_dict), r_default_value_caches));
-    }
 }
 
 bool GodotJSScriptInstance::has_method(const StringName& p_method) const

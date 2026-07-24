@@ -38,6 +38,11 @@ Error initialize() {
     return get_loader().initialize();
 }
 
+void finalize() {
+    get_loader().clear();
+}
+
+
 bool is_loaded() {
     return get_loader().is_loaded();
 }

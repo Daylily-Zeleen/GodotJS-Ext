@@ -20,53 +20,71 @@ static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level)
 {
-    if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) // TODO: MODULE_INITIALIZATION_LEVEL_SERVERS
-    {
-        GDREGISTER_CLASS(GodotJSScript);
+    switch (p_level) {
+        case MODULE_INITIALIZATION_LEVEL_SERVERS:{
+            GDREGISTER_CLASS(GodotJSScript);
 #ifdef TOOLS_ENABLED
-        GDREGISTER_CLASS(GodotJSEditorHelper);
+            GDREGISTER_CLASS(GodotJSEditorHelper);
 #endif // TOOLS_ENABLED
-        GDREGISTER_INTERNAL_CLASS(GodotJSScriptLanguage);
+            GDREGISTER_INTERNAL_CLASS(GodotJSScriptLanguage);
 
-        jsb::impl::GlobalInitialize::init();
+            jsb::impl::GlobalInitialize::init();
 
-        // register javascript language
-        GodotJSScriptLanguage* script_language_js = memnew(GodotJSScriptLanguage());
-        Engine::get_singleton()->register_script_language(script_language_js);
-
-        GDREGISTER_INTERNAL_CLASS(ResourceFormatLoaderGodotJSScript);
-        resource_loader_js.instantiate();
-        ResourceLoader::get_singleton()->add_resource_format_loader(resource_loader_js);
-        
-        GDREGISTER_INTERNAL_CLASS(ResourceFormatSaverGodotJSScript);
-        resource_saver_js.instantiate();
-        ResourceSaver::get_singleton()->add_resource_format_saver(resource_saver_js);
-    }
+            // register javascript language
+            GodotJSScriptLanguage* script_language_js = memnew(GodotJSScriptLanguage());
+            Engine::get_singleton()->register_script_language(script_language_js);
+        }break;
+        case MODULE_INITIALIZATION_LEVEL_SCENE: {
+            // SERVERS 阶段时部分单例还未被注册，无法获取 ResourceLoader 和 ResourceSaver 单例
+            GDREGISTER_INTERNAL_CLASS(ResourceFormatLoaderGodotJSScript);
+            resource_loader_js.instantiate();
+            ResourceLoader::get_singleton()->add_resource_format_loader(resource_loader_js);
+            
+            GDREGISTER_INTERNAL_CLASS(ResourceFormatSaverGodotJSScript);
+            resource_saver_js.instantiate();
+            ResourceSaver::get_singleton()->add_resource_format_saver(resource_saver_js);
+        } break;
 #ifdef TOOLS_ENABLED
-    if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR)
-    {
-        GDREGISTER_INTERNAL_CLASS(GodotJSExportPlugin);
-        GDREGISTER_INTERNAL_CLASS(GodotJSEditorPlugin);
-        EditorPlugins::add_by_type<GodotJSEditorPlugin>();
+        case MODULE_INITIALIZATION_LEVEL_EDITOR: {
+            GDREGISTER_INTERNAL_CLASS(GodotJSExportPlugin);
+            GDREGISTER_INTERNAL_CLASS(GodotJSEditorPlugin);
+            EditorPlugins::add_by_type<GodotJSEditorPlugin>();
+        }
+#endif // TOOLS_ENABLED
+        default: break;
     }
-#endif
 }
 
 void jsb_uninitialize_module(ModuleInitializationLevel p_level)
 {
-    if (p_level == MODULE_INITIALIZATION_LEVEL_CORE)
-    {
-        ResourceLoader::get_singleton()->remove_resource_format_loader(resource_loader_js);
-        resource_loader_js.unref();
+    switch (p_level) {
+        case MODULE_INITIALIZATION_LEVEL_SERVERS:{
+            api_tool::finalize();
 
-        ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_js);
-        resource_saver_js.unref();
-
-        GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
-        jsb_check(script_language_js);
-        Engine::get_singleton()->unregister_script_language(script_language_js);
-        memdelete(script_language_js);
+            GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
+            jsb_check(script_language_js);
+            Engine::get_singleton()->unregister_script_language(script_language_js);
+            memdelete(script_language_js);
+        }break;
+        case MODULE_INITIALIZATION_LEVEL_SCENE: {
+            jsb_check(resource_loader_js.is_valid());
+            jsb_check(resource_loader_js->_owner);
+            ResourceLoader::get_singleton()->remove_resource_format_loader(resource_loader_js);
+            resource_loader_js.unref();
+            
+            jsb_check(resource_saver_js.is_valid());
+            jsb_check(resource_saver_js->_owner);
+            ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_js);
+            resource_saver_js.unref();
+        } break;
+#ifdef TOOLS_ENABLED
+        case MODULE_INITIALIZATION_LEVEL_EDITOR: {
+            EditorPlugins::remove_by_type<GodotJSEditorPlugin>();
+        }
+#endif // TOOLS_ENABLED
+        default: break;
     }
+
 }
 
 void jsb_startup() {
