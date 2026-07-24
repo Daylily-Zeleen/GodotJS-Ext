@@ -58,6 +58,10 @@ private:
     LocalVector<PlaceholderScriptInstance*, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
 #endif
 
+#ifdef TOOLS_ENABLED
+    jsb::ScriptPropertyInfo class_category_;
+#endif // TOOLS_ENABLED
+
     friend class GodotJSScriptLanguage;
 
 private:
@@ -116,7 +120,7 @@ public:
     virtual Error _reload(bool p_keep_state) override;
 
 #ifdef TOOLS_ENABLED
-    PropertyInfo get_class_category() const;
+    const jsb::ScriptPropertyInfo &get_class_category() const;
     virtual StringName _get_doc_class_name() const override;
     virtual TypedArray<Dictionary> _get_documentation() const override;
     virtual String _get_class_icon_path() const override;
@@ -137,8 +141,11 @@ public:
 
     virtual ScriptLanguage* _get_language() const override;
 
-    virtual bool _has_script_signal(const StringName& p_signal) const override;
+    virtual TypedArray<Dictionary> _get_script_property_list() const override;
+    virtual TypedArray<Dictionary> _get_script_method_list() const override;
     virtual TypedArray<Dictionary> _get_script_signal_list() const override;
+
+    virtual bool _has_script_signal(const StringName& p_signal) const override;
 
     virtual bool _is_placeholder_fallback_enabled() const override { return loaded_ && !_is_valid(); }
 	virtual bool _has_property_default_value(const StringName &p_property) const override;
@@ -148,8 +155,6 @@ public:
 
     //editor tool
 	virtual Variant _get_script_method_argument_count(const StringName &p_method) const override;
-    virtual TypedArray<Dictionary> _get_script_method_list() const override;
-    virtual TypedArray<Dictionary> _get_script_property_list() const override;
 
     virtual int32_t _get_member_line(const StringName& p_member) const override { return -1; } // TODO
 
@@ -166,11 +171,65 @@ public:
 
     virtual bool _editor_can_reload_from_file() override { return true; }
 
-
 #pragma endregion // Script Interface Implementation
 
 protected:
     static void _bind_methods();
+
+public:
+    // TODO: 是否只在调试模式下可用？
+    template<typename ElemTy, ElemTy (*ConvertFn)(const jsb::ScriptPropertyInfo &), typename ListTy>
+    requires requires(ListTy list, ElemTy elem) { list.push_back(elem);}
+    void get_script_property_list(ListTy &r_list) const {
+        ensure_module_loaded();
+        jsb_check(loaded_);
+
+#ifdef TOOLS_ENABLED
+        r_list.push_back(ConvertFn(get_class_category()));
+#endif
+        for (const auto& it : script_class_info_.properties)
+        {
+            r_list.push_back(ConvertFn(it.value));
+        }
+
+        if (base.is_valid() && base->_is_valid())
+        {
+            base->get_script_property_list<ElemTy, ConvertFn, ListTy>(r_list);
+        }
+    }
+
+    template<typename ElemTy, ElemTy (*ConvertFn)(const StringName &, const jsb::ScriptMethodInfo &), typename ListTy>
+    requires requires(ListTy list, ElemTy elem) { list.push_back(elem);}
+    void get_script_method_list(ListTy &r_list) const {
+        ensure_module_loaded();
+        jsb_check(loaded_);
+
+        for (const auto& it : script_class_info_.methods)
+        {
+            r_list.push_back(ConvertFn(it.key, it.value));
+        }
+
+        if (base.is_valid() && base->_is_valid())
+        {
+            base->get_script_method_list<ElemTy, ConvertFn, ListTy>(r_list);
+        }
+    }
+
+    template<typename ElemTy, ElemTy (*ConvertFn)(const StringName &, const jsb::ScriptSignalInfo &), typename ListTy>
+    requires requires(ListTy list, ElemTy elem) { list.push_back(elem);}
+    void get_script_signal_list(ListTy &r_list) const {
+        if (!_is_valid()) return;
+
+        for (const auto& it : script_class_info_.signals)
+        {
+            r_list.push_back(ConvertFn(it.key, it.value));
+        }
+
+        if (base.is_valid())
+        {
+            base->get_script_signal_list<ElemTy, ConvertFn, ListTy>(r_list);
+        }
+    }
 };
 
 #endif

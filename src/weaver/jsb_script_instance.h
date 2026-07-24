@@ -98,21 +98,36 @@ protected:
     ScriptProfilingInfo profiling_info_;
 #endif
 
+protected:
+    mutable LocalVector<PropertyInfo> *temporary_script_property_list_cache { nullptr };
+    LocalVector<MethodInfo> *temporary_script_method_list_cache { nullptr };
+
+    virtual LocalVector<PropertyInfo> *make_temporary_property_list() const ;
+    void free_temporary_property_list() const { jsb_check(temporary_script_property_list_cache); memdelete(temporary_script_property_list_cache); temporary_script_property_list_cache = nullptr; }
+
+    /**
+     * @brief 回调专用，返回 temporary_script_method_list_cache
+     *      NOTE: 注意会在回调处理结束后销毁 temporary_script_method_list_cache，重写该函数时不需要进行额外的内存管理
+     * @return LocalVector<MethodInfo>* 
+     */
+    virtual LocalVector<MethodInfo> *make_temporary_method_list();
+    void free_temporary_method_list() {jsb_check(temporary_script_method_list_cache); memdelete(temporary_script_method_list_cache); temporary_script_method_list_cache = nullptr;}
+
     GodotJSScriptInstanceBase(const Ref<GodotJSScript> &p_script, Object* p_owner);
+    friend struct ScriptInstanceInfo;
 public:
     virtual ~GodotJSScriptInstanceBase();
 
     // Property access
     virtual bool set(const StringName& p_name, const Variant& p_value) = 0;
     virtual bool get(const StringName& p_name, Variant& r_ret) const = 0;
-    virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const = 0;
+    // virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const = 0;
     virtual Variant::Type get_property_type(const StringName& p_name, bool* r_is_valid = nullptr) const = 0;
     virtual void validate_property(PropertyInfo& p_property) const = 0;
     virtual bool property_can_revert(const StringName& p_name) const { return false; }
     virtual bool property_get_revert(const StringName& p_name, Variant& r_ret) const { return false; }
     virtual void get_property_state(ScriptInstancePropertyState &p_state) const override;
     // Method access
-    virtual void get_method_list(LocalVector<GDExtensionMethodInfo>* p_list, List<Variant> &r_default_value_caches) const = 0;
     virtual bool has_method(const StringName& p_method) const = 0;
 	virtual int get_method_argument_count(const StringName &p_method, bool *r_is_valid = nullptr) const {return 0;} // TODO
     virtual Variant callp(const StringName& p_method, const Variant** p_args, int p_argcount, GDExtensionCallError& r_error) = 0;
@@ -160,14 +175,13 @@ public:
         return false;
     }
 
-    virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
+    // virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
     virtual Variant::Type get_property_type(const StringName& p_name, bool* r_is_valid = nullptr) const override;
 
     virtual void validate_property(PropertyInfo& p_property) const override {}
     virtual bool property_can_revert(const StringName& p_name) const override { return false; }
     virtual bool property_get_revert(const StringName& p_name, Variant& r_ret) const override { return false; }
 
-    virtual void get_method_list(LocalVector<GDExtensionMethodInfo>* p_list, List<Variant> &r_default_value_caches) const override;
     virtual bool has_method(const StringName& p_method) const override;
 
     virtual Variant callp(const StringName& p_method, const Variant** p_args, int p_argcount, GDExtensionCallError& r_error) override
@@ -205,6 +219,9 @@ private:
 
     friend class GodotJSScript;
 
+protected:
+    virtual LocalVector<PropertyInfo> *make_temporary_property_list() const override;
+
 public:
     jsb::compat::ThreadID get_env_thread_id() const { return env_ ? env_->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
 
@@ -218,14 +235,13 @@ public:
 
     virtual bool set(const StringName& p_name, const Variant& p_value) override;
     virtual bool get(const StringName& p_name, Variant& r_ret) const override;
-    virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
+    // virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
     virtual Variant::Type get_property_type(const StringName& p_name, bool* r_is_valid = nullptr) const override;
     virtual void validate_property(PropertyInfo& p_property) const override;
 
     virtual bool property_can_revert(const StringName& p_name) const override;
     virtual bool property_get_revert(const StringName& p_name, Variant& r_ret) const override;
 
-    virtual void get_method_list(LocalVector<GDExtensionMethodInfo>* p_list, List<Variant> &r_default_value_caches) const override;
     virtual bool has_method(const StringName& p_method) const override;
     virtual Variant callp(const StringName& p_method, const Variant** p_args, int p_argcount, GDExtensionCallError& r_error) override;
 

@@ -141,9 +141,9 @@ public:
         }
         ERR_FAIL_COND(page_pool != nullptr); // Safety check.
         ERR_FAIL_COND(p_page_size == 0);
-        page_size = godot::nearest_power_of_2_templated(p_page_size);
+        page_size = godot::Math::nearest_power_of_2_templated(p_page_size);
         page_mask = page_size - 1;
-        page_shift = godot::get_shift_from_power_of_2(page_size);
+        page_shift = godot::Math::get_shift_from_power_of_2(page_size);
         if constexpr (thread_safe)
         {
             spin_lock.unlock();

@@ -165,13 +165,27 @@ namespace jsb
     private:
         static inline Object *binding_object {nullptr};
         static inline GodotObject *object_owner {nullptr};
-    
+
+        /**
+         * @brief 绑定的创建回调
+         * 
+         * @param p_token [jsb::Environment *] 关联的环境
+         * @param p_instance [GodotObject *] 即 godot 侧的 Object*
+         * @return void* [godot::Object *] 即 godot-cpp 侧的 Object*, 其 _owner 即为 godot 侧的 Object *
+         */
         static void* create_callback(void* p_token, void* p_instance)
         {
             jsb_check(p_instance == object_owner);
             return binding_object;
         }
 
+        /**
+         * @brief 绑定的释放回调
+         * 
+         * @param p_token [jsb::Environment *] 关联的环境
+         * @param p_instance [GodotObject *] 即 godot 侧的 Object*
+         * @param p_binding [godot::Object *] 即 godot-cpp 侧的 Object*, 其 _owner 即为 godot 侧的 Object *
+         */
         static void free_callback(void* p_token, void* p_instance, void* p_binding)
         {
             if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token))
@@ -192,6 +206,13 @@ namespace jsb
             }
         }
 
+        /**
+         * @brief 绑定的引用回调
+         * 
+         * @param p_token [jsb::Environment *] 关联的环境
+         * @param p_binding [godot::Object *] 即 godot-cpp 侧的 Object*, 其 _owner 即为 godot 侧的 Object *
+         * @param p_reference Ref 还是 Unref 操作
+         */
         static GDExtensionBool reference_callback(void* p_token, void* p_binding, GDExtensionBool p_reference)
         {
             if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token))
