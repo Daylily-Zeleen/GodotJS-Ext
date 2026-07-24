@@ -156,7 +156,7 @@ namespace jsb
         if (!loader_.IsEmpty()) return loader_.Get(p_env->get_isolate());
         const v8::Local<v8::Context> context = p_env->get_context();
         const JavaScriptModule* typeloader = p_env->get_module_cache().find(jsb_string_name(godot_typeloader));
-        jsb_check(typeloader != nullptr);
+        jsb_checkf(typeloader != nullptr, "Can't find \"%s\" module in the module cache!", jsb_string_name(godot_typeloader));
         const v8::Local<v8::Value> typeloader_exports = typeloader->exports.Get(p_env->get_isolate());
         jsb_check(!typeloader_exports.IsEmpty() && typeloader_exports->IsObject());
         // not using string cache, as it's run only once

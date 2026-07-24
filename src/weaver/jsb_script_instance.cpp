@@ -644,6 +644,6 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed)
     //TODO call it at all type levels? @seealso `GDScriptInstance::notification`
     Variant value = p_notification;
     const Variant* argv[] = {&value};
-    GDExtensionCallError error;
+    GDExtensionCallError error {};
     callp(jsb_string_name(_notification), argv, 1, error);
 }
