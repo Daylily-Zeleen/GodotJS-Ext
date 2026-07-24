@@ -712,6 +712,7 @@ Variant GodotJSScript::_new(const Variant** p_args, GDExtensionInt p_argcount, G
 {
     if (!_is_valid())
     {
+        r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
         JSB_LOG(Error, "Unable to create new instance. The script was not properly loaded (%s)", get_path());
         return Variant();
     }

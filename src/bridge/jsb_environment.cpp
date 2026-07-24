@@ -156,10 +156,20 @@ namespace jsb
             : callbacks_ { create_callback, free_callback, reference_callback }
         {}
 
+        jsb_force_inline static void prepare_binding(Object *p_object) {
+            jsb_check(p_object);
+            binding_object = p_object;
+            object_owner = p_object->_owner;
+        }
+
     private:
+        static inline Object *binding_object {nullptr};
+        static inline GodotObject *object_owner {nullptr};
+    
         static void* create_callback(void* p_token, void* p_instance)
         {
-            return p_instance;
+            jsb_check(p_instance == object_owner);
+            return binding_object;
         }
 
         static void free_callback(void* p_token, void* p_instance, void* p_binding)
@@ -167,7 +177,7 @@ namespace jsb
             if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token))
             {
                 // p_binding must equal to the return value of `create_callback`
-                jsb_check(p_instance == p_binding);
+                jsb_check(p_instance == ((Object *)p_binding)->_owner);
 
                 // must check before async, InstanceBindingCallback need to know whether the object should die or not if it's a ref-counted object.
                 if (env->verify_object(p_binding))
@@ -874,6 +884,8 @@ namespace jsb
         }
         const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void*) p_pointer, p_object, external_rc, p_js_owned_non_ref);
 
+        // 绑定
+        InstanceBindingCallbacks::prepare_binding(p_pointer);
         ::object_get_instance_binding(p_pointer, this, gd_instance_binding_callbacks);
         return object_id;
     }
@@ -1765,6 +1777,7 @@ namespace jsb
         v8::Local<v8::Value> rval_checked;
         if (!rval.ToLocal(&rval_checked))
         {
+            r_error.error = GDEXTENSION_CALL_OK;
             return {};
         }
 
@@ -1779,6 +1792,7 @@ namespace jsb
             }
             return {};
         }
+        r_error.error = GDEXTENSION_CALL_OK;
         return rvar;
     }
 
