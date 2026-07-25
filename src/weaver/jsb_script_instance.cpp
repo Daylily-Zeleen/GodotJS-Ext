@@ -80,14 +80,15 @@ private:
     static const GDExtensionPropertyInfo* get_property_list_func(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;
 
-        LocalVector<PropertyInfo> &temporary_property_list = *script_instance->make_temporary_property_list();
+        const LocalVector<PropertyInfo> &temporary_property_list = *script_instance->make_temporary_property_list();
         uint32_t count = temporary_property_list.size();
 
         GDExtensionPropertyInfo* arr = memnew_arr(GDExtensionPropertyInfo, count);
         for (uint32_t idx = 0; idx < count; idx++) {
-            arr[idx] = temporary_property_list[idx]._to_gdextension();
+            arr[idx] = ((const PropertyInfo &)(temporary_property_list[idx]))._to_gdextension();
         }
 
+        *r_count = count;
         return arr;
     }
 
@@ -220,7 +221,7 @@ private:
     }
     static GDExtensionObjectPtr get_script_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
-        return (GDExtensionObjectPtr)script_instance->get_script().ptr();
+        return (GDExtensionObjectPtr)script_instance->get_script()->_owner;
     }
     static GDExtensionBool is_placeholder_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
@@ -274,6 +275,12 @@ namespace {ScriptInstanceInfo script_instance_info;}
 
 
 ScriptInstance* ScriptInstance::get_script_instance(Object* p_object) {
+#ifdef TOOLS_ENABLED
+    if(PlaceholderScriptInstance* placeholder =  PlaceholderScriptInstance::try_get_placeholder_script_instance(p_object)) {
+        return placeholder;
+    }
+#endif // TOOLS_ENABLED
+
     void *obj_ptr {nullptr};
     PtrToArg<Object*>::encode(p_object, &obj_ptr);
     return (GodotJSScriptInstanceBase *)godot::gdextension_interface::object_get_script_instance(obj_ptr, GodotJSScriptLanguage::get_singleton());
@@ -362,9 +369,17 @@ LocalVector<MethodInfo>* GodotJSScriptInstanceBase::make_temporary_method_list()
 
 #ifdef TOOLS_ENABLED
 // ====== PlaceholderScriptInstance =====
+HashMap<Object *, PlaceholderScriptInstance *> PlaceholderScriptInstance::placeholders_ {};
 PlaceholderScriptInstance::PlaceholderScriptInstance(const Ref<GodotJSScript> &p_script, Object* p_owner):
-ScriptInstance(p_script, p_owner,::godot::gdextension_interface::placeholder_script_instance_create(GodotJSScriptLanguage::get_singleton(), p_script->_owner, p_owner->_owner))
+    ScriptInstance(p_script, p_owner,::godot::gdextension_interface::placeholder_script_instance_create(GodotJSScriptLanguage::get_singleton(), p_script->_owner, p_owner->_owner))
 {
+    placeholders_.insert(p_owner, this);
+}
+
+PlaceholderScriptInstance::~PlaceholderScriptInstance()
+{
+    jsb_check(this->get_owner() != nullptr);
+    placeholders_.erase(this->get_owner());
 }
 
 void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values)

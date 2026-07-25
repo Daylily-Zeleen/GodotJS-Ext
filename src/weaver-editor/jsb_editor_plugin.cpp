@@ -4,6 +4,7 @@
 #include "jsb_editor_helper.h"
 #include "jsb_editor_progress.h"
 #include "jsb_export_plugin.h"
+#include "jsb_resource_loader.h"
 
 #include <godot_cpp/classes/confirmation_dialog.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
@@ -203,7 +204,7 @@ GodotJSEditorPlugin::GodotJSEditorPlugin()
     add_install_file({ "godot.shadowRealm.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 #if !JSB_WITH_WEB
     add_install_file({ "godot.worker.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
-    #endif
+#endif
     add_install_file({ "jsb.editor.bundle.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
     add_install_file({ "jsb.runtime.bundle.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 
@@ -677,6 +678,10 @@ Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArr
     {
         for (const String& path: p_paths)
         {
+            if (ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(path)) {
+                continue;
+            }
+            
             if (!p_exclude_wildcards.is_empty() && _is_path_matchn(p_exclude_wildcards, path))
             {
                 continue;

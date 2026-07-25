@@ -9,37 +9,85 @@
 #include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
-namespace
+bool ResourceFormatLoaderGodotJSScript::is_worker_script(const String& p_path)
 {
-    bool is_worker_script(const String& p_path)
-    {
-        return false
+    return false
 #if JSB_EXCLUDE_WORKER_RES_SCRIPTS
 #   if JSB_USE_TYPESCRIPT
-        || p_path.ends_with(String(".worker.") + JSB_TYPESCRIPT_EXT)
+    || p_path.ends_with(String(".worker.") + JSB_TYPESCRIPT_EXT)
 #   endif
-        || p_path.ends_with(String(".worker.") + JSB_JAVASCRIPT_EXT)
-        || p_path.ends_with(String(".worker.") + JSB_COMMONJS_EXT)
-        || p_path.ends_with(String(".worker.") + JSB_MODULE_EXT)
+    || p_path.ends_with(String(".worker.") + JSB_JAVASCRIPT_EXT)
+    || p_path.ends_with(String(".worker.") + JSB_COMMONJS_EXT)
+    || p_path.ends_with(String(".worker.") + JSB_MODULE_EXT)
 #endif
-        ;
-    }
+    ;
+}
 
-    bool is_test_script(const String& p_path)
-    {
-        return false
+bool ResourceFormatLoaderGodotJSScript::is_shadow_realm_script(const String& p_path)
+{
+    return false
+#if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+#   if JSB_USE_TYPESCRIPT
+    || p_path.ends_with(String(".realm.") + JSB_TYPESCRIPT_EXT)
+#   endif
+    || p_path.ends_with(String(".realm.") + JSB_JAVASCRIPT_EXT)
+    || p_path.ends_with(String(".realm.") + JSB_COMMONJS_EXT)
+    || p_path.ends_with(String(".realm.") + JSB_MODULE_EXT)
+#endif
+    ;
+}
+
+bool ResourceFormatLoaderGodotJSScript::is_test_script(const String& p_path)
+{
+    return false
 #if JSB_EXCLUDE_TEST_RES_SCRIPTS
 #   if JSB_USE_TYPESCRIPT
-        || p_path.ends_with(String(".test.") + JSB_TYPESCRIPT_EXT)
+    || p_path.ends_with(String(".test.") + JSB_TYPESCRIPT_EXT)
 #   endif
-        || p_path.ends_with(String(".test.") + JSB_JAVASCRIPT_EXT)
-        || p_path.ends_with(String(".test.") + JSB_COMMONJS_EXT)
-        || p_path.ends_with(String(".test.") + JSB_MODULE_EXT)
+    || p_path.ends_with(String(".test.") + JSB_JAVASCRIPT_EXT)
+    || p_path.ends_with(String(".test.") + JSB_COMMONJS_EXT)
+    || p_path.ends_with(String(".test.") + JSB_MODULE_EXT)
 #endif
-        ;
+    ;
+}
+
+bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const String& p_path)
+{
+#if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
+    return false
+#else
+    static const LocalVector<String> extensions {
+#if JSB_USE_TYPESCRIPT
+        JSB_TYPESCRIPT_EXT,
+#endif // JSB_USE_TYPESCRIPT
+        JSB_JAVASCRIPT_EXT,
+        JSB_COMMONJS_EXT,
+        JSB_MODULE_EXT,
+    };
+    static const LocalVector<String> keywords {
+#if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+        ".test.",
+#endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+#if JSB_EXCLUDE_WORKER_RES_SCRIPTS
+        ".worker."
+#endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
+#if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+        ".realm.",
+#endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 
+    };
+
+    for (const String &extension : extensions){
+        for (const String &keyword : keywords) {
+            if (p_path.ends_with(keyword + extension)) {
+                return true;
+            }
+        }
     }
 
+    return false;
+#endif
 }
+
 
 Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const String& p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const
 {
@@ -84,8 +132,8 @@ Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const Str
         return Variant();
     }
 
-    // ignore DTS files, and worker scripts if they end with `.worker.js/ts`
-    if (p_path.ends_with(String(".") + JSB_DTS_EXT) || is_worker_script(p_path) || is_test_script(p_path))
+    // ignore DTS files, or other non-Godot resource scripts.
+    if (p_path.ends_with(String(".") + JSB_DTS_EXT) || is_not_godot_resource_script(p_path))
     {
         JSB_LOG(VeryVerbose, "excluding script resource %s", p_path);
         return Variant();

@@ -2353,7 +2353,7 @@ namespace jsb
 
         ScriptInstance* script_instance = ScriptInstance::get_script_instance(instance);
 #ifdef TOOLS_ENABLED
-        ERR_FAIL_COND_MSG(script_instance->is_placeholder(), "Environment::transfer_in_apply_state(): Unexpected case: try to transfer to an placeholder script instance.");
+        ERR_FAIL_COND_MSG(script_instance && script_instance->is_placeholder(), "Environment::transfer_in_apply_state(): Unexpected case: try to transfer to an placeholder script instance.");
 #endif // TOOLS_ENABLED
 
         if (!script_instance)
