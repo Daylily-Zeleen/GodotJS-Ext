@@ -62,9 +62,15 @@ public:
 #ifdef TOOLS_ENABLED
 class PlaceholderScriptInstance: public ScriptInstance
 {
+    static HashMap<Object *, PlaceholderScriptInstance *> placeholders_;
 public:
     PlaceholderScriptInstance(const Ref<GodotJSScript> &p_script, Object* p_owner);
+    virtual ~PlaceholderScriptInstance() override;
 
+    static PlaceholderScriptInstance *try_get_placeholder_script_instance(Object *p_object) {
+        PlaceholderScriptInstance **inst_ptr = placeholders_.getptr(p_object);
+        return inst_ptr ? *inst_ptr : nullptr;
+    }
     virtual bool is_placeholder() const override { return true; }
     void update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values);
 };

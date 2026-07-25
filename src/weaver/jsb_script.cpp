@@ -32,7 +32,11 @@ GodotJSScript::~GodotJSScript()
 
 bool GodotJSScript::_can_instantiate() const
 {
-    return _is_valid();
+#ifdef TOOLS_ENABLED
+	return _is_valid() && !script_class_info_.is_abstract() && (script_class_info_.is_tool() || !Engine::get_singleton()->is_editor_hint());
+#else
+	return _is_valid() && !script_class_info_.is_abstract();
+#endif
 }
 
 void GodotJSScript::_set_source_code(const String& p_code)
@@ -189,7 +193,7 @@ ScriptInstance* GodotJSScript::instance_construct(Object* p_this, bool p_is_temp
         p_this, 
         env, 
         module->script_class_id));
-    ScriptInstance::set_script_instance(instance->owner_, instance);
+    ScriptInstance::set_script_instance(instance->get_owner(), instance);
 
     /* STEP 2, INITIALIZE AND CONSTRUCT */
     {

@@ -151,6 +151,8 @@
 // they should only be loaded by JSWorker.
 #define JSB_EXCLUDE_WORKER_RES_SCRIPTS 1
 
+#define JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 1
+
 // always exclude the test scripts (end with `.test.js/ts`) from ResourceLoader.
 // they usually used for testing (like mocha, jest, etc).
 #define JSB_EXCLUDE_TEST_RES_SCRIPTS 1
