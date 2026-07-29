@@ -65,6 +65,19 @@ DEF(postMessage)
 DEF(transfer)
 DEF(close)
 
+#if JSB_SHADOW_REALM_ENABLED
+DEF(FunctionCrossWrapper)
+DEF(ObjectCrossWrapper)
+DEF(ShadowRealm)
+DEF(TransferableShadowRealm)
+DEF(has)
+DEF(get)
+DEF(set)
+DEF(getPrototypeOf)
+DEF(startupScript)
+DEF(allowImportAnyModule)
+#endif // JSB_SHADOW_REALM_ENABLED
+
 // editor
 #ifdef TOOLS_ENABLED
 DEF(arguments)

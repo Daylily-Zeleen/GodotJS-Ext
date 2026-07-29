@@ -30,7 +30,6 @@
 namespace jsb
 {
     using jsb::compat::ThreadID;
-    class CrossEnvManager;
 
     enum : uint32_t { kIsolateEmbedderData = 0, };
     enum : uint32_t { kContextEmbedderData = 0, };
@@ -444,13 +443,20 @@ namespace jsb
 
         jsb_force_inline v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
 
-        NativeObjectID bind_godot_object(NativeClassID p_class_id, Object* p_pointer, const v8::Local<v8::Object>& p_object, bool p_js_owned_non_ref = false);
 
+    private:
         // [low level binding] bind a C++ `p_pointer` with a JS `p_object`
         // p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
         // p_pointer must be 2-byte aligned (v8 requirement)
         NativeObjectID bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object, int p_external_rc, bool p_js_owned_non_ref = false);
-
+    public:
+        NativeObjectID bind_godot_object(NativeClassID p_class_id, Object* p_pointer, const v8::Local<v8::Object>& p_object, bool p_js_owned_non_ref = false);
+        // Bind a C++ `p_pointer` with a JS `p_object`, they have same lifecycle.
+        // p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
+        // p_pointer must be 2-byte aligned (v8 requirement)
+        NativeObjectID bind_js_owned_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object) {
+            return bind_pointer(p_class_id, p_type, p_pointer, p_object, 0);
+        }
         // An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
         // The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).
         // May change in the future.
@@ -749,6 +755,27 @@ namespace jsb
         }
 
         void free_object(void* p_pointer, FinalizationType p_finalize);
+
+    public:
+        /**
+         * @brief 手动释放绑定对象吗，主要用于 [Symbols.dispose] 成员的实现
+         * @param p_js_obj 要释放其c++对象的js对象
+         *
+         * @note 注意只能对有绑定c++指针的对象使用，并且只能释放一次.
+         * @note 请注意你要知道你在干什么！也不要轻易暴露给最终用户！
+         */
+        void dispose_binding_object(const v8::Local<v8::Object> &p_js_obj) {
+            void * binding_pointer = p_js_obj->GetAlignedPointerFromInternalField(IF_Pointer);
+            if (binding_pointer== nullptr ) {
+                JSB_LOG(Warning, "Can not dispose a disposed object.");
+                return;
+            }
+            ObjectHandlePtr object_handle = object_db_.try_get_object(binding_pointer);
+            jsb_checkf(object_handle, "Try to dispose an invalid object.");
+            jsb_checkf(object_handle->is_persist(), "Can't dispose a persist object.");
+            add_async_call(AsyncCall::TYPE_GC_FREE, binding_pointer);
+            p_js_obj->SetAlignedPointerInInternalField(IF_Pointer, nullptr);
+        }
 
     private:
         internal::SArray<std::weak_ptr<Environment>, internal::Index32> shadow_env_list_;

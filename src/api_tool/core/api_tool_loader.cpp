@@ -34,33 +34,6 @@ PackedStringArray ApiLoader::list_files_in_dir(const String &p_subdir) {
     return result;
 }
 
-LocalVector<String> ApiLoader::get_cached_names_utility() const {
-    LocalVector<String> names;
-    names.reserve(utility_function_cache_.items.size());
-    for (const auto &item : utility_function_cache_.items) {
-        names.push_back(String(item.method.name));
-    }
-    return names;
-}
-
-LocalVector<String> ApiLoader::get_cached_names_singleton() const {
-    LocalVector<String> names;
-    names.reserve(singleton_cache_.items.size());
-    for (const auto &item : singleton_cache_.items) {
-        names.push_back(String(item.name));
-    }
-    return names;
-}
-
-LocalVector<String> ApiLoader::get_cached_names_native() const {
-    LocalVector<String> names;
-    names.reserve(native_structure_cache_.items.size());
-    for (const auto &item : native_structure_cache_.items) {
-        names.push_back(item.name);
-    }
-    return names;
-}
-
 // ============================================================================
 // Constructor / Destructor
 // ============================================================================
@@ -147,6 +120,10 @@ void ApiLoader::clear() {
     global_enum_names_cached_ = false;
     global_constant_names_cache_.clear();
     global_constant_names_cached_ = false;
+
+    // Clear compatibility hash caches (TypedCache handles this)
+    builtin_compat_hash_cache_.clear_data();
+    class_compat_hash_cache_.clear_data();
 
     // Copy callbacks and call them (req 5)
     std::vector<CallbackEntry> callbacks = cache_callbacks_;
@@ -390,57 +367,106 @@ std::unique_ptr<ApiGlobalConstantDocument> ApiLoader::find_global_constant_docum
 #endif // TOOLS_ENABLED
 
 // ============================================================================
-// Compatibility hash queries (no cache, direct file read)
+// Compatibility hash queries (cached, thread-safe)
 // ============================================================================
 
-LocalVector<MethodHash> ApiLoader::get_builtin_method_compatibility_hashes(Variant::Type p_type, const StringName &p_method_name) {
+const LocalVector<MethodHash>* ApiLoader::get_builtin_method_compatibility_hashes(Variant::Type p_type, const StringName &p_method_name) {
 #ifndef DISABLE_DEPRECATED
-    LocalVector<MethodHash> result;
-    String path = base_dir_ + "/" + String(DIR_COMPAT_HASHES) + "/" + Variant::get_type_name(p_type) + String(FILE_EXT_COMPAT);
-    if (!FileAccess::file_exists(path)) {
-        return result;
-    }
-
-    ApiCompatibilityHashData data;
-    Error err = ApiStoreReader::read_compatibility_hashes(path, data);
-    if (err != OK) {
-        return result;
-    }
-
-    for (const auto &m : data.methods) {
-        if (m.method_name == p_method_name) {
-            return m.hashes;
+    // Fast path: shared lock read
+    {
+        std::shared_lock lock(mutex_);
+        const ApiCompatibilityHashData *data = builtin_compat_hash_cache_.find(p_type);
+        if (data) {
+            for (const auto &m : data->methods) {
+                if (m.method_name == p_method_name) return &m.hashes;
+            }
+            return nullptr;
         }
     }
-    return result;
-#else // DISABLE_DEPRECATED
-    return {};
-#endif // DISABLE_DEPRECATED
+    // Slow path: exclusive lock + load
+    {
+        std::unique_lock lock(mutex_);
+        // Double-check after acquiring exclusive lock
+        const ApiCompatibilityHashData *data = builtin_compat_hash_cache_.find(p_type);
+        if (data) {
+            for (const auto &m : data->methods) {
+                if (m.method_name == p_method_name) return &m.hashes;
+            }
+            return nullptr;
+        }
+
+        // Load from file
+        String type_name = Variant::get_type_name(p_type);
+        String path = base_dir_ + "/" + String(DIR_COMPAT_HASHES) + "/" + type_name + String(FILE_EXT_COMPAT);
+        if (!FileAccess::file_exists(path)) {
+            return nullptr; // No file, no negative cache (TypedCache doesn't support it)
+        }
+
+        ApiCompatibilityHashData loaded_data;
+        Error err = ApiStoreReader::read_compatibility_hashes(path, loaded_data);
+        if (err != OK) {
+            return nullptr;
+        }
+
+        builtin_compat_hash_cache_.insert(p_type, loaded_data);
+
+        for (const auto &m : loaded_data.methods) {
+            if (m.method_name == p_method_name) return &m.hashes;
+        }
+        return nullptr;
+    }
+#else
+    return nullptr;
+#endif
 }
 
-LocalVector<MethodHash> ApiLoader::get_class_method_compatibility_hashes(const StringName &p_class_name, const StringName &p_method_name) {
+const LocalVector<MethodHash>* ApiLoader::get_class_method_compatibility_hashes(const StringName &p_class_name, const StringName &p_method_name) {
 #ifndef DISABLE_DEPRECATED
-    LocalVector<MethodHash> result;
-    String path = base_dir_ + "/" + String(DIR_COMPAT_HASHES) + "/" + String(p_class_name) + String(FILE_EXT_COMPAT);
-    if (!FileAccess::file_exists(path)) {
-        return result;
-    }
-
-    ApiCompatibilityHashData data;
-    Error err = ApiStoreReader::read_compatibility_hashes(path, data);
-    if (err != OK) {
-        return result;
-    }
-
-    for (const auto &m : data.methods) {
-        if (m.method_name == p_method_name) {
-            return m.hashes;
+    // Fast path: shared lock read
+    {
+        std::shared_lock lock(mutex_);
+        const ApiCompatibilityHashData *data = class_compat_hash_cache_.find(p_class_name);
+        if (data) {
+            for (const auto &m : data->methods) {
+                if (m.method_name == p_method_name) return &m.hashes;
+            }
+            return nullptr;
         }
     }
-    return result;
-#else // DISABLE_DEPRECATED
-    return {};
-#endif // DISABLE_DEPRECATED
+    // Slow path: exclusive lock + load
+    {
+        std::unique_lock lock(mutex_);
+        // Double-check after acquiring exclusive lock
+        const ApiCompatibilityHashData *data = class_compat_hash_cache_.find(p_class_name);
+        if (data) {
+            for (const auto &m : data->methods) {
+                if (m.method_name == p_method_name) return &m.hashes;
+            }
+            return nullptr;
+        }
+
+        // Load from file
+        String path = base_dir_ + "/" + String(DIR_COMPAT_HASHES) + "/" + p_class_name + String(FILE_EXT_COMPAT);
+        if (!FileAccess::file_exists(path)) {
+            return nullptr; // No file, no negative cache (TypedCache doesn't support it)
+        }
+
+        ApiCompatibilityHashData loaded_data;
+        Error err = ApiStoreReader::read_compatibility_hashes(path, loaded_data);
+        if (err != OK) {
+            return nullptr;
+        }
+
+        class_compat_hash_cache_.insert(p_class_name, loaded_data);
+
+        for (const auto &m : loaded_data.methods) {
+            if (m.method_name == p_method_name) return &m.hashes;
+        }
+        return nullptr;
+    }
+#else
+    return nullptr;
+#endif
 }
 
 // ============================================================================

@@ -440,6 +440,7 @@ namespace jsb
 
             Ref<GodotJSScript> script = si->get_script();
             ScriptInstance *non_shadow_instance = script->instance_construct(p_godot_obj, false);
+            jsb_ensure(!non_shadow_instance->is_shadow() && !non_shadow_instance->is_placeholder());
 
             if (non_shadow_instance && environment->try_get_object(p_godot_obj, r_jval))
             {
@@ -457,7 +458,8 @@ namespace jsb
             jsb_check(TypeConvert::is_object(r_jval));
 
             // the lifecycle will be managed by javascript runtime, DO NOT DELETE it externally
-            environment->bind_godot_object(class_id, p_godot_obj, r_jval.As<v8::Object>());
+            NativeObjectID obj_id = environment->bind_godot_object(class_id, p_godot_obj, r_jval.As<v8::Object>());
+            jsb_check(obj_id);
             return true;
         }
         JSB_LOG(Error, "failed to expose godot class '%s'", class_name);

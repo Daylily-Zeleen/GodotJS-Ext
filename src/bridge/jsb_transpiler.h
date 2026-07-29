@@ -284,7 +284,12 @@ namespace jsb
         {
             v8::Isolate* isolate = env->get_isolate();
             NativeClassInfoPtr class_info = env->get_native_class(class_id);
-            class_info->finalizer = &finalizer;
+            const bool is_ref_counted = ClassDB::is_parent_class(class_info->name, RefCounted::get_class_static()) || class_info->name == RefCounted::get_class_static();
+            if (is_ref_counted) {
+                class_info->finalizer = &finalizer<true>;
+            } else {
+                class_info->finalizer = &finalizer<false>;
+            }
             return impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, class_info->name, &constructor, *class_id);
         }
 
@@ -345,9 +350,9 @@ namespace jsb
             {
                 internal::StringNames& names = internal::StringNames::get_singleton();
                 const StringName original_name = names.get_original_name(class_name);
-                // Godot 暴露给 GDExtension 的 ClassDB::instantiate 返回 Variant ，直接转换为 Object* 时如果实为 RefCounted 将会自动减少引用计数并释放。
-                const Variant gd_object_var = ClassDB::instantiate(original_name);
-                Object* gd_object = gd_object_var;
+                
+                const Variant var = ClassDB::instantiate(original_name);
+                Object *gd_object = var;
 
                 // IS IT A TRUTH that ref_count==1 after creation_func??
                 jsb_check([=]{
@@ -364,24 +369,24 @@ namespace jsb
                 class_name, class_id));
         }
 
+        template<bool PointerIsRefcounted>
         static void finalizer(Environment* runtime, void* pointer, FinalizationType p_finalize)
         {
-            Object* self = (Object*) pointer;
+            using T = std::conditional_t<PointerIsRefcounted, RefCounted, Object>;
+            T* self = (T*) pointer;
+            // ** because godot does not support removing object_bindings from Object **
+            // this `unreference` call will loop back to `InstanceBindingCallbacks::reference_callback`
+            // make sure the pointer has already been removed from the object_db_
             jsb_unused(runtime);
-            if (RefCounted* ref_counted = Object::cast_to<RefCounted>(self))
-            {
-                // ** because godot does not support removing object_bindings from Object **
-                // this `unreference` call will loop back to `InstanceBindingCallbacks::reference_callback`
-                // make sure the pointer has already been removed from the object_db_
-                const bool should_delete = ref_counted->unreference();
+            jsb_check(!runtime->verify_object(self));
+            if constexpr (PointerIsRefcounted) {
+                const bool should_delete = self->unreference();
                 if (should_delete)
                 {
                     JSB_LOG(VeryVerbose, "delete gd ref_counted object %d p_finalize %d", (uintptr_t) self, p_finalize);
                     memdelete(self);
                 }
-            }
-            else
-            {
+            } else {
                 if (p_finalize != FinalizationType::None)
                 {
                     JSB_LOG(VeryVerbose, "delete gd object %d", (uintptr_t) self);

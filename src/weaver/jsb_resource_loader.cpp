@@ -56,34 +56,41 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 #if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
     return false
 #else
-    static const LocalVector<String> extensions {
-#if JSB_USE_TYPESCRIPT
-        JSB_TYPESCRIPT_EXT,
-#endif // JSB_USE_TYPESCRIPT
-        JSB_JAVASCRIPT_EXT,
-        JSB_COMMONJS_EXT,
-        JSB_MODULE_EXT,
-    };
-    static const LocalVector<String> keywords {
-#if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-        ".test.",
-#endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-#if JSB_EXCLUDE_WORKER_RES_SCRIPTS
-        ".worker."
-#endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
-#if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
-        ".realm.",
-#endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 
-    };
+    static const LocalVector<String> suffixes = []() -> LocalVector<String> {
+        LocalVector<String> ret;
+        const LocalVector<String> extensions {
+#   if JSB_USE_TYPESCRIPT
+            JSB_TYPESCRIPT_EXT,
+#   endif // JSB_USE_TYPESCRIPT
+            JSB_JAVASCRIPT_EXT,
+            JSB_COMMONJS_EXT,
+            JSB_MODULE_EXT,
+        };
+        const LocalVector<String> keywords {
+#   if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+            ".test.",
+#   endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+#   if JSB_EXCLUDE_WORKER_RES_SCRIPTS
+            ".worker."
+#   endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
+#   if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+            ".realm.",
+#   endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 
+        };
 
-    for (const String &extension : extensions){
-        for (const String &keyword : keywords) {
-            if (p_path.ends_with(keyword + extension)) {
-                return true;
+        for (const String &extension : extensions){
+            for (const String &keyword : keywords) {
+                ret.push_back(keyword + extension);
             }
         }
-    }
+        return ret;
+    }();
 
+    for (const String &suffix : suffixes) {
+        if (p_path.ends_with(suffix)) {
+            return true;
+        }
+    }
     return false;
 #endif
 }
