@@ -122,7 +122,7 @@ protected:
     GodotJSScriptInstanceBase(const Ref<GodotJSScript> &p_script, Object* p_owner);
     friend struct ScriptInstanceInfo;
 public:
-    virtual ~GodotJSScriptInstanceBase();
+    virtual ~GodotJSScriptInstanceBase() override;
 
     // Property access
     virtual bool set(const StringName& p_name, const Variant& p_value) = 0;
@@ -141,16 +141,17 @@ public:
     // Notifications
     virtual void notification(int p_notification, bool p_reversed = false) {}
 
-    // TODO: 
-    virtual String to_string(bool *r_valid) { 
-		if (r_valid) {
-			*r_valid = false;
-		}
-		return String();
-	}
+    virtual String to_string(bool *r_valid);
 
     // RPC
     virtual const Variant get_rpc_config() const { return Variant(); }
+
+public:
+    void set_property_state(const ScriptInstancePropertyState &p_state) {
+        for (const auto &kv : p_state) {
+            this->set(kv.first, kv.second);
+        }
+    }
 };
 
 // A runtime placeholder for the script instances which instantiated by async resource loader request.
@@ -221,15 +222,17 @@ private:
     HashMap<StringName, Variant> property_cache_;
 
 private:
+    jsb_force_inline std::shared_ptr<jsb::Environment> get_env() const { return env_; }//env_.lock(); }
+
     jsb::ScriptClassInfoPtr get_script_class() const;
 
-    friend class GodotJSScript;
+    friend GodotJSScriptInstance *GodotJSScript::try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
 
 protected:
     virtual LocalVector<PropertyInfo> *make_temporary_property_list() const override;
 
 public:
-    jsb::compat::ThreadID get_env_thread_id() const { return env_ ? env_->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
+    jsb::compat::ThreadID get_env_thread_id() const { return get_env() ? get_env()->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
 
     // for Environment lifecycle control (avoid object leaks), detach all JS object bindings
     // void _detach();

@@ -108,8 +108,8 @@ int32_t get_global_constant_count();
 // Compatibility hash queries (no cache, direct file read)
 // ============================================================================
 
-godot::LocalVector<MethodHash> get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName& p_name);
-godot::LocalVector<MethodHash> get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName& p_name);
+const godot::LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName& p_name);
+const godot::LocalVector<MethodHash>* get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName& p_name);
 
 // ============================================================================
 // Editor-only: API generation (only TOOLS_ENABLED)

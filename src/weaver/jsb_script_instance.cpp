@@ -217,7 +217,11 @@ private:
         bool is_valid{false};
         String str = script_instance->to_string(&is_valid);
         if (is_valid) *(String*)r_out = str;
-        if (r_is_valid) *r_is_valid = (GDExtensionBool)true;
+        if (r_is_valid) *r_is_valid = (GDExtensionBool)is_valid;
+    }
+    static GDExtensionBool refcount_decremented_func(GDExtensionScriptInstanceDataPtr p_instance) {
+        // 返回默认值 true，不阻止释放行为。
+        return (GDExtensionBool)true;
     }
     static GDExtensionObjectPtr get_script_func(GDExtensionScriptInstanceDataPtr p_instance) {
         ScriptInstance* script_instance = (ScriptInstance*)p_instance;
@@ -260,8 +264,8 @@ private:
         .call_func = &ScriptInstanceInfo::call_func,
         .notification_func = &ScriptInstanceInfo::notification_func,
         .to_string_func = &ScriptInstanceInfo::to_string_func,
-        .refcount_incremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
-        .refcount_decremented_func = nullptr, // TODO: 考虑将 Environment 中的引用计数管理挪到 GodotJSScriptInstanceBase
+        .refcount_incremented_func = nullptr,
+        .refcount_decremented_func = &ScriptInstanceInfo::refcount_decremented_func,
         .get_script_func = &ScriptInstanceInfo::get_script_func,
         .is_placeholder_func = &ScriptInstanceInfo::is_placeholder_func,
         .set_fallback_func = nullptr,
@@ -322,16 +326,13 @@ GodotJSScriptInstanceBase::~GodotJSScriptInstanceBase()
     // When script binding fails due to an invalid script, we delete the invalid script instance.
     if (script_.is_valid())
     {
-        jsb_check(script_->_get_language());
-        const GodotJSScriptLanguage* lang = (GodotJSScriptLanguage*) script_->_get_language();
-        std::lock_guard lock(lang->mutex_);
-        script_->instances_.erase(owner_);
+        script_->remove_script_instance_instance_owner(owner_);
     }
 }
 
 void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &p_state) const
 {
-    LocalVector<PropertyInfo> p_list = *make_temporary_property_list();
+    const LocalVector<PropertyInfo> &p_list = *make_temporary_property_list();
 
 	for (const PropertyInfo &pinfo : p_list) {
 		if (pinfo.usage & PROPERTY_USAGE_STORAGE) {
@@ -365,6 +366,14 @@ LocalVector<MethodInfo>* GodotJSScriptInstanceBase::make_temporary_method_list()
     temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
     script_->get_script_method_list<MethodInfo, &convert_method_info, LocalVector<MethodInfo>>(*temporary_script_method_list_cache);
     return temporary_script_method_list_cache;
+}
+
+String GodotJSScriptInstanceBase::to_string(bool *r_valid) {
+    if (r_valid) {
+        *r_valid = false;
+    }
+    // TODO: 
+    return {};//"<" + get_script()->_get_global_name() + "#" + itos(get_owner()->get_instance_id()) + ">" ;
 }
 
 #ifdef TOOLS_ENABLED
@@ -405,7 +414,7 @@ const Variant GodotJSShadowScriptInstance::get_rpc_config() const { return scrip
 // ====== GodotJSScriptInstance =====
 jsb::ScriptClassInfoPtr GodotJSScriptInstance::get_script_class() const
 {
-    return env_->get_script_class(class_id_);
+    return get_env()->get_script_class(class_id_);
 }
 
 void GodotJSScriptInstance::postbind()
@@ -416,7 +425,7 @@ void GodotJSScriptInstance::postbind()
         if (it.value.cache)
         {
             Variant value;
-            env_->get_script_property_value(object_id_, it.value, value);
+            get_env()->get_script_property_value(object_id_, it.value, value);
             cache_property(it.key, value);
         }
     }
@@ -434,7 +443,7 @@ bool GodotJSScriptInstance::set(const StringName& p_name, const Variant& p_value
     {
         if (const auto& it = sptr->script_class_info_.properties.find(p_name); it)
         {
-            return env_->set_script_property_value(object_id_, it->value, p_value);
+            return get_env()->set_script_property_value(object_id_, it->value, p_value);
         }
 
         // TODO: Static variable?
@@ -445,7 +454,7 @@ bool GodotJSScriptInstance::set(const StringName& p_name, const Variant& p_value
             const Variant *args[2] = { &name, &p_value };
 
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_set), (const Variant **)args, 2, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_set), (const Variant **)args, 2, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
                 return true;
             }
@@ -472,7 +481,7 @@ bool GodotJSScriptInstance::get(const StringName& p_name, Variant& r_ret) const
     {
         if (const auto& it = sptr->script_class_info_.properties.find(p_name); it)
         {
-            return env_->get_script_property_value(object_id_, it->value, r_ret);
+            return get_env()->get_script_property_value(object_id_, it->value, r_ret);
         }
 
         // TODO: constant?
@@ -508,7 +517,7 @@ bool GodotJSScriptInstance::get(const StringName& p_name, Variant& r_ret) const
             const Variant *args[1] = { &name };
 
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get), (const Variant **)args, 1, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_get), (const Variant **)args, 1, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL)
             {
                 r_ret = ret;
@@ -534,7 +543,7 @@ LocalVector<PropertyInfo> *GodotJSScriptInstance::make_temporary_property_list()
         if (const auto& it = sptr->script_class_info_.methods.find(jsb_string_name(_get_property_list)); it)
         {
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL)
             {
                 ERR_FAIL_COND_V_MSG(ret.get_type() != Variant::ARRAY, temporary_script_property_list_cache,  "Wrong type for _get_property_list, must be an array of dictionaries.");
@@ -609,7 +618,7 @@ void GodotJSScriptInstance::validate_property(PropertyInfo& p_property) const
             const Variant *args[1] = { &property };
 
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_validate_property), (const Variant **)args, 1, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_validate_property), (const Variant **)args, 1, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL)
             {
                 p_property =  PropertyInfo::from_dict(property);
@@ -631,7 +640,7 @@ bool GodotJSScriptInstance::property_can_revert(const StringName& p_name) const
             const Variant *args[1] = { &name };
 
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_can_revert), args, 1, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_property_can_revert), args, 1, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
                 return true;
             }
@@ -654,7 +663,7 @@ bool GodotJSScriptInstance::property_get_revert(const StringName& p_name, Varian
             const Variant *args[1] = { &name };
 
             GDExtensionCallError err {};
-            Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_get_revert), args, 1, err);
+            Variant ret = get_env()->call_script_method(class_id_, object_id_, jsb_string_name(_property_get_revert), args, 1, err);
             if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
                 r_ret = ret;
                 return true;
@@ -682,7 +691,7 @@ Variant GodotJSScriptInstance::callp(const StringName& p_method, const Variant**
     }
     ScriptCallProfilingScope profiling_scope(profiling_info_, p_method);
 #endif
-    return env_->call_script_method(class_id_, object_id_, p_method, p_args, p_argcount, r_error);
+    return get_env()->call_script_method(class_id_, object_id_, p_method, p_args, p_argcount, r_error);
 }
 
 void GodotJSScriptInstance::notification(int p_notification, bool p_reversed)
@@ -696,7 +705,7 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed)
     }
 
     // Check if environment is being disposed to avoid calling into a destroyed JS context
-    if (!env_ || env_->is_disposing())
+    if (!get_env() || get_env()->is_disposing())
     {
         return;
     }

@@ -14,7 +14,9 @@
 #include "jsb_type_convert.h"
 #include "jsb_class_register.h"
 #include "jsb_worker.h"
+#if JSB_SHADOW_REALM_ENABLED
 #include "jsb_shadow_realm.h"
+#endif // JSB_SHADOW_REALM_ENABLED
 #include "jsb_essentials.h"
 #include "jsb_amd_module_loader.h"
 #include "jsb_thread_safe_for_nodes_scope.h"
@@ -394,8 +396,9 @@ namespace jsb
                         }
                     }
                 }
-
-                ShadowRealm_::register_(context, global);
+#if JSB_SHADOW_REALM_ENABLED
+                ShadowRealm::register_(context, global);
+#endif // JSB_SHADOW_REALM_ENABLED
                 Worker::register_(context, global);
                 Essentials::register_(context, global);
                 register_primitive_bindings(this);
@@ -451,12 +454,6 @@ namespace jsb
 
         // cleanup all class templates (must do after objects cleaned up)
         native_classes_.clear();
-
-
-        // while (v8::Isolate::GetCurrent() == isolate_)
-        // {
-        //     isolate_->Exit();
-        // }
 
         isolate_->Dispose();
         isolate_ = nullptr;
@@ -879,10 +876,7 @@ namespace jsb
             GodotJSScriptInstanceBase* new_script_instance = static_cast<GodotJSScriptInstanceBase*>(script->instance_create(p_object, p_pointer, false));
             jsb_check(new_script_instance);
             jsb_unused(new_script_instance);
-            for (const Pair<StringName, Variant>& pair : state)
-            {
-                new_script_instance->set(pair.first, pair.second);
-            }
+            new_script_instance->set_property_state(state);
             const NativeObjectID new_id = try_get_object_id(p_pointer);
             jsb_check(new_id);
             return new_id;
@@ -982,9 +976,9 @@ namespace jsb
         // must not be a valuetype object
         // jsb_check(native_classes_.get_value(object_handle->class_id).type != NativeClassType::GodotPrimitive);
 
-        // adding references
         if (p_is_inc)
         {
+            // adding references
             if (object_handle->ref_count_ == 0)
             {
                 // A first-pass GC callback may already have reset `ref_` while second-pass free
@@ -998,23 +992,23 @@ namespace jsb
             }
             ++object_handle->ref_count_;
             return true;
-        }
+        } else {
+            // removing references
+            if (jsb_unlikely(object_handle->ref_.IsEmpty()))
+            {
+                JSB_LOG(Warning, "UNEXPECTED dec reference on dead value %d", (uintptr_t) p_pointer);
+                return false;
+            }
 
-        // removing references
-        if (jsb_unlikely(object_handle->ref_.IsEmpty()))
-        {
-            JSB_LOG(Warning, "UNEXPECTED dec reference on dead value %d", (uintptr_t) p_pointer);
-            return false;
-        }
+            jsb_check(object_handle->ref_count_ > 0);
 
-        jsb_check(object_handle->ref_count_ > 0);
-
-        --object_handle->ref_count_;
-        if (object_handle->ref_count_ == 0)
-        {
-            object_handle->ref_.SetWeak(p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
+            --object_handle->ref_count_;
+            if (object_handle->ref_count_ == 0)
+            {
+                object_handle->ref_.SetWeak((void*)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
+            }
+            return true;
         }
-        return true;
     }
 
     // jsb_force_inline static void clear_internal_field(v8::Isolate* isolate, const v8::Global<v8::Object>& p_obj)
@@ -2369,10 +2363,7 @@ namespace jsb
             script_instance = script->instance_create(instance);
         }
 
-        for (const Pair<StringName, Variant>& pair : p_data.state)
-        {
-            static_cast<GodotJSScriptInstanceBase*>(script_instance)->set(pair.first, pair.second);
-        }
+        static_cast<GodotJSScriptInstanceBase*>(script_instance)->set_property_state(p_data.state);
     }
 
     void Environment::transfer_to_host(Environment* p_from, Environment* p_to, NativeObjectID p_worker_handle_id, const Variant& p_variant)

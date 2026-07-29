@@ -695,6 +695,7 @@ namespace jsb
         return class_info_obj;
     }
 
+    // TODO: 生成 @GlobalScope
     static void _get_class_doc(const v8::FunctionCallbackInfo<v8::Value>& info)
     {
         v8::Isolate* isolate = info.GetIsolate();
@@ -789,6 +790,7 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
         }
     }
 
+    // TODO: 添加 @GlobalScope
     static void _get_classes(const v8::FunctionCallbackInfo<v8::Value>& info)
     {
         v8::Isolate* isolate = info.GetIsolate();

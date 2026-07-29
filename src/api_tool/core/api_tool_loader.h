@@ -51,9 +51,9 @@ public:
     std::unique_ptr<ApiGlobalConstantDocument> find_global_constant_document(const godot::StringName &p_name);
 #endif // TOOLS_ENABLED
 
-    // ---- Compatibility hash queries (no cache, direct file read) ----
-    godot::LocalVector<MethodHash> get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName &p_method_name);
-    godot::LocalVector<MethodHash> get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_method_name);
+    // ---- Compatibility hash queries (cached, thread-safe) ----
+    const godot::LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName &p_method_name);
+    const godot::LocalVector<MethodHash>* get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_method_name);
 
     // ---- List all names (O(1) lookup via HashSet) ----
 
@@ -95,18 +95,18 @@ public:
 private:
     // Stable-pointer cache: deque stores data, HashMap stores name->index.
     // Pointers into deque are stable after push_back (deque block structure).
-    template<typename T>
+    template<typename CacheKey, typename T>
     struct TypedCache {
         std::deque<T> items;
-        godot::HashMap<godot::StringName, int32_t> name_to_index;
+        godot::HashMap<CacheKey, int32_t> name_to_index;
 
-        const T *find(const godot::StringName &p_name) const {
+        const T *find(const CacheKey &p_name) const {
             auto it = name_to_index.find(p_name);
             if (it == name_to_index.end()) return nullptr;
             return &items[it->value];
         }
 
-        void insert(const godot::StringName &p_name, const T &p_item) {
+        void insert(const CacheKey &p_name, const T &p_item) {
             int32_t idx = static_cast<int32_t>(items.size());
             items.push_back(p_item);
             name_to_index[p_name] = idx;
@@ -142,9 +142,6 @@ private:
 
     // Directory scan helpers (no lock - caller must hold lock).
     godot::PackedStringArray list_files_in_dir(const godot::String &p_subdir);
-    godot::LocalVector<godot::String> get_cached_names_utility() const;
-    godot::LocalVector<godot::String> get_cached_names_singleton() const;
-    godot::LocalVector<godot::String> get_cached_names_native() const;
 
     // Ensure name list caches are populated.
     void ensure_builtin_class_names();
@@ -165,21 +162,21 @@ private:
     ::CacheInvalidatedHandle next_callback_handle_ = 1;
 
     // Caches
-    TypedCache<ApiUtilityFunction> utility_function_cache_;
+    TypedCache<godot::StringName, ApiUtilityFunction> utility_function_cache_;
     bool all_utility_functions_loaded_ = false;
 
     // Fixed-size array for O(1) builtin class lookup by Variant::Type
     // Indexed by Variant::Type (0..VARIANT_MAX-1), nullptr if not loaded/not a builtin type
     ApiBuiltinClass *builtin_class_by_type_[godot::Variant::VARIANT_MAX] = {nullptr};
 
-    TypedCache<ApiClass> class_cache_;
-    TypedCache<ApiEnumInfo> enum_cache_;
-    TypedCache<ApiConstantInfo> constant_cache_;
+    TypedCache<godot::StringName, ApiClass> class_cache_;
+    TypedCache<godot::StringName, ApiEnumInfo> enum_cache_;
+    TypedCache<godot::StringName, ApiConstantInfo> constant_cache_;
 
-    TypedCache<ApiSingleton> singleton_cache_;
+    TypedCache<godot::StringName, ApiSingleton> singleton_cache_;
     bool all_singletons_loaded_ = false;
 
-    TypedCache<ApiNativeStructure> native_structure_cache_;
+    TypedCache<godot::StringName, ApiNativeStructure> native_structure_cache_;
     bool all_native_structures_loaded_ = false;
 
     // Name list caches (populated on first list_* call, cleared on clear())
@@ -191,6 +188,11 @@ private:
     bool global_enum_names_cached_ = false;
     godot::HashSet<godot::StringName> global_constant_names_cache_;
     bool global_constant_names_cached_ = false;
+
+    // Compatibility hash caches (per-type/class, keyed by Variant::Type or StringName)
+    // Uses TypedCache for stable-pointer pattern (deque + HashMap).
+    TypedCache<godot::Variant::Type, ApiCompatibilityHashData> builtin_compat_hash_cache_;
+    TypedCache<godot::StringName, ApiCompatibilityHashData> class_compat_hash_cache_;
 
     // RWLock: shared_mutex for concurrent reads, exclusive writes (req 3)
     mutable std::shared_mutex mutex_;

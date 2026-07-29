@@ -617,7 +617,7 @@ namespace jsb
                 jsb_check(api_builtin_class != nullptr);
                 const auto& constructors = api_builtin_class->constructors;
                 const int count = (int) constructors.size();
-                constructor_info.variants.resize_zeroed(count);
+                constructor_info.variants.resize_initialized(count);
                 for (int index = 0; index < count; ++index)
                 {
                     internal::FConstructorVariantInfo& variant_info = constructor_info.variants.write[index];
@@ -826,7 +826,7 @@ namespace jsb
                     method_info_storage.set_debug_name(member_name);
                     method_info_storage.method_info = &method_info;
                     method_info_storage.return_type = return_type;
-                    method_info_storage.argument_types.resize_zeroed(argument_count);
+                    method_info_storage.argument_types.resize(argument_count);
                     method_info_storage.is_vararg = method_info.is_vararg();
                     for (int argument_index = 0; argument_index < argument_count; ++argument_index)
                     {
@@ -957,7 +957,7 @@ namespace jsb
                 method_info_storage.set_debug_name(member_name);
                 method_info_storage.method_info = &method_info;
                 method_info_storage.return_type = return_type;
-                method_info_storage.argument_types.resize_zeroed(argument_count);
+                method_info_storage.argument_types.resize(argument_count);
                 method_info_storage.is_vararg = method_info.is_vararg();
                 for (int argument_index = 0; argument_index < argument_count; ++argument_index)
                 {

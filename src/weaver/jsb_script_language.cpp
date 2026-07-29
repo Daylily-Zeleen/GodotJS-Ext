@@ -6,7 +6,10 @@
 #include "../jsb_project_preset.h"
 #include "../internal/jsb_internal.h"
 #include "../bridge/jsb_worker.h"
+
+#if JSB_SHADOW_REALM_ENABLED
 #include "../bridge/jsb_shadow_realm.h"
+#endif // JSB_SHADOW_REALM_ENABLED
 
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_format_loader.hpp>
@@ -61,19 +64,18 @@ GodotJSScriptLanguage::GodotJSScriptLanguage()
     JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, Construct);
     jsb_check(!singleton_);
     singleton_ = this;
-    js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
-    js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
-    ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
     jsb::internal::StringNames::create();
 }
 
 GodotJSScriptLanguage::~GodotJSScriptLanguage()
 {
+    jsb_check(!environment_);
+
     jsb::internal::StringNames::free();
     jsb_check(singleton_ == this);
     singleton_ = nullptr;
 
-    //TODO manage script list in a safer way (access and ref with script.id)
+    // TODO: manage script list in a safer way (access and ref with script.id)
     std::lock_guard lock(mutex_);
     while (SelfList<GodotJSScript>* script_el = script_list_.first())
     {
@@ -84,6 +86,13 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage()
 void GodotJSScriptLanguage::_init()
 {
     if (once_inited_) return;
+
+    js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
+    js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
+    ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
+    jsb_check(js_class_name_matcher1_.is_valid());
+    jsb_check(js_class_name_matcher2_.is_valid());
+    jsb_check(ts_class_name_matcher_.is_valid());
 
     JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, init);
     once_inited_ = true;
@@ -115,6 +124,11 @@ void GodotJSScriptLanguage::_init()
 void GodotJSScriptLanguage::_finish()
 {
     jsb_check(once_inited_);
+
+    js_class_name_matcher1_.unref();
+    js_class_name_matcher2_.unref();
+    ts_class_name_matcher_.unref();
+
 #if JSB_DEBUG
     if (monitor_) memdelete(monitor_);
 #endif
@@ -123,7 +137,10 @@ void GodotJSScriptLanguage::_finish()
 #if !JSB_WITH_WEB
     jsb::Worker::finish();
 #endif
-    jsb::ShadowRealm_::finish_all();
+
+#if JSB_SHADOW_REALM_ENABLED
+    jsb::ShadowRealm::finish_all();
+#endif // JSB_SHADOW_REALM_ENABLED
     {
         std::vector<ShadowEnvironment> shadow_environments;
         {
@@ -381,7 +398,7 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String& p_path) c
     if (jsb::internal::PathUtil::is_recognized_javascript_extension(p_path))
     {
         // check if the class id defined in a single line (export default class ClassName extends BaseClassName)
-        jsb_check(!js_class_name_matcher1_.is_null());
+        jsb_check(js_class_name_matcher1_.is_valid());
         const Ref<RegExMatch> match1 = js_class_name_matcher1_->search(source);
         if (match1.is_valid() && match1->get_group_count() == 2)
         {
@@ -391,7 +408,7 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String& p_path) c
         else
         {
             // otherwise, it probably defined in separated lines (firstly, check 'class ClassName extends BaseClassName')
-            jsb_check(!js_class_name_matcher2_.is_null());
+            jsb_check(js_class_name_matcher2_.is_valid());
             const Ref<RegExMatch> match2 = js_class_name_matcher2_->search(source);
             if (match2.is_valid() && match2->get_group_count() == 1)
             {
@@ -409,9 +426,9 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String& p_path) c
     else
     {
         // hope it's a typescript file
-        jsb_check(!ts_class_name_matcher_.is_null());
+        jsb_check(ts_class_name_matcher_.is_valid());
 
-        Ref<RegExMatch> match =  ts_class_name_matcher_->search(source);
+        Ref<RegExMatch> match = ts_class_name_matcher_->search(source);
         if (match.is_valid() && match->get_group_count() == 4)
         {
             is_tool = !match->get_string(1).is_empty();
@@ -523,9 +540,9 @@ bool GodotJSScriptLanguage::is_global_class_generic(const String &p_path) const
         return false;
     }
 
-    jsb_check(!ts_class_name_matcher_.is_null());
+    jsb_check(ts_class_name_matcher_.is_valid());
 
-    Ref<RegExMatch> match =  ts_class_name_matcher_->search(source);
+    Ref<RegExMatch> match = ts_class_name_matcher_->search(source);
     return match.is_valid() && match->get_group_count() == 4 && match->get_string(3).length() > 0;
 }
 
@@ -802,9 +819,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array& p_scripts, bool
 				}
 			} else {
                 GodotJSScriptInstanceBase *si = static_cast<GodotJSScriptInstanceBase*>(script_instance);
-                for (const auto & G: saved_state) {
-                    si->set(G.first, G.second);
-                }
+                si->set_property_state(saved_state);
 			}
 
 			scr->pending_reload_state_.erase(obj->get_instance_id()); //as it reloaded, remove pending state

@@ -1169,7 +1169,7 @@ namespace jsb
 
         Environment* master = Environment::wrap(isolate);
         Worker* ptr = memnew(Worker);
-        const NativeObjectID handle = master->bind_pointer(class_id, NativeClassType::Worker, ptr, self, 0);
+        const NativeObjectID handle = master->bind_js_owned_pointer(class_id, NativeClassType::Worker, ptr, self);
         jsb_check(handle);
         ptr->id_ = Worker::create(master, path, handle);
     }

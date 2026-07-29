@@ -238,20 +238,20 @@ int32_t get_global_constant_count() {
 // Compatibility hash query interface implementation (no cache, direct file read)
 // ============================================================================
 
-LocalVector<MethodHash> get_builtin_method_compatibility_hashes(Variant::Type p_type, const StringName &p_name) {
+const LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(Variant::Type p_type, const StringName &p_name) {
 #ifndef DISABLE_DEPRECATED
     return get_loader().get_builtin_method_compatibility_hashes(p_type, p_name);
 #else // DISABLE_DEPRECATED
-    return {};
+    return nullptr;
 #endif// DISABLE_DEPRECATED
 
 }
 
-LocalVector<MethodHash> get_class_method_compatibility_hashes(const StringName &p_class_name, const StringName &p_name) {
+const LocalVector<MethodHash>* get_class_method_compatibility_hashes(const StringName &p_class_name, const StringName &p_name) {
 #ifndef DISABLE_DEPRECATED
     return get_loader().get_class_method_compatibility_hashes(p_class_name, p_name);
 #else // DISABLE_DEPRECATED
-    return {};
+    return nullptr;
 #endif // !DISABLE_DEPRECATED
 }
 

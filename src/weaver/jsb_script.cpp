@@ -94,14 +94,49 @@ ScriptInstance* GodotJSScript::instance_and_native_object_create(const v8::Local
     jsb_check(loaded_);
 
     // godot 暴露的 ClassDB 绑定，该接口返回 Variant, 如果是 RefCounted 则会自行处理引用
-    const Variant owner_var = ClassDB::instantiate(script_class_info_.native_class_name);
-    Object *owner = (Object *)owner_var;
+    const Variant var = ClassDB::instantiate(script_class_info_.native_class_name);
+    Object *owner = var;
 
     ScriptInstance* instance = instance_create(p_this, owner, p_is_temp_allowed);
     if (!instance && !owner->is_class(RefCounted::get_class_static()))
     {
         memdelete(owner);
     }
+    return instance;
+}
+
+void GodotJSScript::remove_script_instance_instance_owner(Object * p_owner) {
+    jsb_check(GodotJSScriptLanguage::get_singleton());
+    std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
+    instances_.erase(p_owner);
+}
+
+GodotJSScriptInstance *GodotJSScript::try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto p_bind_and_get_native_object_id)
+{
+    /* STEP 1, CREATE */
+    GodotJSScriptInstance* instance = memnew(GodotJSScriptInstance(
+        Ref(this), 
+        p_owner, 
+        p_env,
+        p_script_class_id));
+    ScriptInstance::set_script_instance(instance->get_owner(), instance);
+
+    /* STEP 2, INITIALIZE AND CONSTRUCT */
+    {
+        std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
+        instances_.insert(p_owner);
+    }
+    instance->object_id_ = p_bind_and_get_native_object_id();
+    if (!instance->object_id_)
+    {
+        instance->script_ = Ref<GodotJSScript>();
+        ScriptInstance::set_script_instance(instance->get_owner(), nullptr);
+        //NOTE `instance` becomes an invalid pointer since it's deleted in `set_script_instance`
+        remove_script_instance_instance_owner(p_owner);
+        JSB_LOG(Error, "Error constructing a GodotJSScriptInstance for %s (%s)", script_class_info_.js_class_name, script_class_info_.module_id);
+        return nullptr;
+    }
+
     return instance;
 }
 
@@ -122,34 +157,10 @@ ScriptInstance* GodotJSScript::instance_create(const v8::Local<v8::Object>& p_th
     jsb_ensuref(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
     const jsb::NativeClassID native_class_id = env->get_script_class(module->script_class_id)->native_class_id;
 
-    /* STEP 1, CREATE */
-    GodotJSScriptInstance* instance = memnew(GodotJSScriptInstance(
-        Ref(this), 
-        p_owner, 
-        env,
-        module->script_class_id));
-    ScriptInstance::set_script_instance(instance->get_owner(), instance);
-
-    /* STEP 2, INITIALIZE AND CONSTRUCT */
-    {
-        std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
-        instances_.insert(p_owner);
-    }
-    instance->object_id_ = env->bind_godot_object(native_class_id, p_owner, p_this);
-    if (!instance->object_id_)
-    {
-        instance->script_ = Ref<GodotJSScript>();
-        ScriptInstance::set_script_instance(instance->owner_, nullptr);
-        //NOTE `instance` becomes an invalid pointer since it's deleted in `set_script_instance`
-        {
-            std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
-            instances_.erase(p_owner);
-        }
-        JSB_LOG(Error, "Error constructing a GodotJSScriptInstance for %s (%s)", script_class_info_.js_class_name, script_class_info_.module_id);
-        return nullptr;
-    }
-
-    return instance;
+    return try_create_script_instance(
+        p_owner, env, module->script_class_id, 
+        [&env, native_class_id, p_owner, p_this]{
+            return env->bind_godot_object(native_class_id, p_owner, p_this);});
 }
 
 ScriptInstance* GodotJSScript::instance_construct(Object* p_this, bool p_is_temp_allowed, const Variant** p_args, int p_argcount)
@@ -186,37 +197,16 @@ ScriptInstance* GodotJSScript::instance_construct(Object* p_this, bool p_is_temp
     jsb::JavaScriptModule* module = nullptr;
     const Error err = env->load(script_class_info_.module_id, &module);
     jsb_ensuref(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
+    const jsb::ScriptClassID script_class_id = module->script_class_id;
 
-    /* STEP 1, CREATE */
-    GodotJSScriptInstance* instance = memnew(GodotJSScriptInstance(
-        Ref(this), 
-        p_this, 
-        env, 
-        module->script_class_id));
-    ScriptInstance::set_script_instance(instance->get_owner(), instance);
+    GodotJSScriptInstance* instance = try_create_script_instance(
+        p_this, env, module->script_class_id, 
+        [&env, p_this, script_class_id, p_args, p_argcount]{
+            return env->crossbind(p_this, script_class_id, p_args, p_argcount); });
 
-    /* STEP 2, INITIALIZE AND CONSTRUCT */
-    {
-        std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
-        instances_.insert(instance->owner_);
+    if (instance) {
+        instance->postbind();
     }
-
-    instance->object_id_ = env->crossbind(p_this, instance->class_id_, p_args, p_argcount);
-
-    if (!instance->object_id_)
-    {
-        instance->script_ = Ref<GodotJSScript>();
-        ScriptInstance::set_script_instance(instance->owner_, nullptr);
-        //NOTE `instance` becomes an invalid pointer since it's deleted in `set_script_instance`
-        {
-            std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
-            instances_.erase(p_this);
-        }
-        JSB_LOG(Error, "Error constructing a GodotJSScriptInstance for %s (%s)", script_class_info_.js_class_name, script_class_info_.module_id);
-        return nullptr;
-    }
-
-    instance->postbind();
 
     return instance;
 }
@@ -490,7 +480,7 @@ Error GodotJSScript::load_source_code(const String &p_path)
     }
     else
     {
-        set_source_code(source_code);
+        _set_source_code(source_code);
     }
     return err;
 }
@@ -663,6 +653,7 @@ Variant GodotJSScript::_new(const Variant** p_args, GDExtensionInt p_argcount, G
     }
 
     r_error.error = GDEXTENSION_CALL_OK;
+
     const Variant owner_var = ClassDB::instantiate(script_class_info_.native_class_name);
     Object *owner = owner_var;
 
@@ -670,7 +661,7 @@ Variant GodotJSScript::_new(const Variant** p_args, GDExtensionInt p_argcount, G
 
     if (RefCounted *rc = Object::cast_to<RefCounted>(owner)) {
         if (!instance) return {};
-        else return Ref<RefCounted>(rc);
+        else return owner_var;
     } else {
         if (!instance) {
             memdelete(owner);

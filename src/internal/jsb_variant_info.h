@@ -86,7 +86,6 @@ namespace jsb::internal
 
         // for godot properties which have an implicit (hidden) parameter for getter/setter calls
         Vector<FPropertyInfo2> object_properties;
-
     };
 }
 #endif

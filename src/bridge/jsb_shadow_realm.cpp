@@ -1,3 +1,4 @@
+// TODO: 优化 mutex 的使用
 #include "jsb_shadow_realm.h"
 
 #include "../internal/jsb_sarray.h"
@@ -7,28 +8,6 @@
 #include "jsb_object_handle.h"
 #include "jsb_ref.h"
 #include "jsb_type_convert.h"
-
-#define DEF_SNAME_GETTER(name)                  \
-	static const StringName &name() {           \
-		static const StringName _name{ #name }; \
-		return _name;                           \
-	}
-
-class Names {
-public:
-	DEF_SNAME_GETTER(FunctionCrossWrapper);
-	DEF_SNAME_GETTER(ObjectCrossWrapper);
-	DEF_SNAME_GETTER(ShadowRealm);
-	DEF_SNAME_GETTER(TransferableShadowRealm);
-
-	DEF_SNAME_GETTER(has);
-	DEF_SNAME_GETTER(get);
-	DEF_SNAME_GETTER(set);
-	DEF_SNAME_GETTER(getPrototypeOf);
-
-	DEF_SNAME_GETTER(startupScript);
-	DEF_SNAME_GETTER(allowImportAnyModule);
-};
 
 #define JSB_SHADOW_REALM_LOG(Severity, Format, ...) JSB_LOG_IMPL(ShadowRealm, Severity, Format, ##__VA_ARGS__)
 #define JSB_SHADOW_REALM_MODULE_NAME "godot.shadowRealm"
@@ -506,7 +485,7 @@ public:
 		const v8::Isolate::Scope isolate_scope(isolate);
 
 		NativeClassID class_id;
-		const StringName &class_name = Names::FunctionCrossWrapper();
+		const StringName &class_name = jsb_string_name(FunctionCrossWrapper);
 		p_host_env->find_native_class(class_name, &class_id);
 		const NativeClassInfoPtr class_info = p_host_env->find_native_class(class_name, &class_id);
 
@@ -515,7 +494,7 @@ public:
 		const v8::Local<v8::Object> data = class_info->clazz.NewInstance(context);
 
 		FunctionCrossWrapper *ptr = memnew(FunctionCrossWrapper(p_guest_isolate, p_function));
-		const NativeObjectID handle = p_host_env->bind_pointer(class_id, NativeClassType::Custom, ptr, data, 0);
+		const NativeObjectID handle = p_host_env->bind_js_owned_pointer(class_id, NativeClassType::Custom, ptr, data);
 		jsb_check(handle);
 
 		const v8::Local<v8::Function> wrapper = v8::Function::New(context, &FunctionCrossWrapper::call, data).ToLocalChecked();
@@ -541,6 +520,7 @@ public:
 		const v8::Isolate::Scope isolate_scope1(guest_isolate);
 		Environment *guest_env = Environment::wrap(guest_isolate);
 
+		// TODO: jsb_stackalloc
 		LocalVector<v8::Local<v8::Value>> args;
 		args.reserve(info.Length());
 		for (int i = 0; i < info.Length(); i++) {
@@ -565,7 +545,7 @@ public:
 		const v8::Isolate::Scope isolate_scope(isolate);
 
 		{
-			const StringName &class_name = Names::FunctionCrossWrapper();
+			const StringName &class_name = jsb_string_name(FunctionCrossWrapper);
 			const NativeClassID class_id = p_env->add_native_class(NativeClassType::Custom, class_name);
 			impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, class_name, &_placeholder, *class_id);
 
@@ -630,30 +610,30 @@ public:
 		const v8::Context::Scope context_scope(context);
 
 		NativeClassID class_id;
-		const StringName &class_name = Names::ObjectCrossWrapper();
+		const StringName &class_name = jsb_string_name(ObjectCrossWrapper);
 		const NativeClassInfoPtr class_info = p_host_env->find_native_class(class_name, &class_id);
 		const v8::Local<v8::Object> wrapper = class_info->clazz.NewInstance(context);
 
 		ObjectCrossWrapper *ptr = memnew(ObjectCrossWrapper(p_guest_isolate, p_guest_obj));
-		const NativeObjectID handle = p_host_env->bind_pointer(class_id, NativeClassType::Custom, ptr, wrapper, 0);
+		const NativeObjectID handle = p_host_env->bind_js_owned_pointer(class_id, NativeClassType::Custom, ptr, wrapper);
 		jsb_check(handle);
 
 		// Proxy Handler
 		v8::Local<v8::Object> handler = v8::Object::New(isolate);
 		handler->Set(context,
-					   p_host_env->get_string_value(Names::has()),
+					   jsb_name(p_host_env, has),
 					   v8::Function::New(context, &ObjectCrossWrapper::proxy_has).ToLocalChecked())
 				.Check();
 		handler->Set(context,
-					   p_host_env->get_string_value(Names::get()),
+					   jsb_name(p_host_env, get),
 					   v8::Function::New(context, &ObjectCrossWrapper::proxy_get).ToLocalChecked())
 				.Check();
 		handler->Set(context,
-					   p_host_env->get_string_value(Names::set()),
+					   jsb_name(p_host_env, set),
 					   v8::Function::New(context, &ObjectCrossWrapper::proxy_set).ToLocalChecked())
 				.Check();
 		handler->Set(context,
-					   p_host_env->get_string_value(Names::getPrototypeOf()),
+					   jsb_name(p_host_env, getPrototypeOf),
 					   v8::Function::New(context, &ObjectCrossWrapper::proxy_getPrototypeOf).ToLocalChecked())
 				.Check();
 
@@ -779,7 +759,7 @@ public:
 		const v8::HandleScope handle_scope(isolate);
 
 		{
-			const StringName &class_name = Names::ObjectCrossWrapper();
+			const StringName &class_name = jsb_string_name(ObjectCrossWrapper);
 			const NativeClassID class_id = p_env->add_native_class(NativeClassType::Custom, class_name);
 			impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, class_name, &_placeholder, *class_id);
 
@@ -900,7 +880,8 @@ struct ShadowRealmCreateParams {
 #pragma endregion CrossWrapper
 
 #pragma region ShadownRealm
-class ShadowRealm {
+
+class ShadowRealmImpl {
 	ShadowRealmID id_{};
 	internal::Index32 id_in_master_{};
 
@@ -908,25 +889,69 @@ class ShadowRealm {
 	NativeObjectID handle_;
 
 	void *token_ = nullptr;
-	v8::Global<v8::Object> context_obj_handle_;
 	jsb::DefaultModuleResolver *module_resolver_{ nullptr };
 
+protected:
 	std::shared_ptr<Environment> env_{ nullptr };
 
-	friend class TransferableShadowRealm;
+	// friend class TransferableShadowRealmImpl;
 
 protected:
-	static internal::SArray<ShadowRealm *, ShadowRealmID> &get_shadow_realm_list();
+	static internal::SArray<ShadowRealmImpl *, ShadowRealmID> &get_shadow_realm_list();
 	static std::recursive_mutex lock_;
 
-public:
-	ShadowRealm(Environment *p_master) : token_(p_master) {}
+protected:
+	template<typename ShadowRealmType>
+	requires std::is_convertible_v<ShadowRealmType*, ShadowRealmImpl *>
+	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
+		v8::Isolate *isolate = info.GetIsolate();
+		Environment *env = Environment::wrap(isolate);
+		const v8::HandleScope handle_scope(isolate);
+		const v8::Isolate::Scope isolate_scope(isolate);
+		const v8::Local<v8::Context> context = env->get_context();
+		const v8::Context::Scope context_scope(context);
 
-	virtual ~ShadowRealm() {
-		JSB_SHADOW_REALM_LOG(VeryVerbose, "ShadowRealm destroyed: %d", id_);
+		const v8::Local<v8::Object> self = info.This();
+		const internal::Index32 class_id(info.Data().As<v8::Uint32>()->Value());
+
+		ShadowRealmCreateParams params;
+		v8::Local<v8::Value> arg = info[0];
+		if (info[0]->IsObject()) {
+			v8::Local<v8::Object> obj = arg.As<v8::Object>();
+			v8::MaybeLocal<v8::Value> startup_script = obj->Get(context, jsb_name(env, startupScript));
+			v8::MaybeLocal<v8::Value> allow_import_any_module = obj->Get(context, jsb_name(env,allowImportAnyModule));
+			if (startup_script.IsEmpty() || allow_import_any_module.IsEmpty()) {
+				jsb_throw(isolate, "bad param");
+			}
+			params.startup_script = impl::Helper::to_string(isolate, startup_script.ToLocalChecked());
+			params.allow_import_any_module = allow_import_any_module.ToLocalChecked()->BooleanValue(isolate);
+		} else if (!arg->IsNullOrUndefined()) {
+			jsb_throw(isolate, "bad param");
+		}
+
+		MUTEX_LOCK_GUARD(lock_);
+
+		ShadowRealmType *realm = memnew(ShadowRealmType(env));
+		const ShadowRealmID id = get_shadow_realm_list().add(realm);
+		if (realm->init(id, env, params)) {
+			const NativeObjectID handle = env->bind_js_owned_pointer(class_id, NativeClassType::Shadow, realm, self);
+			jsb_check(handle);
+			realm->handle_ = handle;
+		} else {
+			get_shadow_realm_list().remove_at(id);
+			realm->id_ = ShadowRealmID::none();
+		}
 	}
 
-	virtual bool init(ShadowRealmID id, Environment *p_master, const ShadowRealmCreateParams &p_create_params) {
+	virtual void init_environment() {}
+
+public:
+	ShadowRealmImpl(Environment *p_master) : token_(p_master) {}
+	virtual ~ShadowRealmImpl() {
+		JSB_SHADOW_REALM_LOG(VeryVerbose, "ShadowRealmImpl destroyed: %d", id_);
+	}
+
+	bool init(ShadowRealmID id, Environment *p_master, const ShadowRealmCreateParams &p_create_params) {
 		jsb_check(!id_);
 		jsb_check(id);
 		id_ = id;
@@ -947,14 +972,9 @@ public:
 
 		{
 			v8::Isolate *isolate = env_->get_isolate();
-			const v8::Isolate::Scope isolate_scope(isolate);
-			const v8::HandleScope handle_scope(isolate);
-			const v8::Local<v8::Context> context = env_->get_context();
-			const v8::Context::Scope context_scope(context);
-
-			const v8::Local<v8::Object> context_obj = v8::Object::New(isolate);
-			context_obj_handle_.Reset(isolate, context_obj);
 			impl::Helper::set_as_interruptible(isolate);
+
+			init_environment();
 		}
 
 		if (!p_create_params.startup_script.is_empty()) {
@@ -969,15 +989,17 @@ public:
 		return true;
 	}
 
+// protected:
 	jsb_force_inline ShadowRealmID get_id() const { return id_; }
+
+	jsb_force_inline NativeObjectID get_handle() const { return handle_; }
 
 	jsb_force_inline void *get_token() const { return token_; }
 
-	jsb_force_inline void set_handle(NativeObjectID p_handle) { handle_ = p_handle; }
 
 protected:
-	virtual void finish() {
-		if (!ShadowRealm::is_valid(id_)) {
+	void finish() {
+		if (!ShadowRealmImpl::is_valid(id_)) {
 			return;
 		}
 
@@ -1004,8 +1026,6 @@ protected:
 					return;
 				}
 				isolate->TerminateExecution();
-
-				context_obj_handle_.Reset();
 			}
 
 			env_->dispose();
@@ -1020,7 +1040,7 @@ protected:
 	static bool _terminate(ShadowRealmID p_shadow_id) {
 		MUTEX_LOCK_GUARD(lock_);
 
-		ShadowRealm *impl;
+		ShadowRealmImpl *impl;
 		if (get_shadow_realm_list().try_get_value(p_shadow_id, impl)) {
 			impl->finish();
 
@@ -1034,7 +1054,7 @@ protected:
 	}
 
 	static v8::Local<v8::Value> _importValue(
-			Environment *env, const ShadowRealm *realm, const v8::Local<v8::String> &specifier, const v8::Local<v8::String> &value_name,
+			Environment *env, const ShadowRealmImpl *realm, const v8::Local<v8::String> &specifier, const v8::Local<v8::String> &value_name,
 			String &r_error_msg) {
 		// MUTEX_LOCK_GUARD(lock_);
 
@@ -1090,53 +1110,13 @@ protected:
 
 public:
 	static void finalizer(Environment *p_env, void *pointer, FinalizationType /* p_finalize */) {
-		ShadowRealm *self = (ShadowRealm *)pointer;
-		if (ShadowRealm::is_valid(self->id_)) {
+		ShadowRealmImpl *self = (ShadowRealmImpl *)pointer;
+		if (ShadowRealmImpl::is_valid(self->id_)) {
 			JSB_SHADOW_REALM_LOG(Debug, "shadow_realm is not explicitly terminated before garbage collected, will be terminated automatically.");
 			self->finish();
 		}
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "deleting ShadowRealm %d", self->id_);
 		memdelete(self);
-	}
-
-	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		Environment *env = Environment::wrap(isolate);
-		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
-		const v8::Local<v8::Context> context = env->get_context();
-		const v8::Context::Scope context_scope(context);
-
-		const v8::Local<v8::Object> self = info.This();
-		const internal::Index32 class_id(info.Data().As<v8::Uint32>()->Value());
-
-		ShadowRealmCreateParams params;
-		v8::Local<v8::Value> arg = info[0];
-		if (info[0]->IsObject()) {
-			v8::Local<v8::Object> obj = arg.As<v8::Object>();
-			v8::MaybeLocal<v8::Value> startup_script = obj->Get(context, env->get_string_value(Names::startupScript()));
-			v8::MaybeLocal<v8::Value> allow_import_any_module = obj->Get(context, env->get_string_value(Names::allowImportAnyModule()));
-			if (startup_script.IsEmpty() || allow_import_any_module.IsEmpty()) {
-				jsb_throw(isolate, "bad param");
-			}
-			params.startup_script = impl::Helper::to_string(isolate, startup_script.ToLocalChecked());
-			params.allow_import_any_module = allow_import_any_module.ToLocalChecked()->BooleanValue(isolate);
-		} else if (!arg->IsNullOrUndefined()) {
-			jsb_throw(isolate, "bad param");
-		}
-
-		MUTEX_LOCK_GUARD(lock_);
-
-		ShadowRealm *realm = memnew(ShadowRealm(env));
-		const ShadowRealmID id = get_shadow_realm_list().add(realm);
-		if (realm->init(id, env, params)) {
-			const NativeObjectID handle = env->bind_pointer(class_id, NativeClassType::Shadow, realm, self, 0);
-			jsb_check(handle);
-			realm->set_handle(handle);
-		} else {
-			get_shadow_realm_list().remove_at(id);
-			realm->id_ = ShadowRealmID::none();
-		}
 	}
 
 	// -------
@@ -1148,10 +1128,21 @@ public:
 
 	static void addAllowedModuleSearchPath(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
+
+		const v8::Local<v8::Object> self = info.This();
+		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			return;
+		}
+
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(isolate, "Call on an invalid shadow realm");
+			return;
+		}
+
 		const v8::HandleScope handle_scope(isolate);
 		const v8::Isolate::Scope isolate_scope(isolate);
-
-		const ShadowRealm *realm = (ShadowRealm *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
 
 		if (info.Length() <= 0 || !info[0]->IsString()) {
 			jsb_throw(isolate, "bad argument: require a string.");
@@ -1173,8 +1164,19 @@ public:
 
 	static void evaluate(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
+		v8::Isolate *isolate = info.GetIsolate();
 
-		const ShadowRealm *realm = (const ShadowRealm *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
+		const v8::Local<v8::Object> self = info.This();
+		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			return;
+		}
+
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(isolate, "Call on an invalid shadow realm");
+			return;
+		}
 
 		String wrapped_source;
 		v8::Isolate *host_isolate = info.GetIsolate();
@@ -1219,8 +1221,20 @@ public:
 
 	static void importValue(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
-
 		v8::Isolate *isolate = info.GetIsolate();
+
+		const v8::Local<v8::Object> self = info.This();
+		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			return;
+		}
+
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(isolate, "Call on an invalid shadow realm");
+			return;
+		}
+
 		Environment *env = Environment::wrap(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
 
@@ -1233,7 +1247,6 @@ public:
 		v8::Local<v8::Promise> promise = resolver->GetPromise();
 		info.GetReturnValue().Set(promise);
 
-		const ShadowRealm *realm = (const ShadowRealm *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (info.Length() <= 0 || !info[0]->IsString() || info[0].As<v8::String>()->Length() <= 0) {
 			jsb_throw(isolate, "bad argument of index 1: require a not empty string.");
 			resolver->Reject(context, v8::String::NewFromUtf8Literal(isolate, "bad argument of index 1: require a not empty string.")).Check();
@@ -1263,8 +1276,20 @@ public:
 
 	static void importValueSync(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
-
 		v8::Isolate *isolate = info.GetIsolate();
+
+		const v8::Local<v8::Object> self = info.This();
+		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			return;
+		}
+
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(isolate, "Call on an invalid shadow realm");
+			return;
+		}
+
 		Environment *env = Environment::wrap(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
 
@@ -1272,7 +1297,6 @@ public:
 		const v8::Isolate::Scope isolate_scope(isolate);
 		const v8::Context::Scope context_scope(context);
 
-		const ShadowRealm *realm = (const ShadowRealm *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (info.Length() <= 0 || !info[0]->IsString() || info[0].As<v8::String>()->Length() <= 0) {
 			jsb_throw(isolate, "bad argument of index 1: require a not empty string.");
 			return;
@@ -1298,7 +1322,18 @@ public:
 	}
 
 	static void terminate(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		const ShadowRealm *realm = (const ShadowRealm *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
+		v8::Isolate *isolate = info.GetIsolate();
+		const v8::Local<v8::Object> self = info.This();
+		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			return;
+		}
+
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(isolate, "Can not terminate an invalid shadow realm");
+			return;
+		}
 		const ShadowRealmID shadow_realm_id = realm->get_id();
 		_terminate(shadow_realm_id);
 	}
@@ -1314,7 +1349,7 @@ public:
 			}
 			jsb_check(get_shadow_realm_list().is_valid_index(id));
 			jsb_check(!get_shadow_realm_list().is_empty());
-			ShadowRealm *impl;
+			ShadowRealmImpl *impl;
 			get_shadow_realm_list().try_get_value(id, impl);
 
 			if (impl) {
@@ -1322,13 +1357,34 @@ public:
 			}
 		}
 	}
+
+public:
+	static NativeClassInfoPtr register_class(Environment *p_env, v8::Isolate *p_isolate) {
+		const StringName &class_name = jsb_string_name(ShadowRealm);
+		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
+		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
+			p_isolate, class_name, &constructor<ShadowRealmImpl>, *class_id);
+
+		class_builder.Instance().Method("evaluate", &ShadowRealmImpl::evaluate);
+		class_builder.Instance().Method("addAllowedModuleSearchPath", &ShadowRealmImpl::addAllowedModuleSearchPath);
+		class_builder.Instance().Method("importValue", &ShadowRealmImpl::importValue);
+		class_builder.Instance().Method("importValueSync", &ShadowRealmImpl::importValueSync);
+		class_builder.Instance().Method("terminate", &ShadowRealmImpl::terminate);
+
+		const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
+		class_info->finalizer = &ShadowRealmImpl::finalizer;
+		class_info->clazz = class_builder.Build();
+		jsb_check(!class_info->clazz.IsEmpty());
+		jsb_check(class_info->name == class_name);
+		return class_info;
+	}
 };
 
-internal::SArray<ShadowRealm *, ShadowRealmID> &ShadowRealm::get_shadow_realm_list() {
-	static internal::SArray<ShadowRealm *, ShadowRealmID> list;
+internal::SArray<ShadowRealmImpl *, ShadowRealmID> &ShadowRealmImpl::get_shadow_realm_list() {
+	static internal::SArray<ShadowRealmImpl *, ShadowRealmID> list;
 	return list;
 }
-std::recursive_mutex ShadowRealm::lock_;
+std::recursive_mutex ShadowRealmImpl::lock_;
 #pragma endregion ShadownRealm
 
 #pragma region ShadowRealmMessage
@@ -1358,131 +1414,66 @@ private:
 #pragma endregion ShadowRealmMessage
 
 #pragma region TransferableShadowRealm
-class TransferableShadowRealm : public ShadowRealm {
+class TransferableShadowRealmImpl : public ShadowRealmImpl {
+	v8::Global<v8::Object> context_obj_handle_;
+
 protected:
-	virtual void finish() override {
-		if (!ShadowRealm::is_valid(id_)) {
-			return;
-		}
+	virtual void init_environment() override {
+		v8::Isolate *isolate = env_->get_isolate();
+		const v8::Isolate::Scope isolate_scope(isolate);
+		const v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = env_->get_context();
+		const v8::Context::Scope context_scope(context);
 
-		if (*id_in_master_ != *internal::Index32::none()) {
-			const std::shared_ptr<Environment> owner_env = Environment::_access(token_);
-			if (owner_env) {
-				owner_env->remove_shadow_env(id_in_master_);
-			}
-			id_in_master_ = internal::Index32::none();
-		}
+		ShadowRealmID id = get_id();
 
-		if (env_.get()) {
-			v8::Isolate *isolate = env_->get_isolate();
-			const v8::Isolate::Scope isolate_scope(isolate);
-			const v8::HandleScope handle_scope(isolate);
+		// setup 'postMessage, onmessage etc.' for ShadowRealmParent
+		JavaScriptModule *module = nullptr;
+		jsb_ensuref(env_->load(JSB_SHADOW_REALM_MODULE_NAME, &module) == OK,
+				"failed to load '%s' module in shadowRealm thread %d", JSB_SHADOW_REALM_MODULE_NAME, id);
 
-			if (isolate->IsExecutionTerminating()) {
-				JSB_SHADOW_REALM_LOG(Log, "TransferableShadowRealm is terminating %d", id_);
-				return;
-			}
-			isolate->TerminateExecution();
+		const v8::Local<v8::Object> context_obj = v8::Object::New(isolate);
+		context_obj_handle_.Reset(isolate, context_obj);
 
-			context_obj_handle_.Reset();
+		const v8::Local<v8::Value> exports_val = module->exports.Get(isolate);
+		jsb_check(!exports_val.IsEmpty() && exports_val->IsObject() && !exports_val->IsNullOrUndefined());
+		const v8::Local<v8::Object> exports = exports_val.As<v8::Object>();
+		exports->Set(context, impl::Helper::new_string(isolate, "ShadowRealmParent"), context_obj).Check();
 
-			env_->dispose();
-			env_.reset();
-
-			JSB_SHADOW_REALM_LOG(VeryVerbose, "TransferableShadowRealm exited: %d", id_);
-		}
-
-		id_ = ShadowRealmID::none();
+		context_obj->Set(context,
+							jsb_name(env_, postMessage),
+							v8::Function::New(context, &post_message_to_host, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
+				.Check();
+		context_obj->Set(context,
+							jsb_name(env_, close),
+							v8::Function::New(context, &close_from_shadow_realm, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
+				.Check();
+		context_obj->Set(context,
+							jsb_name(env_, onmessage),
+							v8::Null(isolate))
+				.Check();
 	}
 
 public:
-	TransferableShadowRealm(Environment *p_master) : ShadowRealm(p_master) {}
-	~TransferableShadowRealm() {
-		JSB_SHADOW_REALM_LOG(VeryVerbose, "ShadowRealm destroyed: %d", id_);
+	TransferableShadowRealmImpl(Environment *p_master) : ShadowRealmImpl(p_master) {}
+	~TransferableShadowRealmImpl() {
+		JSB_SHADOW_REALM_LOG(VeryVerbose, "TransferableShadowRealm destroyed: %d", get_id());
 	}
-
-	virtual bool init(ShadowRealmID id, Environment *p_master, const ShadowRealmCreateParams &p_create_params) override {
-		jsb_check(!id_);
-		jsb_check(id);
-		id_ = id;
-
-		Environment::CreateParams params;
-		params.initial_class_slots = JSB_SHADOW_REALM_INITIAL_CLASS_SLOTS;
-		params.initial_object_slots = JSB_SHADOW_REALM_INITIAL_OBJECT_SLOTS;
-		params.initial_script_slots = JSB_SHADOW_REALM_INITIAL_SCRIPT_SLOTS;
-		params.thread_id = OS::get_singleton()->get_thread_caller_id();
-		params.type = Environment::Type::Shadow;
-
-		env_ = std::make_shared<Environment>(params);
-		env_->init();
-
-		{
-			// setup 'postMessage, onmessage etc.' for ShadowRealmParent
-
-			JavaScriptModule *module = nullptr;
-			jsb_ensuref(env_->load(JSB_SHADOW_REALM_MODULE_NAME, &module) == OK,
-					"failed to load '%s' module in shadowRealm thread %d", JSB_SHADOW_REALM_MODULE_NAME, id_);
-
-			v8::Isolate *isolate = env_->get_isolate();
-			const v8::Isolate::Scope isolate_scope(isolate);
-			const v8::HandleScope handle_scope(isolate);
-			const v8::Local<v8::Context> context = env_->get_context();
-			const v8::Context::Scope context_scope(context);
-
-			const v8::Local<v8::Object> context_obj = v8::Object::New(isolate);
-			const v8::Local<v8::Value> exports_val = module->exports.Get(isolate);
-			jsb_check(!exports_val.IsEmpty() && exports_val->IsObject() && !exports_val->IsNullOrUndefined());
-			const v8::Local<v8::Object> exports = exports_val.As<v8::Object>();
-			exports->Set(context, impl::Helper::new_string(isolate, "ShadowRealmParent"), context_obj).Check();
-			context_obj_handle_.Reset(isolate, context_obj);
-
-			impl::Helper::set_as_interruptible(isolate);
-			context_obj->Set(context,
-							   jsb_name(env_, postMessage),
-							   v8::Function::New(context, &post_message_to_host, v8::Uint32::NewFromUnsigned(isolate, *id_)).ToLocalChecked())
-					.Check();
-			context_obj->Set(context,
-							   jsb_name(env_, close),
-							   v8::Function::New(context, &close_from_shadow_realm, v8::Uint32::NewFromUnsigned(isolate, *id_)).ToLocalChecked())
-					.Check();
-			context_obj->Set(context,
-							   jsb_name(env_, onmessage),
-							   v8::Null(isolate))
-					.Check();
-		}
-
-		if (!p_create_params.startup_script.is_empty()) {
-			if (env_->load(p_create_params.startup_script) != OK) {
-				jsb_throw(p_master->get_isolate(), "Create ShadowRealm failed: failed to load startup script");
-				finish();
-				return false;
-			}
-		}
-
-		id_in_master_ = p_master->add_shadow_env(env_);
-		return true;
-	}
-
-	jsb_force_inline ShadowRealmID get_id() const { return id_; }
-
-	jsb_force_inline NativeObjectID get_handle() const { return handle_; }
-
-	jsb_force_inline void *get_token() const { return token_; }
 
 private:
-	static bool try_get_shadow_env(ShadowRealmID p_id, NativeObjectID &o_handle, void *&o_token_ptr) {
+	static bool try_get_shadow_env(ShadowRealmID p_id, NativeObjectID &r_handle, void *&r_token_ptr) {
 		MUTEX_LOCK_GUARD(lock_);
 
-		ShadowRealm *impl;
+		ShadowRealmImpl *impl;
 		if (get_shadow_realm_list().try_get_value(p_id, impl)) {
-			o_handle = static_cast<TransferableShadowRealm *>(impl)->get_handle();
-			o_token_ptr = impl->get_token();
+			r_handle = impl->get_handle();
+			r_token_ptr = impl->get_token();
 		} else {
-			o_handle = {};
-			o_token_ptr = nullptr;
+			r_handle = {};
+			r_token_ptr = nullptr;
 		}
 
-		return (bool)o_handle;
+		return (bool)r_handle;
 	}
 
 	static std::pair<uint8_t *, size_t> handle_post_message(const v8::FunctionCallbackInfo<v8::Value> &info, internal::ReferentialVariantMap<TransferData> &transfers) {
@@ -1582,21 +1573,24 @@ private:
 	}
 
 	// handle message from master
-	void _on_message(const std::shared_ptr<Environment> &p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_context_obj, const ShadowRealmMessage &p_message) {
-		v8::Isolate *isolate = p_env->get_isolate();
+	void _on_message(const ShadowRealmMessage &p_message) {
+		v8::Isolate *isolate = env_->get_isolate();
 		const v8::Isolate::Scope isolate_scope(isolate);
 		const v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = env_->get_context();
+		const v8::Context::Scope context_scope(context);
+		const v8::Local<v8::Object> context_obj = context_obj_handle_.Get(isolate);
 
 		v8::Local<v8::Value> callback;
-		if (!p_context_obj->Get(p_context, jsb_name(p_env, onmessage)).ToLocal(&callback) || !callback->IsFunction()) {
+		if (!context_obj->Get(context, jsb_name(env_, onmessage)).ToLocal(&callback) || !callback->IsFunction()) {
 			JSB_SHADOW_REALM_LOG(Error, "onmessage is not a function");
 			return;
 		}
 
-		Environment *shadow_realm_env = env_.get();
+		Environment *env = env_.get();
 
 		if (p_message.get_transfers().size() > 0) {
-			const std::shared_ptr<Environment> owner_env = Environment::_access(token_);
+			const std::shared_ptr<Environment> owner_env = Environment::_access(get_token());
 
 			if (!owner_env) {
 				JSB_SHADOW_REALM_LOG(Error, "failed to access shadow_realm owner environment from shadow_realm_env onmessage");
@@ -1605,17 +1599,17 @@ private:
 
 			for (const auto &transfer : p_message.get_transfers()) {
 				v8::HandleScope transfer_bind_scope(isolate);
-				p_env->transfer_in_bind(p_context, transfer);
+				env->transfer_in_bind(context, transfer);
 			}
 
 			for (const auto &transfer : p_message.get_transfers()) {
 				v8::HandleScope transfer_state_scope(isolate);
-				p_env->transfer_in_apply_state(transfer);
+				env->transfer_in_apply_state(transfer);
 			}
 		}
 
 #if JSB_WITH_V8
-		Serialization::VariantDeserializerDelegate delegate(shadow_realm_env, p_message.get_transfers());
+		Serialization::VariantDeserializerDelegate delegate(env, p_message.get_transfers());
 		v8::ValueDeserializer deserializer(isolate, p_message.get_data().ptr(), p_message.get_data().size(), &delegate);
 		delegate.SetSerializer(&deserializer);
 #else
@@ -1623,16 +1617,16 @@ private:
 #endif
 
 		bool ok;
-		if (!deserializer.ReadHeader(p_context).To(&ok) || !ok) {
+		if (!deserializer.ReadHeader(context).To(&ok) || !ok) {
 			JSB_SHADOW_REALM_LOG(Error, "failed to parse message header");
 			return;
 		}
 		v8::Local<v8::Value> value;
 
 		{
-			Environment::ExecutionDeferredScope defer(shadow_realm_env);
+			Environment::ExecutionDeferredScope defer(env);
 
-			if (!deserializer.ReadValue(p_context).ToLocal(&value)) {
+			if (!deserializer.ReadValue(context).ToLocal(&value)) {
 				JSB_SHADOW_REALM_LOG(Error, "failed to parse message value");
 				return;
 			}
@@ -1640,49 +1634,31 @@ private:
 
 		const impl::TryCatch try_catch(isolate);
 		const v8::Local<v8::Function> call = callback.As<v8::Function>();
-		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &value);
+		const v8::MaybeLocal<v8::Value> rval = call->Call(context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
 			JSB_SHADOW_REALM_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
 		}
 	}
 
-	bool on_receive(ShadowRealmMessage &&p_message) {
-		if (!ShadowRealm::is_valid(id_)) {
-			return false;
-		}
-
-		v8::Isolate *isolate = env_->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
-		const v8::HandleScope handle_scope(isolate);
-		const v8::Local<v8::Context> context = env_->get_context();
-		const v8::Context::Scope context_scope(context);
-		const v8::Local<v8::Object> context_obj = context_obj_handle_.Get(isolate);
-
-		v8::HandleScope message_handle_scope(isolate);
-		_on_message(env_, context, context_obj, p_message);
-		return true;
-	}
-
 	static void on_receive(ShadowRealmID p_id, ShadowRealmMessage &&p_message) {
-		ShadowRealm *impl;
+		ShadowRealmImpl *impl;
 		{
 			MUTEX_LOCK_GUARD(lock_);
 			if (!get_shadow_realm_list().try_get_value(p_id, impl)) {
 				JSB_SHADOW_REALM_LOG(Error, "can't post message to a dead shadowRealm (%d)", p_id);
+				return;
 			}
 		}
 
-		std::shared_ptr<Environment> env = impl->env_;
-		v8::Isolate *isolate = env->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
-		const v8::HandleScope handle_scope(isolate);
-		const v8::Local<v8::Context> context = env->get_context();
-		const v8::Context::Scope context_scope(context);
-		const v8::Local<v8::Object> context_obj = impl->context_obj_handle_.Get(isolate);
+		if (!ShadowRealmImpl::is_valid(p_id)) {
+			JSB_SHADOW_REALM_LOG(Error, "Can't post message to a dead shadowRealm (%d)", p_id);
+			return;
+		}
 
-		v8::HandleScope message_handle_scope(isolate);
-		static_cast<TransferableShadowRealm *>(impl)->_on_message(env, context, context_obj, std::move(p_message));
+		TransferableShadowRealmImpl *tf_impl = static_cast<TransferableShadowRealmImpl *>(impl);
+
+		tf_impl->_on_message(p_message);
 	}
 
 private:
@@ -1692,7 +1668,7 @@ private:
 		const v8::HandleScope handle_scope(isolate);
 		const v8::Isolate::Scope isolate_scope(isolate);
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
-		ShadowRealm::_terminate(shadow_realm_id);
+		ShadowRealmImpl::_terminate(shadow_realm_id);
 	}
 
 	// transferableShadowRealm -> master (run in shadowRealm env)
@@ -1705,7 +1681,7 @@ private:
 
 		NativeObjectID handle;
 		void *token_ptr = nullptr;
-		if (!TransferableShadowRealm::try_get_shadow_env(shadow_realm_id, handle, token_ptr)) {
+		if (!TransferableShadowRealmImpl::try_get_shadow_env(shadow_realm_id, handle, token_ptr)) {
 			jsb_throw(isolate, "invalid shadowRealm id");
 			return;
 		}
@@ -1718,7 +1694,7 @@ private:
 		}
 
 		internal::ReferentialVariantMap<TransferData> transfer_map;
-		const std::pair<uint8_t *, size_t> data = TransferableShadowRealm::handle_post_message(info, transfer_map);
+		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
 
 		if (data.first) {
 			std::vector<TransferData> transfers;
@@ -1736,23 +1712,29 @@ public:
 	// master.postMessage
 	static void post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
-		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
-			jsb_throw(isolate, "bad this: postMessage must be called on a ShadowRealm instance");
+			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
 			return;
 		}
 
-		const ShadowRealm *realm = (ShadowRealm *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (!realm || !ShadowRealm::is_valid(realm->get_id())) {
-			jsb_throw(isolate, "ShadowRealm is not running");
+		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (realm == nullptr) {
+			jsb_throw(info.GetIsolate(), "Call on an invalid shadow realm");
 			return;
 		}
+
+		if (!ShadowRealmImpl::is_valid(realm->get_id())) {
+			jsb_throw(isolate, "TransferableShadowRealm is not running");
+			return;
+		}
+
+		const v8::HandleScope handle_scope(isolate);
+		const v8::Isolate::Scope isolate_scope(isolate);
 
 		internal::ReferentialVariantMap<TransferData> transfer_map;
-		const std::pair<uint8_t *, size_t> data = TransferableShadowRealm::handle_post_message(info, transfer_map);
+		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
 
 		if (data.first) {
 			std::vector<TransferData> transfers;
@@ -1762,47 +1744,28 @@ public:
 				transfers.push_back(transfer.value);
 			}
 
-			TransferableShadowRealm::on_receive(realm->get_id(), ShadowRealmMessage(Buffer::steal(data.first, data.second), std::move(transfers)));
+			TransferableShadowRealmImpl::on_receive(realm->get_id(), ShadowRealmMessage(Buffer::steal(data.first, data.second), std::move(transfers)));
 		}
 	}
 
-	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
-		Environment *env = Environment::wrap(isolate);
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		const v8::Context::Scope context_scope(context);
-		const v8::Local<v8::Object> self = info.This();
-		const internal::Index32 class_id(info.Data().As<v8::Uint32>()->Value());
+	static NativeClassInfoPtr register_class(Environment *p_env, v8::Isolate *p_isolate, const NativeClassInfoPtr p_base_class_info) {
+		const StringName &class_name = jsb_string_name(TransferableShadowRealm);
+		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
+		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
+			p_isolate, class_name, &constructor<TransferableShadowRealmImpl>, *class_id);
 
-		ShadowRealmCreateParams params;
-		v8::Local<v8::Value> arg = info[0];
-		if (info[0]->IsObject()) {
-			v8::Local<v8::Object> obj = arg.As<v8::Object>();
-			v8::MaybeLocal<v8::Value> startup_script = obj->Get(context, env->get_string_value(Names::startupScript()));
-			v8::MaybeLocal<v8::Value> allow_import_any_module = obj->Get(context, env->get_string_value(Names::allowImportAnyModule()));
-			if (startup_script.IsEmpty() || allow_import_any_module.IsEmpty()) {
-				jsb_throw(isolate, "bad param");
-			}
-			params.startup_script = impl::Helper::to_string(isolate, startup_script.ToLocalChecked());
-			params.allow_import_any_module = allow_import_any_module.ToLocalChecked()->BooleanValue(isolate);
-		} else if (!arg->IsNullOrUndefined()) {
-			jsb_throw(isolate, "bad param");
-		}
+		class_builder.Instance().Method("postMessage", &TransferableShadowRealmImpl::post_message);
+		class_builder.Instance().Method("onerror", &_placeholder);
+		class_builder.Instance().Method("onmessage", &_placeholder);
 
-		MUTEX_LOCK_GUARD(lock_);
+		class_builder.Inherit(p_base_class_info->clazz);
 
-		TransferableShadowRealm *realm = memnew(TransferableShadowRealm(env));
-		const ShadowRealmID id = get_shadow_realm_list().add(realm);
-		if (realm->init(id, env, params)) {
-			const NativeObjectID handle = env->bind_pointer(class_id, NativeClassType::Shadow, realm, self, 0);
-			jsb_check(handle);
-			realm->set_handle(handle);
-		} else {
-			get_shadow_realm_list().remove_at(id);
-			realm->id_ = ShadowRealmID::none();
-		}
+		const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
+		class_info->finalizer = &ShadowRealmImpl::finalizer;
+		class_info->clazz = class_builder.Build();
+		jsb_check(!class_info->clazz.IsEmpty());
+		jsb_check(class_info->name == class_name);
+		return class_info;
 	}
 };
 #pragma endregion TransferableShadowRealm
@@ -1825,57 +1788,24 @@ public:
 
 		//	Can not load `ShadowRealm` and `TransferableShadowRealm`in shadown environment.
 		if (!p_env->is_shadow()) {
-			{
-				const StringName &class_name = Names::ShadowRealm();
-				const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
-				impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, class_name, &ShadowRealm::constructor, *class_id);
+			const NativeClassInfoPtr shadow_realm_class_info = ShadowRealmImpl::register_class(p_env, isolate);
+			exports->Set(context, jsb_name(p_env, ShadowRealm), shadow_realm_class_info->clazz.Get(isolate)).Check();
 
-				class_builder.Instance().Method("evaluate", &ShadowRealm::evaluate);
-				class_builder.Instance().Method("addAllowedModuleSearchPath", &ShadowRealm::addAllowedModuleSearchPath);
-				class_builder.Instance().Method("importValue", &ShadowRealm::importValue);
-				class_builder.Instance().Method("importValueSync", &ShadowRealm::importValueSync);
-				class_builder.Instance().Method("terminate", &ShadowRealm::terminate);
-
-				const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
-				class_info->finalizer = &ShadowRealm::finalizer;
-				class_info->clazz = class_builder.Build();
-				jsb_check(!class_info->clazz.IsEmpty());
-				jsb_check(class_info->name == class_name);
-				exports->Set(context, p_env->get_string_value(class_name), class_info->clazz.Get(isolate)).Check();
-			}
-
-			{
-				const StringName &class_name = Names::TransferableShadowRealm();
-				const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
-				impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(isolate, class_name, &TransferableShadowRealm::constructor, *class_id);
-				const NativeClassInfoPtr base_class_info = p_env->find_native_class(Names::ShadowRealm());
-
-				class_builder.Instance().Method("postMessage", &TransferableShadowRealm::post_message);
-				class_builder.Instance().Method("onerror", &_placeholder);
-				class_builder.Instance().Method("onmessage", &_placeholder);
-
-				class_builder.Inherit(base_class_info->clazz);
-
-				const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
-				class_info->finalizer = &ShadowRealm::finalizer;
-				class_info->clazz = class_builder.Build();
-				jsb_check(!class_info->clazz.IsEmpty());
-				jsb_check(class_info->name == class_name);
-				exports->Set(context, p_env->get_string_value(class_name), class_info->clazz.Get(isolate)).Check();
-			}
+			const NativeClassInfoPtr transferable_shadow_realm_class_info = TransferableShadowRealmImpl::register_class(p_env, isolate, shadow_realm_class_info);
+			exports->Set(context, jsb_name(p_env, TransferableShadowRealm),transferable_shadow_realm_class_info->clazz.Get(isolate)).Check();
 		}
 		return true;
 	}
 };
 #pragma endregion TransferableShadowRealm
 
-#pragma region ShadowRealm_
-void ShadowRealm_::finish_all() {
-	ShadowRealm::finish_all();
+#pragma region ShadowRealm
+void ShadowRealm::finish_all() {
+	ShadowRealmImpl::finish_all();
 	SymbolCrossUtils::clean();
 }
 
-void ShadowRealm_::register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_self) {
+void ShadowRealm::register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_self) {
 	// v8::Context::Scope context_scope(p_context);
 
 	Environment *env = Environment::wrap(p_context);
@@ -1884,6 +1814,6 @@ void ShadowRealm_::register_(const v8::Local<v8::Context> &p_context, const v8::
 	FunctionCrossWrapper::register_class(env);
 	ObjectCrossWrapper::register_class(env);
 }
-#pragma endregion ShadowRealm_
+#pragma endregion ShadowRealm
 
 } //namespace jsb

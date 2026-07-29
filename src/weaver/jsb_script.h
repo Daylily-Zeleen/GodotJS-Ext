@@ -62,7 +62,8 @@ private:
     jsb::ScriptPropertyInfo class_category_;
 #endif // TOOLS_ENABLED
 
-    friend class GodotJSScriptLanguage;
+    // 允许 GodotJSScriptLanguage::reload_scripts_internal 访问 instances_, pending_reload_state_, placeholders
+    friend void GodotJSScriptLanguage::reload_scripts_internal(const Array& p_scripts, bool p_soft_reload);
 
 private:
     void load_module_immediately();
@@ -76,6 +77,8 @@ private:
     void _update_exports_values(TypedArray<Dictionary>& r_props, Dictionary& r_values);
 #endif // DEBUG_ENABLED
 
+    void remove_script_instance_instance_owner(Object *p_owner);
+    GodotJSScriptInstance *try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
 public:
     GodotJSScript();
     virtual ~GodotJSScript() override;

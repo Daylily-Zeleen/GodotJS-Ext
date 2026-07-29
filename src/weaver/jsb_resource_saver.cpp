@@ -94,8 +94,8 @@ Error ResourceFormatSaverGodotJSScript::_save(const Ref<Resource>& p_resource, c
     file->close();
 
     if (source_changed) {
-        sqscr->set_source_code(source);
-        sqscr->reload(true);
+        sqscr->_set_source_code(source);
+        sqscr->_reload(true);
         sqscr->emit_changed();
     }
 
@@ -157,8 +157,8 @@ Error ResourceFormatSaverGodotJSScript::_set_uid(const String &p_path, int64_t p
 				Ref<Resource> loaded_res = ResourceLoader::get_singleton()->load(p_path, "", ResourceLoader::CACHE_MODE_REUSE);
 				Ref<GodotJSScript> loaded_script = loaded_res;
 				if (loaded_script.is_valid()) {
-					loaded_script->set_source_code(source);
-					loaded_script->reload(true);
+					loaded_script->_set_source_code(source);
+					loaded_script->_reload(true);
 					loaded_script->emit_changed();
 				}
 

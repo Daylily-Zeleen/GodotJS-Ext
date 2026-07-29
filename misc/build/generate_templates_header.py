@@ -108,7 +108,7 @@ def generate_templates_header(templates_dir: Path, output_file: Path):
     output_lines.extend([
         "        };",
         "",
-        "        return templates;",
+        "        return ret;",
         "    }();",
         "",
         "    return templates;",

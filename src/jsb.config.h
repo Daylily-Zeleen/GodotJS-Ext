@@ -164,6 +164,9 @@
 #define JSB_MODULE_EXT     "mjs"
 #define JSB_JSON_EXT       "json"
 
+/** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */ 
+#define JSB_SHADOW_REALM_ENABLED 1
+
 // A helper version tag for the jsb.*.bundle.js scripts (which is embedded in .cpp source).
 // It could ensure your engine built with the expected version of the jsb bundle scripts.
 // If static_assert in `jsb_project_preset.gen.cpp` fails, please run your `scons` command again to update all bundle scripts.
