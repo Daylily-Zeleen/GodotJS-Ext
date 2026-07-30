@@ -22,7 +22,6 @@
 #include "jsb_thread_safe_for_nodes_scope.h"
 
 #include "../internal/jsb_path_util.h"
-#include "../internal/jsb_class_util.h"
 #include "../internal/jsb_variant_util.h"
 #include "../internal/jsb_settings.h"
 #include "../jsb_project_preset.h"
@@ -887,9 +886,14 @@ namespace jsb
         if (RefCounted * ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
             binding_flags.set_flag(ObjectBindingFlags::OBF_GD_REFCOUNTED);
             force_weak = ref_counted->get_reference_count() == 0;
-            // TODO: 如何检查存活？
+            if (!ref_counted->init_ref()) // 正常情况下 JS 会保有一个引用
+            {
+                JSB_LOG(Error, "can not bind a dead object %d", (uintptr_t) p_pointer);
+                return {};
+            }
         }
-        const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void*) p_pointer, p_object, external_rc, p_js_owned_non_ref);
+        if (p_js_owned_non_ref) binding_flags.set_flag(OBF_JS_OWNED);
+        const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void*) p_pointer, p_object, binding_flags, force_weak);
 
         // 绑定
         InstanceBindingCallbacks::prepare_binding(p_pointer);
@@ -967,11 +971,11 @@ namespace jsb
 
         RefCounted *ref_counted = (RefCounted*)p_pointer;
         auto ref_count = ref_counted->get_reference_count();
-        jsb_ensure(ref_count >= 0);
+        jsb_ensuref(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
         if (p_is_inc)
         {
             // adding references
-            if (ref_count == 1)
+            if (ref_count > 1) // 正常情况下 JS 会持有一个引用
             {
                 // A first-pass GC callback may already have reset `ref_` while second-pass free
                 // is still pending. Treat this as a stale/dead binding instead of crashing.
@@ -982,7 +986,6 @@ namespace jsb
                 }
                 object_handle->ref_.ClearWeak();
             }
-            ++object_handle->ref_count_;
             return true;
         } else {
             // removing references
@@ -992,7 +995,7 @@ namespace jsb
                 return false;
             }
 
-            if (ref_count == 0)
+            if (ref_count <= 1) // 正常情况下 JS 会持有一个引用
             {
                 object_handle->ref_.SetWeak((void*)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
             }
@@ -2277,7 +2280,7 @@ namespace jsb
                     ScriptInstance::set_script_instance(instance, nullptr);
                 }
 
-                ScriptInstance* script_instance = script->instance_create(instance);
+                ScriptInstance* script_instance = script->instance_construct_default(instance);
 
                 if (!script_instance)
                 {
@@ -2345,7 +2348,7 @@ namespace jsb
                 return;
             }
 
-            script_instance = script->instance_create(instance);
+            script_instance = script->instance_construct_default(instance);
         }
 
         static_cast<GodotJSScriptInstanceBase*>(script_instance)->set_property_state(p_data.state);
