@@ -56,9 +56,8 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 #if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
     return false
 #else
-    static const LocalVector<String> suffixes = []() -> LocalVector<String> {
-        LocalVector<String> ret;
-        const LocalVector<String> extensions {
+    static const auto suffixes = []() {
+        constexpr const char * extensions[] {
 #   if JSB_USE_TYPESCRIPT
             JSB_TYPESCRIPT_EXT,
 #   endif // JSB_USE_TYPESCRIPT
@@ -66,7 +65,7 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
             JSB_COMMONJS_EXT,
             JSB_MODULE_EXT,
         };
-        const LocalVector<String> keywords {
+        constexpr const char * keywords[] {
 #   if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
             ".test.",
 #   endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
@@ -78,9 +77,12 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 #   endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 
         };
 
-        for (const String &extension : extensions){
-            for (const String &keyword : keywords) {
-                ret.push_back(keyword + extension);
+        std::array<String, std::size(extensions) * std::size(keywords)> ret;
+        size_t idx = 0;
+        for (const char *extension : extensions) {
+            for (const char *keyword : keywords) {
+                ret[idx] = (String(keyword) + String(extension));
+                idx ++;
             }
         }
         return ret;

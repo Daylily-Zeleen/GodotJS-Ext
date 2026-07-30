@@ -882,20 +882,12 @@ namespace jsb
             return new_id;
         }
 
-        // We need to increase the refcount because Godot Objects are bound as external pointer with a strong JS reference,
-        // and unreference() will always be called on gc callbacks.
-        int external_rc = 1;
-        if (RefCounted* ref_counted = Object::cast_to<RefCounted>(p_pointer))
-        {
-            if (!ref_counted->init_ref())
-            {
-                JSB_LOG(Error, "can not bind a dead object %d", (uintptr_t) p_pointer);
-                return {};
-            }
-            // for a ref-counted object which instantiated by GodotJS, the external_rc will be 0.
-            // then, the object will behave like a managed JS object.
-            // otherwise, it will be strongly referenced in JS until all external references are released (unreference).
-            external_rc = ref_counted->get_reference_count() - 1;
+        templates::BitField<ObjectBindingFlags> binding_flags {ObjectBindingFlags::OBF_GD_OBJ};
+        bool force_weak {false};
+        if (RefCounted * ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
+            binding_flags.set_flag(ObjectBindingFlags::OBF_GD_REFCOUNTED);
+            force_weak = ref_counted->get_reference_count() == 0;
+            // TODO: 如何检查存活？
         }
         const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void*) p_pointer, p_object, external_rc, p_js_owned_non_ref);
 
@@ -920,22 +912,18 @@ namespace jsb
         p_object->SetAlignedPointerInInternalFields(IF_ObjectFieldCount, indices, internal_fields);
 
         handle->class_id = p_class_id;
-        handle->js_owned_non_ref_ = p_js_owned_non_ref;
+        handle->flags = p_binding_flags;
 #if JSB_DEBUG
         handle->pointer = p_pointer;
 #endif
 
         jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
         handle->ref_.Reset(isolate_, p_object);
-        if (p_external_rc == 0)
-        {
+
+        if (p_fore_weak || handle->is_js_owned()) {
             handle->ref_.SetWeak(p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
         }
-        else
-        {
-            jsb_check(p_external_rc > 0);
-            handle->ref_count_ = p_external_rc;
-        }
+
         JSB_LOG(VeryVerbose, "bind object class:%s(%d) addr:%d id:%d",
             (String) native_classes_.get_value(p_class_id).name, p_class_id,
             (uintptr_t) p_pointer, object_id);
@@ -944,13 +932,14 @@ namespace jsb
 
     void Environment::mark_as_persistent_object(void* p_pointer)
     {
-        if (!persistent_objects_.has(p_pointer))
-        {
-            persistent_objects_.insert(p_pointer);
-            reference_object(p_pointer, true);
-            return;
+        ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
+        jsb_ensure(handle);
+        if (handle->is_persist()) {
+            JSB_LOG(Error, "duplicate adding persistent object: %d", (uintptr_t) p_pointer);
         }
-        JSB_LOG(Error, "duplicate adding persistent object: %d", (uintptr_t) p_pointer);
+
+        handle->flags.set_flag(ObjectBindingFlags::OBF_PERSIST);
+        persistent_object_count_++;
     }
 
     void* Environment::get_verified_object(const v8::Local<v8::Object>& p_obj, NativeClassType::Type p_type) const
@@ -976,10 +965,13 @@ namespace jsb
         // must not be a valuetype object
         // jsb_check(native_classes_.get_value(object_handle->class_id).type != NativeClassType::GodotPrimitive);
 
+        RefCounted *ref_counted = (RefCounted*)p_pointer;
+        auto ref_count = ref_counted->get_reference_count();
+        jsb_ensure(ref_count >= 0);
         if (p_is_inc)
         {
             // adding references
-            if (object_handle->ref_count_ == 0)
+            if (ref_count == 1)
             {
                 // A first-pass GC callback may already have reset `ref_` while second-pass free
                 // is still pending. Treat this as a stale/dead binding instead of crashing.
@@ -1000,10 +992,7 @@ namespace jsb
                 return false;
             }
 
-            jsb_check(object_handle->ref_count_ > 0);
-
-            --object_handle->ref_count_;
-            if (object_handle->ref_count_ == 0)
+            if (ref_count == 0)
             {
                 object_handle->ref_.SetWeak((void*)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
             }
@@ -1041,9 +1030,9 @@ namespace jsb
         jsb_check(object_handle->pointer == p_pointer);
 #endif
         const NativeClassID class_id = object_handle->class_id;
-        const bool js_owned_non_ref = object_handle->js_owned_non_ref_;
         // hold it in a local variable to avoid gc too early
         v8::Global<v8::Object> obj_ref = std::move(object_handle->ref_);
+        templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
 
         // erase from ObjectDB before clearing the ref to avoid exposing a transient state
         // with an empty `ref_` in the ObjectDB, which can race with reference callbacks.
@@ -1064,29 +1053,25 @@ namespace jsb
 
         if (p_finalize != FinalizationType::None)
         {
-            const NativeClassInfo& class_info = native_classes_.get_value(class_id);
-            const bool is_persistent = persistent_objects_.erase(p_pointer);
+            if (binding_flags.has_flag(OBF_PERSIST)) {
+                persistent_object_count_-- ;
+                jsb_ensure(persistent_object_count_ >= 0);
+                p_finalize = FinalizationType::None;
+            } else if (binding_flags.has_flag(OBF_GD_REFCOUNTED)) {
+                p_finalize = FinalizationType::None;
+            }
 
+            const NativeClassInfo& class_info = native_classes_.get_value(class_id);
             JSB_LOG(VeryVerbose, "free_object class:%s(%d) addr:%d",
                 (String) class_info.name, class_id,
                 (uintptr_t) p_pointer);
 
-            FinalizationType finalize_type = is_persistent ? FinalizationType::None : p_finalize;
-            if (finalize_type != FinalizationType::None && class_info.type == NativeClassType::GodotObject)
-            {
-                const Object* godot_object = static_cast<const Object*>(p_pointer);
-                if (!godot_object->is_class(RefCounted::get_class_static()) && !js_owned_non_ref)
-                {
-                    finalize_type = FinalizationType::None;
-                }
-            }
-
             //NOTE Godot will call Object::_predelete to post a notification NOTIFICATION_PREDELETE which finally call `ScriptInstance::callp`
-            class_info.finalizer(this, p_pointer, finalize_type);
+            class_info.finalizer(this, p_pointer, p_finalize);
         }
         else
         {
-            jsb_check(!persistent_objects_.has(p_pointer));
+            jsb_check(!binding_flags.has_flag(OBF_PERSIST));
             JSB_LOG(VeryVerbose, "(skip) free_object class_id:%d addr:%d", class_id, (uintptr_t) p_pointer);
         }
     }
@@ -1117,7 +1102,7 @@ namespace jsb
         r_stats.native_classes = native_classes_.size();
         r_stats.script_classes = script_classes_.size();
         r_stats.cached_string_names = string_name_cache_.size();
-        r_stats.persistent_objects = persistent_objects_.size();
+        r_stats.persistent_objects = persistent_object_count_;
         r_stats.allocated_variants = variant_allocator_.get_allocated_num();
     }
 

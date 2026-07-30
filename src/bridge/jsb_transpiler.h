@@ -380,9 +380,7 @@ namespace jsb
             jsb_unused(runtime);
             jsb_check(!runtime->verify_object(self));
             if constexpr (PointerIsRefcounted) {
-                const bool should_delete = self->unreference();
-                if (should_delete)
-                {
+                if (self->get_reference_count() == 0){
                     JSB_LOG(VeryVerbose, "delete gd ref_counted object %d p_finalize %d", (uintptr_t) self, p_finalize);
                     memdelete(self);
                 }
