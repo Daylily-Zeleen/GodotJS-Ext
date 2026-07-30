@@ -75,10 +75,9 @@ This outputs to `scripts/out/` and is automatically embedded into the GDExtensio
 │   ├── quickjs/            # QuickJS engine
 │   ├── quickjs-ng/         # QuickJS-NG engine
 │   └── doctest/            # C++ test framework
-├── project/                # Godot test project
+├── project/                # Godot test project (integration tests)
 ├── GodotJS/                # Original GodotJS module (submodule)
 ├── SConstruct              # SCons build script
-└── test/                   # Test projects and scripts
 ```
 
 ## Testing

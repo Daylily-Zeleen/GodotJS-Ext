@@ -14,7 +14,21 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="godot cpp template"
-run/main_scene="uid://82iv13wwwngs"
-config/features=PackedStringArray("4.8", "Forward Plus")
-config/icon="res://icon.svg"
+config/name="GodotJS Integration Test Suite"
+run/main_scene="res://tests/Start.tscn"
+config/features=PackedStringArray("4.8")
+
+[autoload]
+
+_Config="*res://tests/singleton/config-singleton.ts"
+
+[gdextensions]
+
+paths=["res://addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension"]
+
+[input]
+
+test_input_action={
+"deadzone": 0.5,
+"events": []
+}

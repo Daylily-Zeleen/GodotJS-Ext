@@ -97,22 +97,20 @@ scons platform=windows target=editor dev_build=yes tests=yes -j10
 
 #### TypeScript Integration Tests
 
-TypeScript integration tests run in a Godot project using the test project in `test/project`:
+TypeScript integration tests run in a Godot project using the test project in `project`:
 
 ```bash
 # 1. Build the GDExtension
 scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=yes -j10
 
-# 2. Copy the built DLL to the test project addon directory
-Copy-Item bin\windows\godotjs-ext.windows.editor.x86_64.dll test\project\addons\godotjs-ext.daylily-zeleen\bin\windows\
 
-# 3. Install JS dependencies and compile TypeScript
-cd test\project
+# 2. Install JS dependencies and compile TypeScript
+cd project
 pnpm install
 npx tsc --noCheck
 
-# 4. Run the test project headlessly
-& "F:\godot\godot\bin\Godot_v4.7-stable_win64.exe" --audio-driver Dummy --headless --path .
+# 3. Run the test project headlessly
+& "godot.windows.editor.x86_64.exe" --audio-driver Dummy --headless --path . --verbose --debug
 ```
 
 The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).
@@ -141,10 +139,9 @@ The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, O
 │   ├── quickjs/            # QuickJS engine
 │   ├── quickjs-ng/         # QuickJS-NG engine
 │   └── doctest/            # C++ test framework
-├── project/                # Godot test project
+├── project/                # Godot test project (integration tests)
 ├── GodotJS/                # Original GodotJS module (submodule)
 ├── SConstruct              # SCons build script
-└── test/                   # Test projects and scripts
 ```
 
 ## Contributing

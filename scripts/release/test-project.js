@@ -12,7 +12,7 @@ const defaultBin =
         : join(rootPath, "bin/godot.linuxbsd.editor.x86_64");
 const bin = process.argv[2] || defaultBin;
 
-const projectPath = join(__dirname, "../../tests/project");
+const projectPath = join(__dirname, "../../project");
 
 try {
     const generateTypes = execSync(`${bin} --headless --editor --generate-types --path ${projectPath}`, {
