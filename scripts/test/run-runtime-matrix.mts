@@ -9,7 +9,7 @@ const __dirname: string = dirname(__filename);
 
 const moduleRoot: string = resolve(__dirname, "../..");
 const godotRoot: string = resolve(moduleRoot, "../..");
-const projectPath: string = join(moduleRoot, "tests/project");
+const projectPath: string = join(moduleRoot, "project");
 const testsBinDir: string = join(moduleRoot, "tests/bin");
 const godotBinDir: string = join(godotRoot, "bin");
 const testSentinel: string = "GODOTJS_TEST_PROJECT_COMPLETED";
@@ -962,7 +962,7 @@ async function main(): Promise<void> {
         throw new Error("host-jsc runtime is only available on macOS");
     }
 
-    runCommand("build tests/project TS", "pnpm", ["-C", projectPath, "build"], { cwd: moduleRoot });
+    runCommand("build project TS", "pnpm", ["-C", projectPath, "build"], { cwd: moduleRoot });
 
     const hostV8Binary = needsHostV8 ? buildHostRuntime("v8") : null;
     const hostQjsBinary = needsHostQjs ? buildHostRuntime("qjs") : null;

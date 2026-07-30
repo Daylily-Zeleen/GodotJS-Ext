@@ -153,20 +153,20 @@ jobs:
       - name: Setup test project
         shell: bash
         run: |
-          mkdir -p tests/project/addons
-          cp -r runtime-artifacts tests/project/addons/godotjs-ext.daylily-zeleen
+          mkdir -p project/addons
+          cp -r runtime-artifacts project/addons/godotjs-ext.daylily-zeleen
 
       - name: Build TypeScript test files
         shell: bash
         run: |
-          cd test/project
+          cd project
           pnpm install
           pnpm build
 
       - name: Run C++ unit tests
         shell: bash
         run: |
-          tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --path test/project --jsb-run-tests
+          tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --path project --jsb-run-tests
 
       - name: Run TypeScript integration tests
         shell: bash

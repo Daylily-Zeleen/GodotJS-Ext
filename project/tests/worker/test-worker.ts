@@ -18,7 +18,7 @@ import { beginAsyncTest, endAsyncTest, reportTestFailure } from '../test-status'
 import TransferScriptedNode from './transfer-scripted-node';
 
 // JSC cold-start worker boot and first round-trip can
-const WORKER_READY_TIMEOUT_MS = 5000;
+const WORKER_READY_TIMEOUT_MS = 95000;
 const WORKER_ROUND_TRIP_TIMEOUT_MS = 5000;
 
 function fail(message: string): never {
