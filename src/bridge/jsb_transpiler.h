@@ -355,9 +355,9 @@ namespace jsb
                 Object *gd_object = var;
 
                 // IS IT A TRUTH that ref_count==1 after creation_func??
-                jsb_check([=]{
+                jsb_ensure([=]{
                     RefCounted* ref_counted = Object::cast_to<RefCounted>(gd_object);
-                    return ref_counted == nullptr || ref_counted->get_reference_count() <= 1;
+                    return ref_counted == nullptr || ref_counted->get_reference_count() == 1;
                 }());
                 environment->bind_godot_object(class_id, gd_object, self, true);
                 return;
@@ -380,7 +380,7 @@ namespace jsb
             jsb_unused(runtime);
             jsb_check(!runtime->verify_object(self));
             if constexpr (PointerIsRefcounted) {
-                if (self->get_reference_count() == 0){
+                if (self->unreference()){
                     JSB_LOG(VeryVerbose, "delete gd ref_counted object %d p_finalize %d", (uintptr_t) self, p_finalize);
                     memdelete(self);
                 }

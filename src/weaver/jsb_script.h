@@ -100,6 +100,9 @@ public:
     // Creates a ScriptInstance and associates it with a newly constructed JS object (instance of script's class).
     ScriptInstance* instance_construct(Object* p_this, bool p_is_temp_allowed, const Variant **p_args = nullptr, int p_argcount = 0);
 
+    // Creates a ScriptInstance and associates it with a newly constructed JS object (instance of script's class) without argument, and allow create a temporary shadow envrionment.
+    ScriptInstance* instance_construct_default(Object* p_for_object) { return instance_construct(p_for_object, true); }
+
 #pragma region Script Implementation
     virtual bool _can_instantiate() const override;
 
@@ -109,7 +112,6 @@ public:
 
     virtual StringName _get_instance_base_type() const override; // this may not work in all scripts, will return empty if so
 
-    ScriptInstance* instance_create(Object* p_for_object) { return instance_construct(p_for_object, true); }
     virtual GDExtensionScriptInstancePtr _instance_create(Object* p_for_object) const override;
     virtual GDExtensionScriptInstancePtr _placeholder_instance_create(Object* p_for_object) const override;
 #ifdef TOOLS_ENABLED

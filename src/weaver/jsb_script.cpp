@@ -593,7 +593,7 @@ void GodotJSScript::load_module_immediately()
 
 GDExtensionScriptInstancePtr GodotJSScript::_instance_create(Object* p_for_object) const
 { 
-    return const_cast<GodotJSScript*>(this)->instance_create(p_for_object)->get_extension_instance_ptr();
+    return const_cast<GodotJSScript*>(this)->instance_construct_default(p_for_object)->get_extension_instance_ptr();
 }
 
 GDExtensionScriptInstancePtr GodotJSScript::_placeholder_instance_create(Object* p_this) const
