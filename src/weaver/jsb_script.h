@@ -64,6 +64,7 @@ private:
 
     // 允许 GodotJSScriptLanguage::reload_scripts_internal 访问 instances_, pending_reload_state_, placeholders
     friend void GodotJSScriptLanguage::reload_scripts_internal(const Array& p_scripts, bool p_soft_reload);
+    friend void GodotJSScriptLanguage::finalize_instances_of_env(jsb::Environment* p_env); // HACK
 
 private:
     void load_module_immediately();
