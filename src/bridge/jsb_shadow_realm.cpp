@@ -961,7 +961,7 @@ public:
 		params.initial_object_slots = JSB_SHADOW_REALM_INITIAL_OBJECT_SLOTS;
 		params.initial_script_slots = JSB_SHADOW_REALM_INITIAL_SCRIPT_SLOTS;
 		params.thread_id = OS::get_singleton()->get_thread_caller_id();
-		params.type = Environment::Type::Shadow;
+		params.type = Environment::Type::Worker; // HACK, TODO: 专属标志？
 
 		env_ = std::make_shared<Environment>(params);
 		if (p_create_params.allow_import_any_module) {

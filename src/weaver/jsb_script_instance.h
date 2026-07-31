@@ -211,7 +211,7 @@ public:
 class GodotJSScriptInstance : public GodotJSScriptInstanceBase
 {
 private:
-    std::shared_ptr<jsb::Environment> env_;
+    jsb::Environment* env_;
 
     // script class handle
     jsb::ScriptClassID class_id_;
@@ -222,17 +222,18 @@ private:
     HashMap<StringName, Variant> property_cache_;
 
 private:
-    jsb_force_inline std::shared_ptr<jsb::Environment> get_env() const { return env_; }//env_.lock(); }
 
     jsb::ScriptClassInfoPtr get_script_class() const;
 
     friend GodotJSScriptInstance *GodotJSScript::try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
+    friend void GodotJSScriptLanguage::finalize_instances_of_env(jsb::Environment* p_env); // HACK
 
 protected:
     virtual LocalVector<PropertyInfo> *make_temporary_property_list() const override;
 
 public:
-    jsb::compat::ThreadID get_env_thread_id() const { return get_env() ? get_env()->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
+    jsb_force_inline jsb::Environment *get_env() const { return env_; }
+    jsb::compat::ThreadID get_env_thread_id() const { return env_ ? env_->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
 
     // for Environment lifecycle control (avoid object leaks), detach all JS object bindings
     // void _detach();
@@ -262,7 +263,7 @@ public:
 public:
     GodotJSScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner, jsb::JSEnvironment &p_env, const jsb::ScriptClassID & p_class_id):
         GodotJSScriptInstanceBase(p_script, p_owner),
-        env_(p_env),
+        env_(p_env.operator std::shared_ptr<jsb::Environment>().get()), // TODO: 这里会立刻实例化，尝试改为懒加载
         class_id_(p_class_id) {}
 };
 #endif

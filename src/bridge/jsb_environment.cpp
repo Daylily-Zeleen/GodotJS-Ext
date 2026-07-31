@@ -861,26 +861,33 @@ namespace jsb
 
     NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object* p_pointer, const v8::Local<v8::Object>& p_object, bool p_js_owned_non_ref)
     {
-        // handle the shadow instance created by asynchronous ResourceLoader
-        if (GodotJSShadowScriptInstance* script_instance = ScriptInstance::get_script_instance<GodotJSShadowScriptInstance>(p_pointer))
+        if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(p_pointer))
         {
-            // need to strongly reference the owner object if it's RefCounted. we use Variant for simplicity
-            const Variant holder = p_pointer;
-            const Ref<GodotJSScript> script = script_instance->get_script();
-            jsb_check(script.is_valid());
-            JSB_LOG(Verbose, "displace a shadow script instance %s (%s)", (uintptr_t) p_pointer, script->get_path());
-            ScriptInstancePropertyState state;
-            script_instance->get_property_state(state);
-            ScriptInstance::set_script_instance(p_pointer, nullptr);
-            GodotJSScriptInstanceBase* new_script_instance = static_cast<GodotJSScriptInstanceBase*>(script->instance_create(p_object, p_pointer, false));
-            jsb_check(new_script_instance);
-            jsb_unused(new_script_instance);
-            new_script_instance->set_property_state(state);
-            const NativeObjectID new_id = try_get_object_id(p_pointer);
-            jsb_check(new_id);
-            return new_id;
+            if (script_instance->is_shadow()) {
+                // handle the shadow instance created by asynchronous ResourceLoader
+                // need to strongly reference the owner object if it's RefCounted. we use Variant for simplicity
+                const Variant holder = p_pointer;
+                const Ref<GodotJSScript> script = script_instance->get_script();
+                jsb_check(script.is_valid());
+                JSB_LOG(Verbose, "displace a shadow script instance %s (%s)", (uintptr_t) p_pointer, script->get_path());
+                ScriptInstancePropertyState state;
+                script_instance->get_property_state(state);
+                ScriptInstance::set_script_instance(p_pointer, nullptr);
+                GodotJSScriptInstanceBase* new_script_instance = static_cast<GodotJSScriptInstanceBase*>(script->instance_create(p_object, p_pointer, false));
+                jsb_check(new_script_instance);
+                jsb_unused(new_script_instance);
+                new_script_instance->set_property_state(state);
+                const NativeObjectID new_id = try_get_object_id(p_pointer);
+                jsb_check(new_id);
+                return new_id;
+            } else if (Environment* owned_env = !script_instance->is_placeholder()? static_cast<GodotJSScriptInstance*>(script_instance)->get_env() : nullptr;
+                owned_env != this && (owned_env->flags_ & EF_Worker) != 0)
+            {
+                JSB_LOG(Warning, "Bind godot object \"%s\" duplicate, which is not transfer out from Worker or ShadowRealm. It may lead to to unexpected behaviors.", p_pointer->to_string());
+            }
         }
 
+        jsb_ensuref(!object_db_.has_object(p_pointer), "WTF? Bind again?");
         templates::BitField<ObjectBindingFlags> binding_flags {ObjectBindingFlags::OBF_GD_OBJ};
         bool force_weak {false};
         if (RefCounted * ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
@@ -905,6 +912,7 @@ namespace jsb
     {
         check_internal_state();
         jsb_checkf(native_classes_.is_valid_index(p_class_id), "bad class_id");
+        jsb_ensure((flags_ & EF_PreDispose) == 0);
 
         ObjectHandlePtr handle;
         const NativeObjectID object_id = object_db_.add_object(p_pointer, &handle);
@@ -965,6 +973,7 @@ namespace jsb
             JSB_LOG(Verbose, "UNEXPECTED bad pointer %d", (uintptr_t) p_pointer);
             return false;
         }
+        jsb_ensure(object_handle->is_gd_refcounted());
 
         // must not be a valuetype object
         // jsb_check(native_classes_.get_value(object_handle->class_id).type != NativeClassType::GodotPrimitive);
@@ -995,7 +1004,7 @@ namespace jsb
                 return false;
             }
 
-            if (ref_count <= 1) // 正常情况下 JS 会持有一个引用
+            if (ref_count == 1) // 正常情况下 JS 会持有一个引用
             {
                 object_handle->ref_.SetWeak((void*)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
             }
@@ -1953,6 +1962,7 @@ namespace jsb
                 return;
             }
 
+            jsb_ensure(!pointer->is_class(RefCounted::get_class_static()) || ((RefCounted*)pointer)->get_reference_count() == 1);
             memdelete(pointer);
         }
     }
@@ -2112,6 +2122,7 @@ namespace jsb
         v8::Local<v8::Function> method_func;
         {
             ScriptClassInfoPtr script_class_info = script_classes_.get_value_scoped(p_script_class_id);
+            jsb_ensure(script_class_info);
             const internal::TypeGen<StringName, v8::Global<v8::Function>>::UnorderedMapIt it = script_class_info->method_cache.find(p_method);
             if (it == script_class_info->method_cache.end())
             {
@@ -2265,7 +2276,9 @@ namespace jsb
             return;
         }
 
-        const bool has_script_path = !p_data.script_path.is_empty();
+        // 传出对象不能拥有 Script Instance，因为它可能会关联的是原环境。传入对象要求它在传出时就已经进行了清理。
+        jsb_checkf(ScriptInstance::get_script_instance(instance) == nullptr, 
+            "Transferred godot object should not have a script instance, it may associate with another env: %d", instance->to_string());
 
         if (has_script_path)
         {
@@ -2273,12 +2286,12 @@ namespace jsb
 
             if (script.is_valid())
             {
-                // Always rebind transferred scripts onto the receiver environment.
-                // Existing instances can be stale and still reference a source worker env.
-                if (ScriptInstance *existing_script_instance = ScriptInstance::get_script_instance(instance))
-                {
-                    ScriptInstance::set_script_instance(instance, nullptr);
-                }
+                // // Always rebind transferred scripts onto the receiver environment.
+                // // Existing instances can be stale and still reference a source worker env.
+                // if (ScriptInstance *existing_script_instance = ScriptInstance::get_script_instance(instance))
+                // {
+                //     ScriptInstance::set_script_instance(instance, nullptr);
+                // }
 
                 ScriptInstance* script_instance = script->instance_construct_default(instance);
 
@@ -2297,17 +2310,23 @@ namespace jsb
         {
             v8::Local<v8::Object> obj;
             jsb_check(TypeConvert::gd_obj_to_js(isolate_, p_context, instance, obj));
+        }
 
-            if (RefCounted* reference = Object::cast_to<RefCounted>(instance))
+        /**
+         * 对象传出时使用 free_object(instance, FinalizationType::None) 在原环境在进行释放（仅解绑定）
+         * 如果传出对象是 RefCounted 的话并不会改变它的引用计数
+         * 在上面的传入步骤中 (script->instance_construct_default 或 TypeConvert::gd_obj_to_js) 会按照正常绑定流程绑定到该环境中时计数会 + 1
+         * 因此在传入后需要对它降低 1 个计数
+         */
+        if (RefCounted* ref_counted = Object::cast_to<RefCounted>(instance))
+        {
+            if (ref_counted->unreference())
             {
-                if (reference->unreference())
-                {
-                    // Uh, we really shouldn't end up here. This can only occur if another thread is doing something it
-                    // really shouldn't be doing. I guess we don't want to be responsible for a leak, but this is bad.
-                    memdelete(reference);
-                    JSB_LOG(Error, "transferred object unexpectedly freed: %d", (uint64_t) object_id);
-                    return;
-                }
+                // Uh, we really shouldn't end up here. This can only occur if another thread is doing something it
+                // really shouldn't be doing. I guess we don't want to be responsible for a leak, but this is bad.
+                memdelete(ref_counted);
+                JSB_LOG(Error, "transferred object unexpectedly freed: %d", (uint64_t) object_id);
+                return;
             }
         }
     }
