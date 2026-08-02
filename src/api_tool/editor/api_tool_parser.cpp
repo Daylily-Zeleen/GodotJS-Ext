@@ -153,7 +153,7 @@ Variant::Operator parse_operator_name(const String &p_name) {
 static PropertyInfo parse_property_info(const Dictionary &d) {
     PropertyInfo pi;
     pi.type = parse_variant_type(d.get("type", ""), &pi);
-    pi.name = d["name"];
+    pi.name = d.get("name", "");
     return pi;
 }
 
@@ -596,7 +596,7 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
     for (int i = 0; i < classes.size(); i++) {
         Dictionary cd = classes[i];
         ApiClass cls;
-        cls.name = cd["named"];
+        cls.name = cd["name"];
         cls.inherits = cd.get("inherits", "");
         cls.api_type = parse_class_api_type(cd["api_type"]);
         cls.is_refcounted = cd.get("is_refcounted", false);
@@ -881,7 +881,7 @@ Error ApiParser::generate(const Dictionary &p_json_root, const String &p_output_
     err = parse_and_write_native_structures(p_json_root, p_output_dir);
     if (err != OK) return err;
 
-    UtilityFunctions::print("[API Tool] API dump generated successfully to: " + p_output_dir);
+    UtilityFunctions::print("[API Tool] API data generated successfully to: " + p_output_dir);
     return OK;
 }
 

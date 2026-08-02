@@ -31,6 +31,7 @@ opts.Add(BoolVariable("use_jsc", "Prefer to use JavaScriptCore (macos/ios only)"
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
+opts.Add(BoolVariable("embedded_natvis", "Embed natvis files into the PDB via /NATVIS (MSVC/clang-cl linkers only). If no, merge all natvis files into a single root-level godotjs-ext.natvis instead.", True))
 opts.Update(localEnv)
 
 Help(opts.GenerateHelpText(localEnv))
@@ -449,6 +450,43 @@ else:
         cxx_flags.remove('/-std=c++17')
     cxx_flags.append('-std=c++20')
 env["CXXFLAGS"] = cxx_flags
+
+# =============================================================================
+# Natvis handling
+#
+# 1. MSVC / clang-cl (link.exe / lld-link) support the /NATVIS: option which
+#    embeds a natvis file into the PDB. This is the preferred path (default:
+#    embedded_natvis=yes) because debuggers then pick up the visualizers
+#    automatically, with zero launch.json configuration.
+# 2. All other toolchains have no such linker option, and passing /NATVIS:
+#    would fail the build. For those (or when embedded_natvis=no is given),
+#    merge all natvis files into a single root-level godotjs-ext.natvis via
+#    misc/build/merge_natvis.py. Debuggers can load it through the
+#    visualizerFile attribute or the _NT_NATVIS_FILE environment variable.
+# =============================================================================
+
+natvis_sources = [
+    os.path.join(root_dir, "third", "godot-cpp", "natvis", "godot-cpp.natvis"),
+    os.path.join(root_dir, "src", "jsb.natvis"),
+    os.path.join(root_dir, "src", "impl", "quickjs", "jsb.quickjs.natvis"),
+]
+merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
+merged_natvis = os.path.join(root_dir, "godotjs-ext.natvis")
+
+is_msvc_linker = 'cl' in os.path.basename(cxx_compiler).lower() and not env.get('use_mingw', False)
+if env.get("embedded_natvis", True) and is_msvc_linker:
+    # MSVC / clang-cl: embed each natvis file into the PDB.
+    for natvis_path in natvis_sources:
+        env.Append(LINKFLAGS=[f"/NATVIS:{natvis_path}"])
+    print("natvis: embedding into PDB via /NATVIS:")
+    for natvis_path in natvis_sources:
+        print(f"  {natvis_path}")
+else:
+    # embedded_natvis=no, or a linker without /NATVIS support: merge to a
+    # single root-level file for debugger-side loading.
+    reason = "embedded_natvis=no" if not env.get("embedded_natvis", True) else "linker without /NATVIS support"
+    print(f"natvis: {reason}, merging into {merged_natvis}")
+    subprocess.run([sys.executable, merge_script, merged_natvis, *natvis_sources], check=True)
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),

@@ -1,7 +1,7 @@
 #ifndef GODOTJS_RESOURCE_LOADER_H
 #define GODOTJS_RESOURCE_LOADER_H
 
-#include "../compat/jsb_compat.h"
+#include <compat/jsb_compat.h>
 
 #include <godot_cpp/classes/resource_format_loader.hpp>
 
@@ -21,10 +21,6 @@ public:
 	virtual int64_t _get_resource_uid(const String& p_path) const override;
     // virtual bool has_custom_uid_support() const override;
 public:
-    // TODO: 考虑简化
-    static bool is_worker_script(const String& p_path);
-    static bool is_shadow_realm_script(const String& p_path);
-    static bool is_test_script(const String& p_path);
 
     static bool is_not_godot_resource_script(const String& p_path);
 };

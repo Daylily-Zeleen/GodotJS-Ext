@@ -378,19 +378,6 @@ void full_generate_and_reboot() {
     Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())->quit();
 }
 
-Error reboot_and_generate_extension_api() {
-    const String project_dir = ProjectSettings::get_singleton()->globalize_path("res://");
-    ERR_FAIL_COND_V_MSG(project_dir.is_empty(), ERR_FILE_NOT_FOUND, "[API Tool] Can't detect project directory.");
-
-    // 1. Generate extension_api.json via subprocess
-    String api_file;
-    Error err = ApiGenerator::generate_api_json(project_dir, api_file);
-    if (err != OK) {
-        UtilityFunctions::push_error("[API Tool] " + UtilityFunctions::error_string(err) + ": Failed to generate extension_api.json");
-        return err;
-    }
-    return OK;
-}
 
 Error generate_api_tool_data(const String &p_extension_api_json_path) {
     initialize();

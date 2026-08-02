@@ -15,6 +15,9 @@ custom.py
 # Ignore generated compile_commands.json
 compile_commands.json
 
+# Ignore generated merged natvis file (build artifact)
+/godotjs-ext.natvis
+
 
 # Ignore files generated for documentation
 /src/gen
