@@ -294,8 +294,6 @@ declare module "godot-jsb" {
         interface SingletonInfo {
             name: string;
             class_name: string;
-            user_created: boolean;
-            editor_only: boolean;
         }
 
         interface GlobalConstantInfo {

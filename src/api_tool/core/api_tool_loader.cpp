@@ -38,7 +38,7 @@ PackedStringArray ApiLoader::list_files_in_dir(const String &p_subdir) {
 // Constructor / Destructor
 // ============================================================================
 
-ApiLoader* singleton = nullptr;
+ApiLoader* ApiLoader::singleton = nullptr;
 
 ApiLoader::ApiLoader() {
     singleton = this;

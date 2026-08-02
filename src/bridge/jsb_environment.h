@@ -61,6 +61,39 @@ namespace jsb
         };
     }
 
+    class Environment;
+
+    class EnvironmentRef {
+        struct ControlBlock{
+            Environment *env;
+#       if JSB_THREADING
+            std::atomic<uint32_t> refcount;
+#       else // !JSB_THREADING
+            uint32_t refcount;
+#       endif // JSB_THREADING
+        } *control_block;
+
+        EnvironmentRef(Environment *p_env) : control_block{memnew(ControlBlock(p_env, 0))} {}
+        void reset() { control_block->env = nullptr; }
+
+        friend class Environment;
+    public:
+        EnvironmentRef(const EnvironmentRef& p_other) {
+            control_block = p_other.control_block;
+            jsb_ensure(control_block);
+            control_block->refcount++;
+        }
+        ~EnvironmentRef() {
+            jsb_ensure(control_block);
+            if (--control_block->refcount == 0) {
+                memdelete(control_block);
+            }
+        }
+        jsb_force_inline Environment *operator->() const { return control_block->env; }
+        jsb_force_inline operator bool() const { return control_block; }
+        jsb_force_inline operator Environment *() const { return control_block->env; }
+    };
+
     // Environment it-self is NOT thread-safe.
     class Environment : public std::enable_shared_from_this<Environment>
     {
@@ -206,6 +239,8 @@ namespace jsb
 
         internal::VariantInfoCollection variant_info_collection_;
 
+        EnvironmentRef ref_ {this};
+
     public:
         enum class Type : uint8_t
         {
@@ -257,6 +292,8 @@ namespace jsb
 
         Environment(const CreateParams& p_params);
         ~Environment();
+
+        const EnvironmentRef &get_ref() const { return ref_; }
 
         // standard init
         void init();

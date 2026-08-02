@@ -9,6 +9,8 @@ namespace jsb::impl
         GlobalInitialize();
 
         static void init();
+
+        static void shutdown();
     };
 
 }

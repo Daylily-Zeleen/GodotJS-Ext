@@ -236,8 +236,6 @@ Error ApiStoreWriter::write_singletons(const String &p_path, const LocalVector<A
     w.write(p_data, [](PayloadWriter &w, const ApiSingleton &s) {
         w.write(s.name);
         w.write(s.type);
-        w.write(s.user_created);
-        w.write(s.editor_only);
     });
     return OK;
 }
@@ -254,7 +252,7 @@ Error ApiStoreWriter::write_native_structures(const String &p_path, const LocalV
 
     w.write(p_data, [](PayloadWriter &w, const ApiNativeStructure &s) {
         w.write(s.name);
-        w.write(s.format); // TODO: 解析后调整序列化
+        w.write(s.format);
     });
     return OK;
 }

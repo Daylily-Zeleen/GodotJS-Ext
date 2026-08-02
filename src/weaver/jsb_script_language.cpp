@@ -64,6 +64,8 @@ GodotJSScriptLanguage::GodotJSScriptLanguage()
     JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, Construct);
     jsb_check(!singleton_);
     singleton_ = this;
+
+    jsb::impl::GlobalInitialize::init();
     jsb::internal::StringNames::create();
 }
 
@@ -81,24 +83,8 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage()
     {
         script_el->remove_from_list();
     }
-}
 
-void GodotJSScriptLanguage::finalize_instances_of_env(jsb::Environment* p_env) {
-    HashSet<StringName> module_id_set;
-    for (const auto &E : p_env->get_script_classes()) {
-        module_id_set.insert(E.module_id);
-    }
-
-    std::lock_guard lock(mutex_);
-    while (SelfList<GodotJSScript>* script_el = script_list_.first())
-    {
-        GodotJSScript* script = script_el->self();
-        if (!module_id_set.has(script->script_class_info_.module_id)) continue;
-        for (Object* obj : script->instances_) {
-            GodotJSScriptInstance* si = ScriptInstance::get_script_instance<GodotJSScriptInstance>(obj);
-            if (si->get_env() == p_env) si->env_ = nullptr;
-        }
-    }
+    jsb::impl::GlobalInitialize::shutdown();
 }
 
 void GodotJSScriptLanguage::_init()
