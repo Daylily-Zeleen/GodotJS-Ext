@@ -9,6 +9,7 @@
 #include "godot_cpp/classes/os.hpp"
 #include "godot_cpp/classes/scene_tree.hpp"
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -314,6 +315,11 @@ void full_generate_and_reboot() {
     const String api_file_path = project_dir.path_join("extension_api.json");
     const int my_pid = OS::get_singleton()->get_process_id();
 
+    const String api_file_bak = api_file_path + String(".bak");
+    if (FileAccess::file_exists(api_file_path)) {
+        DirAccess::rename_absolute(api_file_path, api_file_bak);
+    }
+
     const String dump_cmd = vformat("\"%s\" --headless --path \"%s\" --dump-extension-api-with-docs",
         godot_executable_path, project_dir);
     const String reboot_cmd = vformat("\"%s\" --editor --path \"%s\" --godotjs-api-generate \"%s\"",
@@ -391,6 +397,16 @@ Error generate_api_tool_data(const String &p_extension_api_json_path) {
     Error err = ApiGenerator::generate(p_extension_api_json_path, out_dir);
     if (err != OK) {
         return err;
+    }
+
+    // Delete generated file and restore backup if exists.
+    if (FileAccess::file_exists(p_extension_api_json_path)) {
+        DirAccess::remove_absolute(p_extension_api_json_path);
+    }
+
+    String backup_path = p_extension_api_json_path + String(".bak");
+    if (FileAccess::file_exists(backup_path)) {
+        DirAccess::rename_absolute(backup_path, p_extension_api_json_path);
     }
 
     return loader.initialize();
