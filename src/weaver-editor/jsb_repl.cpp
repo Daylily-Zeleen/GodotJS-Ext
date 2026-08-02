@@ -17,6 +17,9 @@
 #include <godot_cpp/classes/theme.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
 
+#include <compat/misc.h>
+#include <compat/editor_settings.h>
+
 void GodotJSREPL::_bind_methods()
 {
 }
@@ -157,7 +160,7 @@ void GodotJSREPL::_notification(int p_what)
 }
 
 Ref<Texture2D> GodotJSREPL::get_editor_theme_icon(const StringName &p_name) const {
-	return get_theme_icon(p_name, SNAME("EditorIcons"));
+	return get_theme_icon(p_name, "EditorIcons");
 }
 
 void GodotJSREPL::_update_theme()

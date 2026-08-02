@@ -1,25 +1,11 @@
 #ifndef GODOTJS_ANSI_ALLOCATOR_H
 #define GODOTJS_ANSI_ALLOCATOR_H
 
-#include "../compat/jsb_compat.h"
-#include "jsb_macros.h"
+#include <compat/jsb_compat.h>
+#include <godot_cpp/core/math_funcs_binary.hpp>
 
 namespace jsb::internal
 {
-    // Simple next power of 2 helper (replaces Math::next_power_of_2 which is not in godot-cpp)
-    template<typename T>
-    static T next_power_of_2(T v)
-    {
-        v--;
-        v |= v >> 1;
-        v |= v >> 2;
-        v |= v >> 4;
-        v |= v >> 8;
-        v |= v >> 16;
-        v++;
-        return v;
-    }
-
     struct AnsiAllocator
     {
         enum { kInitialElementNum = 8 };
@@ -65,7 +51,7 @@ namespace jsb::internal
 
             void resize(size_t p_last_num, size_t p_num)
             {
-                data = (AnyType*)memrealloc(data, next_power_of_2((unsigned int) (p_num * kSizeOfElement)));
+                data = (AnyType*)memrealloc(data, ::godot::Math::next_power_of_2((unsigned int) (p_num * kSizeOfElement)));
                 jsb_check(data);
                 const size_t added_count = p_num - p_last_num;
                 memset((void *)((unsigned char*) data + p_last_num * kSizeOfElement), 0,

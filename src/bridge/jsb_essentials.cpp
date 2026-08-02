@@ -3,6 +3,8 @@
 #include "jsb_bridge_helper.h"
 #include "jsb_environment.h"
 
+#include <string_builder.h>
+
 namespace jsb
 {
 #if !JSB_WITH_ESSENTIALS
@@ -28,7 +30,7 @@ namespace jsb
         if constexpr (ActiveSeverity < internal::ELogSeverity::JSB_MIN_LOG_LEVEL) return;
 
         v8::Isolate* isolate = info.GetIsolate();
-        String text; // TODO: 优化文本组织，不要一点点拼
+        StringBuilder sb; // TODO: 优化文本组织，不要一点点拼
 
         int index;
         if constexpr (ActiveSeverity == internal::ELogSeverity::Assert)
@@ -39,12 +41,12 @@ namespace jsb
                 return;
             }
 
-            text = "[JS] Assertion failure:";
+            sb.append("[JS] Assertion failure:");
             index = 1;
         }
         else
         {
-            text = "[JS]";
+            sb.append("[JS]");
             index = 0;
         }
 
@@ -53,14 +55,14 @@ namespace jsb
         {
             if (String str = BridgeHelper::stringify(isolate, info[index]); str.length() > 0)
             {
-                text += " ";
-                text += str;
+                sb.append(" ");
+                sb.append(str);
             }
         }
 
         if constexpr (ActiveSeverity == internal::ELogSeverity::Assert)
         {
-            jsb_throw(isolate, text);
+            impl::Helper::throw_error(isolate, sb.as_string());
             return;
         }
 
@@ -74,6 +76,7 @@ namespace jsb
 
         if constexpr (ActiveSeverity == internal::ELogSeverity::Warning)
         {
+            const String text = sb.as_string();
             const CharString func_str = source_position.function.utf8();
             const CharString filename_str = source_position.filename.utf8();
             const CharString text_str = text.utf8();
@@ -87,6 +90,7 @@ namespace jsb
         }
         if constexpr (ActiveSeverity == internal::ELogSeverity::Error)
         {
+            const String text = sb.as_string();
             const CharString func_str = source_position.function.utf8();
             const CharString filename_str = source_position.filename.utf8();
             const CharString text_str = text.utf8();
@@ -102,9 +106,10 @@ namespace jsb
         {
             if (!stacktrace.is_empty())
             {
-                text += ("\n");
-                text += (stacktrace);
+                sb.append("\n");
+                sb.append(stacktrace);
             }
+            const String text = sb.as_string();
             internal::IConsoleOutput::internal_write(ActiveSeverity, text);
             print_line(text);
             return;
@@ -112,6 +117,7 @@ namespace jsb
 
         // trivial prints
         {
+            const String text = sb.as_string();
             internal::IConsoleOutput::internal_write(ActiveSeverity, text);
             print_line(text);
         }

@@ -21,6 +21,8 @@
 #include "jsb_type_convert.h"
 #include "../internal/jsb_internal.h"
 
+#include <compat/thread.h>
+
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -29,8 +31,6 @@
 
 namespace jsb
 {
-    using jsb::compat::ThreadID;
-
     enum : uint32_t { kIsolateEmbedderData = 0, };
     enum : uint32_t { kContextEmbedderData = 0, };
 
@@ -73,7 +73,7 @@ namespace jsb
 #       endif // JSB_THREADING
         } *control_block;
 
-        EnvironmentRef(Environment *p_env) : control_block{memnew(ControlBlock(p_env, 0))} {}
+        EnvironmentRef(Environment *p_env) : control_block{memnew(ControlBlock(p_env, 1))} {}
         void reset() { control_block->env = nullptr; }
 
         friend class Environment;
@@ -89,9 +89,9 @@ namespace jsb
                 memdelete(control_block);
             }
         }
-        jsb_force_inline Environment *operator->() const { return control_block->env; }
-        jsb_force_inline operator bool() const { return control_block; }
-        jsb_force_inline operator Environment *() const { return control_block->env; }
+        _FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
+        _FORCE_INLINE_ operator bool() const { return control_block; }
+        _FORCE_INLINE_ operator Environment *() const { return control_block->env; }
     };
 
     // Environment it-self is NOT thread-safe.
@@ -152,7 +152,7 @@ namespace jsb
         v8::Global<v8::Symbol> symbols_[Symbols::kNum];
 
         /*volatile*/
-        ThreadID thread_id_;
+        ThreadEx::ID thread_id_;
 
         v8::Isolate* isolate_;
         v8::Global<v8::Context> context_;
@@ -191,7 +191,7 @@ namespace jsb
 
         StringNameCache string_name_cache_;
 
-        ObjectDB object_db_;
+        BindingObjectDB object_db_;
         uint32_t persistent_object_count_ {0};
 
         internal::VariantAllocator variant_allocator_;
@@ -262,7 +262,7 @@ namespace jsb
             // Port for the debugger. Disable if zero.
             uint16_t debugger_port = 0;
 
-            ThreadID thread_id = 0;
+            ThreadEx::ID thread_id = 0;
             Type type = Type::Default;
         };
 
@@ -306,24 +306,24 @@ namespace jsb
         // Should avoid any script execution during this phase (after disposed before destructed).
         void dispose();
 
-        jsb_force_inline static Environment* wrap(v8::Isolate* p_isolate)
+        _FORCE_INLINE_ static Environment* wrap(v8::Isolate* p_isolate)
         {
             Environment* env = (Environment*) p_isolate->GetData(kIsolateEmbedderData);
-            // jsb_check(env && env->thread_id_ == OS::get_singleton()->get_thread_caller_id());
+            // jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
             return env;
         }
-        jsb_force_inline static Environment* wrap(const v8::Local<v8::Context>& p_context)
+        _FORCE_INLINE_ static Environment* wrap(const v8::Local<v8::Context>& p_context)
         {
             Environment* env = (Environment*) p_context->GetAlignedPointerFromEmbedderData(kContextEmbedderData);
-            // jsb_check(env && env->thread_id_ == OS::get_singleton()->get_thread_caller_id());
+            // jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
             return env;
         }
 
-        jsb_force_inline v8::Isolate* get_isolate() const { return isolate_; }
-        jsb_force_inline v8::Local<v8::Context> get_context() const { return context_.Get(isolate_); }
-        jsb_force_inline EnvironmentID id() const { return (EnvironmentID) this; }
+        _FORCE_INLINE_ v8::Isolate* get_isolate() const { return isolate_; }
+        _FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return context_.Get(isolate_); }
+        _FORCE_INLINE_ EnvironmentID id() const { return (EnvironmentID) this; }
 
-        jsb_force_inline internal::VariantInfoCollection& get_variant_info_collection() { return variant_info_collection_; }
+        _FORCE_INLINE_ internal::VariantInfoCollection& get_variant_info_collection() { return variant_info_collection_; }
 
         void add_class_register(const Variant::Type p_type, const ClassRegisterFunc p_func)
         {
@@ -349,7 +349,7 @@ namespace jsb
         }
 
         //TODO temp, get C++ function pointer (include class methods)
-        jsb_force_inline static uint8_t* get_function_pointer(const v8::Local<v8::Context>& p_context, uint32_t p_offset)
+        _FORCE_INLINE_ static uint8_t* get_function_pointer(const v8::Local<v8::Context>& p_context, uint32_t p_offset)
         {
             return wrap(p_context)->function_pointers_[p_offset];
         }
@@ -385,8 +385,8 @@ namespace jsb
 
         void evaluate_default_values(ScriptClassInfo& p_class_info);
 
-        jsb_force_inline const JavaScriptModuleCache& get_module_cache() const { return module_cache_; }
-        jsb_force_inline JavaScriptModuleCache& get_module_cache() { return module_cache_; }
+        _FORCE_INLINE_ const JavaScriptModuleCache& get_module_cache() const { return module_cache_; }
+        _FORCE_INLINE_ JavaScriptModuleCache& get_module_cache() { return module_cache_; }
 
         /**
          * [env thread only]
@@ -450,35 +450,35 @@ namespace jsb
         bool is_debugger_started() const;
 
         // whether it's called from the same thread as the environment spawned
-        jsb_force_inline bool is_caller_thread() const { return thread_id_ == jsb::compat::UNASSIGNED_THREAD_ID || OS::get_singleton()->get_thread_caller_id() == thread_id_; }
-        jsb_force_inline ThreadID get_thread_id() const { return thread_id_; }
+        _FORCE_INLINE_ bool is_caller_thread() const { return thread_id_ == ThreadEx::UNASSIGNED_ID || ThreadEx::get_caller_id() == thread_id_; }
+        _FORCE_INLINE_ ThreadEx::ID get_thread_id() const { return thread_id_; }
 
         // ensure it's called from the same thread as the environment spawned
-        jsb_force_inline void check_internal_state() const
+        _FORCE_INLINE_ void check_internal_state() const
         {
             jsb_checkf(is_caller_thread(), "multi-threaded call not supported yet");
         }
 
-        jsb_force_inline internal::SourceMapCache& get_source_map_cache() { return source_map_cache_; }
+        _FORCE_INLINE_ internal::SourceMapCache& get_source_map_cache() { return source_map_cache_; }
 
-        jsb_force_inline void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
-        jsb_force_inline bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
-        jsb_force_inline bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
+        _FORCE_INLINE_ void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
+        _FORCE_INLINE_ bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
+        _FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
 
-        jsb_force_inline Variant* alloc_variant(const Variant& p_templet) { jsb_check(p_templet.get_type() != Variant::OBJECT); return variant_allocator_.alloc(p_templet); }
-        jsb_force_inline Variant* alloc_variant() { return variant_allocator_.alloc(); }
-        jsb_force_inline void dealloc_variant(Variant* p_var) { variant_allocator_.free(p_var); }
+        _FORCE_INLINE_ Variant* alloc_variant(const Variant& p_templet) { jsb_check(p_templet.get_type() != Variant::OBJECT); return variant_allocator_.alloc(p_templet); }
+        _FORCE_INLINE_ Variant* alloc_variant() { return variant_allocator_.alloc(); }
+        _FORCE_INLINE_ void dealloc_variant(Variant* p_var) { variant_allocator_.free(p_var); }
 
 #if JSB_WITH_ESSENTIALS
-        jsb_force_inline internal::TTimerManager<JavaScriptTimerAction>& get_timer_manager() { return timer_manager_; }
-        jsb_force_inline JSTimerTags<uint64_t>& get_timer_tags() { return timer_tags_; }
+        _FORCE_INLINE_ internal::TTimerManager<JavaScriptTimerAction>& get_timer_manager() { return timer_manager_; }
+        _FORCE_INLINE_ JSTimerTags<uint64_t>& get_timer_tags() { return timer_tags_; }
 #endif
 
-        jsb_force_inline StringNameCache& get_string_name_cache() { return string_name_cache_; }
-        jsb_force_inline v8::Local<v8::String> get_string_value(const StringName& p_name) { return string_name_cache_.get_string_value(isolate_, p_name); }
-        jsb_force_inline StringName get_string_name(const v8::Local<v8::String>& p_value) { return string_name_cache_.get_string_name(isolate_, p_value); }
+        _FORCE_INLINE_ StringNameCache& get_string_name_cache() { return string_name_cache_; }
+        _FORCE_INLINE_ v8::Local<v8::String> get_string_value(const StringName& p_name) { return string_name_cache_.get_string_value(isolate_, p_name); }
+        _FORCE_INLINE_ StringName get_string_name(const v8::Local<v8::String>& p_value) { return string_name_cache_.get_string_name(isolate_, p_value); }
 
-        jsb_force_inline v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
+        _FORCE_INLINE_ v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
 
     private:
         // [low level binding] bind a C++ `p_pointer` with a JS `p_object`
@@ -496,18 +496,18 @@ namespace jsb
         // An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
         // The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).
         // May change in the future.
-        jsb_force_inline void bind_valuetype(Variant* p_pointer, const v8::Local<v8::Object>& p_object)
+        _FORCE_INLINE_ void bind_valuetype(Variant* p_pointer, const v8::Local<v8::Object>& p_object)
         {
             p_object->SetAlignedPointerInInternalField(IF_Pointer, p_pointer);
             impl::Helper::SetDeleter(p_pointer, p_object, _valuetype_deleter, this);
         }
 
-        jsb_force_inline NativeObjectID try_get_object_id(void* p_pointer) const { return object_db_.try_get_object_id(p_pointer); }
+        _FORCE_INLINE_ NativeObjectID try_get_object_id(void* p_pointer) const { return object_db_.try_get_object_id(p_pointer); }
 
         // whether the `p_pointer` registered in the object binding map
         // return true, and the corresponding JS value if `p_pointer` is valid
         template <typename T>
-        jsb_force_inline bool try_get_object(T p_key, v8::Local<v8::Object>& r_unwrap) const
+        _FORCE_INLINE_ bool try_get_object(T p_key, v8::Local<v8::Object>& r_unwrap) const
         {
             if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_key))
             {
@@ -522,14 +522,14 @@ namespace jsb
         }
 
         // Get JS object, will crash if object_id is invalid
-        jsb_force_inline v8::Local<v8::Object> get_object(const NativeObjectID& p_object_id) const
+        _FORCE_INLINE_ v8::Local<v8::Object> get_object(const NativeObjectID& p_object_id) const
         {
             const ObjectHandleConstPtr ptr = object_db_.get_object(p_object_id);
             jsb_check(native_classes_.get_value(ptr->class_id).type != NativeClassType::GodotPrimitive);
             return ptr->ref_.Get(isolate_);
         }
 
-        jsb_force_inline const NativeClassInfo* find_object_class(void* p_pointer) const
+        _FORCE_INLINE_ const NativeClassInfo* find_object_class(void* p_pointer) const
         {
             if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_pointer))
             {
@@ -539,7 +539,7 @@ namespace jsb
         }
 
         // whether the pointer registered in the object binding map
-        jsb_force_inline bool verify_object(void* p_pointer) const
+        _FORCE_INLINE_ bool verify_object(void* p_pointer) const
         {
             return jsb_likely(p_pointer) && object_db_.has_object(p_pointer);
         }
@@ -640,10 +640,10 @@ namespace jsb
         // [unsafe]
         // It's dangerous to hold the `NativeClassInfo` reference/pointer because the address is not ensured stable.
         // All `get_` methods will crash if `p_class_id` is invalid
-        jsb_force_inline NativeClassInfoPtr get_native_class(const NativeClassID p_class_id) { return native_classes_.get_value_scoped(p_class_id); }
-        jsb_force_inline NativeClassInfoConstPtr get_native_class(const NativeClassID p_class_id) const { return native_classes_.get_value_scoped(p_class_id); }
+        _FORCE_INLINE_ NativeClassInfoPtr get_native_class(const NativeClassID p_class_id) { return native_classes_.get_value_scoped(p_class_id); }
+        _FORCE_INLINE_ NativeClassInfoConstPtr get_native_class(const NativeClassID p_class_id) const { return native_classes_.get_value_scoped(p_class_id); }
 
-        jsb_force_inline NativeClassInfoPtr find_native_class(const StringName& p_class_name, NativeClassID *r_class_id = nullptr) {
+        _FORCE_INLINE_ NativeClassInfoPtr find_native_class(const StringName& p_class_name, NativeClassID *r_class_id = nullptr) {
             for (auto it = native_classes_.begin(); it!= native_classes_.end(); ++it) {
                 if (it.is_valid() && it->name == p_class_name) {
                     if (r_class_id) { *r_class_id = it.get_index(); }
@@ -653,15 +653,15 @@ namespace jsb
             return NativeClassInfoPtr(nullptr, nullptr); 
         }
 
-        jsb_force_inline ScriptClassInfoPtr add_script_class(ScriptClassID& r_class_id)
+        _FORCE_INLINE_ ScriptClassInfoPtr add_script_class(ScriptClassID& r_class_id)
         {
             r_class_id = script_classes_.add({});
             return script_classes_.get_value_scoped(r_class_id);
         }
-        jsb_force_inline ScriptClassInfoPtr get_script_class(const ScriptClassID p_class_id) { return script_classes_.get_value_scoped(p_class_id); }
-        jsb_force_inline ScriptClassInfoConstPtr get_script_class(const ScriptClassID p_class_id) const { return script_classes_.get_value_scoped(p_class_id); }
-        jsb_force_inline ScriptClassInfoPtr find_script_class(const ScriptClassID p_class_id) { return script_classes_.is_valid_index(p_class_id) ? script_classes_.get_value_scoped(p_class_id) : nullptr; }
-        jsb_force_inline const ScriptClassInfoArray& get_script_classes() { return script_classes_; }
+        _FORCE_INLINE_ ScriptClassInfoPtr get_script_class(const ScriptClassID p_class_id) { return script_classes_.get_value_scoped(p_class_id); }
+        _FORCE_INLINE_ ScriptClassInfoConstPtr get_script_class(const ScriptClassID p_class_id) const { return script_classes_.get_value_scoped(p_class_id); }
+        _FORCE_INLINE_ ScriptClassInfoPtr find_script_class(const ScriptClassID p_class_id) { return script_classes_.is_valid_index(p_class_id) ? script_classes_.get_value_scoped(p_class_id) : nullptr; }
+        _FORCE_INLINE_ const ScriptClassInfoArray& get_script_classes() { return script_classes_; }
 
         void get_statistics(Statistics& r_stats) const;
 
@@ -718,7 +718,7 @@ namespace jsb
         void call_script_prelude(ScriptClassID p_script_class_id, NativeObjectID p_object_id);
 
         // NOTE: First-pass weak callbacks are very restricted in V8. Do not do heavy work there.
-        jsb_force_inline static void object_gc_callback(const v8::WeakCallbackInfo<void>& info)
+        _FORCE_INLINE_ static void object_gc_callback(const v8::WeakCallbackInfo<void>& info)
         {
             if (Environment* env = wrap(info.GetIsolate()))
             {
@@ -778,7 +778,7 @@ namespace jsb
                 env->variant_allocator_.free_safe(variant);
                 JSB_LOG(VeryVerbose, "deleting possibly reference-based variant (%s:%d) thread:%s",
                     Variant::get_type_name(type), (uintptr_t) variant,
-                    uitos(OS::get_singleton()->get_thread_caller_id()));
+                    uitos(ThreadEx::get_caller_id()));
                 return;
             }
             else

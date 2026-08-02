@@ -4,6 +4,10 @@
 #include "jsb_logger.h"
 #include "jsb_macros.h"
 
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+
 namespace jsb::internal
 {
     struct PresetSource

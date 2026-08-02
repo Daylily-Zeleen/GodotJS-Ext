@@ -5,8 +5,8 @@
 
 // GDExtension: provide local character conversion functions
 #include <cctype>
-jsb_force_inline char32_t _find_upper(char32_t p_char) { return (char32_t)std::toupper((int)p_char); }
-jsb_force_inline char32_t _find_lower(char32_t p_char) { return (char32_t)std::tolower((int)p_char); }
+_FORCE_INLINE_ char32_t _find_upper(char32_t p_char) { return (char32_t)std::toupper((int)p_char); }
+_FORCE_INLINE_ char32_t _find_lower(char32_t p_char) { return (char32_t)std::tolower((int)p_char); }
 
 // Logic is largely derived from mono/utils/naming_utils.cpp so that our naming conventions remain similar to .NET.
 namespace jsb::internal

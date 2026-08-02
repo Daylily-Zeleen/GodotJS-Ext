@@ -5,6 +5,7 @@
 #include "jsb_logger.h"
 
 #include <godot_cpp/classes/reg_ex_match.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 
 namespace jsb::internal
 {

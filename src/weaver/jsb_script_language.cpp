@@ -24,6 +24,11 @@
 #include "../weaver-editor/templates/templates.gen.h"
 #endif
 
+#ifdef DEBUG_ENABLED
+#include <godot_cpp/classes/performance.hpp>
+#endif // DEBUG_ENABLED
+
+
 GodotJSScriptLanguage* GodotJSScriptLanguage::singleton_ = nullptr;
 
 namespace jsb
@@ -45,7 +50,7 @@ namespace jsb
         }
         else
         {
-            jsb_ensuref(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", OS::get_singleton()->get_thread_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
+            jsb_ensuref(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", ThreadEx::get_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
             is_shadow_ = true;
         }
     }
@@ -89,7 +94,7 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage()
 
 void GodotJSScriptLanguage::_init()
 {
-    if (once_inited_) return;
+    if (once_initialized_) return;
 
     js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
     js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
@@ -99,7 +104,7 @@ void GodotJSScriptLanguage::_init()
     jsb_check(ts_class_name_matcher_.is_valid());
 
     JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, init);
-    once_inited_ = true;
+    once_initialized_ = true;
     JSB_LOG(Verbose, "Runtime: %s", JSB_IMPL_VERSION_STRING);
     JSB_LOG(VeryVerbose, "jsb lang init");
 
@@ -108,7 +113,7 @@ void GodotJSScriptLanguage::_init()
     params.initial_object_slots = JSB_MASTER_INITIAL_OBJECT_SLOTS;
     params.initial_script_slots = JSB_MASTER_INITIAL_SCRIPT_SLOTS;
     params.debugger_port = jsb::internal::Settings::get_debugger_port();
-    params.thread_id = OS::get_singleton()->get_thread_caller_id();
+    params.thread_id = ThreadEx::get_caller_id();
 
     // main environment
     environment_ = std::make_shared<jsb::Environment>(params);
@@ -121,13 +126,13 @@ void GodotJSScriptLanguage::_init()
     }
 
 #if JSB_DEBUG
-    if (jsb::compat::Performance::get_singleton()) monitor_ = memnew(GodotJSMonitor);
+    if (Performance::get_singleton()) monitor_ = memnew(GodotJSMonitor);
 #endif
 }
 
 void GodotJSScriptLanguage::_finish()
 {
-    jsb_check(once_inited_);
+    jsb_check(once_initialized_);
 
     js_class_name_matcher1_.unref();
     js_class_name_matcher2_.unref();
@@ -136,7 +141,7 @@ void GodotJSScriptLanguage::_finish()
 #if JSB_DEBUG
     if (monitor_) memdelete(monitor_);
 #endif
-    once_inited_ = false;
+    once_initialized_ = false;
 
 #if !JSB_WITH_WEB
     jsb::Worker::finish();
@@ -196,7 +201,7 @@ void GodotJSScriptLanguage::_frame()
 struct JavaScriptControlFlowKeywords
 {
     HashSet<String> values;
-    jsb_force_inline JavaScriptControlFlowKeywords()
+    _FORCE_INLINE_ JavaScriptControlFlowKeywords()
     {
         constexpr static const char* _keywords[] =
         {
@@ -617,7 +622,7 @@ int32_t GodotJSScriptLanguage::_profiling_get_frame_data(ScriptLanguageExtension
 
 std::shared_ptr<jsb::Environment> GodotJSScriptLanguage::create_shadow_environment()
 {
-    const jsb::compat::ThreadID caller_id = OS::get_singleton()->get_thread_caller_id();
+    const ThreadEx::ID caller_id = ThreadEx::get_caller_id();
     {
         std::lock_guard shadow_lock(shadow_mutex_);
 
@@ -636,11 +641,11 @@ std::shared_ptr<jsb::Environment> GodotJSScriptLanguage::create_shadow_environme
     params.initial_object_slots = 512;
     params.initial_script_slots = 32;
     params.type = jsb::Environment::Type::Shadow;
-    params.thread_id = jsb::compat::UNASSIGNED_THREAD_ID;
+    params.thread_id = ThreadEx::UNASSIGNED_ID;
 
     std::shared_ptr<jsb::Environment> env = std::make_shared<jsb::Environment>(params);
     JSB_LOG(Log, "creating a shadow Environment on thread %d for %s [env %s]",
-        OS::get_singleton()->get_thread_caller_id(),
+        ThreadEx::get_caller_id(),
         jsb_typename(GodotJSScript),
         (uintptr_t) env->id());
     env->init();
@@ -796,7 +801,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array& p_scripts, bool
 		for (KeyValue<ObjectInstanceID, ScriptInstancePropertyState> &F : E.value) {
 			ScriptInstancePropertyState &saved_state = F.value;
 
-			Object *obj = ObjectDB::get_instance(F.key);
+			Object *obj = godot::ObjectDB::get_instance(F.key);
 			if (!obj) {
 				continue;
 			}

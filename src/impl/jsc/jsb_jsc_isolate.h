@@ -152,8 +152,8 @@ namespace v8
         bool IsExecutionTerminating() const { return interrupted_.is_set(); }
         void TerminateExecution() { interrupted_.set(); }
 
-        jsb_force_inline JSContextGroupRef rt() const { return rt_; }
-        jsb_force_inline JSContextRef ctx() const { return ctx_; }
+        _FORCE_INLINE_ JSContextGroupRef rt() const { return rt_; }
+        _FORCE_INLINE_ JSContextRef ctx() const { return ctx_; }
 
         bool _IsPromise(JSValueRef val) const;
         bool _IsMap(JSValueRef val) const;
@@ -291,7 +291,7 @@ namespace v8
             JSB_JSC_LOG(VeryVerbose, "_remove_reference %s", ref_count_);
         }
 
-        jsb_force_inline void throw_error(const char* message)
+        _FORCE_INLINE_ void throw_error(const char* message)
         {
             const JSStringRef str = JSStringCreateWithUTF8CString(message);
             const JSValueRef value = JSValueMakeString(ctx_, str);
@@ -307,7 +307,7 @@ namespace v8
             _ThrowError(created_error);
         }
 
-        jsb_force_inline void throw_error(const ::String& message)
+        _FORCE_INLINE_ void throw_error(const ::String& message)
         {
             const CharString str8 = message.utf8();
             throw_error(str8.get_data());

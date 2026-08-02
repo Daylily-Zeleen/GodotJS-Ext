@@ -62,7 +62,7 @@ static GDExtensionMethodInfo method_info_to_gdextension(const MethodInfo &p_minf
 // TODO: 如果有必要的话考虑不使用 godot::gdextension_interface::placeholder_script_instance_create() 来确保接口一致性
 struct ScriptInstanceInfo {
 public:
-    jsb_force_inline GDExtensionScriptInstanceInfo3 *operator&() {return &script_instance_info_;}
+    _FORCE_INLINE_ GDExtensionScriptInstanceInfo3 *operator&() {return &script_instance_info_;}
 private:
     static GDExtensionBool set_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value){
         GodotJSScriptInstanceBase* script_instance = (GodotJSScriptInstanceBase*)p_instance;

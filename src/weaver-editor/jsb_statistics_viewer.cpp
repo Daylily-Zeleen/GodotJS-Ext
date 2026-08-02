@@ -1,6 +1,8 @@
 #include "jsb_statistics_viewer.h"
 #include "jsb_editor_pch.h"
 
+#include <compat/misc.h>
+#include <compat/editor_settings.h>
 
 GodotJSStatisticsViewer::GodotJSStatisticsViewer()
 {

@@ -3,6 +3,9 @@
 
 #include "../internal/jsb_path_util.h"
 
+#include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/json.hpp>
+
 namespace jsb
 {
     namespace
@@ -448,6 +451,7 @@ namespace jsb
                 return true;
             }
             r_source_info = {};
+            // TODO: 如果后续支持弄得nodejs的话得考虑把这条警告降级
             JSB_LOG(Warning, "failed to check out module (absolute) %s", p_module_id);
             return false;
         }
@@ -521,7 +525,7 @@ namespace jsb
         String normalized;
         const Error err = internal::PathUtil::extract(p_path, normalized);
         jsb_unused(err);
-        jsb_checkf(err == OK, "failed to extract path when adding search path %s (%s)", p_path, jsb_ext_error_string(err));
+        jsb_checkf(err == OK, "failed to extract path when adding search path %s (%s)", p_path, UtilityFunctions::error_string(err));
         search_paths_.append(normalized);
         JSB_LOG(Verbose, "add search path: %s", normalized);
         return *this;

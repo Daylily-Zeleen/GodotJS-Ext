@@ -1,6 +1,11 @@
 #ifndef GODOTJS_LOGGER_H
 #define GODOTJS_LOGGER_H
 
+#include <godot_cpp/core/print_string.hpp>
+#if !JSB_VERBOSE_ENABLED
+#include <godot_cpp/classes/os.hpp>
+#endif // JSB_VERBOSE_ENABLED
+
 #include "jsb_internal_pch.h"
 
 #include "jsb_log_severity.h"
@@ -85,19 +90,19 @@ namespace jsb::internal
         static void _default_print_verbose(const String& p_str)
         {
             //TODO cache messages from background threads to avoid messing up the output
-            jsb_ext_print_rich(p_str.utf8().get_data());
+            godot::print_line_rich(vformat("\u001b[90m%s\u001b[39m\n", p_str));
         }
 
         static void _default_print_line(const String& p_str)
         {
             //TODO cache messages from background threads to avoid messing up the output
-            jsb_ext_print_line(p_str);
+            godot::print_line(p_str);
         }
 
         static void _default_print_error(const char *p_function, const char *p_file, int p_line, const String &p_error, bool p_editor_notify, bool p_is_warning)
         {
             //TODO cache messages from background threads to avoid messing up the output
-            jsb_ext_print_error(p_function, p_file, p_line, p_error, p_editor_notify, p_is_warning);
+            godot::_err_print_error(p_function, p_file, p_line, p_error, p_editor_notify, p_is_warning);
         }
 
         // pick up only the last component of the path for clarity

@@ -236,7 +236,7 @@ namespace jsb
     template<typename T>
     struct VariantConstructor
     {
-        jsb_force_inline static void constructor(const v8::FunctionCallbackInfo<v8::Value>& info)
+        _FORCE_INLINE_ static void constructor(const v8::FunctionCallbackInfo<v8::Value>& info)
         {
             VariantBindFallbacks::constructor(info);
         }

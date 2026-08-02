@@ -986,8 +986,8 @@ namespace jsb::internal
 
     private:
 #if JSB_WITH_CHECK
-        jsb_force_inline void lock_address() { ++_address_locked; }
-        jsb_force_inline void unlock_address() { jsb_check(_address_locked > 0); --_address_locked; }
+        _FORCE_INLINE_ void lock_address() { ++_address_locked; }
+        _FORCE_INLINE_ void unlock_address() { jsb_check(_address_locked > 0); --_address_locked; }
 #endif
 
 #if JSB_SARRAY_CONSISTENCY_CHECK

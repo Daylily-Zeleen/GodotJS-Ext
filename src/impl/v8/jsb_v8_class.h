@@ -25,18 +25,18 @@ namespace jsb::impl
         Class(const Class&) = delete;
         Class& operator=(const Class&) = delete;
 
-        jsb_force_inline bool IsEmpty() const
+        _FORCE_INLINE_ bool IsEmpty() const
         {
             return template_.IsEmpty();
         }
 
-        jsb_force_inline v8::Local<v8::Function> Get(v8::Isolate* isolate) const
+        _FORCE_INLINE_ v8::Local<v8::Function> Get(v8::Isolate* isolate) const
         {
             return template_.Get(isolate)->GetFunction(isolate->GetCurrentContext()).ToLocalChecked();
         }
 
         //NOTE NewInstance should not trigger the underlying native constructor of this class
-        jsb_force_inline v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
+        _FORCE_INLINE_ v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
         {
             return template_.Get(context->GetIsolate())->InstanceTemplate()->NewInstance(context).ToLocalChecked();
         }

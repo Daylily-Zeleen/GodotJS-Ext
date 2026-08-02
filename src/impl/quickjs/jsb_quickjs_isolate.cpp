@@ -9,13 +9,13 @@ namespace v8
     struct IsolateInternalFunctions
     {
         // crash val is an exception
-        jsb_force_inline static JSValue verified(const JSValue val)
+        _FORCE_INLINE_ static JSValue verified(const JSValue val)
         {
             jsb_check(JS_VALUE_GET_TAG(val) != JS_TAG_EXCEPTION);
             return val;
         }
 
-        jsb_force_inline static int verified(const int val)
+        _FORCE_INLINE_ static int verified(const int val)
         {
             jsb_check(val != -1);
             return val;

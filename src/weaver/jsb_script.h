@@ -13,6 +13,8 @@
 #include <godot_cpp/templates/list.hpp>
 #include <godot_cpp/templates/vector.hpp>
 
+#include <compat/misc.h>
+
 #include "jsb_script_language.h"
 
 class ScriptInstance;
@@ -67,8 +69,8 @@ private:
 
 private:
     void load_module_immediately();
-    jsb_force_inline void ensure_module_loaded() const { if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript*>(this)->load_module_immediately(); }
-    jsb_force_inline bool is_valid_internal() const { return jsb::internal::VariantUtil::is_valid_name(script_class_info_.module_id); }
+    _FORCE_INLINE_ void ensure_module_loaded() const { if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript*>(this)->load_module_immediately(); }
+    _FORCE_INLINE_ bool is_valid_internal() const { return jsb::internal::VariantUtil::is_valid_name(script_class_info_.module_id); }
 
     Variant _new(const Variant** p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
 

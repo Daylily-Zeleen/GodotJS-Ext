@@ -4,6 +4,7 @@
 #include "../compat/jsb_compat.h"
 #include "jsb_log_severity.h"
 
+#include <godot_cpp/variant/string.hpp>
 namespace jsb
 {
     namespace internal

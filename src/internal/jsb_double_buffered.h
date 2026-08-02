@@ -4,6 +4,8 @@
 #include "jsb_macros.h"
 #include "jsb_logger.h"
 
+#include <godot_cpp/templates/spin_lock.hpp>
+
 namespace jsb::internal
 {
     template<typename T>

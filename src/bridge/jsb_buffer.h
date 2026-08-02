@@ -13,7 +13,7 @@ namespace jsb
         Buffer(uint8_t* p_ptr, size_t p_size) : ptr_(p_ptr), size_(p_size) {}
 
         //NOTE only free the memory, ptr_ itself won't be changed.
-        jsb_force_inline void drop() 
+        _FORCE_INLINE_ void drop() 
         { 
             if (ptr_) impl::Helper::free(ptr_); 
         }
@@ -55,11 +55,11 @@ namespace jsb
             return *this;
         }
 
-        jsb_force_inline bool is_empty() const { return size_ == 0; }
+        _FORCE_INLINE_ bool is_empty() const { return size_ == 0; }
 
-        jsb_force_inline size_t size() const { return size_; }
-        jsb_force_inline const uint8_t* ptr() const { return ptr_; }
-        jsb_force_inline uint8_t* ptr() { return ptr_; }
+        _FORCE_INLINE_ size_t size() const { return size_; }
+        _FORCE_INLINE_ const uint8_t* ptr() const { return ptr_; }
+        _FORCE_INLINE_ uint8_t* ptr() { return ptr_; }
     };
 
 }

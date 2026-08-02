@@ -1,6 +1,9 @@
 #include "jsb_debugger.h"
 #include "jsb_environment.h"
+
 #include <godot_cpp/classes/stream_peer_buffer.hpp>
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 
 #if JSB_WITH_DEBUGGER
 #if JSB_WITH_LWS && JSB_WITH_V8

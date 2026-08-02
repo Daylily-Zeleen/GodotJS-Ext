@@ -5,6 +5,9 @@
 #include "jsb_v8_pch.h"
 #include "jsb_v8_class.h"
 
+
+#include <godot_cpp/variant/string_name.hpp>
+
 namespace jsb::impl
 {
     namespace impl_private

@@ -17,7 +17,7 @@ namespace jsb
         Environment* operator->() const { return env; }
 
         template<typename Func>
-        jsb_force_inline uint32_t add_free_function(Func func)
+        _FORCE_INLINE_ uint32_t add_free_function(Func func)
         {
             return env->function_pointers_.add(func);
         }

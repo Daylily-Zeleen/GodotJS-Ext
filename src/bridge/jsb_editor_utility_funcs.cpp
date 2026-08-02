@@ -7,6 +7,9 @@
 #include "../weaver-editor/jsb_editor_plugin.h"
 #endif
 
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
+
 
 #if JSB_WITH_EDITOR_UTILITY_FUNCS
 namespace jsb_private
@@ -972,8 +975,6 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
 
             set_field(isolate, context, constant_obj, "name", internal::NamingUtil::get_class_name(singleton_name));
             set_field(isolate, context, constant_obj, "class_name", internal::NamingUtil::get_class_name(singleton->get_class()));
-            // set_field(isolate, context, constant_obj, "user_created", singleton.user_created); // TODO: 应该不需要，如果不需要的话对应移除 .d.ts 中的字段
-            // set_field(isolate, context, constant_obj, "editor_only", singleton.editor_only); // TODO: 应该不需要，如果不需要的话对应移除 .d.ts 中的字段
             array->Set(context, i, constant_obj).Check();
         }
         info.GetReturnValue().Set(array);

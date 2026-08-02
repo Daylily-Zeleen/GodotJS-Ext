@@ -1,4 +1,7 @@
 #include "jsb_worker.h"
+
+#include "jsb.config.h"
+
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
 #include <godot_cpp/classes/time.hpp>
@@ -7,6 +10,9 @@
 #include "../internal/jsb_sarray.h"
 #include "../internal/jsb_thread_util.h"
 #include "../internal/jsb_double_buffered.h"
+
+#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/thread.hpp>
 
 #if JSB_WITH_WEB
 #include <pthread.h>
@@ -88,6 +94,7 @@ namespace jsb
 
         SafeFlag interrupt_requested_ = SafeFlag(false);
         Ref<Thread> thread_{memnew(Thread)};
+        ThreadEx::ID thread_id_ = ThreadEx::UNASSIGNED_ID;
 
         const NativeObjectID handle_;
         std::shared_ptr<Environment> env_;
@@ -114,16 +121,16 @@ namespace jsb
             JSB_WORKER_LOG(VeryVerbose, "~WorkerImpl %d", id_);
         }
 
-        jsb_force_inline WorkerID get_id() const { return id_; }
+        _FORCE_INLINE_ WorkerID get_id() const { return id_; }
 
-        jsb_force_inline NativeObjectID get_handle() const { return handle_; }
+        _FORCE_INLINE_ NativeObjectID get_handle() const { return handle_; }
 
-        jsb_force_inline void* get_token() const { return token_; }
+        _FORCE_INLINE_ void* get_token() const { return token_; }
 
-        jsb_force_inline ThreadID get_thread_id() const { return OS::get_singleton()->get_thread_caller_id(); }
+        _FORCE_INLINE_ ThreadEx::ID get_thread_id() const { return thread_id_; }// OS::get_singleton()->get_thread_caller_id(); }
 
 #if JSB_WITH_WEB
-        jsb_force_inline pthread_t get_pthread_id() const { return pthread_id_; }
+        _FORCE_INLINE_ pthread_t get_pthread_id() const { return pthread_id_; }
 
         // Queue transfers for a native postMessage (called from main thread)
         bool queue_transfers(uint32_t msg_id, std::vector<TransferData>&& transfers)
@@ -398,7 +405,7 @@ namespace jsb
                 params.initial_class_slots = JSB_WORKER_INITIAL_CLASS_SLOTS;
                 params.initial_object_slots = JSB_WORKER_INITIAL_OBJECT_SLOTS;
                 params.initial_script_slots = JSB_WORKER_INITIAL_SCRIPT_SLOTS;
-                params.thread_id = OS::get_singleton()->get_thread_caller_id();
+                params.thread_id = ThreadEx::get_caller_id();
                 params.type = Environment::Type::Worker;
 
                 const std::shared_ptr<Environment> env = std::make_shared<Environment>(params);
@@ -491,6 +498,7 @@ namespace jsb
             id_ = p_id;
             JSB_WORKER_LOG(VeryVerbose, "starting Worker %d", p_id);
             thread_->start(callable_mp_static(_run).bind(reinterpret_cast<uintptr_t>(this)), Thread::PRIORITY_LOW);
+            thread_id_ = thread_->get_id().to_int();
         }
 
         // call from main thread
@@ -808,9 +816,9 @@ namespace jsb
         return worker_list;
     }
 
-    HashMap<ThreadID, WorkerID> &Worker::get_workers()
+    HashMap<ThreadEx::ID, WorkerID> &Worker::get_workers()
     {
-        static HashMap<ThreadID, WorkerID> workers;
+        static HashMap<ThreadEx::ID, WorkerID> workers;
         return workers;
     }
 
@@ -878,7 +886,7 @@ namespace jsb
 #if JSB_WITH_WEB
     void Worker::on_web_message(jsb::impl::StackPosition p_data_sp, uint32_t p_transfer_id)
     {
-        const ThreadID thread_id = OS::get_singleton()->get_thread_caller_id();
+        const ThreadEx::ID thread_id = ThreadEx::get_caller_id();
         lock_.lock();
         if (!get_workers().has(thread_id))
         {
@@ -1130,7 +1138,7 @@ namespace jsb
 
     void Worker::on_thread_exit()
     {
-        const ThreadID p_thread_id = OS::get_singleton()->get_thread_caller_id();
+        const ThreadEx::ID p_thread_id = ThreadEx::get_caller_id();
 
         lock_.lock();
         if (get_workers().getptr(p_thread_id))
@@ -1333,7 +1341,7 @@ namespace jsb
     {
 
 #if JSB_WITH_QUICKJS
-        jsb_force_inline void* quickjs_object_identity(const v8::Local<v8::Object>& obj)
+        _FORCE_INLINE_ void* quickjs_object_identity(const v8::Local<v8::Object>& obj)
         {
             const JSValue value = (JSValue) obj;
             return JS_VALUE_GET_TAG(value) < 0 ? JS_VALUE_GET_PTR(value) : nullptr;
@@ -1361,7 +1369,7 @@ namespace jsb
 #endif
         };
 
-        jsb_force_inline bool visited_matches(const VisitedEntry& entry, const v8::Local<v8::Object>& obj)
+        _FORCE_INLINE_ bool visited_matches(const VisitedEntry& entry, const v8::Local<v8::Object>& obj)
         {
 #if JSB_WITH_QUICKJS
             return entry.original_identity == quickjs_object_identity(obj);
@@ -1370,7 +1378,7 @@ namespace jsb
 #endif
         }
 
-        jsb_force_inline v8::Local<v8::Value> visited_replacement(v8::Isolate* isolate, const VisitedEntry& entry)
+        _FORCE_INLINE_ v8::Local<v8::Value> visited_replacement(v8::Isolate* isolate, const VisitedEntry& entry)
         {
 #if JSB_WITH_QUICKJS
             return entry.replacement.Get(isolate);
@@ -1379,12 +1387,12 @@ namespace jsb
 #endif
         }
 
-        jsb_force_inline bool is_array_buffer_object(const v8::Local<v8::Object>& obj)
+        _FORCE_INLINE_ bool is_array_buffer_object(const v8::Local<v8::Object>& obj)
         {
             return obj->IsArrayBuffer();
         }
 
-        jsb_force_inline bool is_array_buffer_value(const v8::Local<v8::Value>& value)
+        _FORCE_INLINE_ bool is_array_buffer_value(const v8::Local<v8::Value>& value)
         {
             return value->IsObject() && is_array_buffer_object(value.As<v8::Object>());
         }

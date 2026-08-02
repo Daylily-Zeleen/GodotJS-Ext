@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  rw_lock.h                                                             */
+/*  string_builder.h                                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,80 +28,55 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef GODOTJS_RW_LOCK_H
-#define GODOTJS_RW_LOCK_H
+#pragma once
 
-#ifdef MINGW_ENABLED
-#define MINGW_STDTHREAD_REDUNDANCY_WARNING
-#include "thirdparty/mingw-std-threads/mingw.shared_mutex.h"
-#define THREADING_NAMESPACE mingw_stdthread
-#else
-#include <shared_mutex>
-#define THREADING_NAMESPACE std
-#endif
+#include <godot_cpp/templates/local_vector.hpp>
+#include <godot_cpp/variant/string.hpp>
 
-#include "jsb_engine_compat.h"
+namespace godot {
 
-class RWLock {
-	mutable THREADING_NAMESPACE::shared_timed_mutex mutex;
+class StringBuilder {
+	uint32_t string_length = 0;
 
-public:
-	// Lock the RWLock, block if locked by someone else.
-	jsb_force_inline void read_lock() const {
-		mutex.lock_shared();
-	}
+	LocalVector<String> strings;
+	LocalVector<const char *> c_strings;
 
-	// Unlock the RWLock, let other threads continue.
-	jsb_force_inline void read_unlock() const {
-		mutex.unlock_shared();
-	}
-
-	// Attempt to lock the RWLock for reading. True on success, false means it can't lock.
-	jsb_force_inline bool read_try_lock() const {
-		return mutex.try_lock_shared();
-	}
-
-	// Lock the RWLock, block if locked by someone else.
-	jsb_force_inline void write_lock() {
-		mutex.lock();
-	}
-
-	// Unlock the RWLock, let other threads continue.
-	jsb_force_inline void write_unlock() {
-		mutex.unlock();
-	}
-
-	// Attempt to lock the RWLock for writing. True on success, false means it can't lock.
-	jsb_force_inline bool write_try_lock() {
-		return mutex.try_lock();
-	}
-};
-
-class RWLockRead {
-	const RWLock &lock;
+	// -1 means it's a Godot String
+	// a natural number means C string.
+	LocalVector<int32_t> appended_strings;
 
 public:
-	jsb_force_inline RWLockRead(const RWLock &p_lock) :
-			lock(p_lock) {
-		lock.read_lock();
+	StringBuilder &append(const String &p_string);
+	StringBuilder &append(const char *p_cstring);
+
+	_FORCE_INLINE_ StringBuilder &operator+(const String &p_string) {
+		return append(p_string);
 	}
-	jsb_force_inline ~RWLockRead() {
-		lock.read_unlock();
+
+	_FORCE_INLINE_ StringBuilder &operator+(const char *p_cstring) {
+		return append(p_cstring);
+	}
+
+	_FORCE_INLINE_ void operator+=(const String &p_string) {
+		append(p_string);
+	}
+
+	_FORCE_INLINE_ void operator+=(const char *p_cstring) {
+		append(p_cstring);
+	}
+
+	_FORCE_INLINE_ int num_strings_appended() const {
+		return appended_strings.size();
+	}
+
+	_FORCE_INLINE_ uint32_t get_string_length() const {
+		return string_length;
+	}
+
+	String as_string() const;
+
+	_FORCE_INLINE_ operator String() const {
+		return as_string();
 	}
 };
-
-class RWLockWrite {
-	RWLock &lock;
-
-public:
-	jsb_force_inline RWLockWrite(RWLock &p_lock) :
-			lock(p_lock) {
-		lock.write_lock();
-	}
-	jsb_force_inline ~RWLockWrite() {
-		lock.write_unlock();
-	}
-};
-
-
-#endif // RW_LOCK_H
+}

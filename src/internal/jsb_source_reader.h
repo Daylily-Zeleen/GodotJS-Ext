@@ -2,6 +2,10 @@
 #define GODOTJS_SOURCE_READER_H
 #include "jsb_internal_pch.h"
 
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
+
 namespace jsb::internal
 {
     class ISourceReader

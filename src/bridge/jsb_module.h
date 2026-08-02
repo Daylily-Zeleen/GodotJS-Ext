@@ -45,13 +45,13 @@ namespace jsb
         uint64_t time_modified = 0;
         String hash;
 
-        jsb_force_inline bool is_reloading() const { return reload_requested; }
+        _FORCE_INLINE_ bool is_reloading() const { return reload_requested; }
 
         // can't reload modules if it's time_modified is unknown or non-file modules
         bool is_reloadable() const { return time_modified != 0 && !source_info.source_filepath.is_empty(); }
 #else
-        jsb_force_inline constexpr bool is_reloading() const { return false; }
-        jsb_force_inline constexpr bool is_reloadable() const { return false; }
+        _FORCE_INLINE_ constexpr bool is_reloading() const { return false; }
+        _FORCE_INLINE_ constexpr bool is_reloadable() const { return false; }
 #endif
 
         void on_load(v8::Isolate* isolate, const v8::Local<v8::Context>& context);
@@ -85,29 +85,29 @@ namespace jsb
             modules_.clear();
         }
 
-        jsb_force_inline ~JavaScriptModuleCache()
+        _FORCE_INLINE_ ~JavaScriptModuleCache()
         {
             jsb_check(cache_object_.IsEmpty());
             jsb_check(modules_.is_empty());
         }
 
-        jsb_force_inline JavaScriptModule* find(const StringName& p_name) const
+        _FORCE_INLINE_ JavaScriptModule* find(const StringName& p_name) const
         {
             JavaScriptModule* const * it = modules_.getptr(p_name);
             return it ? *it : nullptr;
         }
 
-        jsb_force_inline JavaScriptModule* get_main() const
+        _FORCE_INLINE_ JavaScriptModule* get_main() const
         {
             return find(main_);
         }
 
-        jsb_force_inline bool is_main(const StringName& p_name) const
+        _FORCE_INLINE_ bool is_main(const StringName& p_name) const
         {
             return p_name == main_;
         }
 
-        jsb_force_inline v8::Local<v8::Object> get_cache(v8::Isolate* isolate) const
+        _FORCE_INLINE_ v8::Local<v8::Object> get_cache(v8::Isolate* isolate) const
         {
             return cache_object_.Get(isolate);
         }

@@ -1,5 +1,8 @@
 #include "jsb_source_map.h"
 
+#include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/classes/json.hpp>
+
 namespace jsb::internal
 {
     namespace

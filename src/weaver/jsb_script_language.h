@@ -6,6 +6,7 @@
 
 #include <godot_cpp/classes/script_language_extension.hpp>
 #include <godot_cpp/classes/script.hpp>
+#include <godot_cpp/classes/thread.hpp>
 #include <godot_cpp/templates/self_list.hpp>
 
 
@@ -69,7 +70,7 @@ private:
 
     struct ShadowEnvironment
     {
-        jsb::compat::ThreadID thread_id = jsb::compat::UNASSIGNED_THREAD_ID;
+        ThreadEx::ID thread_id = ThreadEx::UNASSIGNED_ID;
         std::shared_ptr<jsb::Environment> holder;
         int rc = 0;
     };
@@ -103,7 +104,7 @@ private:
     mutable std::recursive_mutex mutex_;
     SelfList<GodotJSScript>::List script_list_;
 
-    bool once_inited_ = false;
+    bool once_initialized_ = false;
     uint64_t last_ticks_ = 0;
     std::shared_ptr<jsb::Environment> environment_;
 
@@ -124,19 +125,19 @@ private:
     Ref<RegEx> js_class_name_matcher1_;
 
 public:
-    jsb_force_inline static GodotJSScriptLanguage* get_singleton() { return singleton_; }
+    _FORCE_INLINE_ static GodotJSScriptLanguage* get_singleton() { return singleton_; }
 
     /** @brief Check if the language has been initialized. */
-    jsb_force_inline bool is_initialized() const { return once_inited_; }
+    _FORCE_INLINE_ bool is_initialized() const { return once_initialized_; }
 
     /**
      * @brief Get the main JS environment.
      * @note Can only be call from the main thread.
      * @return The JS environment.
      */
-    jsb_force_inline std::shared_ptr<jsb::Environment> get_environment() const
+    _FORCE_INLINE_ std::shared_ptr<jsb::Environment> get_environment() const
     {
-        jsb_check(once_inited_ && environment_ && Thread::is_main_thread());
+        jsb_check(once_initialized_ && environment_ && Thread::is_main_thread());
         return environment_;
     }
 

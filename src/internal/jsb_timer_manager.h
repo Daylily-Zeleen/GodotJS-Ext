@@ -7,23 +7,23 @@ namespace jsb::internal
 {
     struct TimerHandle
     {
-        jsb_force_inline TimerHandle() = default;
-        jsb_force_inline ~TimerHandle() = default;
+        _FORCE_INLINE_ TimerHandle() = default;
+        _FORCE_INLINE_ ~TimerHandle() = default;
 
-        jsb_force_inline TimerHandle(const IndexSafe64& p_index): id(p_index) {}
-        jsb_force_inline TimerHandle& operator=(const IndexSafe64& p_index) { id = p_index; return *this; }
+        _FORCE_INLINE_ TimerHandle(const IndexSafe64& p_index): id(p_index) {}
+        _FORCE_INLINE_ TimerHandle& operator=(const IndexSafe64& p_index) { id = p_index; return *this; }
 
-        jsb_force_inline TimerHandle(const TimerHandle& p_other): id(p_other.id) {}
-        jsb_force_inline TimerHandle& operator=(const TimerHandle& p_other) { id = p_other.id; return *this; }
+        _FORCE_INLINE_ TimerHandle(const TimerHandle& p_other): id(p_other.id) {}
+        _FORCE_INLINE_ TimerHandle& operator=(const TimerHandle& p_other) { id = p_other.id; return *this; }
 
-        jsb_force_inline TimerHandle(TimerHandle&& p_other) noexcept: id(p_other.id) {}
-        jsb_force_inline TimerHandle& operator=(TimerHandle&& p_other) noexcept { id = p_other.id; p_other.id = {}; return *this; }
+        _FORCE_INLINE_ TimerHandle(TimerHandle&& p_other) noexcept: id(p_other.id) {}
+        _FORCE_INLINE_ TimerHandle& operator=(TimerHandle&& p_other) noexcept { id = p_other.id; p_other.id = {}; return *this; }
 
-        jsb_force_inline explicit operator int64_t() const { return (int64_t) *id; }
-        jsb_force_inline explicit operator IndexSafe64() const { return id; }
-        jsb_force_inline explicit operator bool() const { return id != IndexSafe64::none(); }
+        _FORCE_INLINE_ explicit operator int64_t() const { return (int64_t) *id; }
+        _FORCE_INLINE_ explicit operator IndexSafe64() const { return id; }
+        _FORCE_INLINE_ explicit operator bool() const { return id != IndexSafe64::none(); }
 
-        jsb_force_inline explicit TimerHandle(const int64_t p_index): id((int64_t) p_index) {}
+        _FORCE_INLINE_ explicit TimerHandle(const int64_t p_index): id((int64_t) p_index) {}
 
     private:
         IndexSafe64 id;
@@ -61,16 +61,16 @@ namespace jsb::internal
         {
             std::vector<IndexSafe64> timer_indices;
 
-            jsb_force_inline void append(const IndexSafe64& index) { timer_indices.push_back(index); }
+            _FORCE_INLINE_ void append(const IndexSafe64& index) { timer_indices.push_back(index); }
 
-            jsb_force_inline void move_to(std::vector<IndexSafe64>& cache)
+            _FORCE_INLINE_ void move_to(std::vector<IndexSafe64>& cache)
             {
                 cache.reserve(cache.size() + timer_indices.size());
                 cache.insert(cache.end(), timer_indices.begin(), timer_indices.end());
                 timer_indices.clear();
             }
 
-            jsb_force_inline void clear()
+            _FORCE_INLINE_ void clear()
             {
                 timer_indices.clear();
             }
@@ -143,7 +143,7 @@ namespace jsb::internal
         }
 
     public:
-        jsb_force_inline uint64_t get_elapsed() const { return _elapsed; }
+        _FORCE_INLINE_ uint64_t get_elapsed() const { return _elapsed; }
 
         TTimerManager()
         {
@@ -166,7 +166,7 @@ namespace jsb::internal
             return kJiffies * interval * kWheelSlotNum;
         }
 
-        jsb_force_inline uint64_t now() const { return _elapsed; }
+        _FORCE_INLINE_ uint64_t now() const { return _elapsed; }
 
         TimerHandle add_timer(TFunction&& p_fn, uint64_t p_rate, bool p_is_loop = false,
                               uint64_t p_first_delay = 0)
@@ -195,12 +195,12 @@ namespace jsb::internal
             inout_handle = TimerHandle(index);
         }
 
-        jsb_force_inline bool is_valid_timer(const TimerHandle& p_handle) const
+        _FORCE_INLINE_ bool is_valid_timer(const TimerHandle& p_handle) const
         {
             return _used_timers.is_valid_index(p_handle.id);
         }
 
-        jsb_force_inline int size() const { return _used_timers.size(); }
+        _FORCE_INLINE_ int size() const { return _used_timers.size(); }
 
         bool clear_timer(TimerHandle& p_handle)
         {

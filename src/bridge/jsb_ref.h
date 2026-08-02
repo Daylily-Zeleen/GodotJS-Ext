@@ -12,8 +12,8 @@ namespace jsb
     template<typename T = v8::Object>
     struct TWeakRef
     {
-        struct hasher { jsb_force_inline size_t operator()(const TWeakRef& obj) const noexcept { return obj.hash(); } };
-        struct equaler { jsb_force_inline bool operator()(const TWeakRef& lhs, const TWeakRef& rhs) const { return lhs == rhs; } };
+        struct hasher { _FORCE_INLINE_ size_t operator()(const TWeakRef& obj) const noexcept { return obj.hash(); } };
+        struct equaler { _FORCE_INLINE_ bool operator()(const TWeakRef& lhs, const TWeakRef& rhs) const { return lhs == rhs; } };
 
         int hash_;
         v8::Global<T> object_;
@@ -39,20 +39,20 @@ namespace jsb
         TWeakRef(TWeakRef&& p_other) noexcept = default;
         TWeakRef& operator=(TWeakRef&& p_other) noexcept = default;
 
-        jsb_force_inline explicit operator bool() const { return !object_.IsEmpty(); }
+        _FORCE_INLINE_ explicit operator bool() const { return !object_.IsEmpty(); }
 
-        jsb_force_inline friend bool operator==(const TWeakRef& lhs, const TWeakRef& rhs)
+        _FORCE_INLINE_ friend bool operator==(const TWeakRef& lhs, const TWeakRef& rhs)
         {
             return // lhs.hash_ == rhs.hash_ &&
                 lhs.object_ == rhs.object_;
         }
 
-        jsb_force_inline friend bool operator!=(const TWeakRef& lhs, const TWeakRef& rhs)
+        _FORCE_INLINE_ friend bool operator!=(const TWeakRef& lhs, const TWeakRef& rhs)
         {
             return !(lhs == rhs);
         }
 
-        jsb_force_inline uint32_t hash() const
+        _FORCE_INLINE_ uint32_t hash() const
         {
             return (uint32_t) hash_;
         }
@@ -61,8 +61,8 @@ namespace jsb
     template<typename T = v8::Object>
     struct TStrongRef
     {
-        struct hasher { jsb_force_inline size_t operator()(const TStrongRef& obj) const noexcept { return obj.hash(); } };
-        struct equaler { jsb_force_inline bool operator()(const TStrongRef& lhs, const TStrongRef& rhs) const { return lhs == rhs; } };
+        struct hasher { _FORCE_INLINE_ size_t operator()(const TStrongRef& obj) const noexcept { return obj.hash(); } };
+        struct equaler { _FORCE_INLINE_ bool operator()(const TStrongRef& lhs, const TStrongRef& rhs) const { return lhs == rhs; } };
 
         int hash_;
         v8::Global<T> object_;
@@ -83,7 +83,7 @@ namespace jsb
         TStrongRef(TStrongRef&& p_other) noexcept = default;
         TStrongRef& operator=(TStrongRef&& p_other) noexcept = default;
 
-        jsb_force_inline explicit operator bool() const { return !object_.IsEmpty(); }
+        _FORCE_INLINE_ explicit operator bool() const { return !object_.IsEmpty(); }
 
         void ref() { jsb_check(ref_count_ > 0); ++ref_count_; }
         bool unref()
@@ -92,18 +92,18 @@ namespace jsb
             return --ref_count_ == 0;
         }
 
-        jsb_force_inline friend bool operator==(const TStrongRef& lhs, const TStrongRef& rhs)
+        _FORCE_INLINE_ friend bool operator==(const TStrongRef& lhs, const TStrongRef& rhs)
         {
             return // lhs.hash_ == rhs.hash_ &&
                 lhs.object_ == rhs.object_;
         }
 
-        jsb_force_inline friend bool operator!=(const TStrongRef& lhs, const TStrongRef& rhs)
+        _FORCE_INLINE_ friend bool operator!=(const TStrongRef& lhs, const TStrongRef& rhs)
         {
             return !(lhs == rhs);
         }
 
-        jsb_force_inline uint32_t hash() const
+        _FORCE_INLINE_ uint32_t hash() const
         {
             return (uint32_t) hash_;
         }

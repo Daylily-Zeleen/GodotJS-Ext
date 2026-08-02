@@ -1,8 +1,8 @@
 #include "register_types.h"
 
+#include "compat/jsb_compat.h"
 #include "api_tool/api_tool.h"
-#include "jsb_resource_saver.h"
-#include "jsb_resource_loader.h"
+#include "weaver/jsb_weaver.h"
 
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
@@ -11,6 +11,7 @@
 #ifdef TOOLS_ENABLED
 #include "weaver-editor/jsb_weaver_editor.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #endif // TOOLS_ENABLED
 
 #ifdef JSB_TESTS_ENABLED

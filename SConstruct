@@ -485,6 +485,7 @@ if lws_support is not None:
 # Add all GodotJS source files (migrated to src/)
 godotjs_sources = []
 godotjs_sources += Glob(os.path.join(src_dir, "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "compat", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "internal", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "bridge", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "weaver", "*.cpp"))

@@ -280,7 +280,7 @@ namespace jsb
 
     struct ObjectTemplate
     {
-        jsb_force_inline static impl::ClassBuilder create(Environment* env, internal::Index32 class_id)
+        _FORCE_INLINE_ static impl::ClassBuilder create(Environment* env, internal::Index32 class_id)
         {
             v8::Isolate* isolate = env->get_isolate();
             NativeClassInfoPtr class_info = env->get_native_class(class_id);

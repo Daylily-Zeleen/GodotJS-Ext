@@ -96,20 +96,20 @@ namespace jsb::impl
         }
 
         template<size_t N>
-        jsb_force_inline static v8::Local<v8::String> new_string(v8::Isolate* isolate, const char (&literal)[N])
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string(v8::Isolate* isolate, const char (&literal)[N])
         {
             const uint16_t stack_pos = isolate->push_steal(JS_NewStringLen(isolate->ctx(), literal, N - 1));
             return v8::Local<v8::String>(v8::Data(isolate, stack_pos));
         }
 
-        jsb_force_inline static v8::Local<v8::String> new_string(v8::Isolate* isolate, const String& p_str)
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string(v8::Isolate* isolate, const String& p_str)
         {
             const CharString str8 = p_str.utf8();
             const uint16_t stack_pos = isolate->push_steal(JS_NewStringLen(isolate->ctx(), str8.get_data(), str8.length()));
             return v8::Local<v8::String>(v8::Data(isolate, stack_pos));
         }
 
-        jsb_force_inline static v8::Local<v8::String> new_string_ascii(v8::Isolate* isolate, const String& p_str)
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string_ascii(v8::Isolate* isolate, const String& p_str)
         {
             return new_string(isolate, p_str);
         }
@@ -128,7 +128,7 @@ namespace jsb::impl
 
         // with side effects (may trigger value evaluation).
         // any decoding error will be ignored.
-        jsb_force_inline static String to_string_opt(v8::Isolate* isolate, const v8::MaybeLocal<v8::Value>& p_val)
+        _FORCE_INLINE_ static String to_string_opt(v8::Isolate* isolate, const v8::MaybeLocal<v8::Value>& p_val)
         {
             v8::Local<v8::Value> local;
             return p_val.ToLocal(&local) ? to_string(isolate, local) : String();
@@ -162,17 +162,17 @@ namespace jsb::impl
         }
 
         template<int N>
-        jsb_force_inline static void throw_error(v8::Isolate* isolate, const char (&message)[N])
+        _FORCE_INLINE_ static void throw_error(v8::Isolate* isolate, const char (&message)[N])
         {
             isolate->throw_error(message);
         }
 
-        jsb_force_inline static void throw_error(v8::Isolate* isolate, const String& message)
+        _FORCE_INLINE_ static void throw_error(v8::Isolate* isolate, const String& message)
         {
             isolate->throw_error(message);
         }
 
-        jsb_force_inline static void get_statistics(v8::Isolate* isolate, Vector<CustomField>& p_fields)
+        _FORCE_INLINE_ static void get_statistics(v8::Isolate* isolate, Vector<CustomField>& p_fields)
         {
             JSMemoryUsage usage;
             JS_ComputeMemoryUsage(isolate->rt(), &usage);
@@ -201,7 +201,7 @@ namespace jsb::impl
             p_fields.append(CustomField::value_i64(jsb_nameof(JSMemoryUsage, c_func_count), usage.c_func_count));
         }
 
-        jsb_force_inline static bool to_int64(const v8::Local<v8::Value> p_val, int64_t& r_val)
+        _FORCE_INLINE_ static bool to_int64(const v8::Local<v8::Value> p_val, int64_t& r_val)
         {
             if (p_val->IsInt32()) { r_val = p_val.As<v8::Int32>()->Value(); return true; }
             if (p_val->IsNumber()) { r_val = (int64_t) p_val.As<v8::Number>()->Value(); return true; }
@@ -211,7 +211,7 @@ namespace jsb::impl
             return false;
         }
 
-        jsb_force_inline static v8::Local<v8::Value> new_integer(v8::Isolate* isolate, const int64_t p_val)
+        _FORCE_INLINE_ static v8::Local<v8::Value> new_integer(v8::Isolate* isolate, const int64_t p_val)
         {
             if (const int32_t downscale = (int32_t) p_val;
                 (int64_t) downscale == p_val)
@@ -249,7 +249,7 @@ namespace jsb::impl
             return compile_function(context, p_source, p_source_len, p_filename);
         }
 
-        jsb_force_inline static void free(uint8_t* data)
+        _FORCE_INLINE_ static void free(uint8_t* data)
         {
             // js_free(context->GetIsolate()->ctx(), data);
 
@@ -261,7 +261,7 @@ namespace jsb::impl
 #endif
         }
 
-        jsb_force_inline static void set_as_interruptible(v8::Isolate* isolate)
+        _FORCE_INLINE_ static void set_as_interruptible(v8::Isolate* isolate)
         {
             isolate->set_as_interruptible();
         }

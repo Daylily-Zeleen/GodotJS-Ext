@@ -74,7 +74,7 @@ namespace jsb::impl
 #if JSB_PREFER_QUICKJS_NG
         // in quickjs-ng, the class id is generated and registered in the runtime,
         // we need to init it for each runtime
-        jsb_force_inline void init(JSRuntime* rt) { id_ = 0; JS_NewClassID(rt, &id_); }
+        _FORCE_INLINE_ void init(JSRuntime* rt) { id_ = 0; JS_NewClassID(rt, &id_); }
         explicit operator JSClassID() const { return id_; }
 
     private:
@@ -82,7 +82,7 @@ namespace jsb::impl
 #else
         // in quickjs, the class id is generated globally.
         // since we use only one ClassID for UniversalClass, we can init it statically/globally in Impl.
-        jsb_force_inline void init(JSRuntime* rt) {}
+        _FORCE_INLINE_ void init(JSRuntime* rt) {}
         explicit operator JSClassID() const
         {
             static Impl impl;
@@ -163,8 +163,8 @@ namespace v8
         bool IsExecutionTerminating() const { return interrupted_.is_set(); }
         void TerminateExecution() { interrupted_.set(); }
 
-        jsb_force_inline JSRuntime* rt() const { return rt_; }
-        jsb_force_inline JSContext* ctx() const { return ctx_; }
+        _FORCE_INLINE_ JSRuntime* rt() const { return rt_; }
+        _FORCE_INLINE_ JSContext* ctx() const { return ctx_; }
 
         jsb::impl::InternalDataConstPtr get_internal_data(const jsb::impl::InternalDataID index) const
         {
@@ -181,7 +181,7 @@ namespace v8
             return internal_data_.add(jsb::impl::InternalData {  { nullptr, nullptr }, internal_field_count, { nullptr, nullptr }});
         }
 
-        jsb_force_inline JSClassID get_class_id() const { return (JSClassID) class_id_; }
+        _FORCE_INLINE_ JSClassID get_class_id() const { return (JSClassID) class_id_; }
 
         // get stack value
         [[nodiscard]] const JSValue& stack_val(const uint16_t index) const
@@ -270,7 +270,7 @@ namespace v8
 
         // phantom is a pointer to JSObject (internal type of quickjs).
         // the caller must ensure that the JSObject is alive when calling add_phantom
-        jsb_force_inline void add_phantom(void* token)
+        _FORCE_INLINE_ void add_phantom(void* token)
         {
             if (!token) return;
 
@@ -284,7 +284,7 @@ namespace v8
             phantom_.insert(token, { 1, true });
         }
 
-        jsb_force_inline void remove_phantom(void* token)
+        _FORCE_INLINE_ void remove_phantom(void* token)
         {
             if (!token) return;
 
@@ -297,7 +297,7 @@ namespace v8
         }
 
         //NOTE it'll crash if `token` does not exist in phantom map
-        jsb_force_inline bool is_phantom_alive(void* token) const
+        _FORCE_INLINE_ bool is_phantom_alive(void* token) const
         {
             const jsb::impl::Phantom& p = phantom_.get(token);
             return p.alive_;
@@ -321,14 +321,14 @@ namespace v8
         }
 
         template<int N>
-        jsb_force_inline void throw_error(const char (&message)[N])
+        _FORCE_INLINE_ void throw_error(const char (&message)[N])
         {
             // the value from GetException() is not deleted properly here because we directly crash the program
             jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
             JS_ThrowInternalError(ctx_, "%s", message);
         }
 
-        jsb_force_inline void throw_error(const ::String& message)
+        _FORCE_INLINE_ void throw_error(const ::String& message)
         {
             // the value from GetException() is not deleted properly here because we directly crash the program
             jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
@@ -336,7 +336,7 @@ namespace v8
             JS_ThrowInternalError(ctx_, "%s", str8.get_data());
         }
 
-        jsb_force_inline bool is_error_thrown() const
+        _FORCE_INLINE_ bool is_error_thrown() const
         {
             const JSValue ex = JS_GetException(ctx_);
             if (jsb::impl::QuickJS::IsNotErrorThrown(ex)) return false;
@@ -386,7 +386,7 @@ namespace v8
         bool _has_phantom(void* token) const { return phantom_.has(token); }
 
         // [internal]
-        jsb_force_inline void _invalidate_phantom(void* token)
+        _FORCE_INLINE_ void _invalidate_phantom(void* token)
         {
             if (jsb::impl::Phantom* p = phantom_.getptr(token))
             {
@@ -422,7 +422,7 @@ namespace v8
         }
 
         // delayed
-        jsb_force_inline void free_value(JSValue value)
+        _FORCE_INLINE_ void free_value(JSValue value)
         {
             jsb_check(!disposed_);
             if (using_front_free_queue_) front_free_queue_.append(value);
