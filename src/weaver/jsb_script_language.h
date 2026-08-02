@@ -158,8 +158,6 @@ public:
         return environment_->eval_source(str.get_data(), str.length(), "eval", r_err);
     }
 
-    void finalize_instances_of_env(jsb::Environment* p_env);
-
     GodotJSScriptLanguage();
     virtual ~GodotJSScriptLanguage() override;
 

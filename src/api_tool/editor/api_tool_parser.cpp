@@ -19,11 +19,19 @@ using namespace godot;
 
 namespace api_tool::internal {
 
+ClassDB::APIType parse_class_api_type(const String &p_api_type) {
+    if (p_api_type == "core") return ClassDB::APIType::API_CORE;
+    else if (p_api_type == "editor") return ClassDB::APIType::API_EDITOR;
+    else if (p_api_type == "extension") return ClassDB::APIType::API_EXTENSION;
+    else if (p_api_type == "editor_extension") return ClassDB::APIType::API_EDITOR_EXTENSION;
+    else return ClassDB::APIType::API_NONE;
+}
+
 // ============================================================================
 // Meta string -> GDExtensionClassMethodArgumentMetadata conversion
 // ============================================================================
 
-inline GDExtensionClassMethodArgumentMetadata parse_argument_metadata(const StringName &p_meta) {
+GDExtensionClassMethodArgumentMetadata parse_argument_metadata(const String &p_meta) {
     String s(p_meta);
     if (s == "int8") return GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8;
     if (s == "int16") return GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT16;
@@ -40,7 +48,7 @@ inline GDExtensionClassMethodArgumentMetadata parse_argument_metadata(const Stri
     return GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 }
 
-inline Variant::Type parse_variant_type(const String &p_type_name, PropertyInfo *p_propinfo = nullptr) {
+Variant::Type parse_variant_type(const String &p_type_name, PropertyInfo *p_propinfo = nullptr) {
     using VT = Variant::Type;
     PropertyInfo dummy;
     if (!p_propinfo) p_propinfo = &dummy;
@@ -93,6 +101,7 @@ inline Variant::Type parse_variant_type(const String &p_type_name, PropertyInfo 
             CRASH_NOW_MSG("[Api Tool] unknown variant type : " + p_type_name);
         }
     }
+    p_propinfo->type = ret;
     return ret;
 }
 
@@ -102,7 +111,7 @@ inline Variant::Type parse_variant_type(const String &p_type_name, PropertyInfo 
 // Operator name string -> Variant::Operator conversion
 // ============================================================================
 
-inline Variant::Operator parse_operator_name(const StringName &p_name) {
+Variant::Operator parse_operator_name(const String &p_name) {
     String s(p_name);
     // comparison
     if (s == "==") return Variant::OP_EQUAL;
@@ -138,59 +147,34 @@ inline Variant::Operator parse_operator_name(const StringName &p_name) {
 }
 
 // ============================================================================
-// JSON helpers: safe field access (inline wrappers for readability)
-// ============================================================================
-
-static inline bool dict_has(const Dictionary &d, const String &key) {
-    return d.has(key);
-}
-
-static inline Variant dict_get(const Dictionary &d, const String &key, const Variant &def = Variant()) {
-    return d.has(key) ? d[key] : def;
-}
-
-static inline StringName dict_get_string_name(const Dictionary &d, const String &key) {
-    CRASH_COND_MSG(!dict_has(d, key), "[Api Tool] missing key : " + key);
-    return StringName(d[key]);
-}
-
-// ============================================================================
 // Sub-structure parsers: JSON -> godot-cpp PropertyInfo/MethodInfo
 // ============================================================================
 
 static PropertyInfo parse_property_info(const Dictionary &d) {
     PropertyInfo pi;
-    StringName type_str = dict_get_string_name(d, "type");
-    pi.type = parse_variant_type(String(type_str), &pi);
-    pi.name = dict_has(d, "name") ? StringName(dict_get_string_name(d, "name")) : StringName();
-    // if (is_object_type(type_str) || pi.type == Variant::OBJECT) {
-    //     pi.class_name = type_str.trim_prefix("enum::");
-    // }
-    // hint 和 usage 直接在顶层，不在嵌套的 property 对象中
-    // pi.hint = dict_has(d, "hint") ? uint32_t(int32_t(d["hint"])) : PROPERTY_HINT_NONE;
-    // pi.hint_string = dict_has(d, "hint_string") ? String(d["hint_string"]) : "";
-    // pi.usage = dict_has(d, "usage") ? uint32_t(int64_t(d["usage"])) : PROPERTY_USAGE_DEFAULT;
+    pi.type = parse_variant_type(d.get("type", ""), &pi);
+    pi.name = d["name"];
     return pi;
 }
 
 template<typename TApiMethodInfo>
 static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData *r_compat_data = nullptr) {
     TApiMethodInfo ami;
-    ami.method.name = dict_get_string_name(d, "name");
+    ami.method.name = d["name"];
 
     // Build flags from JSON booleans
     uint32_t flags = GDEXTENSION_METHOD_FLAG_NORMAL;
-    if (dict_has(d, "is_const") && bool(d["is_const"])) flags |= GDEXTENSION_METHOD_FLAG_CONST;
-    if (dict_has(d, "is_vararg") && bool(d["is_vararg"])) flags |= GDEXTENSION_METHOD_FLAG_VARARG;
-    if (dict_has(d, "is_static") && bool(d["is_static"])) flags |= GDEXTENSION_METHOD_FLAG_STATIC;
-    if (dict_has(d, "is_virtual") && bool(d["is_virtual"])) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL;
-    if (dict_has(d, "is_required") && bool(d["is_required"])) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL_REQUIRED;
+    if (d.get("is_const", false)) flags |= GDEXTENSION_METHOD_FLAG_CONST;
+    if (d.get("is_vararg", false)) flags |= GDEXTENSION_METHOD_FLAG_VARARG;
+    if (d.get("is_static", false)) flags |= GDEXTENSION_METHOD_FLAG_STATIC;
+    if (d.get("is_virtual", false)) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL;
+    if (d.get("is_required", false)) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL_REQUIRED;
     ami.method.flags = flags;
 
-    ami.hash = dict_has(d, "hash") ? MethodHash(d["hash"]) : 0;
+    ami.hash = MethodHash(d.get("hash", 0));
 
 #ifndef DISABLE_DEPRECATED
-    if (dict_has(d, "hash_compatibility")) {
+    if (d.has("hash_compatibility")) {
         Array compat = d["hash_compatibility"];
         if (r_compat_data) {
             ApiMethodCompatibilityHashes mch;
@@ -205,52 +189,39 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 #endif // DISABLE_DEPRECATED
 
     // return_val: builtin_classes uses "return_type", classes uses "return_value"
-    if (dict_has(d, "return_value")) {
+    if (d.has("return_value")) {
         Dictionary rv = d["return_value"];
         ami.method.return_val = parse_property_info(rv);
-        if (dict_has(rv, "meta")) {
-            ami.method.return_val_metadata = parse_argument_metadata(dict_get_string_name(rv, "meta"));
-        }
-    } else if (dict_has(d, "return_type")) {
+        ami.method.return_val_metadata = parse_argument_metadata(d.get("meta", ""));
+    } else if (d.has("return_type")) {
         // Builtin class methods use "return_type" directly (not nested "return_value")
-        StringName ret_type = dict_get_string_name(d, "return_type");
-        ami.method.return_val.type = parse_variant_type(String(ret_type), &ami.method.return_val);
-        if (dict_has(d, "meta")) {
-            ami.method.return_val_metadata = parse_argument_metadata(dict_get_string_name(d, "meta"));
-        }
+        String ret_type = d.get("return_type", "");
+        ami.method.return_val.type = parse_variant_type(ret_type, &ami.method.return_val);
+        ami.method.return_val_metadata = parse_argument_metadata(d.get("meta", ""));
     }
 
     // arguments
-    if (dict_has(d, "arguments")) {
+    if (d.has("arguments")) {
         Array args = d["arguments"];
         ami.method.arguments.reserve(args.size());
         ami.method.arguments_metadata.reserve(args.size());
-        LocalVector<Variant> default_args_tmp;
         for (int i = 0; i < args.size(); i++) {
             Dictionary ad = args[i];
             PropertyInfo pi = parse_property_info(ad);
             ami.method.arguments.push_back(pi);
-            if (dict_has(ad, "meta")) {
-                ami.method.arguments_metadata.push_back(parse_argument_metadata(dict_get_string_name(ad, "meta")));
-            } else {
-                ami.method.arguments_metadata.push_back(GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
-            }
+            ami.method.arguments_metadata.push_back(parse_argument_metadata(ad.get("meta", "")));
             // Parse default_value for optional trailing arguments.
             // JSON stores these as string representations (e.g. "0", "true", "PackedByteArray()").
-            if (dict_has(ad, "default_value")) {
+            if (ad.has("default_value")) {
                 String dv_str = String(ad["default_value"]);
                 // For STRING-typed args, the value IS the literal string (JSON unescaped).
                 // For all other types, str_to_var converts Godot's string representation back to Variant.
                 if (pi.type == Variant::STRING) {
-                    default_args_tmp.push_back(Variant(dv_str));
+                    ami.method.default_arguments.push_back(Variant(dv_str));
                 } else {
-                    default_args_tmp.push_back(UtilityFunctions::str_to_var(dv_str));
+                    ami.method.default_arguments.push_back(UtilityFunctions::str_to_var(dv_str));
                 }
             }
-        }
-        // MethodInfo default_arguments contains only the trailing defaults.
-        for (uint32_t i = 0; i < default_args_tmp.size(); i++) {
-            ami.method.default_arguments.push_back(default_args_tmp[i]);
         }
     }
     return ami;
@@ -258,16 +229,16 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 
 static ApiEnumInfo parse_enum(const Dictionary &d) {
     ApiEnumInfo info;
-    info.name = dict_get_string_name(d, "name");
-    info.is_bitfield = dict_has(d, "is_bitfield") ? bool(d["is_bitfield"]) : false;
-    if (dict_has(d, "values")) {
+    info.name = d["name"];
+    info.is_bitfield = d.get("is_bitfield", false);
+    if (d.has("values")) {
         Array values = d["values"];
         info.values.reserve(values.size());
         for (int i = 0; i < values.size(); i++) {
             Dictionary ev = values[i];
             ApiEnumValue v;
-            v.name = dict_get_string_name(ev, "name");
-            v.value = int64_t(ev["value"]);
+            v.name = ev["name"];
+            v.value = ev["value"];
             info.values.push_back(v);
         }
     }
@@ -276,12 +247,12 @@ static ApiEnumInfo parse_enum(const Dictionary &d) {
 
 static ApiSignalInfo parse_signal(const Dictionary &d) {
     ApiSignalInfo info;
-    info.name = dict_get_string_name(d, "name");
-    if (dict_has(d, "arguments")) {
+    info.name = d["name"];
+    if (d.has("arguments")) {
         Array args = d["arguments"];
         info.arguments.reserve(args.size());
         for (int i = 0; i < args.size(); i++) {
-            info.arguments.push_back(parse_property_info(Dictionary(args[i])));
+            info.arguments.push_back(parse_property_info(args[i]));
         }
     }
     return info;
@@ -291,34 +262,30 @@ static ApiPropertyInfo parse_api_property(const Dictionary &d) {
     ApiPropertyInfo info;
     info.property = parse_property_info(d);
     if (!info.property.name.is_empty()) {
-        info.setter = dict_has(d,"setter")? dict_get_string_name(d, "setter") :"";
-        info.getter = dict_has(d,"getter")? dict_get_string_name(d, "getter") : "";
-        info.index = dict_has(d, "index") ? int32_t(int64_t(d["index"])) : -1;
+        info.setter = d.get("setter", "");
+        info.getter = d.get("getter", "");
+        info.index = d.get("index", -1);
     }
     return info;
 }
 
 static ApiOperatorInfo parse_operator(const Dictionary &d) {
     ApiOperatorInfo info;
-    String name_str = dict_get_string_name(d, "name");
+    String name_str = d["name"];
     info.op = parse_operator_name(name_str);
-    info.return_type = parse_variant_type(String(dict_get_string_name(d, "return_type")));
-    if (dict_has(d, "left_type")) {
-        info.left_type = parse_variant_type(String(dict_get_string_name(d, "left_type")));
-    }
-    if (dict_has(d, "right_type")) {
-        info.right_type = parse_variant_type(String(dict_get_string_name(d, "right_type")));
-    }
+    info.return_type = parse_variant_type(d.get("return_type", ""));
+    info.left_type = parse_variant_type(d.get("left_type", ""));
+    info.right_type = parse_variant_type(d.get("right_type", ""));
     return info;
 }
 
 static ApiConstructorInfo parse_constructor(const Dictionary &d) {
     ApiConstructorInfo info;
-    if (dict_has(d, "arguments")) {
+    if (d.has("arguments")) {
         Array args = d["arguments"];
         info.arguments.reserve(args.size());
         for (int i = 0; i < args.size(); i++) {
-            info.arguments.push_back(parse_property_info(Dictionary(args[i])));
+            info.arguments.push_back(parse_property_info(args[i]));
         }
     }
     return info;
@@ -327,8 +294,8 @@ static ApiConstructorInfo parse_constructor(const Dictionary &d) {
 static ApiMemberInfo parse_member(const Dictionary &d) {
     ApiMemberInfo info;
     // builtin_classes members use "name" and "type" fields
-    info.name = dict_get_string_name(d, "name");
-    info.type = parse_variant_type(String(dict_get_string_name(d, "type")));
+    info.name = d["name"];
+    info.type = parse_variant_type(d.get("type", ""));
     return info;
 }
 
@@ -377,17 +344,18 @@ Error ApiParser::prepare_output_dirs(const String &p_output_dir) {
 // ============================================================================
 
 Error ApiParser::parse_and_write_header(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "header"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'header' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("header"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'header' section");
 
     Dictionary hdr = p_root["header"];
     ApiHeader header;
-    header.version_major = int32_t(dict_get(hdr, "version_major", 0));
-    header.version_minor = int32_t(dict_get(hdr, "version_minor", 0));
-    header.version_patch = int32_t(dict_get(hdr, "version_patch", 0));
-    header.version_status = String(dict_get(hdr, "version_status", String()));
-    header.version_build = String(dict_get(hdr, "version_build", String()));
-    header.version_full_name = String(dict_get(hdr, "version_full_name", String()));
-    header.precision = String(dict_get(hdr, "precision", String())) == "double"? RealPrecision::DOUBLE : RealPrecision::SINGLE;
+    header.version_major = hdr.get("version_major", 0);
+    header.version_minor = hdr.get("version_minor", 0);
+    header.version_patch = hdr.get("version_patch", 0);
+    header.version_status = hdr.get("version_status", "");
+    header.version_status = hdr.get("version_status", "");
+    header.version_build = hdr.get("version_build", "");
+    header.version_full_name = hdr.get("version_full_name", "");
+    header.precision = hdr.get("precision", "") == "double"? RealPrecision::DOUBLE : RealPrecision::SINGLE;
 
     String path = p_output_dir + String("/") + String(FILE_HEADER);
     return ApiStoreWriter::write_header(path, header);
@@ -398,7 +366,7 @@ Error ApiParser::parse_and_write_header(const Dictionary &p_root, const String &
 // ============================================================================
 
 Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "utility_functions"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'utility_functions' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("utility_functions"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'utility_functions' section");
 
     Array funcs = p_root["utility_functions"];
     LocalVector<ApiUtilityFunction> all_funcs;
@@ -409,37 +377,28 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
     for (int i = 0; i < funcs.size(); i++) {
         Dictionary fd = funcs[i];
         ApiUtilityFunction func;
-        func.method.name = dict_get_string_name(fd, "name");
+        func.method.name = fd["name"];
 
         // Build flags
-        uint32_t flags = GDEXTENSION_METHOD_FLAG_NORMAL;
-        if (dict_has(fd, "is_vararg") && bool(fd["is_vararg"])) flags |= GDEXTENSION_METHOD_FLAG_VARARG;
-        func.method.flags = flags;
+        if (fd.get("is_vararg", false)) func.method.flags |= GDEXTENSION_METHOD_FLAG_VARARG;
 
-        func.hash = dict_has(fd, "hash") ? MethodHash(fd["hash"]) : 0;
-        func.category = dict_get_string_name(fd, "category");
+        func.hash = MethodHash(fd.get("hash", 0));
+        func.category = fd.get("category", "");
 
         // return_type -> return_val PropertyInfo
-        if (dict_has(fd, "return_type")) {
-            StringName ret_type = dict_get_string_name(fd, "return_type");
-            func.method.return_val.type = parse_variant_type(String(ret_type), &func.method.return_val);
-            // if (is_object_type(ret_type)) {
-            //     func.method.return_val.class_name = ret_type.trim_prefix("enum::");
-            // }
+        if (fd.has("return_type")) {
+            String ret_type = fd.get("return_type", "");
+            func.method.return_val.type = parse_variant_type(ret_type, &func.method.return_val);
         }
 
-        if (dict_has(fd, "arguments")) {
+        if (fd.has("arguments")) {
             Array args = fd["arguments"];
             func.method.arguments.reserve(args.size());
             func.method.arguments_metadata.reserve(args.size());
             for (int j = 0; j < args.size(); j++) {
                 Dictionary ad = args[j];
                 func.method.arguments.push_back(parse_property_info(ad));
-                if (dict_has(ad, "meta")) {
-                    func.method.arguments_metadata.push_back(parse_argument_metadata(dict_get_string_name(ad, "meta")));
-                } else {
-                    func.method.arguments_metadata.push_back(GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
-                }
+                func.method.arguments_metadata.push_back(parse_argument_metadata(ad.get("meta", "")));
             }
         }
 
@@ -448,9 +407,7 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
         // Write document file (single pass, no separate document parsing)
         ApiUtilityFunctionDocument doc;
         doc.name = String(func.method.name);
-        if (dict_has(fd, "description")) {
-            doc.description = String(fd["description"]);
-        }
+        doc.description = fd.get("description", "");
         String doc_path = doc_dir + String("/") + String(func.method.name) + String(FILE_EXT_DOC);
         ApiStoreWriter::write_utility_function_document(doc_path, doc);
     }
@@ -465,7 +422,7 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
 static bool sort_by_key(const Dictionary&a, const Dictionary&b, const String&key){return a[key] < b[key];};
 
 Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "builtin_classes"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'builtin_classes' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("builtin_classes"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'builtin_classes' section");
 
     Array classes = p_root["builtin_classes"];
     String dir = p_output_dir + String("/") + String(DIR_BUILTIN_CLASSES);
@@ -476,29 +433,26 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
     for (int i = 0; i < classes.size(); i++) {
         Dictionary cd = classes[i];
         ApiBuiltinClass bt;
-        bt.type = parse_variant_type(dict_get_string_name(cd, "name"));
+        bt.type = parse_variant_type(cd["name"]);
 
-        if (dict_has(cd, "indexing_return_type")) {
+        if (cd.has("indexing_return_type")) {
             bt.has_indexing_return_type = true;
-            bt.indexing_type = parse_variant_type(String(dict_get_string_name(cd, "indexing_return_type")));
+            bt.indexing_type = parse_variant_type(cd.get("indexing_return_type", ""));
         }
-        bt.is_keyed = dict_has(cd, "is_keyed") ? bool(cd["is_keyed"]) : false;
-        bt.has_destructor = dict_has(cd, "has_destructor") ? bool(cd["has_destructor"]) : false;
+        bt.is_keyed = cd.get("is_keyed", false);
+        bt.has_destructor = cd.get("has_destructor", false);
+        bt.has_destructor = cd.get("has_destructor", false);
 
         // Build document in parallel
         ApiClassDocument doc;
         doc.name = Variant::get_type_name(bt.type);
-        if (dict_has(cd, "description")) {
-            doc.description = String(cd["description"]);
-        }
-        if (dict_has(cd, "brief_description")) {
-            doc.brief_description = String(cd["brief_description"]);
-        }
+        doc.description = cd.get("description", "");
+        doc.brief_description = cd.get("brief_description", "");
 
         // Collect compatibility hashes for this builtin class
         ApiCompatibilityHashData compat_data;
 
-        if (dict_has(cd, "members")) {
+        if (cd.has("members")) {
             Array members = cd["members"];
             bt.members.reserve(members.size());
             doc.properties.reserve(members.size());
@@ -506,39 +460,36 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
                 Dictionary md = members[j];
                 bt.members.push_back(parse_member(md));
                 ApiPropertyDocument pdoc;
-                pdoc.name = String(dict_get_string_name(md, "name"));
-                if (dict_has(md, "description")) {
-                    pdoc.description = String(md["description"]);
-                }
+                pdoc.name = md.get("name", "");
+                pdoc.description = md.get("description", "");
                 doc.properties.push_back(pdoc);
             }
         }
 
-        if (dict_has(cd, "constants")) {
+        if (cd.has("constants")) {
             Array constants = cd["constants"];
             bt.constants.reserve(constants.size());
             doc.constants.reserve(constants.size());
             for (int j = 0; j < constants.size(); j++) {
                 Dictionary c = constants[j];
                 ApiBuiltInClassConstantInfo ci;
-                ci.name = dict_get_string_name(c, "name");
-                String type_str = dict_get_string_name(c, "type");
-                ci.type = parse_variant_type(type_str);
-                String value_str = dict_has(c, "value") ? String(c["value"]) : "";
+                ci.name = c["name"];
+                ci.type = parse_variant_type(c.get("type", ""));
+                String value_str = c.get("value", "");
                 ci.value = UtilityFunctions::str_to_var(value_str);
+#           if DEBUG_ENABLED
                 CRASH_COND_MSG(ci.value.get_type() != ci.type, String("Parse error, Invalid var string: ") + value_str);
                 CRASH_COND_MSG(UtilityFunctions::var_to_str(ci.value) != value_str, vformat("Parse error: '%s' VS '%s'", value_str, UtilityFunctions::var_to_str(ci.value)));
+#           endif // DEBUG_ENABLED
                 bt.constants.push_back(ci);
                 ApiConstantDocument cdoc;
-                cdoc.name = String(ci.name);
-                if (dict_has(c, "description")) {
-                    cdoc.description = String(c["description"]);
-                }
+                cdoc.name = ci.name;
+                cdoc.description = c.get("description", "");
                 doc.constants.push_back(cdoc);
             }
         }
 
-        if (dict_has(cd, "enums")) {
+        if (cd.has("enums")) {
             Array enums = cd["enums"];
             bt.enums.reserve(enums.size());
             for (int j = 0; j < enums.size(); j++) {
@@ -546,17 +497,15 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
                 bt.enums.push_back(parse_enum(ed));
                 // Build enum document
                 ApiEnumDocument edoc;
-                edoc.name = String(dict_get_string_name(ed, "name"));
-                if (dict_has(ed, "values")) {
+                edoc.name = ed["name"];
+                if (ed.has("values")) {
                     Array values = ed["values"];
                     edoc.values.reserve(values.size());
                     for (int k = 0; k < values.size(); k++) {
                         Dictionary ev = values[k];
                         ApiEnumValueDocument evdoc;
-                        evdoc.name = String(dict_get_string_name(ev, "name"));
-                        if (dict_has(ev, "description")) {
-                            evdoc.description = String(ev["description"]);
-                        }
+                        evdoc.name = ev["name"];
+                        evdoc.description = ev.get("description", "");
                         edoc.values.push_back(evdoc);
                     }
                 }
@@ -564,7 +513,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
             }
         }
 
-        if (dict_has(cd, "methods")) {
+        if (cd.has("methods")) {
             Array methods = cd["methods"];
             bt.methods.reserve(methods.size());
             doc.methods.reserve(methods.size());
@@ -573,15 +522,13 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
                 ApiBuiltInMethod mbi = parse_method<ApiBuiltInMethod>(md, &compat_data);
                 bt.methods.push_back(mbi);
                 ApiMethodDocument mdoc;
-                mdoc.name = String(dict_get_string_name(md, "name"));
-                if (dict_has(md, "description")) {
-                    mdoc.description = String(md["description"]);
-                }
+                mdoc.name = md["name"];
+                mdoc.description = md.get("description", "");
                 doc.methods.push_back(mdoc);
             }
         }
 
-        if (dict_has(cd, "operators")) {
+        if (cd.has("operators")) {
             Array operators = cd["operators"];
             bt.operators.reserve(operators.size());
             doc.operators.reserve(operators.size());
@@ -589,15 +536,13 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
                 Dictionary od = operators[j];
                 bt.operators.push_back(parse_operator(od));
                 ApiOperatorDocument odoc;
-                odoc.name = String(dict_get_string_name(od, "name"));
-                if (dict_has(od, "description")) {
-                    odoc.description = String(od["description"]);
-                }
+                odoc.name = od["name"];
+                odoc.description = od.get("description", "");
                 doc.operators.push_back(odoc);
             }
         }
 
-        if (dict_has(cd, "constructors")) {
+        if (cd.has("constructors")) {
             Array constructors = cd["constructors"];
             bt.constructors.reserve(constructors.size());
             doc.constructors.reserve(constructors.size());
@@ -606,9 +551,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
                 Dictionary ctor_d = constructors[j];
                 bt.constructors.push_back(parse_constructor(ctor_d));
                 ApiConstructorDocument cdoc;
-                if (dict_has(ctor_d, "description")) {
-                    cdoc.description = String(ctor_d["description"]);
-                }
+                cdoc.description = ctor_d.get("description", "");
                 doc.constructors.push_back(cdoc);
             }
         }
@@ -642,7 +585,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
 // ============================================================================
 
 Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "classes"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'classes' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("classes"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'classes' section");
 
     Array classes = p_root["classes"];
     String dir = p_output_dir + String("/") + String(DIR_CLASSES);
@@ -653,26 +596,22 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
     for (int i = 0; i < classes.size(); i++) {
         Dictionary cd = classes[i];
         ApiClass cls;
-        cls.name = dict_get_string_name(cd, "name");
-        cls.inherits = dict_has(cd, "inherits") ? dict_get_string_name(cd, "inherits") : "";
-        cls.api_type = dict_get_string_name(cd, "api_type");
-        cls.is_refcounted = dict_has(cd, "is_refcounted") ? bool(cd["is_refcounted"]) : false;
-        cls.is_instantiable = dict_has(cd, "is_instantiable") ? bool(cd["is_instantiable"]) : true;
+        cls.name = cd["named"];
+        cls.inherits = cd.get("inherits", "");
+        cls.api_type = parse_class_api_type(cd["api_type"]);
+        cls.is_refcounted = cd.get("is_refcounted", false);
+        cls.is_instantiable = cd.get("is_instantiable", false);
 
         // Build document in parallel
         ApiClassDocument doc;
-        doc.name = String(cls.name);
-        if (dict_has(cd, "description")) {
-            doc.description = String(cd["description"]);
-        }
-        if (dict_has(cd, "brief_description")) {
-            doc.brief_description = String(cd["brief_description"]);
-        }
+        doc.name = cls.name;
+        doc.description = cd.get("description", "");
+        doc.brief_description = cd.get("brief_description", "");
 
         // Collect compatibility hashes for this class
         ApiCompatibilityHashData compat_data;
 
-        if (dict_has(cd, "methods")) {
+        if (cd.has("methods")) {
             Array methods = cd["methods"];
             cls.methods.reserve(methods.size());
             doc.methods.reserve(methods.size());
@@ -680,15 +619,13 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
                 Dictionary md = methods[j];
                 cls.methods.push_back(parse_method<ApiClassMethod>(md, &compat_data));
                 ApiMethodDocument mdoc;
-                mdoc.name = String(dict_get_string_name(md, "name"));
-                if (dict_has(md, "description")) {
-                    mdoc.description = String(md["description"]);
-                }
+                mdoc.name = md["name"];
+                mdoc.description = md.get("description", "");
                 doc.methods.push_back(mdoc);
             }
         }
 
-        if (dict_has(cd, "signals")) {
+        if (cd.has("signals")) {
             Array signals = cd["signals"];
             cls.signals.reserve(signals.size());
             doc.signals.reserve(signals.size());
@@ -696,22 +633,20 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
                 Dictionary sd = signals[j];
                 cls.signals.push_back(parse_signal(sd));
                 ApiSignalDocument sdoc;
-                sdoc.name = String(dict_get_string_name(sd, "name"));
-                if (dict_has(sd, "description")) {
-                    sdoc.description = String(sd["description"]);
-                }
-                if (dict_has(sd, "arguments")) {
+                sdoc.name = sd["name"];
+                sdoc.description = sd.get("description", "");
+                if (sd.has("arguments")) {
                     Array args = sd["arguments"];
                     sdoc.arguments.reserve(args.size());
                     for (int k = 0; k < args.size(); k++) {
-                        sdoc.arguments.push_back(parse_property_info(Dictionary(args[k])));
+                        sdoc.arguments.push_back(parse_property_info(args[k]));
                     }
                 }
                 doc.signals.push_back(sdoc);
             }
         }
 
-        if (dict_has(cd, "properties")) {
+        if (cd.has("properties")) {
             Array properties = cd["properties"];
             cls.properties.reserve(properties.size());
             doc.properties.reserve(properties.size());
@@ -719,15 +654,13 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
                 Dictionary pd = properties[j];
                 cls.properties.push_back(parse_api_property(pd));
                 ApiPropertyDocument pdoc;
-                pdoc.name = String(dict_get_string_name(pd, "name"));
-                if (dict_has(pd, "description")) {
-                    pdoc.description = String(pd["description"]);
-                }
+                pdoc.name = pd["name"];
+                pdoc.description = pd.get("description", "");
                 doc.properties.push_back(pdoc);
             }
         }
 
-        if (dict_has(cd, "enums")) {
+        if (cd.has("enums")) {
             Array enums = cd["enums"];
             cls.enums.reserve(enums.size());
             doc.enums.reserve(enums.size());
@@ -735,17 +668,15 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
                 Dictionary ed = enums[j];
                 cls.enums.push_back(parse_enum(ed));
                 ApiEnumDocument edoc;
-                edoc.name = String(dict_get_string_name(ed, "name"));
-                if (dict_has(ed, "values")) {
+                edoc.name = ed["name"];
+                if (ed.has("values")) {
                     Array values = ed["values"];
                     edoc.values.reserve(values.size());
                     for (int k = 0; k < values.size(); k++) {
                         Dictionary ev = values[k];
                         ApiEnumValueDocument evdoc;
-                        evdoc.name = String(dict_get_string_name(ev, "name"));
-                        if (dict_has(ev, "description")) {
-                            evdoc.description = String(ev["description"]);
-                        }
+                        evdoc.name = ev["name"];
+                        evdoc.description = ev.get("description", "");
                         edoc.values.push_back(evdoc);
                     }
                 }
@@ -753,14 +684,14 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
             }
         }
 
-        if (dict_has(cd, "constants")) {
+        if (cd.has("constants")) {
             Array constants = cd["constants"];
             cls.constants.reserve(constants.size());
             for (int j = 0; j < constants.size(); j++) {
                 Dictionary c = constants[j];
                 ApiConstantInfo ci;
-                ci.name = dict_get_string_name(c, "name");
-                ci.value = dict_has(c, "value") ? int64_t(c["value"]) : 0;
+                ci.name = c["name"];
+                ci.value = c.get("value", 0);
                 cls.constants.push_back(ci);
             }
         }
@@ -794,7 +725,7 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
 // ============================================================================
 
 Error ApiParser::parse_and_write_global_enums(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "global_enums"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'global_enums' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("global_enums"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'global_enums' section");
 
     Array enums = p_root["global_enums"];
     String dir = p_output_dir + String("/") + String(DIR_GLOBAL_ENUMS);
@@ -816,16 +747,14 @@ Error ApiParser::parse_and_write_global_enums(const Dictionary &p_root, const St
         // Write document file
         ApiGlobalEnumDocument doc;
         doc.name = String(info.name);
-        if (dict_has(ed, "values")) {
+        if (ed.has("values")) {
             Array values = ed["values"];
             doc.values.reserve(values.size());
             for (int k = 0; k < values.size(); k++) {
                 Dictionary ev = values[k];
                 ApiEnumValueDocument evdoc;
-                evdoc.name = String(dict_get_string_name(ev, "name"));
-                if (dict_has(ev, "description")) {
-                    evdoc.description = String(ev["description"]);
-                }
+                evdoc.name = ev["name"];
+                evdoc.description = ev.get("description", "");
                 doc.values.push_back(evdoc);
             }
         }
@@ -841,7 +770,7 @@ Error ApiParser::parse_and_write_global_enums(const Dictionary &p_root, const St
 // ============================================================================
 
 Error ApiParser::parse_and_write_global_constants(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "global_constants"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'global_constants' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("global_constants"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'global_constants' section");
 
     Array constants = p_root["global_constants"];
     String dir = p_output_dir + String("/") + String(DIR_GLOBAL_CONSTANTS);
@@ -851,9 +780,9 @@ Error ApiParser::parse_and_write_global_constants(const Dictionary &p_root, cons
     for (int i = 0; i < constants.size(); i++) {
         Dictionary cd = constants[i];
         ApiConstantInfo info;
-        info.name = dict_get_string_name(cd, "name");
-        info.value = int64_t(cd["value"]);
-        info.is_bitfield = dict_has(cd, "is_bitfield") ? bool(cd["is_bitfield"]) : false;
+        info.name = cd["name"];
+        info.value = cd["value"];
+        info.is_bitfield = cd.get("is_bitfield", false);
 
         // Write main data file
         String path = dir + String("/") + String(info.name) + String(FILE_EXT_DATA);
@@ -865,10 +794,8 @@ Error ApiParser::parse_and_write_global_constants(const Dictionary &p_root, cons
 
         // Write document file
         ApiGlobalConstantDocument doc;
-        doc.name = String(info.name);
-        if (dict_has(cd, "description")) {
-            doc.description = String(cd["description"]);
-        }
+        doc.name = info.name;
+        doc.description = cd.get("description", "");
         String doc_path = doc_dir + String("/") + String(info.name) + String(FILE_EXT_DOC);
         ApiStoreWriter::write_global_constant_document(doc_path, doc);
     }
@@ -881,7 +808,7 @@ Error ApiParser::parse_and_write_global_constants(const Dictionary &p_root, cons
 // ============================================================================
 
 Error ApiParser::parse_and_write_singletons(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "singletons"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'singletons' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("singletons"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'singletons' section");
 
     Array singletons = p_root["singletons"];
     LocalVector<ApiSingleton> all_singletons;
@@ -890,10 +817,8 @@ Error ApiParser::parse_and_write_singletons(const Dictionary &p_root, const Stri
     for (int i = 0; i < singletons.size(); i++) {
         Dictionary sd = singletons[i];
         ApiSingleton singleton;
-        singleton.name = dict_get_string_name(sd, "name");
-        singleton.type = dict_get_string_name(sd, "type");
-        singleton.user_created = dict_has(sd, "user_created") ? bool(sd["user_created"]) : false;
-        singleton.editor_only = dict_has(sd, "editor_only") ? bool(sd["editor_only"]) : false;
+        singleton.name = sd["name"];
+        singleton.type = sd["typed"];
         all_singletons.push_back(singleton);
     }
 
@@ -906,7 +831,7 @@ Error ApiParser::parse_and_write_singletons(const Dictionary &p_root, const Stri
 // ============================================================================
 
 Error ApiParser::parse_and_write_native_structures(const Dictionary &p_root, const String &p_output_dir) {
-    ERR_FAIL_COND_V_MSG(!dict_has(p_root, "native_structures"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'native_structures' section");
+    ERR_FAIL_COND_V_MSG(!p_root.has("native_structures"), ERR_PARSE_ERROR, "[API Tool] JSON missing 'native_structures' section");
 
     Array structs = p_root["native_structures"];
     LocalVector<ApiNativeStructure> all_structs;
@@ -915,8 +840,8 @@ Error ApiParser::parse_and_write_native_structures(const Dictionary &p_root, con
     for (int i = 0; i < structs.size(); i++) {
         Dictionary sd = structs[i];
         ApiNativeStructure ns;
-        ns.name = String(sd["name"]);
-        ns.format = String(sd["format"]);
+        ns.name = sd["name"];
+        ns.format = sd["format"];
         all_structs.push_back(ns);
     }
 

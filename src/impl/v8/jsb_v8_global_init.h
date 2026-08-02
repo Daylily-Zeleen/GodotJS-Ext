@@ -42,19 +42,29 @@ namespace jsb::impl
 #endif
         }
 
+    private:
+        static inline GlobalInitialize* global_initialize {nullptr};
+    public:
         static v8::Platform* get_platform()
         {
-            static GlobalInitialize global_initialize;
 #if JSB_V8_CPPGC
-            return global_initialize.platform->GetV8Platform();
+            return global_initialize->platform->GetV8Platform();
 #else
-            return global_initialize.platform.get();
+            return global_initialize->platform.get();
 #endif
         }
 
         static void init()
         {
+            jsb_check(global_initialize == nullptr);
+            global_initialize = memnew(GlobalInitialize);
             jsb_ensure(get_platform());
+        }
+
+        static void shutdown()
+        {
+            jsb_check(global_initialize);
+            memdelete(global_initialize);
         }
     };
 

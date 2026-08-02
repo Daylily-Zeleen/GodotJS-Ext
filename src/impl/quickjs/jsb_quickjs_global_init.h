@@ -9,6 +9,10 @@ namespace jsb::impl
         static void init()
         {
         }
+
+        static void shutdown()
+        {
+        }
     };
 
 }

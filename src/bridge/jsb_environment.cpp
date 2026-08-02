@@ -275,12 +275,13 @@ namespace jsb
         , object_db_(p_params.initial_object_slots)
     {
         JSB_BENCHMARK_SCOPE(JSEnvironment, Construct);
-        impl::GlobalInitialize::init();
         v8::Isolate::CreateParams create_params;
         create_params.array_buffer_allocator = &allocator_;
 #if JSB_V8_CPPGC
         // old version:
-        cpp_heap_ = v8::CppHeap::Create(impl::GlobalInitialize::get_platform(),
+        v8::Platform *platform = impl::GlobalInitialize::get_platform();
+        jsb_ensuref(platform, "Please call jsb::impl::GlobalInitialize::init() first.");
+        cpp_heap_ = v8::CppHeap::Create(platform,
             v8::CppHeapCreateParams({}, v8::WrapperDescriptor(kWrapperTypeIndex, kWrapperInstanceIndex, kWrapperID)));
         // new version:
         // cpp_heap_ = v8::CppHeap::Create(impl::GlobalInitialize::get_platform(), v8::CppHeapCreateParams({}));
@@ -458,6 +459,8 @@ namespace jsb
         isolate_ = nullptr;
 
         variant_allocator_.drain();
+
+        ref_.reset();
     }
 
     void Environment::init()
@@ -908,7 +911,7 @@ namespace jsb
         return object_id;
     }
 
-    NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object, int p_external_rc, bool p_js_owned_non_ref)
+    NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak)
     {
         check_internal_state();
         jsb_checkf(native_classes_.is_valid_index(p_class_id), "bad class_id");
@@ -2280,7 +2283,7 @@ namespace jsb
         jsb_checkf(ScriptInstance::get_script_instance(instance) == nullptr, 
             "Transferred godot object should not have a script instance, it may associate with another env: %d", instance->to_string());
 
-        if (has_script_path)
+        if (!p_data.script_path.is_empty())
         {
             const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(p_data.script_path);
 

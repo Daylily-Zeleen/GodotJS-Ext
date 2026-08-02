@@ -92,7 +92,11 @@ public:
 
     const godot::String &get_api_dumping_dir();
 
+    static ApiLoader *get_singleton() { return singleton; }
+
 private:
+    static ApiLoader *singleton;
+
     // Stable-pointer cache: deque stores data, HashMap stores name->index.
     // Pointers into deque are stable after push_back (deque block structure).
     template<typename CacheKey, typename T>

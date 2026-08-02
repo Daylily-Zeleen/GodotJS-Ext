@@ -214,6 +214,8 @@ namespace jsb::impl
 namespace jsb::impl
 {
     void GlobalInitialize::init() {}
+
+    void GlobalInitialize::shutdown() {}
 }
 
 #endif

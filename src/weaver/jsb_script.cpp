@@ -207,6 +207,7 @@ ScriptInstance* GodotJSScript::instance_construct(Object* p_this, bool p_is_temp
 
     if (instance) {
         instance->postbind();
+        jsb_ensure(env->verify_object(p_this));
     }
 
     return instance;

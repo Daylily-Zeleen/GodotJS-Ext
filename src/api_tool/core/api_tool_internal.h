@@ -8,7 +8,7 @@ namespace internal {
 
 static bool double_precision{ false };
 
-// TODO: 测试是否需要 PtrToArg<Ref<RefCounted>>，应该不需要，UtilityFunctions 与 内建类的函数 应该都不涉及相关参数与返回值，非内建类的调用全都转换成 Variant 了。
+// 不需要 PtrToArg<Ref<RefCounted>>，UtilityFunctions 与 内建类的函数都不涉及RefCounted参数与返回值，非内建类的调用全都转换成 Variant 了。
 _FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr, godot::Variant::Type p_type = godot::Variant::VARIANT_MAX,  const GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE) {
 	using namespace godot;
 	if (p_type >= Variant::VARIANT_MAX) {

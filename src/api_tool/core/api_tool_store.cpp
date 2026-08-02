@@ -243,8 +243,6 @@ Error ApiStoreReader::read_singletons(const String &p_path, LocalVector<ApiSingl
     r.read(r_data, [](PayloadReader &r, ApiSingleton &s) {
         r.read(s.name);
         r.read(s.type);
-        r.read(s.user_created);
-        r.read(s.editor_only);
     });
     return OK;
 }

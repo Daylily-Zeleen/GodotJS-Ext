@@ -1,7 +1,9 @@
 #include "register_types.h"
 
 #include "api_tool/api_tool.h"
-#include "weaver/jsb_weaver.h"
+#include "jsb_resource_saver.h"
+#include "jsb_resource_loader.h"
+
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/os.hpp>
@@ -27,8 +29,6 @@ void jsb_initialize_module(ModuleInitializationLevel p_level)
             GDREGISTER_CLASS(GodotJSEditorHelper);
 #endif // TOOLS_ENABLED
             GDREGISTER_INTERNAL_CLASS(GodotJSScriptLanguage);
-
-            jsb::impl::GlobalInitialize::init();
 
             // register javascript language
             GodotJSScriptLanguage* script_language_js = memnew(GodotJSScriptLanguage());
@@ -59,8 +59,6 @@ void jsb_uninitialize_module(ModuleInitializationLevel p_level)
 {
     switch (p_level) {
         case MODULE_INITIALIZATION_LEVEL_SERVERS:{
-            api_tool::finalize();
-
             GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
             jsb_check(script_language_js);
             Engine::get_singleton()->unregister_script_language(script_language_js);
@@ -139,6 +137,10 @@ void jsb_startup() {
 #endif // JSB_TESTS_ENABLED
 }
 
+void jsb_shutdown() {
+    api_tool::finalize();
+}
+
 extern "C"
 {
     GDExtensionBool GDE_EXPORT jsb_gdextension_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, GDExtensionClassLibraryPtr p_library, GDExtensionInitialization* r_initialization)
@@ -148,6 +150,7 @@ extern "C"
         init_obj.register_startup_callback(jsb_startup);
         init_obj.register_initializer(jsb_initialize_module);
         init_obj.register_terminator(jsb_uninitialize_module);
+        init_obj.register_shutdown_callback(jsb_shutdown);
         init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_CORE);
 
         return init_obj.init();

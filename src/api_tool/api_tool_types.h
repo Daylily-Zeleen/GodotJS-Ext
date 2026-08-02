@@ -9,8 +9,9 @@
 #include <functional>
 
 
-#include "godot_cpp/core/property_info.hpp"
+#include <godot_cpp/core/property_info.hpp>
 #include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/templates/local_vector.hpp>
 
 #include "core/api_tool_internal.h"
@@ -651,7 +652,7 @@ struct ApiClass {
     godot::LocalVector<ApiConstantInfo> constants;
     godot::StringName name;
     godot::StringName inherits;
-    godot::StringName api_type;
+    godot::ClassDB::APIType api_type;
     bool is_refcounted = false;
     bool is_instantiable = true;
 };
@@ -663,13 +664,11 @@ struct ApiClass {
 struct ApiSingleton {
     godot::StringName name;
     godot::StringName type;
-    bool user_created = false;
-    bool editor_only = false;
 };
 
 struct ApiNativeStructure {
     godot::String name;
-    godot::String format; // TODO: 解析！
+    godot::String format;
 };
 
 #pragma region Document structures

@@ -21,13 +21,17 @@ using namespace godot;
 
 namespace api_tool {
 using namespace internal;
+
+#define CHECK_LOADER_V(ret) ERR_FAIL_NULL_V_MSG(get_loader(), ret, "Please call api_tool::initialize() first.");
+#define CHECK_LOADER() ERR_FAIL_NULL_MSG(get_loader(), "Please call api_tool::initialize() first.");
+
 // ============================================================================
 // Global loader instance
 // ============================================================================
 
-static ApiLoader &get_loader() {
-    static ApiLoader ret;
-    return ret;
+static ApiLoader *get_loader() {
+    static auto _dummy = []{ return memnew(ApiLoader)->initialize(); }();
+    return ApiLoader::get_singleton();
 }
 
 // ============================================================================
@@ -35,27 +39,31 @@ static ApiLoader &get_loader() {
 // ============================================================================
 
 Error initialize() {
-    return get_loader().initialize();
+    if (get_loader() == nullptr) { memnew(ApiLoader); }
+    return get_loader()->initialize();
 }
 
 void finalize() {
-    get_loader().clear();
+    CRASH_COND_MSG(get_loader() == nullptr, "Can't finalize Api tool again. If you need, please call api_tool::initialize() first.");
+    memdelete(ApiLoader::get_singleton());
 }
 
 
 bool is_loaded() {
-    return get_loader().is_loaded();
+    CHECK_LOADER_V(false);
+    return ApiLoader::get_singleton()->is_loaded();
 }
 
 void get_version(int32_t &r_major, int32_t &r_minor, int32_t &r_patch) {
-    const ApiHeader &hdr = get_loader().get_header();
+    CHECK_LOADER();
+    const ApiHeader &hdr = get_loader()->get_header();
     r_major = hdr.version_major;
     r_minor = hdr.version_minor;
     r_patch = hdr.version_patch;
 }
 
 const ApiHeader &get_header() {
-    return get_loader().get_header();
+    return get_loader()->get_header();
 }
 
 // ============================================================================
@@ -63,35 +71,43 @@ const ApiHeader &get_header() {
 // ============================================================================
 
 const ApiUtilityFunction *find_utility_function(const StringName &p_name) {
-    return get_loader().get_utility_function(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_utility_function(p_name);
 }
 
 const ApiBuiltinClass *find_builtin_class(const StringName &p_name) {
-    return get_loader().get_builtin_class(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_builtin_class(p_name);
 }
 
 const ApiBuiltinClass *find_builtin_class(Variant::Type p_type) {
-    return get_loader().get_builtin_class(p_type);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_builtin_class(p_type);
 }
 
 const ApiClass *find_class(const StringName &p_name) {
-    return get_loader().get_class(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_class(p_name);
 }
 
 const ApiEnumInfo *find_global_enum(const StringName &p_name) {
-    return get_loader().get_global_enum(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_global_enum(p_name);
 }
 
 const ApiConstantInfo *find_global_constant(const StringName &p_name) {
-    return get_loader().get_global_constant(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_global_constant(p_name);
 }
 
 const ApiSingleton *find_singleton(const StringName &p_name) {
-    return get_loader().get_singleton(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_singleton(p_name);
 }
 
 const ApiNativeStructure *find_native_structure(const StringName &p_name) {
-    return get_loader().get_native_structure(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_native_structure(p_name);
 }
 
 // ============================================================================
@@ -100,19 +116,21 @@ const ApiNativeStructure *find_native_structure(const StringName &p_name) {
 
 std::unique_ptr<ApiClassDocument> find_document(const StringName &p_name) {
 #ifdef TOOLS_ENABLED
-    return get_loader().find_document(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->find_document(p_name);
 #else // !TOOLS_ENABLED
     return nullptr;
 #endif // TOOLS_ENABLED
 }
 
-std::unique_ptr<ApiClassDocument> find_document(const godot::Variant::Type &p_type) {
-    return find_document(godot::Variant::get_type_name(p_type));
+std::unique_ptr<ApiClassDocument> find_document(const Variant::Type &p_type) {
+    return find_document(Variant::get_type_name(p_type));
 }
 
 std::unique_ptr<ApiUtilityFunctionDocument> find_utility_function_document(const StringName &p_name) {
 #ifdef TOOLS_ENABLED
-    return get_loader().find_utility_function_document(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->find_utility_function_document(p_name);
 #else // !TOOLS_ENABLED
     return nullptr;
 #endif // TOOLS_ENABLED
@@ -120,7 +138,8 @@ std::unique_ptr<ApiUtilityFunctionDocument> find_utility_function_document(const
 
 std::unique_ptr<ApiGlobalEnumDocument> find_global_enum_document(const StringName &p_name) {
 #ifdef TOOLS_ENABLED
-    return get_loader().find_global_enum_document(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->find_global_enum_document(p_name);
 #else // !TOOLS_ENABLED
     return nullptr;
 #endif // TOOLS_ENABLED
@@ -128,7 +147,8 @@ std::unique_ptr<ApiGlobalEnumDocument> find_global_enum_document(const StringNam
 
 std::unique_ptr<ApiGlobalConstantDocument> find_global_constant_document(const StringName &p_name) {
 #ifdef TOOLS_ENABLED
-    return get_loader().find_global_constant_document(p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->find_global_constant_document(p_name);
 #else // !TOOLS_ENABLED
     return nullptr;
 #endif // TOOLS_ENABLED
@@ -138,32 +158,43 @@ std::unique_ptr<ApiGlobalConstantDocument> find_global_constant_document(const S
 // List interface implementation
 // ============================================================================
 
+static const HashSet<StringName> &dummy_name_list() {
+    static HashSet<StringName> dummy; return dummy;
+}
+
 HashSet<StringName> list_utility_functions() {
-    return get_loader().list_utility_functions();
+    CHECK_LOADER_V({});
+    return get_loader()->list_utility_functions();
 }
 
-const godot::HashSet<godot::StringName> &list_builtin_classes() {
-    return get_loader().list_builtin_classes();
+const HashSet<StringName> &list_builtin_classes() {
+    CHECK_LOADER_V(dummy_name_list());
+    return get_loader()->list_builtin_classes();
 }
 
-const godot::HashSet<godot::StringName> &list_classes() {
-    return get_loader().list_classes();
+const HashSet<StringName> &list_classes() {
+    CHECK_LOADER_V(dummy_name_list());
+    return get_loader()->list_classes();
 }
 
-const godot::HashSet<godot::StringName> &list_global_enums() {
-    return get_loader().list_global_enums();
+const HashSet<StringName> &list_global_enums() {
+    CHECK_LOADER_V(dummy_name_list());
+    return get_loader()->list_global_enums();
 }
 
-const godot::HashSet<godot::StringName> &list_global_constants() {
-    return get_loader().list_global_constants();
+const HashSet<StringName> &list_global_constants() {
+    CHECK_LOADER_V(dummy_name_list());
+    return get_loader()->list_global_constants();
 }
 
 HashSet<StringName> list_singletons() {
-    return get_loader().list_singletons();
+    CHECK_LOADER_V({});
+    return get_loader()->list_singletons();
 }
 
 HashSet<StringName> list_native_structures() {
-    return get_loader().list_native_structures();
+    CHECK_LOADER_V({});
+    return get_loader()->list_native_structures();
 }
 
 // ============================================================================
@@ -171,31 +202,38 @@ HashSet<StringName> list_native_structures() {
 // ============================================================================
 
 bool has_utility_function(const StringName &p_name) {
-    return get_loader().has_utility_function(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_utility_function(p_name);
 }
 
 bool has_builtin_class(const StringName &p_name) {
-    return get_loader().has_builtin_class(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_builtin_class(p_name);
 }
 
 bool has_class(const StringName &p_name) {
-    return get_loader().has_class(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_class(p_name);
 }
 
 bool has_global_enum(const StringName &p_name) {
-    return get_loader().has_global_enum(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_global_enum(p_name);
 }
 
 bool has_global_constant(const StringName &p_name) {
-    return get_loader().has_global_constant(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_global_constant(p_name);
 }
 
 bool has_singleton(const StringName &p_name) {
-    return get_loader().has_singleton(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_singleton(p_name);
 }
 
 bool has_native_structure(const StringName &p_name) {
-    return get_loader().has_native_structure(p_name);
+    CHECK_LOADER_V(false);
+    return get_loader()->has_native_structure(p_name);
 }
 
 // ============================================================================
@@ -203,11 +241,13 @@ bool has_native_structure(const StringName &p_name) {
 // ============================================================================
 
 ::CacheInvalidatedHandle register_cache_invalidated_callback(::CacheInvalidatedCallback p_callback) {
-    return get_loader().register_cache_invalidated_callback(p_callback);
+    CHECK_LOADER_V({});
+    return get_loader()->register_cache_invalidated_callback(p_callback);
 }
 
 void unregister_cache_invalidated_callback(::CacheInvalidatedHandle p_handle) {
-    get_loader().unregister_cache_invalidated_callback(p_handle);
+    CHECK_LOADER();
+    get_loader()->unregister_cache_invalidated_callback(p_handle);
 }
 
 // ============================================================================
@@ -215,23 +255,28 @@ void unregister_cache_invalidated_callback(::CacheInvalidatedHandle p_handle) {
 // ============================================================================
 
 int32_t get_utility_function_count() {
-    return get_loader().get_utility_function_count();
+    CHECK_LOADER_V(0);
+    return get_loader()->get_utility_function_count();
 }
 
 int32_t get_builtin_class_count() {
-    return get_loader().get_builtin_class_count();
+    CHECK_LOADER_V(0);
+    return get_loader()->get_builtin_class_count();
 }
 
 int32_t get_class_count() {
-    return get_loader().get_class_count();
+    CHECK_LOADER_V(0);
+    return get_loader()->get_class_count();
 }
 
 int32_t get_global_enum_count() {
-    return get_loader().get_global_enum_count();
+    CHECK_LOADER_V(0);
+    return get_loader()->get_global_enum_count();
 }
 
 int32_t get_global_constant_count() {
-    return get_loader().get_global_constant_count();
+    CHECK_LOADER_V(0);
+    return get_loader()->get_global_constant_count();
 }
 
 // ============================================================================
@@ -240,7 +285,8 @@ int32_t get_global_constant_count() {
 
 const LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(Variant::Type p_type, const StringName &p_name) {
 #ifndef DISABLE_DEPRECATED
-    return get_loader().get_builtin_method_compatibility_hashes(p_type, p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_builtin_method_compatibility_hashes(p_type, p_name);
 #else // DISABLE_DEPRECATED
     return nullptr;
 #endif// DISABLE_DEPRECATED
@@ -249,7 +295,8 @@ const LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(Variant::
 
 const LocalVector<MethodHash>* get_class_method_compatibility_hashes(const StringName &p_class_name, const StringName &p_name) {
 #ifndef DISABLE_DEPRECATED
-    return get_loader().get_class_method_compatibility_hashes(p_class_name, p_name);
+    CHECK_LOADER_V(nullptr);
+    return get_loader()->get_class_method_compatibility_hashes(p_class_name, p_name);
 #else // DISABLE_DEPRECATED
     return nullptr;
 #endif // !DISABLE_DEPRECATED
@@ -345,8 +392,9 @@ Error reboot_and_generate_extension_api() {
     return OK;
 }
 
-Error generate_api_tool_data(const godot::String &p_extension_api_json_path) {
-    ApiLoader  &loader = get_loader();
+Error generate_api_tool_data(const String &p_extension_api_json_path) {
+    initialize();
+    ApiLoader &loader = *get_loader();
     String out_dir = loader.get_api_dumping_dir();
 
     // Clear cache before generation (req 10)
@@ -358,14 +406,14 @@ Error generate_api_tool_data(const godot::String &p_extension_api_json_path) {
         return err;
     }
 
-    initialize();
     return loader.initialize();
 }
 #endif // TOOLS_ENABLED
 
 
 bool has_generated_data() {
-    return get_loader().has_generated_data();
+    initialize();
+    return get_loader()->has_generated_data();
 }
 
 
