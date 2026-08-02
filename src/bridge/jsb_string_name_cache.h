@@ -53,7 +53,7 @@ namespace jsb
         // [reserved] only called on low memory. 
         void shrink() {}
 
-        jsb_force_inline int size() const { return values_.size(); }
+        _FORCE_INLINE_ int size() const { return values_.size(); }
 
         bool try_get_string_name(v8::Isolate* isolate, const v8::Local<v8::Value>& p_value, StringName& r_string_name) const 
         {

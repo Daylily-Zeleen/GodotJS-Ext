@@ -1,8 +1,9 @@
 #ifndef GODOTJS_SETTINGS_H
 #define GODOTJS_SETTINGS_H
 
-#include <cstdint>
-#include "../compat/jsb_compat.h"
+#include <compat/jsb_compat.h>
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 
 namespace jsb::internal
 {

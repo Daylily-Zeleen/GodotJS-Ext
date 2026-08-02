@@ -1,7 +1,8 @@
 #ifndef GODOTJS_PATH_UTIL_H
 #define GODOTJS_PATH_UTIL_H
 
-#include "../compat/jsb_compat.h"
+#include <compat/jsb_compat.h>
+#include <godot_cpp/variant/string.hpp>
 
 namespace jsb::internal
 {

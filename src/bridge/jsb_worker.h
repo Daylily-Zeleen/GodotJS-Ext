@@ -6,6 +6,8 @@
 #include "jsb_environment.h"
 #include "jsb_type_convert.h"
 
+#include "compat/thread.h"
+
 #include <mutex>
 
 #if JSB_WITH_WEB
@@ -63,7 +65,7 @@ namespace jsb
 
         static WorkerLock lock_;
         static internal::SArray<WorkerImplPtr, WorkerID> &get_worker_list();
-        static HashMap<ThreadID, WorkerID> &get_workers();
+        static HashMap<ThreadEx::ID, WorkerID> &get_workers();
 
     public:
         enum class WebNativeTransferError : int32_t

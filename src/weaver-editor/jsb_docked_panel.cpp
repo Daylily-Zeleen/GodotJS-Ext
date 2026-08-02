@@ -5,6 +5,7 @@
 
 #include <godot_cpp/classes/margin_container.hpp>
 
+#include <compat/misc.h>
 
 namespace
 {

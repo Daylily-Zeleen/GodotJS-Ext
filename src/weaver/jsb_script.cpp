@@ -4,6 +4,8 @@
 #include "../internal/jsb_path_util.h"
 
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/engine.hpp>
+#include <compat/misc.h>
 
 GodotJSScript::GodotJSScript(): script_list_(this)
 #ifdef TOOLS_ENABLED
@@ -706,7 +708,6 @@ bool GodotJSScript::_update_exports_internal(PlaceholderScriptInstance *p_placeh
             {
                 const jsb::ScriptPropertyInfo &pi = pair.value;
                 members_cache.push_back((PropertyInfo) pi);
-                // values[pair.key] = jsb_ext_type_convert({}, pi.type);
 
                 //TODO maybe this behaviour is not expected
                 Variant default_value;

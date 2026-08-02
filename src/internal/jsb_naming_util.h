@@ -2,7 +2,8 @@
 #define GODOTJS_NAMING_UTIL_H
 
 #include "jsb_settings.h"
-#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/templates/list.hpp>
 
 namespace jsb::internal
 {

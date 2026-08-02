@@ -2,12 +2,6 @@
 
 namespace jsb
 {
-    // TODO: 待 godot 暴露该接口
-    // StringName JSCallable::get_method() const
-    // {
-    //     return SNAME("JSFunction");
-    // }
-
     String JSCallable::get_as_text() const
     {
         return vformat("[JSFunction: object_id=%s, callback_id=%s]", object_id_.operator uint64_t(), callback_id_.to_string());
@@ -33,7 +27,7 @@ namespace jsb
             return;
         }
 
-        Object* object_ptr = object_id_.is_null() ? nullptr : jsb::compat::ObjectDB::get_instance(object_id_);
+        Object* object_ptr = object_id_.is_null() ? nullptr : godot::ObjectDB::get_instance(object_id_);
         r_return_value = env->call_function(object_ptr, callback_id_, p_arguments, p_argcount, r_call_error);
     }
 }

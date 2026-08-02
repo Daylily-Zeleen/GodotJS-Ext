@@ -3,6 +3,9 @@
 #include "../compat/jsb_compat.h"
 #include "../bridge/jsb_statistics.h"
 
+#include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/classes/object.hpp>
+
 #define JSB_DECLARE_MONITOR(MonitorName) Variant get_value_## MonitorName()
 
 class GodotJSMonitor : public Object
@@ -30,7 +33,7 @@ protected:
 
 public:
     GodotJSMonitor();
-    virtual ~GodotJSMonitor() override;
+    virtual ~GodotJSMonitor();
 
 };
 

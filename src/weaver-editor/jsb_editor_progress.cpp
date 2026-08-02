@@ -6,7 +6,8 @@
 #include "godot_cpp/classes/v_box_container.hpp"
 #include "godot_cpp/core/math.hpp"
 #include "godot_cpp/variant/vector2i.hpp"
-#include "jsb_engine_compat.h"
+
+#include "compat/editor_settings.h"
 
 namespace godot {
 

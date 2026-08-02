@@ -28,19 +28,19 @@ namespace jsb::impl
         Class(const Class&) = delete;
         Class& operator=(const Class&) = delete;
 
-        jsb_force_inline bool IsEmpty() const
+        _FORCE_INLINE_ bool IsEmpty() const
         {
             return prototype_.IsEmpty() || constructor_.IsEmpty();
         }
 
         // the returned value is the constructor function (the class)
-        jsb_force_inline v8::Local<v8::Object> Get(v8::Isolate* isolate) const
+        _FORCE_INLINE_ v8::Local<v8::Object> Get(v8::Isolate* isolate) const
         {
             return v8::Local<v8::Object>(v8::Data(isolate, constructor_.Get(isolate)->stack_pos_));
         }
 
         //NOTE NewInstance should not trigger the underlying native constructor of this class
-        jsb_force_inline v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
+        _FORCE_INLINE_ v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
         {
             v8::Isolate* isolate = context->GetIsolate();
             const jsb::impl::StackPosition sp = jsbi_NewInstance(isolate->rt(), prototype_.Get(isolate)->stack_pos_);

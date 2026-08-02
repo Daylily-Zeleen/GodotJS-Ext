@@ -20,6 +20,8 @@
 
 #endif // UNIX_ENABLED
 
+#include <godot_cpp/classes/thread.hpp>
+
 #define JSB_PROCESS_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSProcess, Severity, Format, ##__VA_ARGS__)
 
 namespace jsb::internal
@@ -84,7 +86,7 @@ namespace jsb::internal
             rd_line.clear();
         }
 
-        virtual Error on_start(const String& p_name, const String& p_path, const List<String>& p_arguments) override
+        virtual Error on_start(const String& p_name, const String& p_path, const Vector<String>& p_arguments) override
         {
             const String path = p_path.replace("/", "\\");
             String command = _quote_command_line_argument(path);
@@ -128,7 +130,7 @@ namespace jsb::internal
             {
                 //TODO use async io instead of threading;
                 thread.instantiate();
-                thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<uintptr_t>(this)),Thread::PRIORITY_LOW);
+                thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<uintptr_t>(this)), Thread::PRIORITY_LOW);
             }
             return OK;
         }
@@ -228,7 +230,7 @@ namespace jsb::internal
     public:
         ProcessImpl(): Process() {}
 
-        virtual Error on_start(const String& p_name, const String& p_path, const List<String>& p_arguments) override
+        virtual Error on_start(const String& p_name, const String& p_path, const Vector<String>& p_arguments) override
         {
             proc_name = p_name;
             if (pipe(pipefd) == -1)
@@ -369,7 +371,7 @@ namespace jsb::internal
     public:
         ProcessImpl(): Process() {}
 
-        virtual Error on_start(const String& p_name, const String& p_path, const List<String>& p_arguments) override { return OK; }
+        virtual Error on_start(const String& p_name, const String& p_path, const Vector<String>& p_arguments) override { return OK; }
         virtual bool _is_running() const override { return false; }
         virtual void on_stop() override { }
     };
@@ -380,7 +382,7 @@ namespace jsb::internal
         return _is_running();
     }
 
-    std::shared_ptr<Process> Process::create(const String& p_name, const String& p_path, const List<String>& p_arguments)
+    std::shared_ptr<Process> Process::create(const String& p_name, const String& p_path, const Vector<String>& p_arguments)
     {
         std::shared_ptr<ProcessImpl> impl = std::make_shared<ProcessImpl>();
         impl->start(p_name, p_path, p_arguments);
@@ -397,7 +399,7 @@ namespace jsb::internal
         on_stop();
     }
 
-    void Process::start(const String& p_name, const String& p_path, const List<String>& p_arguments)
+    void Process::start(const String& p_name, const String& p_path, const Vector<String>& p_arguments)
     {
         on_start(p_name, p_path, p_arguments);
     }

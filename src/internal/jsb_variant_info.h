@@ -15,9 +15,9 @@ namespace jsb::internal
 #if JSB_DEBUG
         // only for debug
         StringName name_;
-        jsb_force_inline void set_debug_name(const StringName& p_name) { name_ = p_name; }
+        _FORCE_INLINE_ void set_debug_name(const StringName& p_name) { name_ = p_name; }
 #else
-        jsb_force_inline void set_debug_name(const StringName& p_name) {}
+        _FORCE_INLINE_ void set_debug_name(const StringName& p_name) {}
 #endif
     };
 
@@ -25,7 +25,7 @@ namespace jsb::internal
     {
         const api_tool::ApiBuiltInMethod* method_info = nullptr;
 
-        jsb_force_inline bool check_argc(int p_argc) const
+        _FORCE_INLINE_ bool check_argc(int p_argc) const
         {
             return VariantUtil::check_argc(is_vararg, p_argc, method_info->method.default_arguments.size(), argument_types.size());
         }
@@ -36,7 +36,7 @@ namespace jsb::internal
     {
         const api_tool::ApiUtilityFunction* utility_func = nullptr;
 
-        jsb_force_inline bool check_argc(int p_argc) const
+        _FORCE_INLINE_ bool check_argc(int p_argc) const
         {
             return is_vararg ? p_argc >= argument_types.size() : p_argc == argument_types.size();
         }

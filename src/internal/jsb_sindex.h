@@ -4,6 +4,7 @@
 #include "../compat/jsb_compat.h"
 #include "jsb_macros.h"
 
+#include <godot_cpp/variant/string.hpp>
 namespace jsb::internal
 {
     template<typename UnderlyingType, uint8_t TMaskBit = 6, UnderlyingType TMask = 0x3f>

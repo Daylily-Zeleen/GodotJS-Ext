@@ -17,6 +17,8 @@
 #   include <unistd.h>
 #endif
 
+#include <godot_cpp/classes/file_access.hpp>
+
 namespace jsb::internal
 {
     String PathUtil::to_platform_specific_path(const String& p_path)

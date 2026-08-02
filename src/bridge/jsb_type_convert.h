@@ -29,7 +29,7 @@ namespace jsb
          */
         static bool js_to_gd_obj(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const v8::Local<v8::Value>& p_jval, Object*& r_godot_obj);
 
-        jsb_force_inline static bool gd_var_to_js(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const Variant& p_cvar, v8::Local<v8::Value>& r_jval) { return gd_var_to_js(isolate, context, p_cvar, p_cvar.get_type(), r_jval); }
+        _FORCE_INLINE_ static bool gd_var_to_js(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const Variant& p_cvar, v8::Local<v8::Value>& r_jval) { return gd_var_to_js(isolate, context, p_cvar, p_cvar.get_type(), r_jval); }
         static bool gd_var_to_js(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const Variant& p_cvar, Variant::Type p_type, v8::Local<v8::Value>& r_jval);
         static bool js_to_gd_var(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const v8::Local<v8::Value>& p_jval, Variant::Type p_type, Variant& r_cvar);
 
@@ -44,19 +44,19 @@ namespace jsb
         static bool can_convert_strict(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const v8::Local<v8::Value>& p_val, Variant::Type p_type);
 
         // variant fast check (without checking NativeClassInfo)
-        jsb_force_inline static bool is_variant(const v8::Local<v8::Object>& p_obj)
+        _FORCE_INLINE_ static bool is_variant(const v8::Local<v8::Object>& p_obj)
         {
             return p_obj->InternalFieldCount() == IF_VariantFieldCount;
         }
 
         // object fast check (without checking NativeClassInfo)
-        jsb_force_inline static bool is_object(const v8::Local<v8::Object>& p_obj)
+        _FORCE_INLINE_ static bool is_object(const v8::Local<v8::Object>& p_obj)
         {
             return p_obj->InternalFieldCount() == IF_ObjectFieldCount;
         }
 
         // object fast check (without checking NativeClassInfo)
-        jsb_force_inline static bool is_object(const v8::Local<v8::Object>& p_obj, NativeClassType::Type p_type)
+        _FORCE_INLINE_ static bool is_object(const v8::Local<v8::Object>& p_obj, NativeClassType::Type p_type)
         {
             if (!is_object(p_obj)) return false;
             return (NativeClassType::Type)(uintptr_t) p_obj->GetAlignedPointerFromInternalField(IF_ClassType) == p_type;

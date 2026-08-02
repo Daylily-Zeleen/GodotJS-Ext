@@ -5,9 +5,12 @@
 #include "jsb_bridge_pch.h"
 #include "jsb_object_handle.h"
 
+#include "compat/rw_lock.h"
+#include <godot_cpp/templates/hash_map.hpp>
+
 namespace jsb
 {
-    class ObjectDB;
+    class BindingObjectDB;
 
 #if JSB_THREADING
 #   define JSB_OBJECT_DB_HANDLE(Type, Ptr) Type(&lock_, Ptr)
@@ -23,13 +26,13 @@ namespace jsb
     struct ObjectHandlePtr
     {
     private:
-        friend class ObjectDB;
+        friend class BindingObjectDB;
 
         RWLock* lock_;
         internal::SArray<ObjectHandle, NativeObjectID>::Pointer ptr_;
 
-        // Release slot address scope while preserving ObjectDB write lock.
-        jsb_force_inline void prepare_for_removal() { ptr_ = nullptr; }
+        // Release slot address scope while preserving BindingObjectDB write lock.
+        _FORCE_INLINE_ void prepare_for_removal() { ptr_ = nullptr; }
 
     public:
         ObjectHandlePtr(const ObjectHandlePtr&) = delete;
@@ -128,7 +131,7 @@ namespace jsb
     typedef internal::SArray<ObjectHandle, NativeObjectID>::ConstPointer ObjectHandleConstPtr;
 #endif
 
-    class ObjectDB
+    class BindingObjectDB
     {
     private:
         // cpp objects should be added here since the gc callback is not guaranteed by v8
@@ -142,8 +145,8 @@ namespace jsb
         RWLock lock_;
 #endif
 
-        // Remove object entry while caller already holds ObjectDB write lock.
-        jsb_force_inline void remove_object_internal(void* p_pointer)
+        // Remove object entry while caller already holds BindingObjectDB write lock.
+        _FORCE_INLINE_ void remove_object_internal(void* p_pointer)
         {
             const NativeObjectID* entry = objects_index_.getptr(p_pointer);
             jsb_check(entry);
@@ -152,38 +155,38 @@ namespace jsb
         }
 
     public:
-        ObjectDB(int p_capacity)
+        BindingObjectDB(int p_capacity)
         {
             objects_.reserve(p_capacity);
         }
 
-        ~ObjectDB()
+        ~BindingObjectDB()
         {
             jsb_check(objects_.size() == 0);
             jsb_check(objects_index_.size() == 0);
         }
 
-        jsb_force_inline int size() const { return objects_.size(); }
+        _FORCE_INLINE_ int size() const { return objects_.size(); }
 
-        jsb_force_inline bool has_object(void* p_pointer) const
+        _FORCE_INLINE_ bool has_object(void* p_pointer) const
         {
             JSB_OBJECT_DB_STATEMENT(RWLockRead lock(lock_));
             return objects_index_.has(p_pointer);
         }
 
-        jsb_force_inline bool has_object(const NativeObjectID& p_object_id) const
+        _FORCE_INLINE_ bool has_object(const NativeObjectID& p_object_id) const
         {
             JSB_OBJECT_DB_STATEMENT(RWLockRead lock(lock_));
             return objects_.is_valid_index(p_object_id);
         }
 
-        jsb_force_inline void* try_get_first_pointer() const
+        _FORCE_INLINE_ void* try_get_first_pointer() const
         {
             JSB_OBJECT_DB_STATEMENT(RWLockRead lock(lock_));
             return objects_index_.size() ? objects_index_.begin()->key : nullptr;
         }
 
-        jsb_force_inline NativeObjectID try_get_object_id(void* p_pointer) const
+        _FORCE_INLINE_ NativeObjectID try_get_object_id(void* p_pointer) const
         {
             JSB_OBJECT_DB_STATEMENT(RWLockRead lock(lock_));
             const NativeObjectID* it = objects_index_.getptr(p_pointer);
@@ -192,7 +195,7 @@ namespace jsb
 
         // whether the `p_pointer` registered in the object binding map
         // return true, and the corresponding JS value if `p_pointer` is valid
-        jsb_force_inline ObjectHandleConstPtr try_get_object(void* p_pointer) const
+        _FORCE_INLINE_ ObjectHandleConstPtr try_get_object(void* p_pointer) const
         {
             JSB_OBJECT_DB_STATEMENT(lock_.read_lock());
 
@@ -204,7 +207,7 @@ namespace jsb
         }
 
         // [MUTABLE]
-        jsb_force_inline ObjectHandlePtr try_get_object(void* p_pointer)
+        _FORCE_INLINE_ ObjectHandlePtr try_get_object(void* p_pointer)
         {
             JSB_OBJECT_DB_STATEMENT(lock_.write_lock());
 
@@ -215,14 +218,14 @@ namespace jsb
             return ObjectHandlePtr();
         }
 
-        jsb_force_inline ObjectHandleConstPtr try_get_object(const NativeObjectID& p_object_id) const
+        _FORCE_INLINE_ ObjectHandleConstPtr try_get_object(const NativeObjectID& p_object_id) const
         {
             JSB_OBJECT_DB_STATEMENT(lock_.read_lock());
             return JSB_OBJECT_DB_HANDLE(ObjectHandleConstPtr, objects_.try_get_value_scoped(p_object_id));
         }
 
         // will crash if the object is not registered in the object binding map
-        jsb_force_inline ObjectHandleConstPtr get_object(const NativeObjectID& p_object_id) const
+        _FORCE_INLINE_ ObjectHandleConstPtr get_object(const NativeObjectID& p_object_id) const
         {
             JSB_OBJECT_DB_STATEMENT(lock_.read_lock());
             return JSB_OBJECT_DB_HANDLE(ObjectHandleConstPtr, objects_.get_value_scoped(p_object_id));
@@ -259,7 +262,7 @@ namespace jsb
         }
 
         // [MUTABLE]
-        jsb_force_inline void remove_object(ObjectHandlePtr& p_handle, void* p_pointer)
+        _FORCE_INLINE_ void remove_object(ObjectHandlePtr& p_handle, void* p_pointer)
         {
 #if JSB_DEBUG
             jsb_check(p_handle->pointer == p_pointer);

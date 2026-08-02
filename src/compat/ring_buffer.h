@@ -28,8 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef GODOTJS_RING_BUFFER_H
-#define GODOTJS_RING_BUFFER_H
+#pragma once
 
 #include <godot_cpp/templates/vector.hpp>
 
@@ -216,5 +215,3 @@ public:
     }
     ~RingBuffer() {}
 };
-
-#endif // GODOTJS_RING_BUFFER_H

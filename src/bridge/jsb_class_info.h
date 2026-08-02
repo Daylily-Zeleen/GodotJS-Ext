@@ -152,7 +152,7 @@ namespace jsb
 
         // v8::Global<v8::Function> cache_;
 
-        jsb_force_inline bool is_static() const { return flags & ScriptMethodFlags::Static; }
+        _FORCE_INLINE_ bool is_static() const { return flags & ScriptMethodFlags::Static; }
 
     };
 
@@ -217,10 +217,10 @@ namespace jsb
         ::templates::BitField<ScriptClassFlags::Type> flags { ScriptClassFlags::None };
 
         //TODO whether the internal class object alive or not
-        jsb_force_inline bool is_valid() const { return true; }
+        _FORCE_INLINE_ bool is_valid() const { return true; }
 
-        jsb_force_inline bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }
-        jsb_force_inline bool is_abstract() const { return flags.has_flag(ScriptClassFlags::Abstract); }
+        _FORCE_INLINE_ bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }
+        _FORCE_INLINE_ bool is_abstract() const { return flags.has_flag(ScriptClassFlags::Abstract); }
     };
 
     struct ScriptClassInfo : StatelessScriptClassInfo

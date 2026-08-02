@@ -1,11 +1,14 @@
 ﻿#include "jsb_console_output.h"
 
+#include <compat/rw_lock.h>
+#include <godot_cpp/templates/vector.hpp>
+
 namespace jsb::internal
 {
     namespace
     {
         RWLock lock_;
-        Vector<IConsoleOutput*> outputs_;
+        Vector<IConsoleOutput*> outputs_; // TODO: LocalVector?
     }
 
     IConsoleOutput::IConsoleOutput()

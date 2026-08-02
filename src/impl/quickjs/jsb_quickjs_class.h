@@ -32,12 +32,12 @@ namespace jsb::impl
         Class(const Class&) = delete;
         Class& operator=(const Class&) = delete;
 
-        jsb_force_inline bool IsEmpty() const
+        _FORCE_INLINE_ bool IsEmpty() const
         {
             return prototype_.IsEmpty() || constructor_.IsEmpty();
         }
 
-        jsb_force_inline v8::Local<v8::Object> Get(v8::Isolate* isolate) const
+        _FORCE_INLINE_ v8::Local<v8::Object> Get(v8::Isolate* isolate) const
         {
             const JSValue constructor = JS_GetProperty(isolate->ctx(), (JSValue) prototype_, JS_ATOM_constructor);
             jsb_check(!JS_IsException(constructor));
@@ -46,7 +46,7 @@ namespace jsb::impl
         }
 
         //NOTE NewInstance should not trigger the underlying native constructor of this class
-        jsb_force_inline v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
+        _FORCE_INLINE_ v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
         {
             v8::Isolate* isolate = context->GetIsolate();
             JSContext* ctx = isolate->ctx();
@@ -65,7 +65,7 @@ namespace jsb::impl
             constructor_.Reset(isolate, constructor);
         }
 
-        jsb_force_inline static JSValue _NewObject(v8::Isolate* isolate, JSContext* ctx, JSValue prototype, uint8_t internal_field_count)
+        _FORCE_INLINE_ static JSValue _NewObject(v8::Isolate* isolate, JSContext* ctx, JSValue prototype, uint8_t internal_field_count)
         {
             const JSValue this_val = JS_NewObjectProtoClass(ctx, (JSValue) prototype, isolate->get_class_id());
             jsb_check(JS_IsObject(this_val));

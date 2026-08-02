@@ -6,8 +6,8 @@ namespace v8
     class Maybe
     {
     public:
-        jsb_force_inline bool IsNothing() const { return !has_value_; }
-        jsb_force_inline bool IsJust() const { return has_value_; }
+        _FORCE_INLINE_ bool IsNothing() const { return !has_value_; }
+        _FORCE_INLINE_ bool IsJust() const { return has_value_; }
 
         void Check() const
         {

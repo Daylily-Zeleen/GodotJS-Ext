@@ -6,6 +6,8 @@
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
 
+#include <godot_cpp/classes/engine.hpp>
+
 namespace jsb
 {
     static Variant::Type sanitize_return_type(const Variant::Type p_metadata_type, const Variant& p_return_value)
@@ -18,6 +20,10 @@ namespace jsb
         return p_return_value.get_type();
     }
 
+    /** TODO: 
+            仅对 RefCounted, 额外添加 [Symbol.dispose] 与 [Symbol.asyncDispose] 以支持离开 using 作用域时释放资源资源， env->dispose_binding_object
+            注意文档也要相应生成
+     */
     NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment* p_env, const godot::StringName& p_class_name, NativeClassID* r_class_id)
     {
         v8::Isolate* isolate = p_env->get_isolate();

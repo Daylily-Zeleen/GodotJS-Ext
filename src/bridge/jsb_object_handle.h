@@ -47,10 +47,10 @@ namespace jsb
         // // from APIs) must stay false so GC finalization only unbinds them.
         // bool js_owned_non_ref_ = false;
 
-        jsb_force_inline bool is_persist() const { return flags.has_flag(OBF_PERSIST); }
-        jsb_force_inline bool is_gd_obj() const { return flags.has_flag(OBF_GD_OBJ); }
-        jsb_force_inline bool is_gd_refcounted() const { return flags.has_flag(OBF_GD_REFCOUNTED); }
-        jsb_force_inline bool is_js_owned() const { return flags.has_flag(OBF_JS_OWNED); }
+        _FORCE_INLINE_ bool is_persist() const { return flags.has_flag(OBF_PERSIST); }
+        _FORCE_INLINE_ bool is_gd_obj() const { return flags.has_flag(OBF_GD_OBJ); }
+        _FORCE_INLINE_ bool is_gd_refcounted() const { return flags.has_flag(OBF_GD_REFCOUNTED); }
+        _FORCE_INLINE_ bool is_js_owned() const { return flags.has_flag(OBF_JS_OWNED); }
     };
 
 }

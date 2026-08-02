@@ -147,7 +147,7 @@ Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const Str
         JSB_LOG(VeryVerbose, "excluding script resource %s", p_path);
         return Variant();
     }
-    JSB_LOG(VeryVerbose, "loading script resource %s on thread %s", p_path, uitos(OS::get_singleton()->get_thread_caller_id()));
+    JSB_LOG(VeryVerbose, "loading script resource %s on thread %s", p_path, uitos(ThreadEx::get_caller_id()));
 
     // we can't immediately compile the script here since it's possibly loaded from resource loading threads
     switch (static_cast<ResourceLoader::CacheMode>(p_cache_mode))

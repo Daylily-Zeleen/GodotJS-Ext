@@ -231,8 +231,8 @@ protected:
     virtual LocalVector<PropertyInfo> *make_temporary_property_list() const override;
 
 public:
-    jsb_force_inline jsb::Environment *get_env() const { return env_; }
-    jsb::compat::ThreadID get_env_thread_id() const { return env_ ? env_->get_thread_id() : jsb::compat::UNASSIGNED_THREAD_ID; }
+    _FORCE_INLINE_ jsb::Environment *get_env() const { return env_; }
+    ThreadEx::ID get_env_thread_id() const { return env_ ? env_->get_thread_id() : ThreadEx::UNASSIGNED_ID; }
 
     // for Environment lifecycle control (avoid object leaks), detach all JS object bindings
     // void _detach();

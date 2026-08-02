@@ -90,7 +90,7 @@ namespace v8
         bool IsExecutionTerminating() const { return false; }
         void TerminateExecution() { }
 
-        jsb_force_inline jsb::impl::JSRuntime rt() const { return rt_; }
+        _FORCE_INLINE_ jsb::impl::JSRuntime rt() const { return rt_; }
 
         jsb::impl::InternalDataConstPtr get_internal_data(const jsb::impl::InternalDataID index) const
         {
@@ -127,13 +127,13 @@ namespace v8
         }
 
         template<int N>
-        jsb_force_inline void throw_error(const char (&message)[N])
+        _FORCE_INLINE_ void throw_error(const char (&message)[N])
         {
             const ::String str = (::String) message;
             throw_error(str);
         }
 
-        jsb_force_inline void throw_error(const ::String& message)
+        _FORCE_INLINE_ void throw_error(const ::String& message)
         {
             const CharString str8 = message.utf8();
             jsbi_ThrowError(rt_, str8.get_data());

@@ -32,12 +32,12 @@ namespace jsb::impl
         Class(const Class&) = delete;
         Class& operator=(const Class&) = delete;
 
-        jsb_force_inline bool IsEmpty() const
+        _FORCE_INLINE_ bool IsEmpty() const
         {
             return prototype_.IsEmpty() || constructor_.IsEmpty();
         }
 
-        jsb_force_inline v8::Local<v8::Object> Get(v8::Isolate* isolate) const
+        _FORCE_INLINE_ v8::Local<v8::Object> Get(v8::Isolate* isolate) const
         {
             const JSObjectRef prototype = JavaScriptCore::AsObject(isolate->ctx(), (JSValueRef) prototype_);
             const JSValueRef constructor = isolate->_GetProperty(prototype, JS_ATOM_constructor);
@@ -46,7 +46,7 @@ namespace jsb::impl
         }
 
         //NOTE NewInstance should not trigger the underlying native constructor of this class
-        jsb_force_inline v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
+        _FORCE_INLINE_ v8::Local<v8::Object> NewInstance(const v8::Local<v8::Context> context) const
         {
             v8::Isolate* isolate = context->GetIsolate();
             return v8::Local<v8::Object>(v8::Data(isolate,isolate->push_copy(
@@ -61,7 +61,7 @@ namespace jsb::impl
             constructor_.Reset(isolate, constructor);
         }
 
-        jsb_force_inline static JSObjectRef _NewObject(v8::Isolate* isolate, JSValueRef prototype, uint8_t internal_field_count)
+        _FORCE_INLINE_ static JSObjectRef _NewObject(v8::Isolate* isolate, JSValueRef prototype, uint8_t internal_field_count)
         {
             InternalData* internal_data = memnew(InternalData);
             internal_data->internal_field_count = internal_field_count;

@@ -74,7 +74,7 @@ namespace jsb
     template<>\
     struct TVariantOpaquePointer<OwnerT>\
     {\
-        jsb_force_inline static void* from(const v8::FunctionCallbackInfo<v8::Value>& info)\
+        _FORCE_INLINE_ static void* from(const v8::FunctionCallbackInfo<v8::Value>& info)\
         {\
             return VariantInternal::FuncName((Variant*) info.This()->GetAlignedPointerFromInternalField(IF_Pointer));\
         }\
@@ -321,7 +321,7 @@ namespace jsb
     template<typename TStruct>
     struct ReflectConstructorCallValueBinder
     {
-        jsb_force_inline static void bind_valuetype(v8::Isolate* isolate, const v8::Local<v8::Object>& p_object, const TStruct& p_value)
+        _FORCE_INLINE_ static void bind_valuetype(v8::Isolate* isolate, const v8::Local<v8::Object>& p_object, const TStruct& p_value)
         {
             static_assert((godot::Variant::Type)GetTypeInfo<TStruct>::VARIANT_TYPE != Variant::VARIANT_MAX);
             Environment* env = Environment::wrap(isolate);
@@ -330,7 +330,7 @@ namespace jsb
             env->bind_valuetype(pointer, p_object);
         }
 
-        jsb_force_inline static void bind_valuetype(v8::Isolate* isolate, const v8::Local<v8::Object>& p_object, const TStruct& p_value, const NativeClassID p_class_id)
+        _FORCE_INLINE_ static void bind_valuetype(v8::Isolate* isolate, const v8::Local<v8::Object>& p_object, const TStruct& p_value, const NativeClassID p_class_id)
         {
             static_assert(GetTypeInfo<TStruct>::VARIANT_TYPE != Variant::VARIANT_MAX);
             Environment* env = Environment::wrap(isolate);

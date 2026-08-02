@@ -3,6 +3,9 @@
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/templates/vector.hpp>
+
 namespace jsb::internal
 {
     struct IndexedSourcePosition
@@ -32,7 +35,7 @@ namespace jsb::internal
             int source_column = 0;
             int _reserved = 0; // name index
 
-            jsb_force_inline int& operator[](uint8_t index) { jsb_check(index < 5); return *((int*)this + index); }
+            _FORCE_INLINE_ int& operator[](uint8_t index) { jsb_check(index < 5); return *((int*)this + index); }
         };
 
         struct InternalLine

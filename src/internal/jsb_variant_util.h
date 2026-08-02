@@ -4,13 +4,15 @@
 #include "jsb_string_names.h"
 #include "jsb_naming_util.h"
 
+#include <godot_cpp/variant/utility_functions.hpp>
+
 namespace jsb::internal
 {
     template <typename T>
     struct Hasher
     {
-        struct hasher  { jsb_force_inline size_t operator()(const T& obj) const noexcept      { return obj.hash(); } };
-        struct equaler { jsb_force_inline bool   operator()(const T& lhs, const T& rhs) const { return lhs == rhs; } };
+        struct hasher  { _FORCE_INLINE_ size_t operator()(const T& obj) const noexcept      { return obj.hash(); } };
+        struct equaler { _FORCE_INLINE_ bool   operator()(const T& lhs, const T& rhs) const { return lhs == rhs; } };
 
     };
 
@@ -106,12 +108,12 @@ namespace jsb::internal
 
     struct VariantUtil
     {
-        jsb_force_inline static StringName get_type_name(const Variant::Type p_type)
+        _FORCE_INLINE_ static StringName get_type_name(const Variant::Type p_type)
         {
             return StringNames::get_singleton().get_replaced_name(Variant::get_type_name(p_type));
         }
 
-        jsb_force_inline static bool check_argc(bool p_is_vararg, int p_argc, int p_default_num, int p_expected_num)
+        _FORCE_INLINE_ static bool check_argc(bool p_is_vararg, int p_argc, int p_default_num, int p_expected_num)
         {
             if (p_is_vararg)
             {
@@ -124,17 +126,17 @@ namespace jsb::internal
             return p_argc <= p_expected_num && p_argc + p_default_num >= p_expected_num;
         }
 
-        jsb_force_inline static String to_snake_case_id(const String& p_name)
+        _FORCE_INLINE_ static String to_snake_case_id(const String& p_name)
         {
             return NamingUtil::validate_ascii_identifier(p_name.to_snake_case());
         }
 
-        jsb_force_inline static String to_pascal_case_id(const String& p_name)
+        _FORCE_INLINE_ static String to_pascal_case_id(const String& p_name)
         {
             return NamingUtil::validate_ascii_identifier(p_name.to_pascal_case());
         }
 
-        jsb_force_inline static Variant::Type get_element_type(Variant::Type p_type)
+        _FORCE_INLINE_ static Variant::Type get_element_type(Variant::Type p_type)
         {
             static Variant::Type mappings[] = {
                 Variant::INT,       // PACKED_BYTE_ARRAY
@@ -153,21 +155,21 @@ namespace jsb::internal
             return mappings[p_type - Variant::PACKED_BYTE_ARRAY];
         }
 
-        jsb_force_inline static void construct_variant(Variant& r_value, Variant::Type p_type)
+        _FORCE_INLINE_ static void construct_variant(Variant& r_value, Variant::Type p_type)
         {
 #if JSB_CONSTRUCT_DEFAULT_VARIANT_SLOW
             GDExtensionCallError err {};
             Variant::construct(p_type, r_value, nullptr, 0, err);
 #else
             static Variant dummy = {};
-            r_value = jsb_ext_type_convert(dummy, p_type);
+            r_value = godot::UtilityFunctions::type_convert(dummy, p_type);
 #endif
         }
 
         /**
          * if a StringName represents a non-null string
          */
-        jsb_force_inline static bool is_valid_name(const StringName& p_name)
+        _FORCE_INLINE_ static bool is_valid_name(const StringName& p_name)
         {
             return !p_name.is_empty();
         }

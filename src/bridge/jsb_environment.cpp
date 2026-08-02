@@ -4,7 +4,6 @@
 
 #include "jsb_bridge_module_loader.h"
 #include "jsb_compat.h"
-#include "jsb_engine_compat.h"
 #include "jsb_godot_module_loader.h"
 #include "jsb_transpiler.h"
 #include "jsb_ref.h"
@@ -32,6 +31,8 @@
 #include "../weaver/jsb_script.h"
 
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/node.hpp>
 
 #if JSB_WITH_WEB
 #include "../impl/web/jsb_web_interop.h"
@@ -96,7 +97,7 @@ namespace jsb
             {
                 //TODO check if it's not removed from `all_runtimes_` but being destructed already (consider remove it from the list immediately on destructor called)
                 Environment* env = (Environment*) ptr;
-                if (env->thread_id_ != compat::UNASSIGNED_THREAD_ID && env->is_caller_thread())
+                if (env->thread_id_ != ThreadEx::UNASSIGNED_ID && env->is_caller_thread())
                 {
                     rval = env->shared_from_this();
                     break;
@@ -138,7 +139,7 @@ namespace jsb
             all_runtimes_.erase(p_runtime);
         }
 
-        jsb_force_inline static EnvironmentStore& get_shared()
+        _FORCE_INLINE_ static EnvironmentStore& get_shared()
         {
             static EnvironmentStore global_store;
             return global_store;
@@ -151,13 +152,13 @@ namespace jsb
 
     struct InstanceBindingCallbacks
     {
-        jsb_force_inline operator const GDExtensionInstanceBindingCallbacks* () const { return &callbacks_; }
+        _FORCE_INLINE_ operator const GDExtensionInstanceBindingCallbacks* () const { return &callbacks_; }
 
         InstanceBindingCallbacks()
             : callbacks_ { create_callback, free_callback, reference_callback }
         {}
 
-        jsb_force_inline static void prepare_binding(Object *p_object) {
+        _FORCE_INLINE_ static void prepare_binding(Object *p_object) {
             jsb_check(p_object);
             binding_object = p_object;
             object_owner = p_object->_owner;
@@ -682,7 +683,7 @@ namespace jsb
     bool Environment::add_async_call(AsyncCall::Type p_type, void* p_binding)
     {
 #if JSB_THREADING
-        if (OS::get_singleton()->get_thread_caller_id() != thread_id_)
+        if (ThreadEx::get_caller_id() != thread_id_)
         {
             async_calls_.add(AsyncCall(p_type, p_binding));
             return true;
@@ -907,7 +908,8 @@ namespace jsb
 
         // 绑定
         InstanceBindingCallbacks::prepare_binding(p_pointer);
-        ::object_get_instance_binding(p_pointer, this, gd_instance_binding_callbacks);
+
+        ::godot::gdextension_interface::object_get_instance_binding(p_pointer->_owner, this, gd_instance_binding_callbacks);
         return object_id;
     }
 
@@ -967,6 +969,7 @@ namespace jsb
         return verify_object(pointer) ? pointer : nullptr;
     }
 
+    // TODO: 为 RefCounted 添加释放资源的函数考虑 Symbols.Dispose ?
     bool Environment::reference_object(void* p_pointer, bool p_is_inc)
     {
         check_internal_state();
@@ -1015,7 +1018,7 @@ namespace jsb
         }
     }
 
-    // jsb_force_inline static void clear_internal_field(v8::Isolate* isolate, const v8::Global<v8::Object>& p_obj)
+    // _FORCE_INLINE_ static void clear_internal_field(v8::Isolate* isolate, const v8::Global<v8::Object>& p_obj)
     // {
     //     v8::HandleScope handle_scope(isolate);
     //     const v8::Local<v8::Object> obj = p_obj.Get(isolate);
@@ -1049,8 +1052,8 @@ namespace jsb
         v8::Global<v8::Object> obj_ref = std::move(object_handle->ref_);
         templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
 
-        // erase from ObjectDB before clearing the ref to avoid exposing a transient state
-        // with an empty `ref_` in the ObjectDB, which can race with reference callbacks.
+        // erase from godot::ObjectDB before clearing the ref to avoid exposing a transient state
+        // with an empty `ref_` in the godot::ObjectDB, which can race with reference callbacks.
         object_db_.remove_object(object_handle, p_pointer);
 
         // TODO: Look into if we ought to be calling obj->free_instance_binding(this)
@@ -2065,7 +2068,7 @@ namespace jsb
 
         if (!is_caller_thread())
         {
-            const uint64_t caller_thread_id = OS::get_singleton()->get_thread_caller_id();
+            const uint64_t caller_thread_id = ThreadEx::get_caller_id();
             String object_type = "<unresolved>";
             String node_path = "<not-node-or-not-in-tree>";
             String owner_instance_id = "0";
@@ -2074,7 +2077,7 @@ namespace jsb
 
             if (object_db_.has_object(p_object_id))
             {
-                Object* object = jsb::compat::ObjectDB::get_instance(ObjectID(*p_object_id));
+                Object* object = godot::ObjectDB::get_instance(ObjectInstanceID(*p_object_id));
 
                 if (object)
                 {
@@ -2227,11 +2230,11 @@ namespace jsb
         {
             Object* obj = p_variant;
             jsb_checkf(
-                obj && object_db_.has_object(obj) && jsb::compat::ObjectDB::get_instance(obj->get_instance_id()),
+                obj && object_db_.has_object(obj) && godot::ObjectDB::get_instance(obj->get_instance_id()),
                 "prepare_transfer_out failed: object %s (class=%s). In jsb object db: %s; In godot object db: %s",
                     obj, obj ? obj->get_class() : "null",
                     obj ? object_db_.has_object(obj) : false,
-                    obj ? jsb::compat::ObjectDB::get_instance(obj->get_instance_id()) != nullptr : false
+                    obj ? godot::ObjectDB::get_instance(obj->get_instance_id()) != nullptr : false
             );
 
             if (ScriptInstance* script_instance = ScriptInstance::get_script_instance(obj))
@@ -2270,8 +2273,8 @@ namespace jsb
             return;
         }
 
-        const ObjectID object_id = p_data.variant;
-        Object* instance = jsb::compat::ObjectDB::get_instance(object_id);
+        const ObjectInstanceID object_id = p_data.variant;
+        Object* instance = godot::ObjectDB::get_instance(object_id);
 
         if (!instance)
         {
@@ -2341,8 +2344,8 @@ namespace jsb
             return;
         }
 
-        const ObjectID object_id = p_data.variant;
-        Object* instance = jsb::compat::ObjectDB::get_instance(object_id);
+        const ObjectInstanceID object_id = p_data.variant;
+        Object* instance = godot::ObjectDB::get_instance(object_id);
 
         if (!instance)
         {

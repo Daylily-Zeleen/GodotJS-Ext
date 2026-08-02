@@ -223,7 +223,7 @@ public:
 	}
 
 private:
-	jsb_force_inline static void add(
+	_FORCE_INLINE_ static void add(
 			v8::Isolate *p_from_isolate, const v8::Local<v8::Symbol> &p_from_symbol,
 			v8::Isolate *p_to_isolate, const v8::Local<v8::Symbol> &p_to_symbol) {
 		SymbolGlobal &&from_symbol = SymbolGlobal(p_from_isolate, p_from_symbol);
@@ -238,7 +238,7 @@ private:
 	 * NOTE: 工具函数不创建句柄作用域
 	 * @brief 获取全局注册 Symbol 的键名，若未注册则返回空字符串
 	 */
-	jsb_force_inline static v8::MaybeLocal<v8::String> get_symbol_key_for(v8::Isolate *isolate, v8::Local<v8::Symbol> symbol) {
+	_FORCE_INLINE_ static v8::MaybeLocal<v8::String> get_symbol_key_for(v8::Isolate *isolate, v8::Local<v8::Symbol> symbol) {
 		v8::Local<v8::Context> context = Environment::wrap(isolate)->get_context();
 
 		// 方法1: 使用预编译的 JS 函数（推荐，性能好）
@@ -274,7 +274,7 @@ private:
 
 public:
 	using WellKnownSymbolGetter = decltype(v8::Symbol::GetAsyncIterator);
-	jsb_force_inline static WellKnownSymbolGetter *get_well_known_symbol_getter(v8::Isolate *p_isolate, const v8::Local<v8::Symbol> &p_symbol) {
+	_FORCE_INLINE_ static WellKnownSymbolGetter *get_well_known_symbol_getter(v8::Isolate *p_isolate, const v8::Local<v8::Symbol> &p_symbol) {
 		static const std::unordered_map<int, WellKnownSymbolGetter *> well_known_symbol_getters = [p_isolate] {
 			return std::unordered_map<int, WellKnownSymbolGetter *>{
 				{ v8::Symbol::GetAsyncIterator(p_isolate)->GetIdentityHash(), v8::Symbol::GetAsyncIterator },
@@ -298,7 +298,7 @@ public:
 		return it->second;
 	}
 
-	jsb_force_inline static bool is_normal_symbol(v8::Isolate *p_isolate, const v8::Local<v8::Symbol> &p_symbol) {
+	_FORCE_INLINE_ static bool is_normal_symbol(v8::Isolate *p_isolate, const v8::Local<v8::Symbol> &p_symbol) {
 		WellKnownSymbolGetter *getter = get_well_known_symbol_getter(p_isolate, p_symbol);
 		if (getter != nullptr) {
 			return false;
@@ -579,7 +579,7 @@ public:
 
 private:
 	/** NOTE: 工具函数不创建句柄作用域，将在 p_to_isolate 中创建对象 */
-	jsb_force_inline static v8::Local<v8::Name> transfer_key(v8::Isolate *p_from_isolate, const v8::Local<v8::Name> &p_from_key, v8::Isolate *p_to_isolate) {
+	_FORCE_INLINE_ static v8::Local<v8::Name> transfer_key(v8::Isolate *p_from_isolate, const v8::Local<v8::Name> &p_from_key, v8::Isolate *p_to_isolate) {
 		if (p_from_key->IsSymbol()) {
 			if (SymbolCrossUtils::is_normal_symbol(p_from_isolate, p_from_key.As<v8::Symbol>())) {
 				jsb_throw(p_from_isolate, "Can't access regular symbol property from another realm.");
@@ -785,7 +785,7 @@ public:
 };
 
 /** NOTE: 将在 p_host_env 中创建对象，注意提前创建 HandleScope */
-static jsb_force_inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
+static _FORCE_INLINE_ v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
 	v8::Isolate *host_isolate = p_host_env->get_isolate();
 
 	const v8::Isolate::Scope guest_isolate_scope(p_guest_isolate);
@@ -960,7 +960,7 @@ public:
 		params.initial_class_slots = JSB_SHADOW_REALM_INITIAL_CLASS_SLOTS;
 		params.initial_object_slots = JSB_SHADOW_REALM_INITIAL_OBJECT_SLOTS;
 		params.initial_script_slots = JSB_SHADOW_REALM_INITIAL_SCRIPT_SLOTS;
-		params.thread_id = OS::get_singleton()->get_thread_caller_id();
+		params.thread_id = ThreadEx::get_caller_id();
 		params.type = Environment::Type::Worker; // HACK, TODO: 专属标志？
 
 		env_ = std::make_shared<Environment>(params);
@@ -990,11 +990,11 @@ public:
 	}
 
 // protected:
-	jsb_force_inline ShadowRealmID get_id() const { return id_; }
+	_FORCE_INLINE_ ShadowRealmID get_id() const { return id_; }
 
-	jsb_force_inline NativeObjectID get_handle() const { return handle_; }
+	_FORCE_INLINE_ NativeObjectID get_handle() const { return handle_; }
 
-	jsb_force_inline void *get_token() const { return token_; }
+	_FORCE_INLINE_ void *get_token() const { return token_; }
 
 
 protected:

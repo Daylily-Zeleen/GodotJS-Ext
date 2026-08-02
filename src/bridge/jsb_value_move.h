@@ -25,7 +25,7 @@ namespace jsb
         JSValueMove(JSValueMove&& p_other) noexcept = default;
         JSValueMove& operator=(JSValueMove&& p_other) noexcept = default;
 
-        jsb_force_inline void ignore() const {}
+        _FORCE_INLINE_ void ignore() const {}
         bool is_valid() const;
         String to_string() const;
         Variant to_variant() const;

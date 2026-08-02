@@ -2,6 +2,7 @@
 #define GODOTJS_TESTS_JSB_ANY_RUNTIME_H
 
 #include "jsb_test_helpers.h"
+#include "../compat/string_builder.h"
 #include "../bridge/jsb_essentials.h"
 #include "../bridge/jsb_object_db.h"
 #include "../bridge/jsb_type_convert.h"
@@ -19,19 +20,19 @@ namespace jsb::tests
         static void message(const v8::FunctionCallbackInfo<v8::Value>& info)
         {
             v8::Isolate* isolate = info.GetIsolate();
-            String s;
+            StringBuilder sb;
             int index = 0;
 
             for (const int n = info.Length(); index < n; ++index)
             {
                 if (String str = BridgeHelper::stringify(isolate, info[index]); str.length() > 0)
                 {
-                    s += " ";
-                    s += str;
+                    sb.append(" ");
+                    sb.append(str);
                 }
             }
 
-            MESSAGE("[JS]", s);
+            MESSAGE("[JS]", sb.as_string());
         }
 
         // info[0] - set
@@ -119,9 +120,9 @@ namespace jsb::tests
         CHECK(ctx.counter == 12);
     }
 
-    TEST_CASE("[jsb] ObjectDB remove while handle alive")
+    TEST_CASE("[jsb] BindingObjectDB remove while handle alive")
     {
-        ObjectDB object_db(4);
+        BindingObjectDB object_db(4);
         int native_object = 0;
         void* native_pointer = &native_object;
 

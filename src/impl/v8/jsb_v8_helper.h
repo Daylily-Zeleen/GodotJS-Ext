@@ -57,7 +57,7 @@ namespace jsb::impl
 
         // with side effects (may trigger value evaluation).
         // any decoding error will be ignored.
-        jsb_force_inline static String to_string_opt(v8::Isolate* isolate, const v8::MaybeLocal<v8::Value>& p_val)
+        _FORCE_INLINE_ static String to_string_opt(v8::Isolate* isolate, const v8::MaybeLocal<v8::Value>& p_val)
         {
             v8::Local<v8::Value> local;
             return p_val.ToLocal(&local) ? to_string(isolate, local) : String();
@@ -94,12 +94,12 @@ namespace jsb::impl
         }
 
         template<size_t N>
-        jsb_force_inline static v8::Local<v8::String> new_string(v8::Isolate* isolate, const char (&literal)[N])
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string(v8::Isolate* isolate, const char (&literal)[N])
         {
             return v8::String::NewFromUtf8Literal(isolate, literal, v8::NewStringType::kNormal);
         }
 
-        jsb_force_inline static v8::Local<v8::String> new_string(v8::Isolate* isolate, const String& p_str)
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string(v8::Isolate* isolate, const String& p_str)
         {
 #if JSB_UTF16_CONV_PREFERRED
             const Char16String str16 = p_str.utf16();
@@ -110,7 +110,7 @@ namespace jsb::impl
 #endif
         }
 
-        jsb_force_inline static v8::Local<v8::String> new_string_ascii(v8::Isolate* isolate, const String& p_str)
+        _FORCE_INLINE_ static v8::Local<v8::String> new_string_ascii(v8::Isolate* isolate, const String& p_str)
         {
             const CharString str8 = p_str.ascii();
             return v8::String::NewFromOneByte(isolate, (const uint8_t*) str8.get_data(), v8::NewStringType::kNormal, str8.length()).ToLocalChecked();
@@ -123,7 +123,7 @@ namespace jsb::impl
             return v8::JSON::Parse(context, json_string);
         }
 
-        jsb_force_inline static bool to_int64(const v8::Local<v8::Value> p_val, int64_t& r_val)
+        _FORCE_INLINE_ static bool to_int64(const v8::Local<v8::Value> p_val, int64_t& r_val)
         {
             if (p_val->IsInt32()) { r_val = p_val.As<v8::Int32>()->Value(); return true; }
             if (p_val->IsNumber()) { r_val = (int64_t) p_val.As<v8::Number>()->Value(); return true; }
@@ -133,7 +133,7 @@ namespace jsb::impl
             return false;
         }
 
-        jsb_force_inline static v8::Local<v8::Value> new_integer(v8::Isolate* isolate, const int64_t p_val)
+        _FORCE_INLINE_ static v8::Local<v8::Value> new_integer(v8::Isolate* isolate, const int64_t p_val)
         {
             if (const int32_t downscale = (int32_t) p_val;
                 (int64_t) downscale == p_val)
@@ -227,22 +227,22 @@ namespace jsb::impl
         }
 
         template<int N>
-        jsb_force_inline static void throw_error(v8::Isolate* isolate, const char (&message)[N])
+        _FORCE_INLINE_ static void throw_error(v8::Isolate* isolate, const char (&message)[N])
         {
             isolate->ThrowError(message);
         }
 
-        jsb_force_inline static void throw_error(v8::Isolate* isolate, const String& message)
+        _FORCE_INLINE_ static void throw_error(v8::Isolate* isolate, const String& message)
         {
             isolate->ThrowError(new_string(isolate, message));
         }
 
-        jsb_force_inline static void free(uint8_t* data)
+        _FORCE_INLINE_ static void free(uint8_t* data)
         {
             ::free(data);
         }
 
-        jsb_force_inline static void get_statistics(v8::Isolate* isolate, Vector<CustomField>& p_fields)
+        _FORCE_INLINE_ static void get_statistics(v8::Isolate* isolate, Vector<CustomField>& p_fields)
         {
             v8::HeapStatistics v8_statistics;
             isolate->GetHeapStatistics(&v8_statistics);
@@ -254,7 +254,7 @@ namespace jsb::impl
             p_fields.append(CustomField::value_u64("external_memory", v8_statistics.external_memory()));
         }
 
-        jsb_force_inline static void set_as_interruptible(v8::Isolate* isolate) {}
+        _FORCE_INLINE_ static void set_as_interruptible(v8::Isolate* isolate) {}
     };
 }
 

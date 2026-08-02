@@ -13,6 +13,8 @@
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_format_loader.hpp>
+#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/packed_scene.hpp>
 
 
 // The following enums must be kept in sync with jsb.editor.codegen.ts

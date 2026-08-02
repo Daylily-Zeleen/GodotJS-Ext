@@ -1,9 +1,10 @@
 #ifndef GODOTJS_INTERNAL_MACROS_H
 #define GODOTJS_INTERNAL_MACROS_H
 
-#include "../jsb.config.h"
-#include "../jsb.gen.h"
-#include "../jsb_version.h"
+#include <jsb.config.h>
+#include <jsb_version.h>
+
+#include <jsb.gen.h>
 
 #define JSB_STRINGIFY_2(a) #a
 #define JSB_STRINGIFY(a) JSB_STRINGIFY_2(a)

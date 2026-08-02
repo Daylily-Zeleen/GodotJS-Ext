@@ -1,7 +1,10 @@
 ﻿#include "jsb_export_plugin.h"
 
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
 #include "../weaver/jsb_script.h"
+
+#include <compat/misc.h>
 
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
 

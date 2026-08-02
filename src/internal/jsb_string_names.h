@@ -3,6 +3,10 @@
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
+#include <godot_cpp/templates/hash_set.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
+#include <godot_cpp/variant/string_name.hpp>
+
 #define jsb_string_name(name) ::jsb::internal::StringNames::get_singleton().sn_##name
 #define jsb_literal(name) (sizeof(::jsb::internal::StringNames::sn_##name) == sizeof(StringName), #name)
 
@@ -35,19 +39,19 @@ namespace jsb::internal
         StringNames();
 
     public:
-        jsb_force_inline static StringNames& get_singleton() { return *singleton_; }
+        _FORCE_INLINE_ static StringNames& get_singleton() { return *singleton_; }
 
-        jsb_force_inline bool is_ignored(const StringName& p_name) const { return ignored_.has(p_name); }
+        _FORCE_INLINE_ bool is_ignored(const StringName& p_name) const { return ignored_.has(p_name); }
 
-        jsb_force_inline bool is_replaced_name(const StringName& p_name) const { return replacements_.has(p_name); }
+        _FORCE_INLINE_ bool is_replaced_name(const StringName& p_name) const { return replacements_.has(p_name); }
 
-        jsb_force_inline StringName get_replaced_name(const StringName& p_name) const
+        _FORCE_INLINE_ StringName get_replaced_name(const StringName& p_name) const
         {
             if (const StringName* ptr = replacements_.getptr(p_name)) return *ptr;
             return p_name;
         }
 
-        jsb_force_inline StringName get_original_name(const StringName& p_name) const
+        _FORCE_INLINE_ StringName get_original_name(const StringName& p_name) const
         {
             if (const StringName* ptr = replacements_inv_.getptr(p_name)) return *ptr;
             return p_name;
