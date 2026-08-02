@@ -8,3 +8,6 @@ node_modules/
 extension_api.json
 gen/
 typings/
+
+# Built library output installed by SCons (godotjs-ext.windows.*.dll etc.)
+addons/godotjs-ext.daylily-zeleen/bin/

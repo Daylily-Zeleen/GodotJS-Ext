@@ -1,8 +1,8 @@
 #ifndef GODOTJS_SCRIPT_LANGUAGE_H
 #define GODOTJS_SCRIPT_LANGUAGE_H
 
-#include "../bridge/jsb_bridge.h"
-#include "../compat/jsb_compat.h"
+#include <bridge/jsb_bridge.h>
+#include <compat/jsb_compat.h>
 
 #include <godot_cpp/classes/script_language_extension.hpp>
 #include <godot_cpp/classes/script.hpp>
@@ -11,7 +11,6 @@
 
 
 class GodotJSScript;
-class GodotJSMonitor;
 
 namespace jsb
 {
@@ -112,7 +111,6 @@ private:
     std::vector<ShadowEnvironment> shadow_environments_;
 
 #if JSB_DEBUG
-    GodotJSMonitor* monitor_ = nullptr;
     ScriptCallProfileInfoMap profile_info_map_;
 #endif
 

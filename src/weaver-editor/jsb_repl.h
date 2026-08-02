@@ -41,6 +41,11 @@ private:
     Ref<Texture2D> get_editor_theme_icon(const StringName &p_name) const;
     void _update_theme();
 
+    void _on_tree_entered();
+    void _on_ready();
+    void _on_theme_changed();
+    void _on_window_focus_entered();
+
 protected:
     static void _bind_methods();
 
@@ -53,7 +58,6 @@ protected:
     void _generate_types_pressed();
     void _install_project_files_pressed();
     void _start_tsc_pressed();
-    void _notification(int p_what);
     void _show_candidates(const PackedStringArray& p_items);
     void _backlog_flush();
 

@@ -1,22 +1,23 @@
 #ifndef GODOTJS_MONITOR_H
 #define GODOTJS_MONITOR_H
-#include "../compat/jsb_compat.h"
-#include "../bridge/jsb_statistics.h"
+
+#include <compat/jsb_compat.h>
+
+#include <bridge/jsb_statistics.h>
 
 #include <godot_cpp/variant/variant.hpp>
 #include <godot_cpp/classes/object.hpp>
 
-#define JSB_DECLARE_MONITOR(MonitorName) Variant get_value_## MonitorName()
+#define JSB_DECLARE_MONITOR(MonitorName) static Variant get_value_## MonitorName()
 
-class GodotJSMonitor : public Object
+class GodotJSMonitor
 {
 private:
-    Vector<StringName> monitor_names_;
-    jsb::Statistics stats_;
-    uint64_t last_flush_tick_ = 0;
+    static jsb::Statistics stats_;
+    static uint64_t last_flush_tick_;
 
 protected:
-    void flush();
+    static void flush();
 
     JSB_DECLARE_MONITOR(objects);
     JSB_DECLARE_MONITOR(native_classes);
@@ -32,8 +33,8 @@ protected:
 #endif
 
 public:
-    GodotJSMonitor();
-    virtual ~GodotJSMonitor();
+    static void register_monitors();
+    static void unregister_monitors();
 
 };
 

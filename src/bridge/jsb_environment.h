@@ -1,7 +1,6 @@
 #ifndef GODOTJS_ENVIRONMENT_H
 #define GODOTJS_ENVIRONMENT_H
 
-#include <future>
 #include "jsb_bridge_pch.h"
 #include "jsb_module.h"
 #include "jsb_message.h"
@@ -20,6 +19,10 @@
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_type_convert.h"
 #include "../internal/jsb_internal.h"
+
+#if JSB_WITH_DEBUGGER
+#include <future>
+#endif // JSB_WITH_DEBUGGER
 
 #include <compat/thread.h>
 

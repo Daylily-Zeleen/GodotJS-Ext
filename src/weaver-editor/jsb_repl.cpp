@@ -16,6 +16,7 @@
 #include <godot_cpp/classes/texture_rect.hpp>
 #include <godot_cpp/classes/theme.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
 
 #include <compat/misc.h>
 #include <compat/editor_settings.h>
@@ -127,6 +128,9 @@ GodotJSREPL::GodotJSREPL()
     candidate_list_->set_size(Size2(600, 160));
     output_container->add_child(candidate_list_);
 
+    connect("ready", callable_mp(this, &GodotJSREPL::_on_ready));
+    connect("tree_entered", callable_mp(this, &GodotJSREPL::_on_tree_entered));
+    connect("theme_changed", callable_mp(this, &GodotJSREPL::_on_theme_changed));
 }
 
 GodotJSREPL::~GodotJSREPL()
@@ -138,24 +142,26 @@ GodotJSREPL::~GodotJSREPL()
     output_backlog_.swap().clear();
 }
 
-void GodotJSREPL::_notification(int p_what)
-{
-    switch (p_what)
-    {
-    case NOTIFICATION_APPLICATION_FOCUS_IN:
-        {
-            check_install();
-            check_tsc();
-        } break;
-    case NOTIFICATION_ENTER_TREE: {
-            _update_theme();
-            check_install();
-            // _load_state();
-    } break;
-    case NOTIFICATION_THEME_CHANGED: {
-            _update_theme();
-            // _rebuild_log();
-    } break;
+
+void GodotJSREPL::_on_window_focus_entered() {
+    check_install();
+    check_tsc();
+}
+
+void GodotJSREPL::_on_tree_entered() {
+    _update_theme();
+    check_install();
+    // _load_state();
+}
+
+void GodotJSREPL::_on_theme_changed() {
+    _update_theme();
+    // _rebuild_log();
+}
+
+void GodotJSREPL::_on_ready() {
+    if (Node *root = get_tree()->get_root())  {
+        root->connect("focus_entered", callable_mp(this, &GodotJSREPL::_on_window_focus_entered));
     }
 }
 
@@ -185,7 +191,7 @@ void GodotJSREPL::check_tsc()
     }
     else
     {
-        start_tsc_button_->set_button_icon(get_editor_theme_icon("GodotJSRun"));
+        start_tsc_button_->set_button_icon(get_editor_theme_icon("Play"));
         start_tsc_button_->set_tooltip_text(TTR("Start tsc (watch)"));
     }
 #endif

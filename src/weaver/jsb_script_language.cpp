@@ -126,7 +126,7 @@ void GodotJSScriptLanguage::_init()
     }
 
 #if JSB_DEBUG
-    if (Performance::get_singleton()) monitor_ = memnew(GodotJSMonitor);
+    if (Performance::get_singleton()) GodotJSMonitor::register_monitors();
 #endif
 }
 
@@ -139,7 +139,7 @@ void GodotJSScriptLanguage::_finish()
     ts_class_name_matcher_.unref();
 
 #if JSB_DEBUG
-    if (monitor_) memdelete(monitor_);
+    GodotJSMonitor::unregister_monitors();
 #endif
     once_initialized_ = false;
 
