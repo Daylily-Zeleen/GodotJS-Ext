@@ -30,7 +30,7 @@ namespace jsb
         if constexpr (ActiveSeverity < internal::ELogSeverity::JSB_MIN_LOG_LEVEL) return;
 
         v8::Isolate* isolate = info.GetIsolate();
-        StringBuilder sb; // TODO: 优化文本组织，不要一点点拼
+        StringBuilder sb;
 
         int index;
         if constexpr (ActiveSeverity == internal::ELogSeverity::Assert)

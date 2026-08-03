@@ -265,7 +265,7 @@ namespace jsb
             set_field(isolate, context, builtin_class_constant_obj, "name", api_builtin_class_constant.name);
             set_field(isolate, context, builtin_class_constant_obj, "type", api_builtin_class_constant.type);
             const Variant constant_value = api_builtin_class_constant.value;
-            // TODO: 所有类型！
+
             switch (api_builtin_class_constant.type)
             {
             case Variant::BOOL: set_field(isolate, context, builtin_class_constant_obj, "value", (bool) constant_value); break;
@@ -697,7 +697,6 @@ namespace jsb
         return class_info_obj;
     }
 
-    // TODO: 生成 @GlobalScope
     static void _get_class_doc(const v8::FunctionCallbackInfo<v8::Value>& info)
     {
         v8::Isolate* isolate = info.GetIsolate();
@@ -712,8 +711,9 @@ namespace jsb
             v8::Local<v8::Object> class_doc_obj = v8::Object::New(isolate);
             // set_field(isolate, context, class_doc_obj, "name", doc->name);
             // set_field(isolate, context, class_doc_obj, "description", doc->description);
-set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_description);
+            set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_description);
 
+            // doc:constants
             {
                 // doc:constants
                 JSB_HANDLE_SCOPE(isolate);
@@ -731,8 +731,10 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
                 }
 
                 // doc:enums。内置类遵循 godot 的文档格式，整合进 constants 中
-                for (const auto& enum_doc : doc->enums) {
-                    for (const auto& enum_value_doc : enum_doc.values) {
+                for (const auto& enum_doc : doc->enums)
+                {
+                    for (const auto& enum_value_doc : enum_doc.values)
+                    {
                         JSB_HANDLE_SCOPE(isolate);
                         v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
 
@@ -748,7 +750,8 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
                 JSB_HANDLE_SCOPE(isolate);
                 v8::Local<v8::Object> methods_obj = v8::Object::New(isolate);
                 set_field(isolate, context, class_doc_obj, "methods", methods_obj);
-                for (const auto& method_doc : doc->methods) {
+                for (const auto& method_doc : doc->methods)
+                {
                     JSB_HANDLE_SCOPE(isolate);
                     v8::Local<v8::Object> method_obj = v8::Object::New(isolate);
                     const String method_name = internal::NamingUtil::get_member_name(method_doc.name);
@@ -763,7 +766,8 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
                 JSB_HANDLE_SCOPE(isolate);
                 v8::Local<v8::Object> properties_obj = v8::Object::New(isolate);
                 set_field(isolate, context, class_doc_obj, "properties", properties_obj);
-                for (const auto& property_doc : doc->properties) {
+                for (const auto& property_doc : doc->properties)
+                {
                     JSB_HANDLE_SCOPE(isolate);
                     v8::Local<v8::Object> property_obj = v8::Object::New(isolate);
                     const String property_name = internal::NamingUtil::get_member_name(property_doc.name);
@@ -778,7 +782,8 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
                 JSB_HANDLE_SCOPE(isolate);
                 v8::Local<v8::Object> signals_obj = v8::Object::New(isolate);
                 set_field(isolate, context, class_doc_obj, "signals", signals_obj);
-                for (const auto& signal_doc : doc->signals) {
+                for (const auto& signal_doc : doc->signals)
+                {
                     JSB_HANDLE_SCOPE(isolate);
                     v8::Local<v8::Object> signal_obj = v8::Object::New(isolate);
                     const String signal_name = internal::NamingUtil::get_member_name(signal_doc.name);
@@ -790,9 +795,69 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
 
             info.GetReturnValue().Set(class_doc_obj);
         }
+        else if (original_name == "@GlobalScope")
+        {
+            v8::Local<v8::Object> class_doc_obj = v8::Object::New(isolate);
+
+            // doc:constants
+            {
+                // doc:constants
+                JSB_HANDLE_SCOPE(isolate);
+
+                v8::Local<v8::Object> constants_obj = v8::Object::New(isolate);
+                set_field(isolate, context, class_doc_obj, "constants", constants_obj);
+                for (const auto& constant_name : api_tool::list_global_constants())
+                {
+                    if (const auto constant_doc = api_tool::find_global_constant_document(constant_name))
+                    {
+                        JSB_HANDLE_SCOPE(isolate);
+                        v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
+                        const String constant_name = internal::NamingUtil::get_constant_name(constant_doc->name);
+                        constants_obj->Set(context, impl::Helper::new_string(isolate, constant_name), constant_obj).Check();
+    
+                        set_field(isolate, context, constant_obj, "description", constant_doc->description);
+                    }
+                }
+
+                // doc:enums。内置类遵循 godot 的文档格式，整合进 constants 中
+                for (const auto& enum_name : api_tool::list_global_enums())
+                {
+                    if (const auto enum_doc = api_tool::find_global_enum_document(enum_name))
+                    {
+                        for (const auto& enum_value_doc : enum_doc->values)
+                        {
+                            JSB_HANDLE_SCOPE(isolate);
+                            v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
+
+                            const String constant_name = internal::NamingUtil::get_constant_name(enum_value_doc.name);
+                            v8::Local<v8::Name> js_constant_name = impl::Helper::new_string(isolate, constant_name);
+                            constants_obj->Set(context, js_constant_name, constant_obj).Check();
+                            set_field(isolate, context, constant_obj, "description", enum_value_doc.description);
+                        }
+                    }
+                }
+            }
+            // doc:methods
+            {
+                JSB_HANDLE_SCOPE(isolate);
+                v8::Local<v8::Object> methods_obj = v8::Object::New(isolate);
+                set_field(isolate, context, class_doc_obj, "methods", methods_obj);
+                for (const auto& func_name : api_tool::list_utility_functions())
+                {
+                    if (const auto &func_doc = api_tool::find_utility_function_document(func_name))
+                    {
+                        JSB_HANDLE_SCOPE(isolate);
+                        v8::Local<v8::Object> method_obj = v8::Object::New(isolate);
+                        const String method_name = internal::NamingUtil::get_member_name(func_doc->name);
+                        methods_obj->Set(context, impl::Helper::new_string(isolate, method_name), method_obj).Check();
+                        // set_field(isolate, context, method_obj, "name", method_doc.name);
+                        set_field(isolate, context, method_obj, "description", func_doc->description);
+                    }
+                }
+            }
+        }
     }
 
-    // TODO: 添加 @GlobalScope
     static void _get_classes(const v8::FunctionCallbackInfo<v8::Value>& info)
     {
         v8::Isolate* isolate = info.GetIsolate();

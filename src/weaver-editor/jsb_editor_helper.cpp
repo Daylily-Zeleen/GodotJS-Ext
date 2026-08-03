@@ -113,6 +113,9 @@ StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName& c
     while (!jsb::internal::NamingUtil::is_original_class_exposed(exposed_class_name))
     {
         exposed_class_name = ClassDB::get_parent_class(exposed_class_name);
+        if (exposed_class_name.ends_with("Extension")) {
+            exposed_class_name = ClassDB::get_parent_class(exposed_class_name);
+        }
     }
 
     return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
@@ -252,7 +255,7 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 
                 if (argument.get_type() == Variant::Type::DICTIONARY && Dictionary(argument) == children_descriptor)
                 {
-                    // TODO: Conflite with un-generated scene dts.
+                    // TODO: 子节点没生成时的处理！
                     Dictionary scene_nodes;
                     scene_nodes[jsb_string_name(type)] = (int32_t) DescriptorType::Godot;
                     scene_nodes[jsb_string_name(name)] = "SceneNodes";
