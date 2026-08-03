@@ -16,6 +16,7 @@
 
 #ifdef TOOLS_ENABLED
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/core/class_db.hpp>
 #endif
 
 using namespace godot;
@@ -410,6 +411,58 @@ Error generate_api_tool_data(const String &p_extension_api_json_path) {
     }
 
     return loader.initialize();
+}
+
+Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_types_only) {
+    initialize();
+    ApiLoader &loader = *get_loader();
+    const String base_dir = ProjectSettings::get_singleton()->localize_path(loader.get_api_dumping_dir());
+
+    Vector<String> result;
+
+    // DIR_CLASSES
+    const String classes_dir_path = base_dir.path_join(DIR_CLASSES);
+    if (!DirAccess::dir_exists_absolute(classes_dir_path)) {
+        return result;
+    }
+    for (const String &file : DirAccess::get_files_at(classes_dir_path)) {
+        const String class_name = file.get_basename();
+        ClassDB::APIType api_type = ClassDB::class_get_api_type(class_name);
+        if (api_type == ClassDB::APIType::API_NONE) continue;
+        if (p_exclude_editor_types && (api_type == ClassDB::APIType::API_EDITOR || api_type == ClassDB::APIType::API_EDITOR_EXTENSION)) continue;
+        if (p_extension_types_only && (api_type != ClassDB::APIType::API_EXTENSION || api_type != ClassDB::APIType::API_EDITOR_EXTENSION)) continue;
+        result.push_back(classes_dir_path.path_join(file));
+    }
+
+    // Others
+    if (!p_extension_types_only) {
+        // Utility Functions
+        const String utility_function_file = base_dir.path_join(FILE_UTILITY_FUNCTIONS);
+        if (FileAccess::file_exists(utility_function_file)) result.push_back(utility_function_file);
+
+        // Other folders
+        for (const char * folder : {
+            DIR_BUILTIN_CLASSES,
+            DIR_GLOBAL_ENUMS,
+            DIR_GLOBAL_CONSTANTS,
+            DIR_SINGLETONS,
+            DIR_NATIVE_STRUCTURES,
+#ifndef DISABLED_DEPRECATED
+            DIR_COMPAT_HASHES,
+#endif // DISABLED_DEPRECATED
+        }) {
+            const String dir_path = base_dir.path_join(folder);
+            for (const String &file : DirAccess::get_files_at(classes_dir_path)) {
+                result.push_back(dir_path.path_join(file));
+            }
+        }
+    }
+
+    // Header
+    const String header_file = base_dir.path_join(FILE_HEADER);
+    if (FileAccess::file_exists(header_file)) result.push_back(header_file);
+
+    return result;
 }
 #endif // TOOLS_ENABLED
 

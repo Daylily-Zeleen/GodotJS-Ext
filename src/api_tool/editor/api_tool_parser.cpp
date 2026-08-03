@@ -307,7 +307,6 @@ Error ApiParser::prepare_output_dirs(const String &p_output_dir) {
     DirAccess::make_dir_recursive_absolute(p_output_dir);
 
     const char *subdirs[] = {
-        DIR_UTILITY_FUNCTIONS,
         DIR_BUILTIN_CLASSES,
         DIR_CLASSES,
         DIR_GLOBAL_ENUMS,

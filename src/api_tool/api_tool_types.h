@@ -31,21 +31,19 @@ const godot::String &get_variant_operator_name(godot::Variant::Operator p_op);
 // Directory/file name constants
 // ============================================================================
 
-constexpr const char *DIR_UTILITY_FUNCTIONS = "utility_functions";
 constexpr const char *DIR_BUILTIN_CLASSES = "builtin_classes";
 constexpr const char *DIR_CLASSES = "classes";
 constexpr const char *DIR_GLOBAL_ENUMS = "global_enums";
 constexpr const char *DIR_GLOBAL_CONSTANTS = "global_constants";
 constexpr const char *DIR_SINGLETONS = "singletons";
 constexpr const char *DIR_NATIVE_STRUCTURES = "native_structures";
+constexpr const char *DIR_COMPAT_HASHES = "compat_hashes";
 
 constexpr const char *DIR_DOC_CLASSES = "documents/classes";
 constexpr const char *DIR_DOC_BUILTIN_CLASSES = "documents/builtin_classes";
 constexpr const char *DIR_DOC_UTILITY_FUNCTIONS = "documents/utility_functions";
 constexpr const char *DIR_DOC_GLOBAL_ENUMS = "documents/global_enums";
 constexpr const char *DIR_DOC_GLOBAL_CONSTANTS = "documents/global_constants";
-
-constexpr const char *DIR_COMPAT_HASHES = "compat_hashes";
 
 constexpr const char *FILE_EXT_DATA = ".capi";
 constexpr const char *FILE_EXT_DOC = ".bdoc";

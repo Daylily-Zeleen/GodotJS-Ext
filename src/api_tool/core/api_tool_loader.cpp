@@ -739,13 +739,14 @@ int32_t ApiLoader::get_global_constant_count() {
 
 bool ApiLoader::has_generated_data() const {
     if (!DirAccess::dir_exists_absolute(base_dir_)) return false;
-    if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_UTILITY_FUNCTIONS))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_BUILTIN_CLASSES))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_CLASSES))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_GLOBAL_ENUMS))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_GLOBAL_CONSTANTS))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_SINGLETONS))) return false;
     if (!DirAccess::dir_exists_absolute(base_dir_.path_join(DIR_NATIVE_STRUCTURES))) return false;
+    if (!FileAccess::file_exists(base_dir_.path_join(FILE_UTILITY_FUNCTIONS))) return false;
+    if (!FileAccess::file_exists(base_dir_.path_join(FILE_HEADER))) return false;
     return true;
 }
 
