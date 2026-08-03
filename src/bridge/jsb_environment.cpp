@@ -885,7 +885,7 @@ namespace jsb
                 jsb_check(new_id);
                 return new_id;
             } else if (Environment* owned_env = !script_instance->is_placeholder()? static_cast<GodotJSScriptInstance*>(script_instance)->get_env() : nullptr;
-                owned_env != this && (owned_env->flags_ & EF_Worker) != 0)
+                owned_env && owned_env != this && (owned_env->flags_ & EF_Worker) != 0)
             {
                 JSB_LOG(Warning, "Bind godot object \"%s\" duplicate, which is not transfer out from Worker or ShadowRealm. It may lead to to unexpected behaviors.", p_pointer->to_string());
             }

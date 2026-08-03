@@ -818,7 +818,7 @@ Error ApiParser::parse_and_write_singletons(const Dictionary &p_root, const Stri
         Dictionary sd = singletons[i];
         ApiSingleton singleton;
         singleton.name = sd["name"];
-        singleton.type = sd["typed"];
+        singleton.type = sd["type"];
         all_singletons.push_back(singleton);
     }
 

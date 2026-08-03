@@ -24,6 +24,24 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  jsb.editor:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  jsb.runtime:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
 packages:
 
   '@babel/runtime@7.27.4':

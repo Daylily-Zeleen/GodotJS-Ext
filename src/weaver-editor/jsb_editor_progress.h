@@ -1,7 +1,7 @@
 ﻿#ifndef GODOTJS_EDITOR_PROGRESS_H
 #define GODOTJS_EDITOR_PROGRESS_H
 
-#include "godot_cpp/classes/popup_panel.hpp"
+#include "godot_cpp/classes/window.hpp"
 #include "godot_cpp/templates/hash_map.hpp"
 
 namespace godot {
@@ -21,8 +21,7 @@ public:
     void step(const String&p_state, int p_step = -1);
 };
 
-class EditorProgressDialog : public PopupPanel {
-    // TODO: 是否需要GDCLASS?
+class EditorProgressDialog : public Window {
 private:
     MarginContainer * main;
     Label * title_label;

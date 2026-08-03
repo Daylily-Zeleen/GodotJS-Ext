@@ -16,7 +16,7 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
     return false
 #else
     static const auto suffixes = []() {
-        constexpr const char * extensions[] {
+        constexpr const char *extensions[] {
 #   if JSB_USE_TYPESCRIPT
             JSB_TYPESCRIPT_EXT,
 #   endif // JSB_USE_TYPESCRIPT
@@ -24,12 +24,12 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
             JSB_COMMONJS_EXT,
             JSB_MODULE_EXT,
         };
-        constexpr const char * keywords[] {
+        constexpr const char *keywords[] {
 #   if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
             ".test.",
 #   endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
 #   if JSB_EXCLUDE_WORKER_RES_SCRIPTS
-            ".worker."
+            ".worker.",
 #   endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
 #   if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
             ".realm.",
@@ -38,12 +38,13 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 
         std::array<String, std::size(extensions) * std::size(keywords)> ret;
         size_t idx = 0;
-        for (const char *extension : extensions) {
-            for (const char *keyword : keywords) {
-                ret[idx] = (String(keyword) + String(extension));
+        for (const String & ext: extensions) {
+            for (const String& keyword : keywords) {
+                ret[idx] = keyword + ext;
                 idx ++;
             }
         }
+
         return ret;
     }();
 
@@ -56,6 +57,29 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 #endif
 }
 
+ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
+#if JSB_USE_TYPESCRIPT
+    recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
+#endif
+    recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
+    recognized_extensions_.push_back(JSB_COMMONJS_EXT);
+    recognized_extensions_.push_back(JSB_MODULE_EXT);
+}
+
+bool ResourceFormatLoaderGodotJSScript::_recognize_path(const String &p_path, const StringName &p_type) const
+{
+    if (!p_type.is_empty() && p_type != Script::get_class_static() && p_type != GodotJSScript::get_class_static()) return false;
+    const String ext = p_path.get_extension().to_lower();
+    return recognized_extensions_.has(ext)  && !is_not_godot_resource_script(p_path);
+}
+
+String ResourceFormatLoaderGodotJSScript::_get_resource_type(const String &p_path) const {
+    if (const String ext = p_path.get_extension().to_lower();
+            recognized_extensions_.has(ext) && !is_not_godot_resource_script(p_path)) {
+        return jsb_typename(GodotJSScript);
+    }
+    return "";
+}
 
 Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const String& p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const
 {
@@ -145,36 +169,12 @@ Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const Str
 
 PackedStringArray ResourceFormatLoaderGodotJSScript::_get_recognized_extensions() const
 {
-    PackedStringArray extensions;
-#if JSB_USE_TYPESCRIPT
-    extensions.push_back(JSB_TYPESCRIPT_EXT);
-#endif
-    extensions.push_back(JSB_JAVASCRIPT_EXT);
-    extensions.push_back(JSB_COMMONJS_EXT);
-    extensions.push_back(JSB_MODULE_EXT);
-    return extensions;
+    return PackedStringArray(recognized_extensions_); // Ensure return a copy.
 }
 
 bool ResourceFormatLoaderGodotJSScript::_handles_type(const StringName& p_type) const
 {
     return p_type == StringName("Script") || p_type == StringName(jsb_typename(GodotJSScript));
-}
-
-String ResourceFormatLoaderGodotJSScript::_get_resource_type(const String& p_path) const
-{
-    const String el = p_path.get_extension().to_lower();
-
-#if JSB_USE_TYPESCRIPT
-    if (el == JSB_TYPESCRIPT_EXT || el == JSB_JAVASCRIPT_EXT || el == JSB_COMMONJS_EXT || el == JSB_MODULE_EXT)
-#else
-    if (el == JSB_JAVASCRIPT_EXT || el == JSB_COMMONJS_EXT || el == JSB_MODULE_EXT)
-#endif // JSB_USE_TYPESCRIPT
-    {
-        return !is_not_godot_resource_script(p_path)
-            ? jsb_typename(GodotJSScript)
-            : "";
-    }
-    return "";
 }
 
 PackedStringArray ResourceFormatLoaderGodotJSScript::_get_dependencies(const String& p_path, bool p_add_types) const
