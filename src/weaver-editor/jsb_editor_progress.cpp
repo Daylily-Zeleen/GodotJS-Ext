@@ -32,14 +32,14 @@ void EditorProgress::step(const String &p_state, int p_step) {
 EditorProgressDialog *EditorProgressDialog::singleton{ nullptr };
 
 void EditorProgressDialog::update_internal(const String &p_task_name, const String &p_state, int p_total, int p_current) {
-	uint32_t total = Math::min(p_total, 1);
+	uint32_t total = Math::max(p_total, 1);
 	if (int *exists = tasks.getptr(p_task_name)) {
-		tasks[p_task_name] = Math::min(p_total, *exists);
+		tasks[p_task_name] = Math::max(p_total, *exists);
 	} else {
 		tasks[p_task_name] = total;
 	}
 
-	title_label->set_name(p_task_name);
+	title_label->set_text(p_state);
 	progress_bar->set_max(p_total);
 	progress_bar->set_value(Math::min(p_total, p_current));
 
@@ -57,7 +57,7 @@ void EditorProgressDialog::add(const String &p_task_name, int p_total) {
 }
 void EditorProgressDialog::update(const String &p_task_name, const String &p_state, int p_current) {
 	int *total = tasks.getptr(p_task_name);
-	update_internal(p_task_name, p_task_name, total ? *total : 1, 0);
+	update_internal(p_task_name, p_state, total ? *total : 1, p_current);
 }
 void EditorProgressDialog::finish(const String &p_task_name) {
 	tasks.erase(p_task_name);
@@ -71,6 +71,7 @@ EditorProgressDialog::EditorProgressDialog() {
 	singleton = this;
 
 	set_exclusive(true);
+	set_flag(Window::FLAG_BORDERLESS, true);
 	hide();
 
 	main = memnew(MarginContainer);
@@ -78,6 +79,7 @@ EditorProgressDialog::EditorProgressDialog() {
 	main->add_theme_constant_override("margin_left", 10);
 	main->add_theme_constant_override("margin_bottom", 10);
 	main->add_theme_constant_override("margin_right", 10);
+	main->set_anchors_preset(Control::LayoutPreset::PRESET_FULL_RECT);
 	add_child(main);
 
 	VBoxContainer *vbox = memnew(VBoxContainer);

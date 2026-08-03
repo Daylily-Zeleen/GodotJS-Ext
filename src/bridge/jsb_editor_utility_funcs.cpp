@@ -965,16 +965,11 @@ set_field(isolate, context, class_doc_obj, "brief_description", doc->brief_descr
             StringName singleton_name = singleton_list[i];
             Object* singleton = engine->get_singleton(singleton_name);
             v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
-            const StringName& class_name = singleton->get_class();
-
-            // if (!internal::VariantUtil::is_valid_name(singleton.class_name))
-            // {
-            //     singleton.class_name = class_name;
-            //     JSB_LOG(Verbose, "singleton (%s) has a hidden class_name, restoring with '%s'", singleton_name, class_name);
-            // }
+            const api_tool::ApiSingleton* api_singleton = api_tool::find_singleton(singleton_name);
+            const String class_name_str = api_singleton ? String(api_singleton->type) : singleton->get_class();
 
             set_field(isolate, context, constant_obj, "name", internal::NamingUtil::get_class_name(singleton_name));
-            set_field(isolate, context, constant_obj, "class_name", internal::NamingUtil::get_class_name(singleton->get_class()));
+            set_field(isolate, context, constant_obj, "class_name", internal::NamingUtil::get_class_name(class_name_str));
             array->Set(context, i, constant_obj).Check();
         }
         info.GetReturnValue().Set(array);

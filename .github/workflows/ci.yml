@@ -30,6 +30,7 @@ jobs:
       - name: Build JS runtime
         run: pnpm build
         shell: bash
+        working-directory: scripts
 
       - name: Upload scripts/out
         uses: actions/upload-artifact@v4
@@ -130,6 +131,7 @@ jobs:
       - name: Build JS runtime
         run: pnpm build
         shell: bash
+        working-directory: scripts
 
       - name: Download GDExtension artifact
         uses: actions/download-artifact@v4
@@ -162,6 +164,7 @@ jobs:
           cd project
           pnpm install
           pnpm build
+        working-directory: project
 
       - name: Run C++ unit tests
         shell: bash
@@ -172,6 +175,7 @@ jobs:
         shell: bash
         run: |
           pnpm test -- --runtimes ${{ matrix.runtime }} --skip-builds
+        working-directory: project
         continue-on-error: true
 
   changesets:

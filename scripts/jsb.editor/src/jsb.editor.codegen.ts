@@ -358,14 +358,14 @@ const TypeMutations: Record<string, TypeMutation> = {
                 "func",
                 "Callable<(a: GArrayElement<T>, b: GArrayElement<T>) => boolean>",
             ),
-            all: mutate_parameter_type("method", "Callable<(value: GArrayElement<T>) => boolean>"),
-            any: mutate_parameter_type("method", "Callable<(value: GArrayElement<T>) => boolean>"),
+            all: mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>"),
+            any: mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>"),
             filter: chain_mutators(
-                mutate_parameter_type("method", "Callable<(value: GArrayElement<T>) => boolean>"),
+                mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>"),
                 mutate_return_type("GArray<GArrayElement<T>>"),
             ),
             map: chain_mutators(
-                mutate_parameter_type("method", "Callable<(value: GArrayElement<T>) => U>"),
+                mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => U>"),
                 mutate_return_type("GArray<U>"),
                 mutate_template("U extends GAny"),
             ),
@@ -792,7 +792,6 @@ class CodegenTasks {
                 const result = task.execute();
 
                 if (typeof result === "object" && result instanceof Promise) {
-                    console.log(`Task: ${task.name}`);
                     progress.update(task.name, i);
                     await result;
                 } else {
@@ -3510,15 +3509,15 @@ export class TSDCodeGen {
         const tasks = new CodegenTasks("Generating godot.d.ts");
 
         if (!skip_static_types) {
-            tasks.add_task("Static Types", () => jsb.editor.install_static_types());
+            tasks.add_task("Install Static Types", () => jsb.editor.install_static_types());
         }
 
         // aliases
-        tasks.add_task("Aliases", () => this.emit_aliases());
+        tasks.add_task("Generating Aliases", () => this.emit_aliases());
 
         // all singletons
         for (let singleton_name in this._types.singletons) {
-            tasks.add_task("Singletons", () => this.emit_singleton(this._types.singletons[singleton_name]));
+            tasks.add_task(`Generating Singletons: ${singleton_name}`, () => this.emit_singleton(this._types.singletons[singleton_name]));
         }
 
         // godot classes
@@ -3528,35 +3527,35 @@ export class TSDCodeGen {
                 // ignore the class if it's already defined as Singleton
                 continue;
             }
-            tasks.add_task("Classes", () => this.emit_godot_class(this.split(), cls, false));
+            tasks.add_task(`Generating Classes: ${class_name}`, () => this.emit_godot_class(this.split(), cls, false));
         }
 
         // godot primitive types
         for (let class_name in this._types.primitive_types) {
             const cls = this._types.primitive_types[class_name];
-            tasks.add_task("Primitives", () => this.emit_godot_primitive(this.split(), cls));
+            tasks.add_task(`Generating Primitives: ${class_name}`, () => this.emit_godot_primitive(this.split(), cls));
         }
 
         // godot global scope
         for (let global_name in this._types.globals) {
-            tasks.add_task("Globals", () => this.emit_global(this._types.globals[global_name]));
+            tasks.add_task(`Generating Globals: ${global_name}`, () => this.emit_global(this._types.globals[global_name]));
         }
 
         // global utility functions
         for (let utility_name in this._types.utilities) {
-            tasks.add_task("Utility Functions", () => this.emit_utility(this._types.utilities[utility_name]));
+            tasks.add_task(`Generating Utility Functions: ${utility_name}`, () => this.emit_utility(this._types.utilities[utility_name]));
         }
 
         // jsb utility functions
         for (let mi of GlobalUtilityFuncs) {
-            tasks.add_task("jsb.utility_functions", () => {
+            tasks.add_task("Generating jsb.utility_functions", () => {
                 const cg = this.split();
                 DocCommentHelper.write(cg, mi.description, true);
                 cg.line(mi.method);
             });
         }
 
-        tasks.add_task("jsb.runtime", () => {
+        tasks.add_task("Generating jsb.runtime", () => {
             const path = "/jsb.runtime.gen.d.ts";
             const dir_path = this._out_dir + path;
             const file = godot.FileAccess.open(dir_path, godot.FileAccess.ModeFlags.WRITE);

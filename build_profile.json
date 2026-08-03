@@ -14,7 +14,7 @@
 		"OS",
 		"Engine",
 		"Time",
-		"PopupPanel",
+		"Window",
 		"VBoxContainer",
 		"HBoxContainer",
 		"MarginContainer",

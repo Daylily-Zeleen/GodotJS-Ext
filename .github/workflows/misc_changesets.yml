@@ -25,6 +25,7 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        working-directory: scripts
 
       - name: Create and publish versions
         id: changesets
@@ -35,6 +36,7 @@ jobs:
           version: pnpm ci:version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: scripts
 
       - name: Should publish
         id: should_publish

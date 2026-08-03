@@ -16,3 +16,4 @@ runs:
       run: |
         pnpm install
       shell: bash
+      working-directory: scripts

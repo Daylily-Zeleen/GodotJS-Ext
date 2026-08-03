@@ -23,6 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        working-directory: scripts
 
       - name: Publish release
         id: publish_release
@@ -30,3 +31,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pnpm ci:publish ${{ inputs.versions }}
+        working-directory: scripts
