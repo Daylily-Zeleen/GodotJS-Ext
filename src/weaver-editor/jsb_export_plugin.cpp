@@ -8,16 +8,14 @@
 
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
 
-HashSet<String> &GodotJSExportPlugin::get_ignored_paths()
+const HashSet<String> &GodotJSExportPlugin::get_ignored_paths()
 {
-    static HashSet<String> ignored_paths;
-    if (ignored_paths.is_empty())
-    {
-        ignored_paths.insert("res://jsconfig.json");
-        ignored_paths.insert("res://tsconfig.json");
-        ignored_paths.insert("res://package.json");
-        ignored_paths.insert("res://package-lock.json");
-    }
+    static const HashSet<String> ignored_paths  {
+        "res://jsconfig.json",
+        "res://tsconfig.json",
+        "res://package.json",
+        "res://package-lock.json"
+    };
     return ignored_paths;
 }
 
@@ -110,6 +108,12 @@ void GodotJSExportPlugin::_export_begin(const PackedStringArray& p_features, boo
         PackedStringArray script_paths;
         get_script_resources(dir_path, script_paths);
         export_raw_files(script_paths, true);
+    }
+
+    // add api data files
+    for (const String &file_path : api_tool::get_api_data_files(true, false))
+    {
+        export_raw_file(file_path, false);
     }
 }
 

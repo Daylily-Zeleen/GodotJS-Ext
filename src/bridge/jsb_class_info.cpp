@@ -307,7 +307,7 @@ namespace jsb
     void ScriptClassInfo::instantiate(Environment* p_env, const StringName& p_module_id, const v8::Local<v8::Object>& p_self)
     {
         const String source_path = internal::PathUtil::convert_javascript_path(p_module_id);
-        const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(source_path, GodotJSScript::get_class_static());
+        const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(source_path, jsb_typename(GodotJSScript));
         if (script.is_valid())
         {
             jsb_unused(script->_can_instantiate()); // make it loaded immediately

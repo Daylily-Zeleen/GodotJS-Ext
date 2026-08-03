@@ -810,17 +810,6 @@ namespace jsb
     };
 
     WorkerLock Worker::lock_;
-    internal::SArray<WorkerImplPtr, WorkerID> &Worker::get_worker_list()
-    {
-        static internal::SArray<WorkerImplPtr, WorkerID> worker_list;
-        return worker_list;
-    }
-
-    HashMap<ThreadEx::ID, WorkerID> &Worker::get_workers()
-    {
-        static HashMap<ThreadEx::ID, WorkerID> workers;
-        return workers;
-    }
 
     class JSWorkerModuleLoader : public IModuleLoader
     {

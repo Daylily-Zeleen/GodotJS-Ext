@@ -1572,7 +1572,7 @@ namespace jsb
         this->check_internal_state();
 
 #if JSB_WITH_DEBUGGER
-        static const auto debugger_connection_pool_duration = std::chrono::milliseconds(50);
+        static constexpr auto debugger_connection_pool_duration = std::chrono::milliseconds(50);
 
         if (wait_for_debugger_)
         {
@@ -1582,7 +1582,7 @@ namespace jsb
             {
                 debugger_.update(); // process incoming debugger connections
 
-                std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration);
+                std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration); // TODO
 
                 if (status == std::future_status::ready)
                 {
@@ -2060,7 +2060,7 @@ namespace jsb
 
     Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName& p_method, const Variant** p_argv, int p_argc, GDExtensionCallError& r_error)
     {
-        // static calls are not supported
+        // TODO: 支持静态函数得调用。 static calls are not supported
         if (!p_object_id)
         {
             return {};
@@ -2077,7 +2077,7 @@ namespace jsb
 
             if (object_db_.has_object(p_object_id))
             {
-                Object* object = godot::ObjectDB::get_instance(ObjectInstanceID(*p_object_id));
+                Object* object = godot::ObjectDB::get_instance(ObjectID(*p_object_id));
 
                 if (object)
                 {
@@ -2273,7 +2273,7 @@ namespace jsb
             return;
         }
 
-        const ObjectInstanceID object_id = p_data.variant;
+        const ObjectID object_id = p_data.variant;
         Object* instance = godot::ObjectDB::get_instance(object_id);
 
         if (!instance)
@@ -2344,7 +2344,7 @@ namespace jsb
             return;
         }
 
-        const ObjectInstanceID object_id = p_data.variant;
+        const ObjectID object_id = p_data.variant;
         Object* instance = godot::ObjectDB::get_instance(object_id);
 
         if (!instance)

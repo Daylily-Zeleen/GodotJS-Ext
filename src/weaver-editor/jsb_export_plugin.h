@@ -23,7 +23,7 @@ public:
     virtual String _get_name() const override;
     virtual bool _supports_platform(const Ref<EditorExportPlatform>& p_export_platform) const override;
 
-    static HashSet<String> &get_ignored_paths();
+    static const HashSet<String> &get_ignored_paths();
 
     virtual void _export_begin(const PackedStringArray& p_features, bool p_debug, const String& p_path, uint32_t p_flags) override;
     virtual void _export_file(const String& p_path, const String& p_type, const PackedStringArray& p_features) override;

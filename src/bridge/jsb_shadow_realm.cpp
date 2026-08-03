@@ -1380,7 +1380,7 @@ public:
 	}
 };
 
-internal::SArray<ShadowRealmImpl *, ShadowRealmID> &ShadowRealmImpl::get_shadow_realm_list() {
+_FORCE_INLINE_ internal::SArray<ShadowRealmImpl *, ShadowRealmID> &ShadowRealmImpl::get_shadow_realm_list() {
 	static internal::SArray<ShadowRealmImpl *, ShadowRealmID> list;
 	return list;
 }

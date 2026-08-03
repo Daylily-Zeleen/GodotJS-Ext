@@ -30,7 +30,7 @@ namespace jsb
             // return !_compare_equal(p_a, p_b) && p_a < p_b;
         }
 
-        JSCallable(ObjectInstanceID p_object_id, jsb::EnvironmentID p_env_id, jsb::ObjectCacheID p_callback_id)
+        JSCallable(godot::ObjectID p_object_id, jsb::EnvironmentID p_env_id, jsb::ObjectCacheID p_callback_id)
             : object_id_(p_object_id), callback_id_(p_callback_id), env_id_(p_env_id)
         {
         }
