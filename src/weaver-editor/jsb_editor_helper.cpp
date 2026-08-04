@@ -121,7 +121,7 @@ StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName& c
     return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
 }
 
-Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const Node* p_root_node, Dictionary& r_unique_name_nodes, const String& p_scene_resource_path)
+Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const Node* p_root_node, Dictionary& r_unique_name_nodes)
 {
     jsb_check(p_strategic != 0);
 
@@ -170,7 +170,36 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
         {
             Array generic_arguments;
 
-            if (p_strategic.has_flag(SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE))
+            bool use_scene_nodes_interface = false;
+            // Optionally replace children literal with SceneNodes["path/to/scene.tscn"]
+            if (const String scene_file_path = p_node->get_scene_file_path();
+                !scene_file_path.is_empty())
+            {
+                PackedStringArray exclude_wildcards = jsb::internal::Settings::get_scene_dts_exclude_path_wildcards();
+                PackedStringArray include_wildcards = jsb::internal::Settings::get_scene_dts_include_path_wildcards();
+                if (is_path_matchn(include_wildcards, scene_file_path)
+                    && !is_path_matchn(exclude_wildcards, scene_file_path))
+                {
+                    Dictionary scene_nodes;
+                    scene_nodes[jsb_string_name(type)] = (int32_t) DescriptorType::Godot;
+                    scene_nodes[jsb_string_name(name)] = "SceneNodes";
+
+                    Dictionary string_literal;
+                    string_literal[jsb_string_name(type)] = (int32_t) DescriptorType::StringLiteral;
+                    string_literal[jsb_string_name(value)] = scene_file_path.substr(6); // Remove leading res://
+
+                    Dictionary indexed_scene_nodes;
+                    indexed_scene_nodes[jsb_string_name(type)] = (int32_t) DescriptorType::Indexed;
+                    indexed_scene_nodes[jsb_string_name(base)] = scene_nodes;
+                    indexed_scene_nodes[jsb_string_name(index)] = string_literal;
+
+                    generic_arguments.push_back(indexed_scene_nodes);
+
+                    use_scene_nodes_interface = true;
+                }
+            }
+
+            if (!use_scene_nodes_interface)
             {
                 Dictionary object_literal;
                 object_literal[jsb_string_name(type)] = (int32_t) DescriptorType::ObjectLiteral;
@@ -232,46 +261,6 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
             descriptor[jsb_string_name(type)] = (int32_t) DescriptorType::User;
             descriptor[jsb_string_name(name)] = script->get_global_name();
             descriptor[jsb_string_name(resource)] = script->get_path();
-        }
-    }
-
-    // Optionally replace children literal with SceneNodes["path/to/scene.tscn"]
-    if (!p_scene_resource_path.is_empty())
-    {
-        Variant arguments_var = descriptor[jsb_string_name(arguments)];
-
-        if (arguments_var.get_type() == Variant::ARRAY)
-        {
-            Array arguments = arguments_var;
-            int argument_count = arguments.size();
-
-            Dictionary children_descriptor;
-            children_descriptor[jsb_string_name(type)] = (int32_t) DescriptorType::ObjectLiteral;
-            children_descriptor[jsb_string_name(properties)] = children;
-
-            for (int i = 0; i < argument_count; i++)
-            {
-                Variant argument = arguments[i];
-
-                if (argument.get_type() == Variant::Type::DICTIONARY && Dictionary(argument) == children_descriptor)
-                {
-                    // TODO: 子节点没生成时的处理！
-                    Dictionary scene_nodes;
-                    scene_nodes[jsb_string_name(type)] = (int32_t) DescriptorType::Godot;
-                    scene_nodes[jsb_string_name(name)] = "SceneNodes";
-
-                    Dictionary string_literal;
-                    string_literal[jsb_string_name(type)] = (int32_t) DescriptorType::StringLiteral;
-                    string_literal[jsb_string_name(value)] = p_scene_resource_path.substr(6); // Remove leading res://
-
-                    Dictionary indexed_scene_nodes;
-                    indexed_scene_nodes[jsb_string_name(type)] = (int32_t) DescriptorType::Indexed;
-                    indexed_scene_nodes[jsb_string_name(base)] = scene_nodes;
-                    indexed_scene_nodes[jsb_string_name(index)] = string_literal;
-
-                    arguments[i] = indexed_scene_nodes;
-                }
-            }
         }
     }
 
@@ -371,7 +360,7 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String& p_pat
 
         Array generic_arguments;
         Dictionary unique_name_nodes;
-        generic_arguments.push_back(_build_node_type_descriptor(strategic, env, instantiated_scene, instantiated_scene, unique_name_nodes, p_path));
+        generic_arguments.push_back(_build_node_type_descriptor(strategic, env, instantiated_scene, instantiated_scene, unique_name_nodes));
 
         descriptor[jsb_string_name(type)] = (int32_t) DescriptorType::Godot;
         descriptor[jsb_string_name(name)] = "PackedScene";
@@ -494,4 +483,38 @@ bool GodotJSEditorHelper::has_api_tool_data()
 void GodotJSEditorHelper::generate_api_tool_data()
 {
     api_tool::full_generate_and_reboot();
+}
+
+bool GodotJSEditorHelper::is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path)
+{
+    for (const String& wildcard: p_wildcards)
+    {
+        if ((wildcard.contains("*") || wildcard.contains("?")) && p_path.match(wildcard))
+        {
+            return true;
+        }
+        else
+        {
+            const String& lower_case_path = p_path.to_lower();
+            String lower_case_wildcard = wildcard.to_lower();
+            if (lower_case_path == lower_case_wildcard){
+                return true; // Exact match file.
+            }
+            else
+            {
+                if (!lower_case_wildcard.ends_with("/"))
+                {
+                    // Cheat as directory.
+                    lower_case_wildcard += "/";
+                }
+
+                if (lower_case_path.begins_with(lower_case_wildcard))
+                {
+                    return true; // Match directory.
+                }
+            }
+        }
+    }
+
+    return false;
 }
