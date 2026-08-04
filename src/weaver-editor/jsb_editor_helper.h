@@ -21,7 +21,7 @@ public:
 private:
     static bool _request_codegen(jsb::JSEnvironment& p_env, GodotJSScript* p_script, const Dictionary& p_request, Dictionary& p_result);
     static StringName _get_exposed_node_class_name(const StringName& class_name);
-    static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const godot::Node* p_root_node, Dictionary& r_unique_name_nodes, const String& p_scene_resource_path = String());
+    static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const godot::Node* p_root_node, Dictionary& r_unique_name_nodes);
     static void _log_load_error(const String &p_file, const String &p_type, Error p_error);
 
 protected:
@@ -37,6 +37,9 @@ public:
 
     static bool has_api_tool_data();
     static void generate_api_tool_data();
+
+    static bool is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path);
+
 };
 
 VARIANT_BITFIELD_CAST(GodotJSEditorHelper::SceneDTSGenerateStrategic)

@@ -681,36 +681,7 @@ void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArra
 
 bool GodotJSEditorPlugin::_is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path)
 {
-    for (const String& wildcard: p_wildcards)
-    {
-        if ((wildcard.contains("*") || wildcard.contains("?")) && p_path.match(wildcard))
-        {
-            return true;
-        }
-        else
-        {
-            const String& lower_case_path = p_path.to_lower();
-            String lower_case_wildcard = wildcard.to_lower();
-            if (lower_case_path == lower_case_wildcard){
-                return true; // Exact match file.
-            }
-            else
-            {
-                if (!lower_case_wildcard.ends_with("/"))
-                {
-                    // Cheat as directory.
-                    lower_case_wildcard += "/";
-                }
-
-                if (lower_case_path.begins_with(lower_case_wildcard))
-                {
-                    return true; // Match directory.
-                }
-            }
-        }
-    }
-
-    return false;
+    return GodotJSEditorHelper::is_path_matchn(p_wildcards, p_path);
 }
 
 Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArray& p_exclude_wildcards, const PackedStringArray& p_include_wildcards, const Vector<String>& p_paths)
@@ -720,10 +691,6 @@ Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArr
     {
         for (const String& path: p_paths)
         {
-            if (ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(path)) {
-                continue;
-            }
-            
             if (!p_exclude_wildcards.is_empty() && _is_path_matchn(p_exclude_wildcards, path))
             {
                 continue;
