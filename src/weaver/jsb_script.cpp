@@ -269,10 +269,10 @@ TypedArray<Dictionary> GodotJSScript::_get_documentation() const
     ensure_module_loaded();
     if (!loaded_ || !is_valid_internal()) return {};
 
-    String base_type;
-    const String class_name = GodotJSScriptLanguage::get_singleton()->_get_global_class_name(get_path())["base_type"];
+    const Dictionary class_basic_info = GodotJSScriptLanguage::get_singleton()->_get_global_class_name(get_path());
+    String base_type = class_basic_info["base_type"];
     Dictionary class_doc;
-    class_doc["name"] = class_name;
+    class_doc["name"] = class_basic_info["class"];
     class_doc["inherits"] = base_type.is_empty() ? Variant("Object") : Variant(base_type);
     class_doc["is_script_doc"] = true;
     class_doc["brief_description"] = script_class_info_.doc.brief_description;
