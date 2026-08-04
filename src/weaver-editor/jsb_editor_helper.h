@@ -2,6 +2,7 @@
 #define GODOTJS_EDITOR_HELPER_H
 #include "jsb_editor_pch.h"
 
+#include <compat/editor_settings.h>
 
 namespace godot {
 class Node;
@@ -11,14 +12,9 @@ class GodotJSEditorHelper : public Object
 {
     GDCLASS(GodotJSEditorHelper, Object);
 
-public:
-    enum SceneDTSGenerateStrategic
-    {
-        SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE = 1 << 0,
-        SCENE_DTS_GENERATE_STRATEGIC_UNIQUE_NAME_NODE = 1 << 1,
-    };
-
 private:
+    using SceneDTSGenerateStrategic = jsb::internal::SceneDTSGenerateStrategic;
+
     static bool _request_codegen(jsb::JSEnvironment& p_env, GodotJSScript* p_script, const Dictionary& p_request, Dictionary& p_result);
     static StringName _get_exposed_node_class_name(const StringName& class_name);
     static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const godot::Node* p_root_node, Dictionary& r_unique_name_nodes);
@@ -42,5 +38,4 @@ public:
 
 };
 
-VARIANT_BITFIELD_CAST(GodotJSEditorHelper::SceneDTSGenerateStrategic)
 #endif

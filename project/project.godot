@@ -26,6 +26,10 @@ _Config="*res://tests/singleton/config-singleton.ts"
 
 paths=["res://addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension"]
 
+[godotjs_ext]
+
+codegen/scene_dts/exclude_path_wildcards=PackedStringArray("res://code_gen_test/ExcludedScene.tscn")
+
 [input]
 
 test_input_action={

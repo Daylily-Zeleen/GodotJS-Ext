@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://c4mnkgl5xrmfx"]
+
+[ext_resource type="PackedScene" uid="uid://bdy6muexmejn" path="res://tests/gen_dts_test/SubScene.tscn" id="1_rmnof"]
+[ext_resource type="PackedScene" uid="uid://bm80yg5jr0ugx" path="res://tests/gen_dts_test/ExcludedScene.tscn" id="2_msgd5"]
+
+[node name="MainScene" type="Node2D" unique_id=694584807]
+
+[node name="SubScene" parent="." unique_id=1508078780 instance=ExtResource("1_rmnof")]
+
+[node name="Node3D" type="Node3D" parent="." unique_id=1018478123]
+
+[node name="ExcludedScene" parent="." unique_id=476075928 instance=ExtResource("2_msgd5")]

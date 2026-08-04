@@ -63,6 +63,8 @@
 		"EditorExportPlatform",
 		"TreeItem",
 		"EditorFileSystem",
-		"DisplayServer"
+		"DisplayServer",
+		"ConfigFile",
+		"EditorPaths"
 	]
 }

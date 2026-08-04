@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://bm80yg5jr0ugx"]
+
+[node name="ExcludedScene" type="Control" unique_id=122842810]
+layout_mode = 3
+anchors_preset = 0
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1776645925]
+
+[node name="Timer" type="Timer" parent="." unique_id=770329635]
