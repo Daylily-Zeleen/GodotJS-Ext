@@ -1,3 +1,5 @@
+#ifdef TOOLS_ENABLED
+
 #include "editor_settings.h"
 
 namespace godot {
@@ -44,3 +46,5 @@ Variant _EDITOR_DEF(const String &p_setting, const Variant &p_default, bool p_re
 }
 
 }
+
+#endif

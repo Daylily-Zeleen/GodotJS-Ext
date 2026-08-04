@@ -5,8 +5,25 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
+namespace godot{
+    template <typename T>
+    class BitField;
+}
 namespace jsb::internal
 {
+    enum SceneDTSGenerateStrategic
+    {
+        ORIGIN_NAME_NODE = 1 << 0,
+        UNIQUE_NAME_NODE = 1 << 1,
+    };
+
+    enum AutoGenSettingFlags
+    {
+        ENABLED = 1 << 0,
+        GEN_ON_SAVE = 1 << 1,
+        CHANGED_FILE_ONLY = 1 << 2,
+    };
+
     class Settings
     {
     public:
@@ -54,7 +71,7 @@ namespace jsb::internal
         static PackedStringArray get_scene_dts_include_path_wildcards();
         static PackedStringArray get_scene_dts_exclude_path_wildcards();
 
-        static int get_scene_dts_generate_strategic();
+        static BitField<SceneDTSGenerateStrategic> get_scene_dts_generate_strategic();
 
         static bool is_script_inline_resource_uid();
 
@@ -63,10 +80,10 @@ namespace jsb::internal
         static bool editor_settings_available();
         static PackedStringArray get_ignored_classes();
         static String get_autogen_path();
-        static bool get_autogen_scene_dts_on_save();
-        static bool get_gen_scene_dts();
-        static bool get_autogen_resource_dts_on_save();
-        static bool get_gen_resource_dts();
+
+        static BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
+        static BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings();
+
         static bool get_codegen_use_project_settings();
 #endif
     };

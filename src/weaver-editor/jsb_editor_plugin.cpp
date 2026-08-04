@@ -16,6 +16,9 @@
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
+#include <godot_cpp/classes/config_file.hpp>
+#include <godot_cpp/classes/editor_paths.hpp>
+#include <godot_cpp/classes/timer.hpp>
 
 #include <compat/misc.h>
 
@@ -26,6 +29,8 @@ enum
     MENU_ID_GENERATE_API_DATA,
     MENU_ID_INSTALL_PROJECT_FILES,
     MENU_ID_GENERATE_TYPES,
+    MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES,
+    MENU_ID_GENERATE_ALL_RESOURCE_TYPES,
     MENU_ID_CLEANUP_INVALID_FILES,
 };
 
@@ -194,14 +199,81 @@ void GodotJSEditorPlugin::_on_menu_pressed(int p_what)
     case MENU_ID_GENERATE_API_DATA: _generate_api_tool_data(); break;
     case MENU_ID_INSTALL_PROJECT_FILES: try_install_project_files(); break;
     case MENU_ID_GENERATE_TYPES: generate_types(); break;
+    case MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES: generate_all_scene_nodes_types(); break;
+    case MENU_ID_GENERATE_ALL_RESOURCE_TYPES: generate_all_resource_types(); break;
     case MENU_ID_CLEANUP_INVALID_FILES: cleanup_invalid_files(); break;
     default: break;
     }
 }
 
+static String get_md5_cache_file_path()
+{
+    return EditorInterface::get_singleton()->get_editor_paths()->get_project_settings_dir().path_join("file_md5_cache");
+}
+
+Ref<ConfigFile> GodotJSEditorPlugin::_get_file_md5_cache()
+{
+    if (md5_cache_file_.is_null()) {
+        md5_cache_file_.instantiate();
+        md5_cache_file_->load(get_md5_cache_file_path());
+    }
+    clean_timer_->start(5.0);
+    return md5_cache_file_;
+}
+
+bool GodotJSEditorPlugin::_is_file_changed(const String &p_file)
+{
+    Ref<ConfigFile> md5_cache_file = _get_file_md5_cache();
+    if (!md5_cache_file->has_section_key("", p_file)) return true;
+    return md5_cache_file->get_value("", p_file) != FileAccess::get_md5(p_file);
+}
+
+void GodotJSEditorPlugin::_cache_files_md5(const Vector<String> &p_files)
+{
+    if (p_files.is_empty()) return;
+
+    Ref<ConfigFile> md5_cache_file = _get_file_md5_cache();
+    for (const String &file : p_files)
+    {
+        md5_cache_file->set_value("", file, FileAccess::get_md5(file));
+    }
+    if (save_md5_cache_pending) return;
+    callable_mp(this, &GodotJSEditorPlugin::_save_md5_cache).call_deferred();
+}
+
+void GodotJSEditorPlugin::_on_clean_timer_timeout()
+{
+    if (save_md5_cache_pending) return;
+    if (md5_cache_file_.is_null()) return;
+    md5_cache_file_->save(get_md5_cache_file_path());
+    md5_cache_file_.unref();
+}
+
+void GodotJSEditorPlugin::_save_md5_cache()
+{
+    if (md5_cache_file_.is_valid())
+    {
+        md5_cache_file_->save(get_md5_cache_file_path());
+        md5_cache_file_.unref();
+    }
+    clean_timer_->stop();
+    save_md5_cache_pending = false;
+}
+
 GodotJSEditorPlugin::GodotJSEditorPlugin()
 {
     export_plugin_.instantiate();
+
+    const String file_md5_cache_path = get_md5_cache_file_path();
+    if (FileAccess::file_exists(file_md5_cache_path)) {
+        DirAccess::remove_absolute(file_md5_cache_path);
+    }
+
+    clean_timer_ = memnew(Timer);
+    clean_timer_->set_one_shot(true);
+    clean_timer_->set_autostart(false);
+    clean_timer_->connect("timeout", callable_mp(this, &GodotJSEditorPlugin::_on_clean_timer_timeout));
+    add_child(clean_timer_);
 
     EditorProgressDialog* progress_dialog = memnew(EditorProgressDialog);
     add_child(progress_dialog);
@@ -218,6 +290,8 @@ GodotJSEditorPlugin::GodotJSEditorPlugin()
         menu->set_item_disabled(menu->get_item_index(MENU_ID_GENERATE_TYPES), true);
     }
     menu->add_separator();
+    menu->add_item(TTR("Generate All Scene Nodes Types"), MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES);
+    menu->add_item(TTR("Generate All Resource Types"), MENU_ID_GENERATE_ALL_RESOURCE_TYPES);
     menu->add_item(TTR("Cleanup Invalid Files"), MENU_ID_CLEANUP_INVALID_FILES);
     menu->connect("id_pressed", callable_mp(this, &GodotJSEditorPlugin::_on_menu_pressed));
 
@@ -645,38 +719,58 @@ void GodotJSEditorPlugin::collect_invalid_files(const String& p_path, Vector<Str
 
 void GodotJSEditorPlugin::_on_scene_saved(const String& p_path)
 {
-    if (!jsb::internal::Settings::get_autogen_scene_dts_on_save()) return;
+    using SettingFlags = jsb::internal::AutoGenSettingFlags;
 
     Vector<String> paths = { p_path };
-    generate_scene_nodes_types({}, paths);
+
+    BitField<SettingFlags> gen_scene_settings = jsb::internal::Settings::get_autogen_scene_dts_settings();
+    if (gen_scene_settings.has_flag(SettingFlags::ENABLED) && gen_scene_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
+        if (!gen_scene_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(p_path)) {
+            generate_scene_nodes_types({}, paths);
+        }
+    }
 
     // Curiously, the "resource_saved" signal is not emitted for scenes even though they're resources. So we implement
     // resource saved logic here too.
 
-    if (!jsb::internal::Settings::get_autogen_resource_dts_on_save()) return;
-
-    generate_resource_types({}, paths);
+    BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+    if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
+        if (!gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(p_path)) {
+            generate_resource_types({}, paths);
+        }
+    }
 }
 
 void GodotJSEditorPlugin::_on_resource_saved(const Ref<Resource>& p_resource)
 {
-    if (!jsb::internal::Settings::get_autogen_resource_dts_on_save()) return;
-
-    Vector<String> paths = { p_resource->get_path() };
-    generate_resource_types({}, paths);
+    using SettingFlags = jsb::internal::AutoGenSettingFlags;
+    BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+    if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
+        Vector<String> paths = { p_resource->get_path() };
+        if (!gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(paths[0])) {
+            generate_resource_types({}, paths);
+        }
+    }
 }
 
-void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArray& p_resource)
+void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArray& p_resources)
 {
-    if (!jsb::internal::Settings::get_autogen_resource_dts_on_save()) return;
-
-    // TODO: 避免转换？
-    Vector<String> paths;
-    for (int i = 0; i < p_resource.size(); i++)
-    {
-        paths.push_back(p_resource[i]);
+    using SettingFlags = jsb::internal::AutoGenSettingFlags;
+    BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+    if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
+        Vector<String> paths;
+        if (gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY)){
+            for (const String &path : p_resources) {
+                if(_is_file_changed(paths[0])) paths.push_back(path);
+            }
+        }
+        else {
+            for (const String &path : p_resources) {
+                if(_is_file_changed(paths[0])) paths.push_back(path);
+            }
+        }
+        generate_resource_types({}, paths);
     }
-    generate_resource_types({}, paths);
 }
 
 bool GodotJSEditorPlugin::_is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path)
@@ -996,7 +1090,9 @@ void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory* p_dir, Ve
 
 void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> complete, const Vector<String>& p_paths)
 {
-    if (!jsb::internal::Settings::get_gen_scene_dts()) return;
+    using SettingFlags = jsb::internal::AutoGenSettingFlags;
+    BitField<SettingFlags> gen_settings = jsb::internal::Settings::get_autogen_scene_dts_settings();
+    if (!gen_settings.has_flag(SettingFlags::ENABLED)) return;
 
     if (p_paths.size() == 0)
     {
@@ -1076,11 +1172,20 @@ try {
             complete(false);
         }
     }
+    else
+    {
+        if (GodotJSEditorPlugin* singleton = GodotJSEditorPlugin::get_singleton())
+        {
+            singleton->_cache_files_md5(filtered_paths);
+        }
+    }
 }
 
 void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> complete, const Vector<String>& p_paths) // TODO: 改用 PackedStringArray
 {
-    if (!jsb::internal::Settings::get_gen_resource_dts()) return;
+    using SettingFlags = jsb::internal::AutoGenSettingFlags;
+    BitField<SettingFlags> gen_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+    if (!gen_settings.has_flag(SettingFlags::ENABLED)) return;
 
     if (p_paths.size() == 0)
     {
@@ -1159,6 +1264,13 @@ try {
         if (complete)
         {
             complete(false);
+        }
+    }
+    else
+    {
+        if (GodotJSEditorPlugin* singleton = GodotJSEditorPlugin::get_singleton())
+        {
+            singleton->_cache_files_md5(filtered_paths);
         }
     }
 }

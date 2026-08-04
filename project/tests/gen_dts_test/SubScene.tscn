@@ -1,0 +1,5 @@
+[gd_scene format=3 uid="uid://bdy6muexmejn"]
+
+[node name="SubScene" type="Node" unique_id=1508078780]
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=454196425]

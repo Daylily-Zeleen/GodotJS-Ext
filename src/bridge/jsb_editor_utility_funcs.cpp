@@ -855,6 +855,8 @@ namespace jsb
                     }
                 }
             }
+
+            info.GetReturnValue().Set(class_doc_obj);
         }
     }
 

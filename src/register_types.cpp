@@ -4,6 +4,7 @@
 #include "api_tool/api_tool.h"
 #include "weaver/jsb_weaver.h"
 
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/os.hpp>
@@ -11,7 +12,6 @@
 #ifdef TOOLS_ENABLED
 #include "weaver-editor/jsb_weaver_editor.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>
-#include <godot_cpp/classes/engine.hpp>
 #endif // TOOLS_ENABLED
 
 #ifdef JSB_TESTS_ENABLED

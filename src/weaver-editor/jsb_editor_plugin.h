@@ -48,6 +48,11 @@ public:
     std::function<void(bool)> pending_installs_callback_;
 };
 
+namespace godot
+{
+    class Timer;
+}
+
 // essential editor utilities for GodotJS, such as menu entries in the editor (Install Presets, Generate d.ts)
 class GodotJSEditorPlugin : public EditorPlugin
 {
@@ -59,6 +64,10 @@ private:
     InstallGodotJSPresetConfirmationDialog* confirm_dialog_;
 
     std::shared_ptr<jsb::internal::Process> tsc_;
+
+    Ref<ConfigFile> md5_cache_file_;
+    class godot::Timer *clean_timer_;
+    bool save_md5_cache_pending = false;
 
     void _generate_api_tool_data();
     void _on_generate_api_tool_data_confirmed(class ConfirmationDialog* p_dialog);
@@ -72,6 +81,12 @@ private:
 
     static bool _is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path);
     static Vector<String> _filter_resource_paths(const PackedStringArray& p_exclude_wildcards, const PackedStringArray& p_include_wildcards, const Vector<String>& p_paths);
+
+    Ref<ConfigFile> _get_file_md5_cache();
+    bool _is_file_changed(const String &p_file);
+    void _cache_files_md5(const Vector<String> &p_files);
+    void _on_clean_timer_timeout();
+    void _save_md5_cache();
 
 protected:
     static void _bind_methods();

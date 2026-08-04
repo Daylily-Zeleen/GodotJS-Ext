@@ -264,7 +264,7 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
         }
     }
 
-    if (p_strategic.has_flag(SCENE_DTS_GENERATE_STRATEGIC_UNIQUE_NAME_NODE))
+    if (p_strategic.has_flag(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE))
     {
         if (p_node->is_unique_name_in_owner())
         {
@@ -320,9 +320,6 @@ void GodotJSEditorHelper::_bind_methods()
     ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("show_toast", "text", "severity"), &GodotJSEditorHelper::show_toast);
     ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("get_resource_type_descriptor", "resource_path"), &GodotJSEditorHelper::get_resource_type_descriptor);
     ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("get_scene_nodes", "scene_path"), &GodotJSEditorHelper::get_scene_nodes);
-
-    BIND_BITFIELD_FLAG(SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE);
-    BIND_BITFIELD_FLAG(SCENE_DTS_GENERATE_STRATEGIC_UNIQUE_NAME_NODE);
 }
 
 Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String& p_path)
@@ -354,8 +351,8 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String& p_pat
         BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
         if (strategic == 0)
         {
-            strategic.set_flag(SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE);
-            JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE (please configure it through project setting).");
+            strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+            JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
         }
 
         Array generic_arguments;
@@ -447,8 +444,8 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String& p_path)
     BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
     if (strategic == 0)
     {
-        strategic.set_flag(SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE);
-        JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE (please configure it through project setting).");
+        strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+        JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
     }
     for (int i = 0; i < child_count; i++)
     {
@@ -458,7 +455,7 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String& p_path)
 
     instantiated_scene->queue_free();
 
-    if (!strategic.has_flag(SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE))
+    if (!strategic.has_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE))
     {
         nodes.clear();
     }

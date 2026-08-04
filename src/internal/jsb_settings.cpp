@@ -10,7 +10,6 @@
 
 #ifdef TOOLS_ENABLED
 #include "../weaver-editor/jsb_editor_helper.h"
-#include <compat/editor_settings.h>
 #include <godot_cpp/classes/engine.hpp>
 #endif // TOOLS_ENABLED
 
@@ -25,10 +24,8 @@ namespace jsb::internal
     static constexpr char kEdDebuggerPort[] =     JSB_MODULE_NAME_STRING "/debugger/editor_port";
     static constexpr char kEdIgnoredClasses[] =     JSB_MODULE_NAME_STRING "/codegen/ignored_classes";
     static constexpr char kEdAutogenPath[] =     JSB_MODULE_NAME_STRING "/codegen/autogen_path";
-    static constexpr char kEdAutogenSceneDTSOnSave[] =     JSB_MODULE_NAME_STRING "/codegen/autogen_scene_dts_on_save";
-    static constexpr char kEdGenSceneDTS[] =     JSB_MODULE_NAME_STRING "/codegen/generate_scene_dts";
-    static constexpr char kEdAutogenResourceDTSOnSave[] =     JSB_MODULE_NAME_STRING "/codegen/autogen_resource_dts_on_save";
-    static constexpr char kEdGenResourceDTS[] =     JSB_MODULE_NAME_STRING "/codegen/generate_resource_dts";
+    static constexpr char kEdAutogenSceneDTSSettings[] =     JSB_MODULE_NAME_STRING "/codegen/autogen_scene_dts_settings";
+    static constexpr char kEdAutogenResourceDTSSettings[] =     JSB_MODULE_NAME_STRING "/codegen/autogen_resource_dts_settings";    
     static constexpr char kEdCodegenUseProjectSettings[] =     JSB_MODULE_NAME_STRING "/codegen/use_project_settings";
 #endif
 
@@ -77,16 +74,59 @@ namespace jsb::internal
             }
 
             // check before read to avoid redundant warnings
-            if (get_editor_settings())
+            if (EditorSettings *editor_settings = get_editor_settings())
             {
                 inited = true;
                 _EDITOR_DEF(kEdDebuggerPort, 9230, true);
                 _EDITOR_DEF(kEdIgnoredClasses, PackedStringArray(), false);
                 _EDITOR_DEF(kEdAutogenPath, "gen/godot", false);
-                _EDITOR_DEF(kEdGenSceneDTS, true, false);
-                _EDITOR_DEF(kEdAutogenSceneDTSOnSave, true, false);
-                _EDITOR_DEF(kEdGenResourceDTS, true, false);
-                _EDITOR_DEF(kEdAutogenResourceDTSOnSave, true, false);
+                {
+                    PropertyInfo AutogenSceneDTSSettings;
+                    AutogenSceneDTSSettings.type = Variant::INT;
+                    AutogenSceneDTSSettings.name = kEdAutogenSceneDTSSettings;
+                    AutogenSceneDTSSettings.hint = PROPERTY_HINT_FLAGS;
+
+                    // NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
+                    const Pair<String, AutoGenSettingFlags> options[]  {
+                        { "Enabled", AutoGenSettingFlags::ENABLED },
+                        { "Generate On Save", AutoGenSettingFlags::GEN_ON_SAVE },
+                        { "Changed Files only", AutoGenSettingFlags::CHANGED_FILE_ONLY },
+                    };
+
+                    PackedStringArray flag_hints;
+                    for (const auto &[name, value]: options)
+                    {
+                        flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
+                    }
+
+                    AutogenSceneDTSSettings.hint_string = String(",").join(flag_hints);
+                    _EDITOR_DEF(kEdAutogenSceneDTSSettings, int64_t(ENABLED | GEN_ON_SAVE | CHANGED_FILE_ONLY), false, JSB_SET_BASIC(true));
+                    editor_settings->add_property_info(AutogenSceneDTSSettings);
+                }
+
+                {
+                    PropertyInfo AutogenResourceDTSSettings;
+                    AutogenResourceDTSSettings.type = Variant::INT;
+                    AutogenResourceDTSSettings.name = kEdAutogenSceneDTSSettings;
+                    AutogenResourceDTSSettings.hint = PROPERTY_HINT_FLAGS;
+
+                    // NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
+                    const Pair<String, AutoGenSettingFlags> options[]  {
+                        { "Enabled", AutoGenSettingFlags::ENABLED },
+                        { "Generate On Save", AutoGenSettingFlags::GEN_ON_SAVE },
+                        { "Changed Files only", AutoGenSettingFlags::CHANGED_FILE_ONLY },
+                    };
+
+                    PackedStringArray flag_hints;
+                    for (const auto &[name, value]: options)
+                    {
+                        flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
+                    }
+
+                    AutogenResourceDTSSettings.hint_string = String(",").join(flag_hints);
+                    _EDITOR_DEF(kEdAutogenResourceDTSSettings, int64_t(ENABLED | GEN_ON_SAVE | CHANGED_FILE_ONLY), false, JSB_SET_BASIC(true));
+                    editor_settings->add_property_info(AutogenResourceDTSSettings);
+                }
                 _EDITOR_DEF(kEdCodegenUseProjectSettings, true, false);
             }
         }
@@ -183,25 +223,26 @@ namespace jsb::internal
 
 #ifdef TOOLS_ENABLED
             {
+                using SceneDTSGenerateStrategicEnum = jsb::internal::SceneDTSGenerateStrategic;
                 PropertyInfo SceneDTSGenerateStrategic;
                 SceneDTSGenerateStrategic.type = Variant::INT;
                 SceneDTSGenerateStrategic.name = kRtSceneDTSGenerateStrategic;
                 SceneDTSGenerateStrategic.hint = PROPERTY_HINT_FLAGS;
 
-                // NOTE: Keep this map sync with GodotJSEditorHelper::SceneDTSGenerateStrategic
-                const LocalVector<Pair<String, GodotJSEditorHelper::SceneDTSGenerateStrategic>> scene_dts_generate_strategic_flags = {
-                    {"Origin Name Node", GodotJSEditorHelper::SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE},
-                    {"Unique Name Node", GodotJSEditorHelper::SCENE_DTS_GENERATE_STRATEGIC_UNIQUE_NAME_NODE}
+                // NOTE: Keep this map sync with std::internal::SceneDTSGenerateStrategic
+                const Pair<String, SceneDTSGenerateStrategicEnum> options[] {
+                    {"Origin Name Node", SceneDTSGenerateStrategicEnum::ORIGIN_NAME_NODE},
+                    {"Unique Name Node", SceneDTSGenerateStrategicEnum::UNIQUE_NAME_NODE}
                 };
 
                 PackedStringArray flag_hints;
-                for (const auto &[name, value]: scene_dts_generate_strategic_flags)
+                for (const auto &[name, value]: options)
                 {
-                    flag_hints.push_back(vformat("%s:%s", name, value));
+                    flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
                 }
 
                 SceneDTSGenerateStrategic.hint_string = String(",").join(flag_hints);
-                _GLOBAL_DEF(SceneDTSGenerateStrategic, BitField<GodotJSEditorHelper::SceneDTSGenerateStrategic>(GodotJSEditorHelper::SCENE_DTS_GENERATE_STRATEGIC_ORIGIN_NAME_NODE), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true),  JSB_SET_INTERNAL(false));
+                _GLOBAL_DEF(SceneDTSGenerateStrategic, int64_t(SceneDTSGenerateStrategicEnum::ORIGIN_NAME_NODE), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true),  JSB_SET_INTERNAL(false));
             }
 #endif // TOOLS_ENABLED
             _GLOBAL_DEF(kScriptInlineResourceUID, true, false);
@@ -226,28 +267,16 @@ namespace jsb::internal
         return EDITOR_GET(kEdAutogenPath);
     }
 
-    bool Settings::get_autogen_scene_dts_on_save()
+    BitField<AutoGenSettingFlags> Settings::get_autogen_scene_dts_settings()
     {
         init_editor_settings();
-        return EDITOR_GET(kEdAutogenSceneDTSOnSave);
+        return BitField<AutoGenSettingFlags>(EDITOR_GET(kEdAutogenSceneDTSSettings));
     }
 
-    bool Settings::get_gen_scene_dts()
+    BitField<AutoGenSettingFlags> Settings::get_autogen_resource_dts_settings()
     {
         init_editor_settings();
-        return EDITOR_GET(kEdGenSceneDTS);
-    }
-
-    bool Settings::get_autogen_resource_dts_on_save()
-    {
-        init_editor_settings();
-        return EDITOR_GET(kEdAutogenResourceDTSOnSave);
-    }
-
-    bool Settings::get_gen_resource_dts()
-    {
-        init_editor_settings();
-        return EDITOR_GET(kEdGenResourceDTS);
+        return BitField<AutoGenSettingFlags>(EDITOR_GET(kEdAutogenResourceDTSSettings));
     }
 
     bool Settings::get_codegen_use_project_settings()
@@ -313,10 +342,10 @@ namespace jsb::internal
         return (PackedStringArray) GLOBAL_GET(kRtSceneDTSExcludePathWildcards);
     }
 
-    int Settings::get_scene_dts_generate_strategic()
+    BitField<SceneDTSGenerateStrategic> Settings::get_scene_dts_generate_strategic()
     {
         init_settings();
-        return GLOBAL_GET(kRtSceneDTSGenerateStrategic);
+        return BitField<SceneDTSGenerateStrategic>(GLOBAL_GET(kRtSceneDTSGenerateStrategic));
     }
 
     bool Settings::is_script_inline_resource_uid()
