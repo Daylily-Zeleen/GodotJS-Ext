@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_ISOLATE_H
-#define GODOTJS_WEB_ISOLATE_H
+#pragma once
 
 #include "jsb_web_array_buffer.h"
 #include "jsb_web_handle_scope.h"
@@ -154,4 +153,3 @@ private:
 };
 } //namespace v8
 
-#endif

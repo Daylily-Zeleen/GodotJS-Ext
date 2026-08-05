@@ -1,5 +1,4 @@
-#ifndef GODOTJS_V8_CLASS_H
-#define GODOTJS_V8_CLASS_H
+#pragma once
 #include "jsb_v8_pch.h"
 
 namespace jsb::impl {
@@ -42,4 +41,3 @@ private:
 	}
 };
 } //namespace jsb::impl
-#endif

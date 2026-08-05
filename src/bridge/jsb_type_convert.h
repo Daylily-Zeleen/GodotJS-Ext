@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_TYPE_CONVERT_H
-#define GODOTJS_TYPE_CONVERT_H
+﻿#pragma once
 
 #include "jsb_bridge_pch.h"
 #include "jsb_class_info.h"
@@ -59,4 +58,3 @@ struct TypeConvert {
 };
 } //namespace jsb
 
-#endif

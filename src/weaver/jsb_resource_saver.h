@@ -1,5 +1,4 @@
-#ifndef GODOTJS_RESOURCE_SAVER_H
-#define GODOTJS_RESOURCE_SAVER_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 
@@ -21,4 +20,3 @@ public:
 	virtual Error _set_uid(const String &p_path, int64_t p_uid) override;
 };
 
-#endif

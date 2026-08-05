@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_ARRAY_H
-#define GODOTJS_JSC_ARRAY_H
+#pragma once
 #include "jsb_jsc_object.h"
 
 namespace v8 {
@@ -34,4 +33,3 @@ public:
 	static Local<Set> New(Isolate *isolate);
 };
 } //namespace v8
-#endif

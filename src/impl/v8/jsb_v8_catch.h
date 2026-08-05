@@ -1,6 +1,6 @@
-﻿#ifndef GODOTJS_V8_CATCH_H
-#define GODOTJS_V8_CATCH_H
+﻿#pragma once
 
+#include "jsb_v8_helper.h"
 #include "jsb_v8_pch.h"
 #include <godot_cpp/variant/string.hpp>
 
@@ -44,4 +44,3 @@ public:
 	}
 };
 } //namespace jsb::impl
-#endif

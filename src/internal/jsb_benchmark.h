@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_BENCHMARK_H
-#define GODOTJS_BENCHMARK_H
+﻿#pragma once
 #include "jsb_internal_pch.h"
 
 #if JSB_BENCHMARK
@@ -36,4 +35,3 @@ private:
 	uint64_t start_;
 };
 } //namespace jsb::internal
-#endif

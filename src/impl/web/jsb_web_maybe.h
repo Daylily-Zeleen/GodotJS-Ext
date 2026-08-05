@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_MAYBE_H
-#define GODOTJS_WEB_MAYBE_H
+#pragma once
 namespace v8 {
 template <typename T>
 class Maybe {
@@ -36,4 +35,3 @@ private:
 	T value_;
 };
 } //namespace v8
-#endif

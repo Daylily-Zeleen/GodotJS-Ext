@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_CLASS_BUILDER_H
-#define GODOTJS_JSC_CLASS_BUILDER_H
+#pragma once
 #include "jsb_jsc_class.h"
 #include "jsb_jsc_function_interop.h"
 #include "jsb_jsc_handle_scope.h"
@@ -349,4 +348,3 @@ private:
 };
 
 } //namespace jsb::impl
-#endif

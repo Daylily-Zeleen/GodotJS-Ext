@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_WEB_HELPER_H
-#define GODOTJS_WEB_HELPER_H
+﻿#pragma once
 #include "jsb_web_catch.h"
 #include "jsb_web_context.h"
 #include "jsb_web_function.h"
@@ -213,4 +212,3 @@ public:
 };
 } //namespace jsb::impl
 
-#endif

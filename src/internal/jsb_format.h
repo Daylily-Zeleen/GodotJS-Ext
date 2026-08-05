@@ -1,5 +1,4 @@
-#ifndef GODOTJS_FORMAT_H
-#define GODOTJS_FORMAT_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 #include "jsb_sindex.h"
@@ -35,4 +34,3 @@ String format(const String &p_text, const VarArgs... p_args) {
 	return vformat(p_text, convert(p_args)...);
 }
 } //namespace jsb::internal
-#endif

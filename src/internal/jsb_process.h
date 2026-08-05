@@ -1,5 +1,4 @@
-#ifndef GODOTJS_PROCESS_H
-#define GODOTJS_PROCESS_H
+#pragma once
 #include "jsb_internal_pch.h"
 
 #include <godot_cpp/templates/vector.hpp>
@@ -23,4 +22,3 @@ protected:
 	virtual bool _is_running() const = 0;
 };
 } //namespace jsb::internal
-#endif

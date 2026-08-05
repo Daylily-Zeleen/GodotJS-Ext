@@ -1,5 +1,4 @@
-#ifndef GODOTJS_EDITOR_PCH_H
-#define GODOTJS_EDITOR_PCH_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 #include "jsb_editor_macros.h"
@@ -16,4 +15,3 @@
 
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
-#endif

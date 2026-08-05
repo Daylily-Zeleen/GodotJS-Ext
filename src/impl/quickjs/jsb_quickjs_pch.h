@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_PCH_H
-#define GODOTJS_QUICKJS_PCH_H
+#pragma once
 
 #include "../../jsb.gen.h"
 
@@ -16,4 +15,3 @@
 
 #define JSB_QUICKJS_LOG(Severity, Format, ...) JSB_LOG_IMPL(quickjs, Severity, Format, ##__VA_ARGS__)
 
-#endif

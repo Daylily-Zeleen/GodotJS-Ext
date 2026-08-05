@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_PRIMITIVE_H
-#define GODOTJS_QUICKJS_PRIMITIVE_H
+#pragma once
 #include "jsb_quickjs_data.h"
 #include "jsb_quickjs_handle.h"
 #include "jsb_quickjs_pch.h"
@@ -149,4 +148,3 @@ public:
 Local<Primitive> Undefined(Isolate *isolate);
 Local<Primitive> Null(Isolate *isolate);
 } //namespace v8
-#endif

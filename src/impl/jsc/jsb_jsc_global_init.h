@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_GLOBAL_INIT_H
-#define GODOTJS_JSC_GLOBAL_INIT_H
+#pragma once
 #include "jsb_jsc_pch.h"
 
 namespace jsb::impl {
@@ -12,4 +11,3 @@ struct GlobalInitialize {
 };
 
 } //namespace jsb::impl
-#endif

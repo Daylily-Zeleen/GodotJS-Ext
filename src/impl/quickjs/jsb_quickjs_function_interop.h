@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_FUNCTION_INTEROP_H
-#define GODOTJS_QUICKJS_FUNCTION_INTEROP_H
+#pragma once
 #include "jsb_quickjs_isolate.h"
 #include "jsb_quickjs_object.h"
 #include "jsb_quickjs_typedef.h"
@@ -102,4 +101,3 @@ private:
 	uint16_t stack_pos_;
 };
 } //namespace v8
-#endif

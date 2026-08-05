@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SETTINGS_H
-#define GODOTJS_SETTINGS_H
+#pragma once
 
 #include <compat/jsb_compat.h>
 #include <godot_cpp/variant/packed_string_array.hpp>
@@ -85,4 +84,3 @@ public:
 };
 } //namespace jsb::internal
 
-#endif

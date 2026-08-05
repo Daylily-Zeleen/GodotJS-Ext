@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_FUNCTION_INTEROP_H
-#define GODOTJS_WEB_FUNCTION_INTEROP_H
+#pragma once
 #include "jsb_web_isolate.h"
 #include "jsb_web_object.h"
 #include "jsb_web_typedef.h"
@@ -90,4 +89,3 @@ private:
 	jsb::impl::StackPosition stack_pos_;
 };
 } //namespace v8
-#endif

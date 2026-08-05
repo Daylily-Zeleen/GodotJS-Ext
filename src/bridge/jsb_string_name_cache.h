@@ -1,5 +1,4 @@
-#ifndef GODOTJS_STRING_NAME_CACHE_H
-#define GODOTJS_STRING_NAME_CACHE_H
+#pragma once
 #include "jsb_bridge_helper.h"
 #include "jsb_bridge_pch.h"
 #include "jsb_ref.h"
@@ -147,4 +146,3 @@ private:
 
 typedef TStringNameCache<JSB_STRING_NAME_CACHE_SIZE> StringNameCache;
 } //namespace jsb
-#endif

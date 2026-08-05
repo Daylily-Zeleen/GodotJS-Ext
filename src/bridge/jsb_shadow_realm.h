@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ISOLATE_H
-#define GODOTJS_ISOLATE_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -14,4 +13,3 @@ public:
 
 } //namespace jsb
 
-#endif

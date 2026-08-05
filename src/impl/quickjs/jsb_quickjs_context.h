@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_CONTEXT_H
-#define GODOTJS_QUICKJS_CONTEXT_H
+#pragma once
 
 #include "jsb_quickjs_handle.h"
 #include "jsb_quickjs_pch.h"
@@ -73,4 +72,3 @@ private:
 };
 } //namespace v8
 
-#endif

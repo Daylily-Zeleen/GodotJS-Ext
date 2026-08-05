@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_EXT_H
-#define GODOTJS_JSC_EXT_H
+#pragma once
 #include "jsb_jsc_pch.h"
 #include "jsb_jsc_typedef.h"
 
@@ -70,4 +69,3 @@ public:
 	}
 };
 } //namespace jsb::impl
-#endif

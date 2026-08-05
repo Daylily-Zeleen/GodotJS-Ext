@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_EXT_H
-#define GODOTJS_WEB_EXT_H
+#pragma once
 #include "jsb_web_pch.h"
 
 namespace v8 {
@@ -20,4 +19,3 @@ public:
 	}
 };
 } //namespace jsb::impl
-#endif

@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_SOURCE_MAP_CACHE_H
-#define GODOTJS_SOURCE_MAP_CACHE_H
+﻿#pragma once
 
 #include "jsb_internal_pch.h"
 #include "jsb_source_map.h"
@@ -35,4 +34,3 @@ private:
 };
 } //namespace jsb::internal
 
-#endif

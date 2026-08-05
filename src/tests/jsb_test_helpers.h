@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TESTS_TEST_HELPERS_H
-#define GODOTJS_TESTS_TEST_HELPERS_H
+#pragma once
 
 #include "../weaver/jsb_script_language.h"
 
@@ -99,4 +98,3 @@ private:
 };
 
 } //namespace jsb::tests
-#endif

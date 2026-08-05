@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_TEMPLATE_H
-#define GODOTJS_QUICKJS_TEMPLATE_H
+#pragma once
 #include "jsb_quickjs_object.h"
 #include "jsb_quickjs_typedef.h"
 
@@ -17,4 +16,3 @@ class ObjectTemplate : public Object {
 public:
 };
 } //namespace v8
-#endif

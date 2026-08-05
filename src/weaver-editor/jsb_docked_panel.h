@@ -1,5 +1,4 @@
-#ifndef GODOTJS_DOCKED_PANEL_H
-#define GODOTJS_DOCKED_PANEL_H
+#pragma once
 
 #include "jsb_editor_pch.h"
 
@@ -18,4 +17,3 @@ private:
 	void on_tab_changed(int p_tab_index);
 };
 
-#endif

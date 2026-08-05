@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_PROMISE_REJECT_H
-#define GODOTJS_WEB_PROMISE_REJECT_H
+#pragma once
 
 #include "jsb_web_typedef.h"
 
@@ -30,4 +29,3 @@ private:
 using PromiseRejectCallback = void (*)(PromiseRejectMessage);
 } //namespace v8
 
-#endif

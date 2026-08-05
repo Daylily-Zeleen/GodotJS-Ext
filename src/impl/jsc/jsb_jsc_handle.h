@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_HANDLE_H
-#define GODOTJS_JSC_HANDLE_H
+#pragma once
 
 #include "jsb_jsc_broker.h"
 #include "jsb_jsc_data.h"
@@ -339,4 +338,3 @@ bool Local<T>::operator!=(const Global<S> &other) const {
 
 } //namespace v8
 
-#endif

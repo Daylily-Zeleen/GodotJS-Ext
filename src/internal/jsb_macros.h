@@ -1,5 +1,4 @@
-#ifndef GODOTJS_INTERNAL_MACROS_H
-#define GODOTJS_INTERNAL_MACROS_H
+#pragma once
 
 #include <jsb.config.h>
 #include <jsb_version.h>
@@ -123,4 +122,3 @@
 // helper macros to create a handle scope with a unique name
 #define JSB_HANDLE_SCOPE(isolate) v8::HandleScope JSB_CONCAT(unique_, __COUNTER__)(isolate)
 
-#endif

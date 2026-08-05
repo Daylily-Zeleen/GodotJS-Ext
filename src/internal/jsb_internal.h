@@ -1,5 +1,4 @@
-#ifndef GODOTJS_INTERNAL_H
-#define GODOTJS_INTERNAL_H
+#pragma once
 
 #include "jsb_double_buffered.h"
 #include "jsb_format.h"
@@ -26,4 +25,3 @@
 #include "jsb_variant_allocator.h"
 #include "jsb_variant_info.h"
 
-#endif

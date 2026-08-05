@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_CATCH_H
-#define GODOTJS_WEB_CATCH_H
+#pragma once
 
 #include <godot_cpp/variant/string.hpp>
 
@@ -21,4 +20,3 @@ public:
 	void get_message(godot::String *r_message, godot::String *r_stacktrace = nullptr) const;
 };
 } //namespace jsb::impl
-#endif

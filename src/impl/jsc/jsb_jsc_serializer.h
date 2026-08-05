@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_SERIALIZER_H
-#define GODOTJS_JSC_SERIALIZER_H
+#pragma once
 #include "jsb_jsc_pch.h"
 #include <vector>
 
@@ -73,4 +72,3 @@ public:
 	MaybeLocal<Value> ReadValue(Local<Context> context);
 };
 } //namespace v8
-#endif

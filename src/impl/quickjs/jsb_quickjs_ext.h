@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_EXT_H
-#define GODOTJS_QUICKJS_EXT_H
+#pragma once
 #include "jsb_quickjs_pch.h"
 
 namespace v8 {
@@ -109,4 +108,3 @@ public:
 	static JSValue NoopCallback(JSContext *_ctx, JSValueConst _this_val, int _argc, JSValueConst *_argv);
 };
 } //namespace jsb::impl
-#endif

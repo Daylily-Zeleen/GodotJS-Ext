@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_FUNCTION_H
-#define GODOTJS_QUICKJS_FUNCTION_H
+#pragma once
 #include "jsb_quickjs_function_interop.h"
 #include "jsb_quickjs_object.h"
 
@@ -36,4 +35,3 @@ private:
 };
 
 } //namespace v8
-#endif

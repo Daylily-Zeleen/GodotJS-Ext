@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_PCH_H
-#define GODOTJS_JSC_PCH_H
+#pragma once
 
 #include "../../internal/jsb_internal.h"
 #include "../../jsb.gen.h"
@@ -28,4 +27,3 @@
 
 #define JSB_JSC_LOG(Severity, Format, ...) JSB_LOG_IMPL(jsc, Severity, Format, ##__VA_ARGS__)
 
-#endif

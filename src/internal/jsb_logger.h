@@ -1,5 +1,4 @@
-#ifndef GODOTJS_LOGGER_H
-#define GODOTJS_LOGGER_H
+#pragma once
 
 #include <godot_cpp/core/print_string.hpp>
 #if !JSB_VERBOSE_ENABLED
@@ -106,4 +105,3 @@ private:
 	}
 };
 } //namespace jsb::internal
-#endif

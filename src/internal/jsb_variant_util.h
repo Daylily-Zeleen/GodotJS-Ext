@@ -1,5 +1,4 @@
-#ifndef GODOTJS_VARIANT_UTIL_H
-#define GODOTJS_VARIANT_UTIL_H
+#pragma once
 #include "jsb_internal_pch.h"
 #include "jsb_naming_util.h"
 #include "jsb_string_names.h"
@@ -167,4 +166,3 @@ struct VariantUtil {
 	static Variant structured_clone(const Variant &p_variant, ReferentialVariantMap<Variant> &p_clone_map, bool &r_valid, int p_recursion_count = 0);
 };
 } //namespace jsb::internal
-#endif

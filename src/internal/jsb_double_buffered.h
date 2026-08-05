@@ -1,5 +1,4 @@
-#ifndef GODOTJS_DOUBLE_BUFFERED_H
-#define GODOTJS_DOUBLE_BUFFERED_H
+#pragma once
 #include "jsb_internal_pch.h"
 #include "jsb_logger.h"
 #include "jsb_macros.h"
@@ -55,4 +54,3 @@ public:
 
 } //namespace jsb::internal
 
-#endif

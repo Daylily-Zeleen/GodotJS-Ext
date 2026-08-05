@@ -1,5 +1,4 @@
-#ifndef GODOTJS_PATH_UTIL_H
-#define GODOTJS_PATH_UTIL_H
+#pragma once
 
 #include <compat/jsb_compat.h>
 #include <godot_cpp/variant/string.hpp>
@@ -58,4 +57,3 @@ public:
 
 } //namespace jsb::internal
 
-#endif

@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_V8_HELPER_H
-#define GODOTJS_V8_HELPER_H
+﻿#pragma once
 
 #include "../../internal/jsb_settings.h"
 #include "jsb_v8_pch.h"
@@ -233,4 +232,3 @@ public:
 };
 } //namespace jsb::impl
 
-#endif

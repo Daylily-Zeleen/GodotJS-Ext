@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TIMER_ACTION_H
-#define GODOTJS_TIMER_ACTION_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -70,4 +69,3 @@ private:
 	v8::Global<v8::Value> *argv_;
 };
 } //namespace jsb
-#endif

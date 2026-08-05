@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_TESTS_JSB_SARRAY_H
-#define GODOTJS_TESTS_JSB_SARRAY_H
+﻿#pragma once
 
 #include "jsb_test_helpers.h"
 
@@ -112,4 +111,3 @@ TEST_CASE("[jsb.internal] SArray StringName test") {
 }
 } //namespace jsb::tests
 
-#endif

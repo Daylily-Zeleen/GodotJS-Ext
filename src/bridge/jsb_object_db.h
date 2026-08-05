@@ -1,5 +1,4 @@
-#ifndef GODOTJS_OBJECT_DB_H
-#define GODOTJS_OBJECT_DB_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 #include "jsb_bridge_pch.h"
@@ -241,4 +240,3 @@ public:
 };
 } //namespace jsb
 
-#endif

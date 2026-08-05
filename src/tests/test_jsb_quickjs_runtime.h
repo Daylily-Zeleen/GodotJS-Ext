@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TESTS_JSB_QUICKJS_RUNTIME_H
-#define GODOTJS_TESTS_JSB_QUICKJS_RUNTIME_H
+#pragma once
 
 #include "../bridge/jsb_builtins.h"
 #include "../bridge/jsb_essentials.h"
@@ -40,4 +39,3 @@ TEST_CASE("[jsb] quickjs.minimal") {
 } //namespace jsb::tests
 #endif
 
-#endif

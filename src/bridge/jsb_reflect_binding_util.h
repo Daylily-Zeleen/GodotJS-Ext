@@ -1,5 +1,4 @@
-#ifndef GODOTJS_REFLECT_BINDING_UTIL_H
-#define GODOTJS_REFLECT_BINDING_UTIL_H
+#pragma once
 #include "api_tool/api_tool_types.h"
 #include "godot_cpp/core/builtin_ptrcall.hpp"
 #include "godot_cpp/variant/variant_internal.hpp"
@@ -804,4 +803,3 @@ struct ReflectConstructorCall<Rect2i> : ReflectConstructorCallValueBinder<Rect2i
 };
 
 } //namespace jsb
-#endif

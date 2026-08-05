@@ -1,5 +1,4 @@
-#ifndef GODOTJS_BUFFER_H
-#define GODOTJS_BUFFER_H
+#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -56,4 +55,3 @@ public:
 };
 
 } //namespace jsb
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_ISOLATE_H
-#define GODOTJS_JSC_ISOLATE_H
+#pragma once
 
 #include "jsb_jsc_array_buffer.h"
 #include "jsb_jsc_handle_scope.h"
@@ -335,4 +334,3 @@ private:
 };
 } //namespace v8
 
-#endif

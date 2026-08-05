@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_HANDLE_SCOPE_H
-#define GODOTJS_QUICKJS_HANDLE_SCOPE_H
+#pragma once
 #include "jsb_quickjs_pch.h"
 
 namespace v8 {
@@ -21,4 +20,3 @@ public:
 	HandleScope &operator=(const HandleScope &) = delete;
 };
 } //namespace v8
-#endif

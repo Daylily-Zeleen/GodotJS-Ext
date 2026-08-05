@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_HELPER_H
-#define GODOTJS_JSC_HELPER_H
+#pragma once
 #include "jsb_jsc_catch.h"
 #include "jsb_jsc_context.h"
 #include "jsb_jsc_function.h"
@@ -205,4 +204,3 @@ public:
 };
 } //namespace jsb::impl
 
-#endif

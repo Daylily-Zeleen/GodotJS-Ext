@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SCRIPT_LANGUAGE_H
-#define GODOTJS_SCRIPT_LANGUAGE_H
+#pragma once
 
 #include <bridge/jsb_bridge.h>
 #include <compat/jsb_compat.h>
@@ -252,4 +251,3 @@ protected:
 	static void _bind_methods();
 };
 
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_CONTEXT_H
-#define GODOTJS_JSC_CONTEXT_H
+#pragma once
 
 #include "jsb_jsc_handle.h"
 #include "jsb_jsc_pch.h"
@@ -73,4 +72,3 @@ private:
 };
 } //namespace v8
 
-#endif

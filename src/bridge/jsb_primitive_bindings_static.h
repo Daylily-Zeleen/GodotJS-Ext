@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_PRIMITIVE_BINDINGS_STATIC_H
-#define GODOTJS_PRIMITIVE_BINDINGS_STATIC_H
+﻿#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -10,4 +9,3 @@ void register_primitive_bindings_static(Environment *p_env);
 #endif
 } //namespace jsb
 
-#endif

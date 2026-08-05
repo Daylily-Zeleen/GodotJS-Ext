@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SCRIPT_INSTANCE_H
-#define GODOTJS_SCRIPT_INSTANCE_H
+#pragma once
 
 #include "jsb_script.h"
 #include "jsb_script_language.h"
@@ -260,4 +259,3 @@ public:
 public:
 	GodotJSScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner, jsb::JSEnvironment &p_env, const jsb::ScriptClassID &p_class_id) : GodotJSScriptInstanceBase(p_script, p_owner), env_(p_env->get_ref()), class_id_(p_class_id) {}
 };
-#endif

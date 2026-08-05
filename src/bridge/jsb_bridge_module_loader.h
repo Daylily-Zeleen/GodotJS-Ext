@@ -1,5 +1,4 @@
-#ifndef GODOTJS_BRIDGE_MODULE_LOADER_H
-#define GODOTJS_BRIDGE_MODULE_LOADER_H
+#pragma once
 
 #include "jsb_module_loader.h"
 
@@ -14,4 +13,3 @@ public:
 
 } //namespace jsb
 
-#endif

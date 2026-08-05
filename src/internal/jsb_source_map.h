@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SOURCE_MAP_H
-#define GODOTJS_SOURCE_MAP_H
+#pragma once
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
@@ -65,4 +64,3 @@ private:
 	InternalLine &operator[](int p_line);
 };
 } //namespace jsb::internal
-#endif

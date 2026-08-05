@@ -1,5 +1,4 @@
-#ifndef GODOTJS_MODULE_H
-#define GODOTJS_MODULE_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -102,4 +101,3 @@ public:
 
 } //namespace jsb
 
-#endif

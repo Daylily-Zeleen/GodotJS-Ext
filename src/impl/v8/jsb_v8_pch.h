@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_V8_HEADERS_H
-#define GODOTJS_V8_HEADERS_H
+﻿#pragma once
 
 #include <libplatform/libplatform.h>
 #include <v8-inspector.h>
@@ -17,4 +16,3 @@
 
 #include "../shared/jsb_custom_field.h"
 
-#endif

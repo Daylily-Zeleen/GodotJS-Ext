@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ASYNC_MODULE_LOADER_H
-#define GODOTJS_ASYNC_MODULE_LOADER_H
+#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -98,4 +97,3 @@ public:
  * ```
  */
 } //namespace jsb
-#endif

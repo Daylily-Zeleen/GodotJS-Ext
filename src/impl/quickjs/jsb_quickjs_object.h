@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_OBJECT_H
-#define GODOTJS_QUICKJS_OBJECT_H
+#pragma once
 #include "jsb_quickjs_handle.h"
 #include "jsb_quickjs_maybe.h"
 #include "jsb_quickjs_pch.h"
@@ -88,4 +87,3 @@ public:
 };
 
 } //namespace v8
-#endif

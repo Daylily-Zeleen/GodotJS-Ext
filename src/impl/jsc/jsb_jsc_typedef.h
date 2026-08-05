@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_TYPEDEF_H
-#define GODOTJS_JSC_TYPEDEF_H
+#pragma once
 
 #include "jsb_jsc_pch.h"
 #define JSB_IMPL_VERSION_STRING "JavaScriptCore"
@@ -110,4 +109,3 @@ using AccessorNameGetterCallback = void (*)(Local<Name> property, const Property
 
 } //namespace v8
 
-#endif

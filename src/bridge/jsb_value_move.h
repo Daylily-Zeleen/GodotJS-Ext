@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_VALUE_MOVE_H
-#define GODOTJS_VALUE_MOVE_H
+﻿#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -30,4 +29,3 @@ public:
 	// Vector<String> to_strings() const;
 };
 } //namespace jsb
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_DEBUGGER_H
-#define GODOTJS_DEBUGGER_H
+#pragma once
 #include "jsb_bridge_pch.h"
 
 #if JSB_WITH_DEBUGGER
@@ -27,4 +26,3 @@ protected:
 } //namespace jsb
 #endif // JSB_WITH_DEBUGGER
 
-#endif

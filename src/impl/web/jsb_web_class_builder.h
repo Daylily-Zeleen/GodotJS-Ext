@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_CLASS_BUILDER_H
-#define GODOTJS_WEB_CLASS_BUILDER_H
+#pragma once
 #include "jsb_web_class.h"
 #include "jsb_web_function_interop.h"
 #include "jsb_web_handle_scope.h"
@@ -266,4 +265,3 @@ private:
 };
 
 } //namespace jsb::impl
-#endif
