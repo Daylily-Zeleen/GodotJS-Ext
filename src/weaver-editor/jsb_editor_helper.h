@@ -8,34 +8,31 @@ namespace godot {
 class Node;
 }
 
-class GodotJSEditorHelper : public Object
-{
-    GDCLASS(GodotJSEditorHelper, Object);
+class GodotJSEditorHelper : public Object {
+	GDCLASS(GodotJSEditorHelper, Object);
 
 private:
-    using SceneDTSGenerateStrategic = jsb::internal::SceneDTSGenerateStrategic;
+	using SceneDTSGenerateStrategic = jsb::internal::SceneDTSGenerateStrategic;
 
-    static bool _request_codegen(jsb::JSEnvironment& p_env, GodotJSScript* p_script, const Dictionary& p_request, Dictionary& p_result);
-    static StringName _get_exposed_node_class_name(const StringName& class_name);
-    static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment& p_env, Node* p_node, const godot::Node* p_root_node, Dictionary& r_unique_name_nodes);
-    static void _log_load_error(const String &p_file, const String &p_type, Error p_error);
+	static bool _request_codegen(jsb::JSEnvironment &p_env, GodotJSScript *p_script, const Dictionary &p_request, Dictionary &p_result);
+	static StringName _get_exposed_node_class_name(const StringName &class_name);
+	static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment &p_env, Node *p_node, const godot::Node *p_root_node, Dictionary &r_unique_name_nodes);
+	static void _log_load_error(const String &p_file, const String &p_type, Error p_error);
 
 protected:
-    static void _bind_methods();
+	static void _bind_methods();
 
 public:
+	virtual ~GodotJSEditorHelper() override = default;
 
-    virtual ~GodotJSEditorHelper() override = default;
+	static Dictionary get_resource_type_descriptor(const String &p_path);
+	static Dictionary get_scene_nodes(const String &p_path);
+	static void show_toast(const String &p_text, int p_severity);
 
-    static Dictionary get_resource_type_descriptor(const String &p_path);
-    static Dictionary get_scene_nodes(const String &p_path);
-    static void show_toast(const String& p_text, int p_severity);
+	static bool has_api_tool_data();
+	static void generate_api_tool_data();
 
-    static bool has_api_tool_data();
-    static void generate_api_tool_data();
-
-    static bool is_path_matchn(const PackedStringArray& p_wildcards, const String& p_path);
-
+	static bool is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
 };
 
 #endif

@@ -224,8 +224,7 @@ public:
 
 private:
 	_FORCE_INLINE_ static void add(
-			v8::Isolate *p_from_isolate, const v8::Local<v8::Symbol> &p_from_symbol,
-			v8::Isolate *p_to_isolate, const v8::Local<v8::Symbol> &p_to_symbol) {
+			v8::Isolate *p_from_isolate, const v8::Local<v8::Symbol> &p_from_symbol, v8::Isolate *p_to_isolate, const v8::Local<v8::Symbol> &p_to_symbol) {
 		SymbolGlobal &&from_symbol = SymbolGlobal(p_from_isolate, p_from_symbol);
 		SymbolGlobal &&to_symbol = SymbolGlobal(p_to_isolate, p_to_symbol);
 
@@ -901,8 +900,8 @@ protected:
 	static std::recursive_mutex lock_;
 
 protected:
-	template<typename ShadowRealmType>
-	requires std::is_convertible_v<ShadowRealmType*, ShadowRealmImpl *>
+	template <typename ShadowRealmType>
+		requires std::is_convertible_v<ShadowRealmType *, ShadowRealmImpl *>
 	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		Environment *env = Environment::wrap(isolate);
@@ -919,7 +918,7 @@ protected:
 		if (info[0]->IsObject()) {
 			v8::Local<v8::Object> obj = arg.As<v8::Object>();
 			v8::MaybeLocal<v8::Value> startup_script = obj->Get(context, jsb_name(env, startupScript));
-			v8::MaybeLocal<v8::Value> allow_import_any_module = obj->Get(context, jsb_name(env,allowImportAnyModule));
+			v8::MaybeLocal<v8::Value> allow_import_any_module = obj->Get(context, jsb_name(env, allowImportAnyModule));
 			if (startup_script.IsEmpty() || allow_import_any_module.IsEmpty()) {
 				jsb_throw(isolate, "bad param");
 			}
@@ -989,13 +988,12 @@ public:
 		return true;
 	}
 
-// protected:
+	// protected:
 	_FORCE_INLINE_ ShadowRealmID get_id() const { return id_; }
 
 	_FORCE_INLINE_ NativeObjectID get_handle() const { return handle_; }
 
 	_FORCE_INLINE_ void *get_token() const { return token_; }
-
 
 protected:
 	void finish() {
@@ -1054,8 +1052,7 @@ protected:
 	}
 
 	static v8::Local<v8::Value> _importValue(
-			Environment *env, const ShadowRealmImpl *realm, const v8::Local<v8::String> &specifier, const v8::Local<v8::String> &value_name,
-			String &r_error_msg) {
+			Environment *env, const ShadowRealmImpl *realm, const v8::Local<v8::String> &specifier, const v8::Local<v8::String> &value_name, String &r_error_msg) {
 		// MUTEX_LOCK_GUARD(lock_);
 
 		v8::Isolate *isolate = env->get_isolate();
@@ -1363,7 +1360,7 @@ public:
 		const StringName &class_name = jsb_string_name(ShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
 		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
-			p_isolate, class_name, &constructor<ShadowRealmImpl>, *class_id);
+				p_isolate, class_name, &constructor<ShadowRealmImpl>, *class_id);
 
 		class_builder.Instance().Method("evaluate", &ShadowRealmImpl::evaluate);
 		class_builder.Instance().Method("addAllowedModuleSearchPath", &ShadowRealmImpl::addAllowedModuleSearchPath);
@@ -1400,8 +1397,7 @@ public:
 	ShadowRealmMessage(ShadowRealmMessage &&) noexcept = default;
 	ShadowRealmMessage &operator=(ShadowRealmMessage &&) noexcept = default;
 
-	ShadowRealmMessage(Buffer &&p_data, std::vector<TransferData> &&p_transfers) :
-			data(std::move(p_data)), transfers(std::move(p_transfers)) {
+	ShadowRealmMessage(Buffer &&p_data, std::vector<TransferData> &&p_transfers) : data(std::move(p_data)), transfers(std::move(p_transfers)) {
 	}
 
 	const Buffer &get_data() const { return data; }
@@ -1430,7 +1426,9 @@ protected:
 		// setup 'postMessage, onmessage etc.' for ShadowRealmParent
 		JavaScriptModule *module = nullptr;
 		jsb_ensuref(env_->load(JSB_SHADOW_REALM_MODULE_NAME, &module) == OK,
-				"failed to load '%s' module in shadowRealm thread %d", JSB_SHADOW_REALM_MODULE_NAME, id);
+				"failed to load '%s' module in shadowRealm thread %d",
+				JSB_SHADOW_REALM_MODULE_NAME,
+				id);
 
 		const v8::Local<v8::Object> context_obj = v8::Object::New(isolate);
 		context_obj_handle_.Reset(isolate, context_obj);
@@ -1441,16 +1439,16 @@ protected:
 		exports->Set(context, impl::Helper::new_string(isolate, "ShadowRealmParent"), context_obj).Check();
 
 		context_obj->Set(context,
-							jsb_name(env_, postMessage),
-							v8::Function::New(context, &post_message_to_host, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
+						   jsb_name(env_, postMessage),
+						   v8::Function::New(context, &post_message_to_host, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
 				.Check();
 		context_obj->Set(context,
-							jsb_name(env_, close),
-							v8::Function::New(context, &close_from_shadow_realm, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
+						   jsb_name(env_, close),
+						   v8::Function::New(context, &close_from_shadow_realm, v8::Uint32::NewFromUnsigned(isolate, *id)).ToLocalChecked())
 				.Check();
 		context_obj->Set(context,
-							jsb_name(env_, onmessage),
-							v8::Null(isolate))
+						   jsb_name(env_, onmessage),
+						   v8::Null(isolate))
 				.Check();
 	}
 
@@ -1752,7 +1750,7 @@ public:
 		const StringName &class_name = jsb_string_name(TransferableShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
 		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
-			p_isolate, class_name, &constructor<TransferableShadowRealmImpl>, *class_id);
+				p_isolate, class_name, &constructor<TransferableShadowRealmImpl>, *class_id);
 
 		class_builder.Instance().Method("postMessage", &TransferableShadowRealmImpl::post_message);
 		class_builder.Instance().Method("onerror", &_placeholder);
@@ -1792,7 +1790,7 @@ public:
 			exports->Set(context, jsb_name(p_env, ShadowRealm), shadow_realm_class_info->clazz.Get(isolate)).Check();
 
 			const NativeClassInfoPtr transferable_shadow_realm_class_info = TransferableShadowRealmImpl::register_class(p_env, isolate, shadow_realm_class_info);
-			exports->Set(context, jsb_name(p_env, TransferableShadowRealm),transferable_shadow_realm_class_info->clazz.Get(isolate)).Check();
+			exports->Set(context, jsb_name(p_env, TransferableShadowRealm), transferable_shadow_realm_class_info->clazz.Get(isolate)).Check();
 		}
 		return true;
 	}

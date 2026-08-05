@@ -5,13 +5,13 @@
 
 // Include all test headers to register TEST_CASE macros
 #include "tests/jsb_test_helpers.h"
-#include "tests/test_jsb_sarray.h"
 #include "tests/test_jsb_any_runtime.h"
+#include "tests/test_jsb_sarray.h"
 #if JSB_WITH_QUICKJS
-#include "tests/test_jsb_quickjs_runtime.h"
+#	include "tests/test_jsb_quickjs_runtime.h"
 #endif
 #if JSB_WITH_V8
-#include "tests/test_jsb_v8_runtime.h"
+#	include "tests/test_jsb_v8_runtime.h"
 #endif
 
 // doctest will automatically collect all TEST_CASE and run them in main()

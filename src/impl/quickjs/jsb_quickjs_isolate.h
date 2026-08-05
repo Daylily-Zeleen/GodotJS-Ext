@@ -1,465 +1,435 @@
 #ifndef GODOTJS_QUICKJS_ISOLATE_H
 #define GODOTJS_QUICKJS_ISOLATE_H
 
-#include "jsb_quickjs_pch.h"
-#include "jsb_quickjs_typedef.h"
-#include "jsb_quickjs_handle_scope.h"
 #include "jsb_quickjs_array_buffer.h"
+#include "jsb_quickjs_handle_scope.h"
+#include "jsb_quickjs_pch.h"
 #include "jsb_quickjs_promise_reject.h"
+#include "jsb_quickjs_typedef.h"
 
-namespace jsb::impl
-{
-    struct WeakCallbackInfo
-    {
-        void* parameter = nullptr;
-        void* callback = nullptr;  // WeakCallbackInfo::Callback
-    };
+namespace jsb::impl {
+struct WeakCallbackInfo {
+	void *parameter = nullptr;
+	void *callback = nullptr; // WeakCallbackInfo::Callback
+};
 
-    struct InternalData
-    {
-        // Support only one callback at a time.
-        // In current version, weak callback and valuetype deleter share the same WeakCallbackInfo.
-        // Therefore, can not define a Global with SetWeak on a valuetype object.
-        WeakCallbackInfo weak;
+struct InternalData {
+	// Support only one callback at a time.
+	// In current version, weak callback and valuetype deleter share the same WeakCallbackInfo.
+	// Therefore, can not define a Global with SetWeak on a valuetype object.
+	WeakCallbackInfo weak;
 
-        uint8_t internal_field_count = 0;
-        void* internal_fields[2] = { nullptr, nullptr };
-    };
+	uint8_t internal_field_count = 0;
+	void *internal_fields[2] = { nullptr, nullptr };
+};
 
 #if INTPTR_MAX >= INT64_MAX
-    typedef internal::Index64 InternalDataID;
+typedef internal::Index64 InternalDataID;
 #elif INTPTR_MAX >= INT32_MAX
-    typedef internal::Index32 InternalDataID;
+typedef internal::Index32 InternalDataID;
 #else
-    #error "quickjs.impl does not support on the current arch"
+#	error "quickjs.impl does not support on the current arch"
 #endif
 
-    typedef internal::SArray<InternalData, InternalDataID>::Pointer InternalDataPtr;
-    typedef internal::SArray<InternalData, InternalDataID>::ConstPointer InternalDataConstPtr;
+typedef internal::SArray<InternalData, InternalDataID>::Pointer InternalDataPtr;
+typedef internal::SArray<InternalData, InternalDataID>::ConstPointer InternalDataConstPtr;
 
-    struct ConstructorData
-    {
-        v8::FunctionCallback callback = nullptr;
-        uint32_t data = 0;
-    };
+struct ConstructorData {
+	v8::FunctionCallback callback = nullptr;
+	uint32_t data = 0;
+};
 
-    // QuickJS local handles are tracked in a fixed isolate stack.
-    // Worker message extraction keeps visited object handles alive across
-    // whole-payload traversal for cycle/identity preservation, so large
-    // snapshot payloads can legitimately exceed 1024 locals.
-    enum { kMaxStackSize = 32768 };
+// QuickJS local handles are tracked in a fixed isolate stack.
+// Worker message extraction keeps visited object handles alive across
+// whole-payload traversal for cycle/identity preservation, so large
+// snapshot payloads can legitimately exceed 1024 locals.
+enum { kMaxStackSize = 32768 };
 
-    namespace StackPos
-    {
-        // reserved absolute stack positions, never released until isolate disposed
-        enum
-        {
-            Undefined,
-            Null,
-            True,
-            False,
-            EmptyString,
-            SymbolClass,
-            MapClass,
-            SetClass,
-            ProxyClass,
-            Exception,
+namespace StackPos {
+// reserved absolute stack positions, never released until isolate disposed
+enum {
+	Undefined,
+	Null,
+	True,
+	False,
+	EmptyString,
+	SymbolClass,
+	MapClass,
+	SetClass,
+	ProxyClass,
+	Exception,
 
-            Num,
-        };
-    }
+	Num,
+};
+} //namespace StackPos
 
-    struct ClassID
-    {
+struct ClassID {
 #if JSB_PREFER_QUICKJS_NG
-        // in quickjs-ng, the class id is generated and registered in the runtime,
-        // we need to init it for each runtime
-        _FORCE_INLINE_ void init(JSRuntime* rt) { id_ = 0; JS_NewClassID(rt, &id_); }
-        explicit operator JSClassID() const { return id_; }
+	// in quickjs-ng, the class id is generated and registered in the runtime,
+	// we need to init it for each runtime
+	_FORCE_INLINE_ void init(JSRuntime *rt) {
+		id_ = 0;
+		JS_NewClassID(rt, &id_);
+	}
+	explicit operator JSClassID() const { return id_; }
 
-    private:
-        JSClassID id_;
+private:
+	JSClassID id_;
 #else
-        // in quickjs, the class id is generated globally.
-        // since we use only one ClassID for UniversalClass, we can init it statically/globally in Impl.
-        _FORCE_INLINE_ void init(JSRuntime* rt) {}
-        explicit operator JSClassID() const
-        {
-            static Impl impl;
-            return impl.id_;
-        }
+	// in quickjs, the class id is generated globally.
+	// since we use only one ClassID for UniversalClass, we can init it statically/globally in Impl.
+	_FORCE_INLINE_ void init(JSRuntime *rt) {}
+	explicit operator JSClassID() const {
+		static Impl impl;
+		return impl.id_;
+	}
 
-    private:
-        struct Impl
-        {
-            Impl() { id_ = 0; JS_NewClassID(&id_); }
-            JSClassID id_;
-        };
+private:
+	struct Impl {
+		Impl() {
+			id_ = 0;
+			JS_NewClassID(&id_);
+		}
+		JSClassID id_;
+	};
 #endif
-    };
+};
 
-    struct Phantom
-    {
-        int watcher_ = 0;
-        bool alive_ = false;
-    };
+struct Phantom {
+	int watcher_ = 0;
+	bool alive_ = false;
+};
 
-    class Helper;
-    class Broker;
-}
+class Helper;
+class Broker;
+} //namespace jsb::impl
 
-namespace v8
-{
+namespace v8 {
 #if JSB_PREFER_QUICKJS_NG
-    using PromiseRejectionHandled = bool;
+using PromiseRejectionHandled = bool;
 #else
-    using PromiseRejectionHandled = JS_BOOL;
+using PromiseRejectionHandled = JS_BOOL;
 #endif
 
-    template<typename T> class Global;
-    template<typename T> class Local;
-    template<typename T> class FunctionCallbackInfo;
-    class Context;
-    class Value;
-    class String;
+template <typename T>
+class Global;
+template <typename T>
+class Local;
+template <typename T>
+class FunctionCallbackInfo;
+class Context;
+class Value;
+class String;
 
-    class Isolate
-    {
-        friend class jsb::impl::Helper;
-        friend class jsb::impl::Broker;
-        friend class Context;
-        friend struct IsolateInternalFunctions;
+class Isolate {
+	friend class jsb::impl::Helper;
+	friend class jsb::impl::Broker;
+	friend class Context;
+	friend struct IsolateInternalFunctions;
 
-        template<typename T> friend class Global;
-        template<typename T> friend class Local;
-        template<typename T> friend class FunctionCallbackInfo;
+	template <typename T>
+	friend class Global;
+	template <typename T>
+	friend class Local;
+	template <typename T>
+	friend class FunctionCallbackInfo;
 
-        friend class HandleScope;
+	friend class HandleScope;
 
-    public:
-        class Scope { public: Scope(Isolate* isolate) {} };
+public:
+	class Scope {
+	public:
+		Scope(Isolate *isolate) {}
+	};
 
-        struct CreateParams
-        {
-            ArrayBuffer::Allocator* array_buffer_allocator = nullptr;
-        };
+	struct CreateParams {
+		ArrayBuffer::Allocator *array_buffer_allocator = nullptr;
+	};
 
-        static Isolate* New(const CreateParams& params);
-        void Dispose();
+	static Isolate *New(const CreateParams &params);
+	void Dispose();
 
-        void* GetData(int index) const { jsb_check(index == 0); return embedder_data_; }
-        void SetData(int index, void* data);
-        void PerformMicrotaskCheckpoint();
-        void LowMemoryNotification();
-        void SetBatterySaverMode(bool) {}
-        void RequestGarbageCollectionForTesting(GarbageCollectionType type);
-        Local<Context> GetCurrentContext();
+	void *GetData(int index) const {
+		jsb_check(index == 0);
+		return embedder_data_;
+	}
+	void SetData(int index, void *data);
+	void PerformMicrotaskCheckpoint();
+	void LowMemoryNotification();
+	void SetBatterySaverMode(bool) {}
+	void RequestGarbageCollectionForTesting(GarbageCollectionType type);
+	Local<Context> GetCurrentContext();
 
-        void AddGCPrologueCallback(GCCallback callback) {}
-        void AddGCEpilogueCallback(GCCallback callback) {}
-        void SetPromiseRejectCallback(PromiseRejectCallback callback) { promise_reject_ = callback; }
+	void AddGCPrologueCallback(GCCallback callback) {}
+	void AddGCEpilogueCallback(GCCallback callback) {}
+	void SetPromiseRejectCallback(PromiseRejectCallback callback) { promise_reject_ = callback; }
 
-        void set_as_interruptible() { JS_SetInterruptHandler(rt_, _interrupt_callback, this); }
-        bool IsExecutionTerminating() const { return interrupted_.is_set(); }
-        void TerminateExecution() { interrupted_.set(); }
+	void set_as_interruptible() { JS_SetInterruptHandler(rt_, _interrupt_callback, this); }
+	bool IsExecutionTerminating() const { return interrupted_.is_set(); }
+	void TerminateExecution() { interrupted_.set(); }
 
-        _FORCE_INLINE_ JSRuntime* rt() const { return rt_; }
-        _FORCE_INLINE_ JSContext* ctx() const { return ctx_; }
+	_FORCE_INLINE_ JSRuntime *rt() const { return rt_; }
+	_FORCE_INLINE_ JSContext *ctx() const { return ctx_; }
 
-        jsb::impl::InternalDataConstPtr get_internal_data(const jsb::impl::InternalDataID index) const
-        {
-            return internal_data_.get_value_scoped(index);
-        }
+	jsb::impl::InternalDataConstPtr get_internal_data(const jsb::impl::InternalDataID index) const {
+		return internal_data_.get_value_scoped(index);
+	}
 
-        jsb::impl::InternalDataPtr get_internal_data(const jsb::impl::InternalDataID index)
-        {
-            return internal_data_.get_value_scoped(index);
-        }
+	jsb::impl::InternalDataPtr get_internal_data(const jsb::impl::InternalDataID index) {
+		return internal_data_.get_value_scoped(index);
+	}
 
-        jsb::impl::InternalDataID add_internal_data(const uint8_t internal_field_count)
-        {
-            return internal_data_.add(jsb::impl::InternalData {  { nullptr, nullptr }, internal_field_count, { nullptr, nullptr }});
-        }
+	jsb::impl::InternalDataID add_internal_data(const uint8_t internal_field_count) {
+		return internal_data_.add(jsb::impl::InternalData{ { nullptr, nullptr }, internal_field_count, { nullptr, nullptr } });
+	}
 
-        _FORCE_INLINE_ JSClassID get_class_id() const { return (JSClassID) class_id_; }
+	_FORCE_INLINE_ JSClassID get_class_id() const { return (JSClassID)class_id_; }
 
-        // get stack value
-        [[nodiscard]] const JSValue& stack_val(const uint16_t index) const
-        {
-            jsb_check(index < stack_pos_);
-            jsb_check(index < jsb::impl::StackPos::Num || handle_scope_);
-            return stack_[index];
-        }
+	// get stack value
+	[[nodiscard]] const JSValue &stack_val(const uint16_t index) const {
+		jsb_check(index < stack_pos_);
+		jsb_check(index < jsb::impl::StackPos::Num || handle_scope_);
+		return stack_[index];
+	}
 
-        // get stack value (duplicated)
-        [[nodiscard]] JSValue stack_dup(const uint16_t index) const
-        {
-            return JS_DupValue(ctx_, stack_val(index));
-        }
+	// get stack value (duplicated)
+	[[nodiscard]] JSValue stack_dup(const uint16_t index) const {
+		return JS_DupValue(ctx_, stack_val(index));
+	}
 
-        // write value to the stack pos 'to' without duplicating
-        void set_stack_steal(const uint16_t to, const JSValueConst value)
-        {
-            jsb_check(to < stack_pos_);
-            jsb_check(to < jsb::impl::StackPos::Num || handle_scope_);
-            JS_FreeValue(ctx_, stack_[to]);
-            stack_[to] = value;
-        }
+	// write value to the stack pos 'to' without duplicating
+	void set_stack_steal(const uint16_t to, const JSValueConst value) {
+		jsb_check(to < stack_pos_);
+		jsb_check(to < jsb::impl::StackPos::Num || handle_scope_);
+		JS_FreeValue(ctx_, stack_[to]);
+		stack_[to] = value;
+	}
 
-        // duplicate a value 'from' to the stack pos 'to'
-        void set_stack_copy(const uint16_t to, const uint16_t from)
-        {
-            jsb_check(to != from && to < stack_pos_ && from < stack_pos_);
-            jsb_check(handle_scope_ || (to < jsb::impl::StackPos::Num && from < jsb::impl::StackPos::Num));
-            JS_DupValue(ctx_, stack_[from]);
-            JS_FreeValue(ctx_, stack_[to]);
-            stack_[to] = stack_[from];
-        }
+	// duplicate a value 'from' to the stack pos 'to'
+	void set_stack_copy(const uint16_t to, const uint16_t from) {
+		jsb_check(to != from && to < stack_pos_ && from < stack_pos_);
+		jsb_check(handle_scope_ || (to < jsb::impl::StackPos::Num && from < jsb::impl::StackPos::Num));
+		JS_DupValue(ctx_, stack_[from]);
+		JS_FreeValue(ctx_, stack_[to]);
+		stack_[to] = stack_[from];
+	}
 
-        // due to the missing QuickJS API for NewSymbol/NewMap/NewSet
-        uint16_t push_symbol(JSValue description_str);
-        uint16_t push_symbol();
-        uint16_t push_map();
-        uint16_t push_set();
-        uint16_t push_proxy(JSValue target_obj, JSValue handler_obj);
+	// due to the missing QuickJS API for NewSymbol/NewMap/NewSet
+	uint16_t push_symbol(JSValue description_str);
+	uint16_t push_symbol();
+	uint16_t push_map();
+	uint16_t push_set();
+	uint16_t push_proxy(JSValue target_obj, JSValue handler_obj);
 
-        // no copy on value
-        uint16_t push_steal(const JSValue value)
-        {
-            jsb_check(handle_scope_);
-            return emplace_(value);
-        }
+	// no copy on value
+	uint16_t push_steal(const JSValue value) {
+		jsb_check(handle_scope_);
+		return emplace_(value);
+	}
 
-        // copy value
-        uint16_t push_copy(const JSValue value)
-        {
-            jsb_check(handle_scope_);
-            JS_DupValue(ctx_, value);
-            return emplace_(value);
-        }
+	// copy value
+	uint16_t push_copy(const JSValue value) {
+		jsb_check(handle_scope_);
+		JS_DupValue(ctx_, value);
+		return emplace_(value);
+	}
 
-        bool try_catch()
-        {
-            jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(stack_[jsb::impl::StackPos::Exception]), "stack.exception is dirty, TryCatch::get_message() may not be called after has_caught()?");
+	bool try_catch() {
+		jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(stack_[jsb::impl::StackPos::Exception]), "stack.exception is dirty, TryCatch::get_message() may not be called after has_caught()?");
 
-            const JSValue ex = JS_GetException(ctx_);
-            if (jsb::impl::QuickJS::IsNotErrorThrown(ex))
-            {
-                return false;
-            }
+		const JSValue ex = JS_GetException(ctx_);
+		if (jsb::impl::QuickJS::IsNotErrorThrown(ex)) {
+			return false;
+		}
 
-            stack_[jsb::impl::StackPos::Exception] = ex;
-            return true;
-        }
+		stack_[jsb::impl::StackPos::Exception] = ex;
+		return true;
+	}
 
-        // they won't be deleted until the Isolate disposed
-        int add_constructor_data(FunctionCallback callback, uint32_t data)
-        {
-            const int index = (int) constructor_data_.size();
-            constructor_data_.append({ callback, data });
-            return index;
-            // return (int) *constructor_data_.add({ callback, data });
-        }
-        jsb::impl::ConstructorData get_constructor_data(const int index) const
-        {
-            return constructor_data_[index];
-            // return constructor_data_.get_value((jsb::internal::Index32)(uint32_t) index);
-        }
+	// they won't be deleted until the Isolate disposed
+	int add_constructor_data(FunctionCallback callback, uint32_t data) {
+		const int index = (int)constructor_data_.size();
+		constructor_data_.append({ callback, data });
+		return index;
+		// return (int) *constructor_data_.add({ callback, data });
+	}
+	jsb::impl::ConstructorData get_constructor_data(const int index) const {
+		return constructor_data_[index];
+		// return constructor_data_.get_value((jsb::internal::Index32)(uint32_t) index);
+	}
 
-        ~Isolate();
+	~Isolate();
 
-        // phantom is a pointer to JSObject (internal type of quickjs).
-        // the caller must ensure that the JSObject is alive when calling add_phantom
-        _FORCE_INLINE_ void add_phantom(void* token)
-        {
-            if (!token) return;
+	// phantom is a pointer to JSObject (internal type of quickjs).
+	// the caller must ensure that the JSObject is alive when calling add_phantom
+	_FORCE_INLINE_ void add_phantom(void *token) {
+		if (!token) return;
 
-            // JSB_QUICKJS_LOG(VeryVerbose, "add phantom %s", (uintptr_t) token);
-            if (jsb::impl::Phantom* p = phantom_.getptr(token))
-            {
-                ++p->watcher_;
-                return;
-            }
+		// JSB_QUICKJS_LOG(VeryVerbose, "add phantom %s", (uintptr_t) token);
+		if (jsb::impl::Phantom *p = phantom_.getptr(token)) {
+			++p->watcher_;
+			return;
+		}
 
-            phantom_.insert(token, { 1, true });
-        }
+		phantom_.insert(token, { 1, true });
+	}
 
-        _FORCE_INLINE_ void remove_phantom(void* token)
-        {
-            if (!token) return;
+	_FORCE_INLINE_ void remove_phantom(void *token) {
+		if (!token) return;
 
-            const auto it = phantom_.find(token);
-            // JSB_QUICKJS_LOG(VeryVerbose, "remove phantom %s", (uintptr_t) token);
-            if (jsb_ensure(it) && --it->value.watcher_ == 0)
-            {
-                phantom_.remove(it);
-            }
-        }
+		const auto it = phantom_.find(token);
+		// JSB_QUICKJS_LOG(VeryVerbose, "remove phantom %s", (uintptr_t) token);
+		if (jsb_ensure(it) && --it->value.watcher_ == 0) {
+			phantom_.remove(it);
+		}
+	}
 
-        //NOTE it'll crash if `token` does not exist in phantom map
-        _FORCE_INLINE_ bool is_phantom_alive(void* token) const
-        {
-            const jsb::impl::Phantom& p = phantom_.get(token);
-            return p.alive_;
-        }
+	//NOTE it'll crash if `token` does not exist in phantom map
+	_FORCE_INLINE_ bool is_phantom_alive(void *token) const {
+		const jsb::impl::Phantom &p = phantom_.get(token);
+		return p.alive_;
+	}
 
-        void _add_reference()
-        {
-            jsb_check(ref_count_ > 0);
-            ++ref_count_;
-            JSB_QUICKJS_LOG(VeryVerbose, "_add_reference %s", ref_count_);
-        }
+	void _add_reference() {
+		jsb_check(ref_count_ > 0);
+		++ref_count_;
+		JSB_QUICKJS_LOG(VeryVerbose, "_add_reference %s", ref_count_);
+	}
 
-        void _remove_reference()
-        {
-            jsb_check(ref_count_ > 0);
-            if (--ref_count_ == 0)
-            {
-                _release();
-            }
-            JSB_QUICKJS_LOG(VeryVerbose, "_remove_reference %s", ref_count_);
-        }
+	void _remove_reference() {
+		jsb_check(ref_count_ > 0);
+		if (--ref_count_ == 0) {
+			_release();
+		}
+		JSB_QUICKJS_LOG(VeryVerbose, "_remove_reference %s", ref_count_);
+	}
 
-        template<int N>
-        _FORCE_INLINE_ void throw_error(const char (&message)[N])
-        {
-            // the value from GetException() is not deleted properly here because we directly crash the program
-            jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
-            JS_ThrowInternalError(ctx_, "%s", message);
-        }
+	template <int N>
+	_FORCE_INLINE_ void throw_error(const char (&message)[N]) {
+		// the value from GetException() is not deleted properly here because we directly crash the program
+		jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
+		JS_ThrowInternalError(ctx_, "%s", message);
+	}
 
-        _FORCE_INLINE_ void throw_error(const ::String& message)
-        {
-            // the value from GetException() is not deleted properly here because we directly crash the program
-            jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
-            const CharString str8 = message.utf8();
-            JS_ThrowInternalError(ctx_, "%s", str8.get_data());
-        }
+	_FORCE_INLINE_ void throw_error(const ::String &message) {
+		// the value from GetException() is not deleted properly here because we directly crash the program
+		jsb_checkf(jsb::impl::QuickJS::IsNotErrorThrown(JS_GetException(ctx_)), "overwriting another error");
+		const CharString str8 = message.utf8();
+		JS_ThrowInternalError(ctx_, "%s", str8.get_data());
+	}
 
-        _FORCE_INLINE_ bool is_error_thrown() const
-        {
-            const JSValue ex = JS_GetException(ctx_);
-            if (jsb::impl::QuickJS::IsNotErrorThrown(ex)) return false;
-            // put it back since we just check it without handling
-            JS_Throw(ctx_, ex);
-            return true;
-        }
+	_FORCE_INLINE_ bool is_error_thrown() const {
+		const JSValue ex = JS_GetException(ctx_);
+		if (jsb::impl::QuickJS::IsNotErrorThrown(ex)) return false;
+		// put it back since we just check it without handling
+		JS_Throw(ctx_, ex);
+		return true;
+	}
 
-        Local<Value> ThrowException(Local<Value> exception)
-        {
-            if (exception.IsEmpty())
-            {
-                return Local<Value>(Data(this, jsb::impl::StackPos::Undefined));
-            }
-            set_stack_steal(jsb::impl::StackPos::Exception, JS_DupValue(ctx_, (JSValue) exception));
-            JS_Throw(ctx_, JS_DupValue(ctx_, (JSValue) exception));
-            return exception;
-        }
+	Local<Value> ThrowException(Local<Value> exception) {
+		if (exception.IsEmpty()) {
+			return Local<Value>(Data(this, jsb::impl::StackPos::Undefined));
+		}
+		set_stack_steal(jsb::impl::StackPos::Exception, JS_DupValue(ctx_, (JSValue)exception));
+		JS_Throw(ctx_, JS_DupValue(ctx_, (JSValue)exception));
+		return exception;
+	}
 
-        template <int N>
-        Local<Value> ThrowError(const char (&message)[N])
-        {
-            const JSValue message_val = JS_NewStringLen(ctx_, message, N - 1);
-            return ThrowError(Local<String>(Data(this, push_steal(message_val))));
-        }
+	template <int N>
+	Local<Value> ThrowError(const char (&message)[N]) {
+		const JSValue message_val = JS_NewStringLen(ctx_, message, N - 1);
+		return ThrowError(Local<String>(Data(this, push_steal(message_val))));
+	}
 
-        Local<Value> ThrowError(Local<String> message)
-        {
-            JSValue error = JS_NewError(ctx_);
-            if (JS_IsException(error))
-            {
-                jsb::impl::QuickJS::MarkExceptionAsTrivial(ctx_);
-                return Local<Value>(Data(this, jsb::impl::StackPos::Undefined));
-            }
-            jsb_ensure(JS_SetProperty(ctx_, error, jsb::impl::JS_ATOM_message, JS_DupValue(ctx_, (JSValue) message)) >= 0);
-            set_stack_steal(jsb::impl::StackPos::Exception, JS_DupValue(ctx_, error));
-            JS_Throw(ctx_, error);
-            return Local<Value>(Data(this, jsb::impl::StackPos::Exception));
-        }
+	Local<Value> ThrowError(Local<String> message) {
+		JSValue error = JS_NewError(ctx_);
+		if (JS_IsException(error)) {
+			jsb::impl::QuickJS::MarkExceptionAsTrivial(ctx_);
+			return Local<Value>(Data(this, jsb::impl::StackPos::Undefined));
+		}
+		jsb_ensure(JS_SetProperty(ctx_, error, jsb::impl::JS_ATOM_message, JS_DupValue(ctx_, (JSValue)message)) >= 0);
+		set_stack_steal(jsb::impl::StackPos::Exception, JS_DupValue(ctx_, error));
+		JS_Throw(ctx_, error);
+		return Local<Value>(Data(this, jsb::impl::StackPos::Exception));
+	}
 
-    private:
-        Isolate();
+private:
+	Isolate();
 
-        void _release();
+	void _release();
 
-        // [internal]
-        bool _has_phantom(void* token) const { return phantom_.has(token); }
+	// [internal]
+	bool _has_phantom(void *token) const { return phantom_.has(token); }
 
-        // [internal]
-        _FORCE_INLINE_ void _invalidate_phantom(void* token)
-        {
-            if (jsb::impl::Phantom* p = phantom_.getptr(token))
-            {
-                p->alive_ = false;
-            }
-        }
+	// [internal]
+	_FORCE_INLINE_ void _invalidate_phantom(void *token) {
+		if (jsb::impl::Phantom *p = phantom_.getptr(token)) {
+			p->alive_ = false;
+		}
+	}
 
-        // push value to the top of stack (without ref-counting)
-        uint16_t emplace_(JSValue value)
-        {
-            jsb_check(stack_pos_ < jsb::impl::kMaxStackSize);
-            jsb_check(!JS_IsException(value));
+	// push value to the top of stack (without ref-counting)
+	uint16_t emplace_(JSValue value) {
+		jsb_check(stack_pos_ < jsb::impl::kMaxStackSize);
+		jsb_check(!JS_IsException(value));
 
-            const uint16_t pos = stack_pos_++;
-            stack_[pos] = value;
-            return pos;
-        }
+		const uint16_t pos = stack_pos_++;
+		stack_[pos] = value;
+		return pos;
+	}
 
-        void swap_free_queue()
-        {
-            jsb_check(!swapping_free_queue_);
-            Vector<JSValue>& queue = using_front_free_queue_ ? front_free_queue_ : back_free_queue_;
-            if (queue.is_empty()) return;
+	void swap_free_queue() {
+		jsb_check(!swapping_free_queue_);
+		Vector<JSValue> &queue = using_front_free_queue_ ? front_free_queue_ : back_free_queue_;
+		if (queue.is_empty()) return;
 
-            swapping_free_queue_ = true;
-            using_front_free_queue_ = !using_front_free_queue_;
-            for (const JSValue& value : queue)
-            {
-                JS_FreeValue(ctx_, value);
-            }
-            queue.clear();
-            swapping_free_queue_ = false;
-        }
+		swapping_free_queue_ = true;
+		using_front_free_queue_ = !using_front_free_queue_;
+		for (const JSValue &value : queue) {
+			JS_FreeValue(ctx_, value);
+		}
+		queue.clear();
+		swapping_free_queue_ = false;
+	}
 
-        // delayed
-        _FORCE_INLINE_ void free_value(JSValue value)
-        {
-            jsb_check(!disposed_);
-            if (using_front_free_queue_) front_free_queue_.append(value);
-            else back_free_queue_.append(value);
-        }
+	// delayed
+	_FORCE_INLINE_ void free_value(JSValue value) {
+		jsb_check(!disposed_);
+		if (using_front_free_queue_) front_free_queue_.append(value);
+		else back_free_queue_.append(value);
+	}
 
-        static void _finalizer(JSRuntime* rt, JSValue val);
-        static void _promise_rejection_tracker(JSContext* ctx, JSValueConst promise, JSValueConst reason, PromiseRejectionHandled is_handled, void* user_data);
-        static int _interrupt_callback(JSRuntime* rt, void* data) { return ((Isolate*) data)->interrupted_.is_set(); }
+	static void _finalizer(JSRuntime *rt, JSValue val);
+	static void _promise_rejection_tracker(JSContext *ctx, JSValueConst promise, JSValueConst reason, PromiseRejectionHandled is_handled, void *user_data);
+	static int _interrupt_callback(JSRuntime *rt, void *data) { return ((Isolate *)data)->interrupted_.is_set(); }
 
-        jsb::impl::ClassID class_id_;
-        uint32_t ref_count_;
-        bool disposed_;
-        JSRuntime* rt_;
-        JSContext* ctx_;
-        HandleScope* handle_scope_;
+	jsb::impl::ClassID class_id_;
+	uint32_t ref_count_;
+	bool disposed_;
+	JSRuntime *rt_;
+	JSContext *ctx_;
+	HandleScope *handle_scope_;
 
-        PromiseRejectCallback promise_reject_;
+	PromiseRejectCallback promise_reject_;
 
-        jsb::internal::SArray<jsb::impl::InternalData, jsb::impl::InternalDataID> internal_data_;
-        Vector<jsb::impl::ConstructorData> constructor_data_;
-        HashMap<void*, jsb::impl::Phantom> phantom_;
+	jsb::internal::SArray<jsb::impl::InternalData, jsb::impl::InternalDataID> internal_data_;
+	Vector<jsb::impl::ConstructorData> constructor_data_;
+	HashMap<void *, jsb::impl::Phantom> phantom_;
 
-        // a queue for postponing the JS_FreeValue
-        Vector<JSValue> front_free_queue_;
-        Vector<JSValue> back_free_queue_;
-        bool using_front_free_queue_ = true;
-        bool swapping_free_queue_ = false;
+	// a queue for postponing the JS_FreeValue
+	Vector<JSValue> front_free_queue_;
+	Vector<JSValue> back_free_queue_;
+	bool using_front_free_queue_ = true;
+	bool swapping_free_queue_ = false;
 
-        uint16_t stack_pos_;
-        JSValue stack_[jsb::impl::kMaxStackSize];
+	uint16_t stack_pos_;
+	JSValue stack_[jsb::impl::kMaxStackSize];
 
-        void* embedder_data_ = nullptr;
-        void* context_embedder_data_ = nullptr;
+	void *embedder_data_ = nullptr;
+	void *context_embedder_data_ = nullptr;
 
-        SafeFlag interrupted_ = SafeFlag(false);
-    };
-}
+	SafeFlag interrupted_ = SafeFlag(false);
+};
+} //namespace v8
 
 #endif

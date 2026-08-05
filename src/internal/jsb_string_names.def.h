@@ -1,5 +1,5 @@
 #ifndef DEF
-#define DEF(x)
+#	define DEF(x)
 #endif
 
 // ONLY FREQUENTLY USED NAMES SHOULD BE LISTED HERE

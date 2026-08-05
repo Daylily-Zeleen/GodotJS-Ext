@@ -33,12 +33,11 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/core/math_funcs_binary.hpp>
 #include <godot_cpp/core/memory.hpp>
-#include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/templates/spin_lock.hpp>
-
+#include <godot_cpp/variant/string.hpp>
 
 #include <type_traits>
-#include <typeinfo>  // IWYU pragma: keep // Used in macro.
+#include <typeinfo> // IWYU pragma: keep // Used in macro.
 
 template <typename T, bool thread_safe = false, uint32_t DEFAULT_PAGE_SIZE = 4096>
 class PagedAllocator {

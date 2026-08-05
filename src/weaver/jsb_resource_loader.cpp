@@ -1,188 +1,172 @@
 #include "jsb_resource_loader.h"
 
-#include "jsb_script_language.h"
 #include "jsb_script.h"
+#include "jsb_script_language.h"
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/resource_uid.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/resource_uid.hpp>
 
-
-bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const String& p_path)
-{
+bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const String &p_path) {
 #if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
-    return false
+	return false
 #else
-    static const auto suffixes = []() {
-        constexpr const char *extensions[] {
-#   if JSB_USE_TYPESCRIPT
-            JSB_TYPESCRIPT_EXT,
-#   endif // JSB_USE_TYPESCRIPT
-            JSB_JAVASCRIPT_EXT,
-            JSB_COMMONJS_EXT,
-            JSB_MODULE_EXT,
-        };
-        constexpr const char *keywords[] {
-#   if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-            ".test.",
-#   endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-#   if JSB_EXCLUDE_WORKER_RES_SCRIPTS
-            ".worker.",
-#   endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
-#   if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
-            ".realm.",
-#   endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS 
-        };
+	static const auto suffixes = []() {
+		constexpr const char *extensions[]{
+#	if JSB_USE_TYPESCRIPT
+			JSB_TYPESCRIPT_EXT,
+#	endif // JSB_USE_TYPESCRIPT
+			JSB_JAVASCRIPT_EXT,
+			JSB_COMMONJS_EXT,
+			JSB_MODULE_EXT,
+		};
+		constexpr const char *keywords[]{
+#	if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+			".test.",
+#	endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+#	if JSB_EXCLUDE_WORKER_RES_SCRIPTS
+			".worker.",
+#	endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
+#	if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+			".realm.",
+#	endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+		};
 
-        std::array<String, std::size(extensions) * std::size(keywords)> ret;
-        size_t idx = 0;
-        for (const String & ext: extensions) {
-            for (const String& keyword : keywords) {
-                ret[idx] = keyword + ext;
-                idx ++;
-            }
-        }
+		std::array<String, std::size(extensions) * std::size(keywords)> ret;
+		size_t idx = 0;
+		for (const String &ext : extensions) {
+			for (const String &keyword : keywords) {
+				ret[idx] = keyword + ext;
+				idx++;
+			}
+		}
 
-        return ret;
-    }();
+		return ret;
+	}();
 
-    for (const String &suffix : suffixes) {
-        if (p_path.ends_with(suffix)) {
-            return true;
-        }
-    }
-    return false;
+	for (const String &suffix : suffixes) {
+		if (p_path.ends_with(suffix)) {
+			return true;
+		}
+	}
+	return false;
 #endif
 }
 
 ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
 #if JSB_USE_TYPESCRIPT
-    recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
+	recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
 #endif
-    recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
-    recognized_extensions_.push_back(JSB_COMMONJS_EXT);
-    recognized_extensions_.push_back(JSB_MODULE_EXT);
+	recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
+	recognized_extensions_.push_back(JSB_COMMONJS_EXT);
+	recognized_extensions_.push_back(JSB_MODULE_EXT);
 }
 
-bool ResourceFormatLoaderGodotJSScript::_recognize_path(const String &p_path, const StringName &p_type) const
-{
-    if (!p_type.is_empty() && p_type != Script::get_class_static() && p_type != GodotJSScript::get_class_static()) return false;
-    const String ext = p_path.get_extension().to_lower();
-    return recognized_extensions_.has(ext)  && !is_not_godot_resource_script(p_path);
+bool ResourceFormatLoaderGodotJSScript::_recognize_path(const String &p_path, const StringName &p_type) const {
+	if (!p_type.is_empty() && p_type != Script::get_class_static() && p_type != GodotJSScript::get_class_static()) return false;
+	const String ext = p_path.get_extension().to_lower();
+	return recognized_extensions_.has(ext) && !is_not_godot_resource_script(p_path);
 }
 
 String ResourceFormatLoaderGodotJSScript::_get_resource_type(const String &p_path) const {
-    if (const String ext = p_path.get_extension().to_lower();
-            recognized_extensions_.has(ext) && !is_not_godot_resource_script(p_path)) {
-        return jsb_typename(GodotJSScript);
-    }
-    return "";
+	if (const String ext = p_path.get_extension().to_lower();
+			recognized_extensions_.has(ext) && !is_not_godot_resource_script(p_path)) {
+		return jsb_typename(GodotJSScript);
+	}
+	return "";
 }
 
-Variant ResourceFormatLoaderGodotJSScript::_load(const String& p_path, const String& p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const
-{
-    JSB_BENCHMARK_SCOPE(ResourceFormatLoaderGodotJSScript, _load);
+Variant ResourceFormatLoaderGodotJSScript::_load(const String &p_path, const String &p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const {
+	JSB_BENCHMARK_SCOPE(ResourceFormatLoaderGodotJSScript, _load);
 
-    // {
-    //     //TODO a dirty but approaching solution for hot-reloading
-    //     std::lock_guard lock(GodotJSScriptLanguage::singleton_->mutex_);
-    //     SelfList<GodotJSScript> *elem = GodotJSScriptLanguage::singleton_->script_list_.first();
-    //     while (elem)
-    //     {
-    //         //TODO need to handle duplicate scripts if GodotJSScript is implemented as thread-wide (not implemented yet)
-    //         if (elem->self()->get_path() == p_path)
-    //         {
-    //             if (p_cache_mode != CACHE_MODE_REUSE)
-    //             {
-    //                 elem->self()->load_source_code_from_path();
-    //             }
-    //
-    //             //TODO temporarily ignore it, we are trying to implement scripts in worker threads which may be better not to reuse an existing script reference
-    //             if (p_cache_mode == CACHE_MODE_REUSE)
-    //             {
-    //                 return Ref(elem->self());
-    //             }
-    //         }
-    //         elem = elem->next();
-    //     }
-    // }
+	// {
+	//     //TODO a dirty but approaching solution for hot-reloading
+	//     std::lock_guard lock(GodotJSScriptLanguage::singleton_->mutex_);
+	//     SelfList<GodotJSScript> *elem = GodotJSScriptLanguage::singleton_->script_list_.first();
+	//     while (elem)
+	//     {
+	//         //TODO need to handle duplicate scripts if GodotJSScript is implemented as thread-wide (not implemented yet)
+	//         if (elem->self()->get_path() == p_path)
+	//         {
+	//             if (p_cache_mode != CACHE_MODE_REUSE)
+	//             {
+	//                 elem->self()->load_source_code_from_path();
+	//             }
+	//
+	//             //TODO temporarily ignore it, we are trying to implement scripts in worker threads which may be better not to reuse an existing script reference
+	//             if (p_cache_mode == CACHE_MODE_REUSE)
+	//             {
+	//                 return Ref(elem->self());
+	//             }
+	//         }
+	//         elem = elem->next();
+	//     }
+	// }
 
 #ifdef TOOLS_ENABLED
-    // only check the source file in editor mode since .ts source code is not required in runtime mode
-    if (Engine::get_singleton()->is_editor_hint() && !FileAccess::file_exists(p_path))
-    {
-        return Variant();
-    }
+	// only check the source file in editor mode since .ts source code is not required in runtime mode
+	if (Engine::get_singleton()->is_editor_hint() && !FileAccess::file_exists(p_path)) {
+		return Variant();
+	}
 #endif
-    jsb_check(p_path.ends_with(JSB_TYPESCRIPT_EXT) || p_path.ends_with(JSB_JAVASCRIPT_EXT) || p_path.ends_with(JSB_COMMONJS_EXT) || p_path.ends_with(JSB_MODULE_EXT));
+	jsb_check(p_path.ends_with(JSB_TYPESCRIPT_EXT) || p_path.ends_with(JSB_JAVASCRIPT_EXT) || p_path.ends_with(JSB_COMMONJS_EXT) || p_path.ends_with(JSB_MODULE_EXT));
 
-    // in case `node_modules` is not ignored (which is not expected though), we do not want any GodotJSScript to be generated from it.
-    if (p_path.begins_with("res://node_modules"))
-    {
-        return Variant();
-    }
+	// in case `node_modules` is not ignored (which is not expected though), we do not want any GodotJSScript to be generated from it.
+	if (p_path.begins_with("res://node_modules")) {
+		return Variant();
+	}
 
-    // ignore DTS files, or other non-Godot resource scripts.
-    if (p_path.ends_with(String(".") + JSB_DTS_EXT) || is_not_godot_resource_script(p_path))
-    {
-        JSB_LOG(VeryVerbose, "excluding script resource %s", p_path);
-        return Variant();
-    }
-    JSB_LOG(VeryVerbose, "loading script resource %s on thread %s", p_path, uitos(ThreadEx::get_caller_id()));
+	// ignore DTS files, or other non-Godot resource scripts.
+	if (p_path.ends_with(String(".") + JSB_DTS_EXT) || is_not_godot_resource_script(p_path)) {
+		JSB_LOG(VeryVerbose, "excluding script resource %s", p_path);
+		return Variant();
+	}
+	JSB_LOG(VeryVerbose, "loading script resource %s on thread %s", p_path, uitos(ThreadEx::get_caller_id()));
 
-    // we can't immediately compile the script here since it's possibly loaded from resource loading threads
-    switch (static_cast<ResourceLoader::CacheMode>(p_cache_mode))
-    {
-        case ResourceLoader::CACHE_MODE_IGNORE:
-        case ResourceLoader::CACHE_MODE_IGNORE_DEEP:
-            // the ResourceCache warning is really annoying,
-            // we just ignore it here and let it behave like REUSE.
-            // seems safe because GodotJSScript is stateless now (but must get script class info in a proper thread).
-        case ResourceLoader::CACHE_MODE_REUSE:
-            {
-                if (const Ref<Resource> existing = ResourceLoader::get_singleton()->get_cached_ref(p_path);
-                    existing.is_valid())
-                {
-                    jsb_check(existing->get_class() == jsb_typename(GodotJSScript));
-                    jsb_check(existing->get_path() == p_path);
-                    return existing;
-                }
-            }
-            break;
-        case ResourceLoader::CACHE_MODE_REPLACE:
-        case ResourceLoader::CACHE_MODE_REPLACE_DEEP:
-            break;
-    }
+	// we can't immediately compile the script here since it's possibly loaded from resource loading threads
+	switch (static_cast<ResourceLoader::CacheMode>(p_cache_mode)) {
+		case ResourceLoader::CACHE_MODE_IGNORE:
+		case ResourceLoader::CACHE_MODE_IGNORE_DEEP:
+			// the ResourceCache warning is really annoying,
+			// we just ignore it here and let it behave like REUSE.
+			// seems safe because GodotJSScript is stateless now (but must get script class info in a proper thread).
+		case ResourceLoader::CACHE_MODE_REUSE: {
+			if (const Ref<Resource> existing = ResourceLoader::get_singleton()->get_cached_ref(p_path);
+					existing.is_valid()) {
+				jsb_check(existing->get_class() == jsb_typename(GodotJSScript));
+				jsb_check(existing->get_path() == p_path);
+				return existing;
+			}
+		} break;
+		case ResourceLoader::CACHE_MODE_REPLACE:
+		case ResourceLoader::CACHE_MODE_REPLACE_DEEP:
+			break;
+	}
 
-    Ref<GodotJSScript> spt = Ref(memnew(GodotJSScript));
-    const Error err = spt->load_source_code(p_path);
-    if (err != OK)
-    {
-        JSB_LOG(Error, "failed to load script resource %s", p_path);
-        return Variant();
-    }
-    spt->set_path(p_path);
-    return spt;
+	Ref<GodotJSScript> spt = Ref(memnew(GodotJSScript));
+	const Error err = spt->load_source_code(p_path);
+	if (err != OK) {
+		JSB_LOG(Error, "failed to load script resource %s", p_path);
+		return Variant();
+	}
+	spt->set_path(p_path);
+	return spt;
 }
 
-PackedStringArray ResourceFormatLoaderGodotJSScript::_get_recognized_extensions() const
-{
-    return PackedStringArray(recognized_extensions_); // Ensure return a copy.
+PackedStringArray ResourceFormatLoaderGodotJSScript::_get_recognized_extensions() const {
+	return PackedStringArray(recognized_extensions_); // Ensure return a copy.
 }
 
-bool ResourceFormatLoaderGodotJSScript::_handles_type(const StringName& p_type) const
-{
-    return p_type == StringName("Script") || p_type == StringName(jsb_typename(GodotJSScript));
+bool ResourceFormatLoaderGodotJSScript::_handles_type(const StringName &p_type) const {
+	return p_type == StringName("Script") || p_type == StringName(jsb_typename(GodotJSScript));
 }
 
-PackedStringArray ResourceFormatLoaderGodotJSScript::_get_dependencies(const String& p_path, bool p_add_types) const
-{
-    //TODO
-    return {};
+PackedStringArray ResourceFormatLoaderGodotJSScript::_get_dependencies(const String &p_path, bool p_add_types) const {
+	//TODO
+	return {};
 }
-
 
 #define UID_COMMENT_PREFIX "// uid://"
 static int64_t extract_uid_from_line(const String &p_line) {

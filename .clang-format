@@ -15,14 +15,14 @@ AlignAfterOpenBracket: DontAlign
 AlignOperands:   DontAlign
 AlignTrailingComments: false
 # AllowAllArgumentsOnNextLine: true
-AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
 # AllowShortEnumsOnASingleLine: true
 # AllowShortBlocksOnASingleLine: Never
 # AllowShortCaseLabelsOnASingleLine: false
 # AllowShortFunctionsOnASingleLine: All
 # AllowShortLambdasOnASingleLine: All
-# AllowShortIfStatementsOnASingleLine: Never
-# AllowShortLoopsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
 # AlwaysBreakAfterDefinitionReturnType: None
 # AlwaysBreakAfterReturnType: None
 # AlwaysBreakBeforeMultilineStrings: false
@@ -30,7 +30,7 @@ AllowAllParametersOfDeclarationOnNextLine: false
 # AttributeMacros:
 #   - __capability
 # BinPackArguments: true
-# BinPackParameters: true
+BinPackParameters: false
 # BraceWrapping:
 #   AfterCaseLabel:  false
 #   AfterClass:      false
@@ -50,14 +50,14 @@ AllowAllParametersOfDeclarationOnNextLine: false
 #   SplitEmptyFunction: true
 #   SplitEmptyRecord: true
 #   SplitEmptyNamespace: true
-# BreakBeforeBinaryOperators: None
+BreakBeforeBinaryOperators: NonAssignment
 # BreakBeforeConceptDeclarations: true
 # BreakBeforeBraces: Attach
 # BreakBeforeInheritanceComma: false
 # BreakInheritanceList: BeforeColon
 # BreakBeforeTernaryOperators: true
 # BreakConstructorInitializersBeforeComma: false
-BreakConstructorInitializers: AfterColon
+BreakConstructorInitializers: BeforeComma
 # BreakStringLiterals: true
 ColumnLimit:     0
 # CommentPragmas:  '^ IWYU pragma:'
@@ -72,7 +72,7 @@ Cpp11BracedListStyle: false
 # EmptyLineAfterAccessModifier: Never
 # EmptyLineBeforeAccessModifier: LogicalBlock
 # ExperimentalAutoDetectBinPacking: false
-# PackConstructorInitializers: BinPack
+PackConstructorInitializers: NextLine
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 # AllowAllConstructorInitializersOnNextLine: true
 # FixNamespaceComments: true
@@ -96,7 +96,7 @@ IncludeCategories:
 IndentCaseLabels: true
 # IndentCaseBlocks: false
 # IndentGotoLabels: true
-# IndentPPDirectives: None
+IndentPPDirectives: AfterHash
 # IndentExternBlock: AfterExternBlock
 # IndentRequires:  false
 IndentWidth:     4
@@ -105,7 +105,7 @@ IndentWidth:     4
 # JavaScriptQuotes: Leave
 # JavaScriptWrapImports: true
 KeepEmptyLinesAtTheStartOfBlocks: false
-# LambdaBodyIndentation: Signature
+LambdaBodyIndentation: OuterScope
 # MacroBlockBegin: ''
 # MacroBlockEnd:   ''
 # MaxEmptyLinesToKeep: 1
@@ -183,6 +183,11 @@ UseTab:          Always
 ### C++ specific config ###
 Language:        Cpp
 Standard:        c++20
+# NOTE: clang-format >= 18 does NOT inherit `AlignAfterOpenBracket` / `BinPackArguments`
+#       from the base (language-agnostic) document into per-language documents.
+#       They are silently reset to LLVM defaults (Align / true), so we must re-declare them here.
+AlignAfterOpenBracket: DontAlign
+BinPackArguments: false
 ---
 ### ObjC specific config ###
 Language:        ObjC

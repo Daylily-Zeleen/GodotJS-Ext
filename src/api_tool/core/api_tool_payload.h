@@ -172,4 +172,4 @@ private:
 	}
 };
 
-} //namespace api_tool
+} //namespace api_tool::internal

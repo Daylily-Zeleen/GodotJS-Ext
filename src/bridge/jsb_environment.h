@@ -1,27 +1,27 @@
 #ifndef GODOTJS_ENVIRONMENT_H
 #define GODOTJS_ENVIRONMENT_H
 
+#include "../internal/jsb_internal.h"
+#include "jsb_array_buffer_allocator.h"
+#include "jsb_async_module_manager.h"
 #include "jsb_bridge_pch.h"
-#include "jsb_module.h"
-#include "jsb_message.h"
-#include "jsb_object_db.h"
-#include "jsb_debugger.h"
 #include "jsb_class_info.h"
-#include "jsb_value_move.h"
-#include "jsb_statistics.h"
-#include "jsb_timer_tags.h"
-#include "jsb_timer_action.h"
-#include "jsb_object_handle.h"
+#include "jsb_debugger.h"
+#include "jsb_message.h"
+#include "jsb_module.h"
 #include "jsb_module_loader.h"
 #include "jsb_module_resolver.h"
-#include "jsb_async_module_manager.h"
+#include "jsb_object_db.h"
+#include "jsb_object_handle.h"
+#include "jsb_statistics.h"
 #include "jsb_string_name_cache.h"
-#include "jsb_array_buffer_allocator.h"
+#include "jsb_timer_action.h"
+#include "jsb_timer_tags.h"
 #include "jsb_type_convert.h"
-#include "../internal/jsb_internal.h"
+#include "jsb_value_move.h"
 
 #if JSB_WITH_DEBUGGER
-#include <future>
+#	include <future>
 #endif // JSB_WITH_DEBUGGER
 
 #include <compat/thread.h>
@@ -32,958 +32,880 @@
 // get v8 symbol value from pre-allocated symbol registry
 #define jsb_symbol(env, name) (env)->get_symbol(Symbols::name)
 
-namespace jsb
-{
-    enum : uint32_t { kIsolateEmbedderData = 0, };
-    enum : uint32_t { kContextEmbedderData = 0, };
+namespace jsb {
+enum : uint32_t { kIsolateEmbedderData = 0,
+};
+enum : uint32_t { kContextEmbedderData = 0,
+};
 
-    // pre-allocated Symbols which usually used as key of Object to store some hidden info on it.
-    namespace Symbols
-    {
-        enum Type : uint8_t
-        {
-            ClassId,
-            ClassSignals,            // array of all @signal annotations
-            ClassProperties,         // array of all @export annotations
-            ClassImplicitReadyFuncs, // array of all @onready annotations
-            ClassToolScript,         // @tool annotated scripts
-            ClassIcon,               // @icon
-            ClassRPCConfig,          // @rpc annotation for rpc functions
-            Doc,
-            MemberDocMap,
+// pre-allocated Symbols which usually used as key of Object to store some hidden info on it.
+namespace Symbols {
+enum Type : uint8_t {
+	ClassId,
+	ClassSignals, // array of all @signal annotations
+	ClassProperties, // array of all @export annotations
+	ClassImplicitReadyFuncs, // array of all @onready annotations
+	ClassToolScript, // @tool annotated scripts
+	ClassIcon, // @icon
+	ClassRPCConfig, // @rpc annotation for rpc functions
+	Doc,
+	MemberDocMap,
 
-            ClassModuleId,           // provides quick access from a class' constructor to its corresponding module ID
-            ConstructorBindObject,   // indicates a constructor invocation is binding to an existing Godot native object
+	ClassModuleId, // provides quick access from a class' constructor to its corresponding module ID
+	ConstructorBindObject, // indicates a constructor invocation is binding to an existing Godot native object
 
-            // Exposed as properties on the `godot` module
-            FloatType,
-            IntegerType,
-            ProxyTarget,
+	// Exposed as properties on the `godot` module
+	FloatType,
+	IntegerType,
+	ProxyTarget,
 
-            kNum,
-        };
-    }
+	kNum,
+};
+}
 
-    class Environment;
+class Environment;
 
-    class EnvironmentRef {
-        struct ControlBlock{
-            Environment *env;
-#       if JSB_THREADING
-            std::atomic<uint32_t> refcount;
-#       else // !JSB_THREADING
-            uint32_t refcount;
-#       endif // JSB_THREADING
-        } *control_block;
+class EnvironmentRef {
+	struct ControlBlock {
+		Environment *env;
+#if JSB_THREADING
+		std::atomic<uint32_t> refcount;
+#else // !JSB_THREADING
+		uint32_t refcount;
+#endif // JSB_THREADING
+	} *control_block;
 
-        EnvironmentRef(Environment *p_env) : control_block{memnew(ControlBlock(p_env, 1))} {}
-        void reset() { control_block->env = nullptr; }
+	EnvironmentRef(Environment *p_env) : control_block{ memnew(ControlBlock(p_env, 1)) } {}
+	void reset() { control_block->env = nullptr; }
 
-        friend class Environment;
-    public:
-        EnvironmentRef(const EnvironmentRef& p_other) {
-            control_block = p_other.control_block;
-            jsb_ensure(control_block);
-            control_block->refcount++;
-        }
-        ~EnvironmentRef() {
-            jsb_ensure(control_block);
-            if (--control_block->refcount == 0) {
-                memdelete(control_block);
-            }
-        }
-        _FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
-        _FORCE_INLINE_ operator bool() const { return control_block; }
-        _FORCE_INLINE_ operator Environment *() const { return control_block->env; }
-    };
+	friend class Environment;
 
-    // Environment it-self is NOT thread-safe.
-    class Environment : public std::enable_shared_from_this<Environment>
-    {
-    private:
-        struct AsyncCall
-        {
-            enum Type : uint8_t
-            {
-                TYPE_NONE,
+public:
+	EnvironmentRef(const EnvironmentRef &p_other) {
+		control_block = p_other.control_block;
+		jsb_ensure(control_block);
+		control_block->refcount++;
+	}
+	~EnvironmentRef() {
+		jsb_ensure(control_block);
+		if (--control_block->refcount == 0) {
+			memdelete(control_block);
+		}
+	}
+	_FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
+	_FORCE_INLINE_ operator bool() const { return control_block; }
+	_FORCE_INLINE_ operator Environment *() const { return control_block->env; }
+};
 
-                // should only be used in gc callback.
-                // break the binding. free the managed native object.
-                TYPE_GC_FREE,
+// Environment it-self is NOT thread-safe.
+class Environment : public std::enable_shared_from_this<Environment> {
+private:
+	struct AsyncCall {
+		enum Type : uint8_t {
+			TYPE_NONE,
 
-                TYPE_REF,
-                TYPE_DEREF,
+			// should only be used in gc callback.
+			// break the binding. free the managed native object.
+			TYPE_GC_FREE,
 
-                TYPE_TRANSFER_,
+			TYPE_REF,
+			TYPE_DEREF,
 
-                // request a full gc from other threads
-                TYPE_GC_REQUEST,
-            };
+			TYPE_TRANSFER_,
 
-            Type type_;
+			// request a full gc from other threads
+			TYPE_GC_REQUEST,
+		};
 
-            void* binding_;
+		Type type_;
 
-            AsyncCall(Type p_type, void* p_binding)
-                : type_(p_type), binding_(p_binding)
-            {}
-            ~AsyncCall() = default;
+		void *binding_;
 
-            AsyncCall(AsyncCall&&) noexcept = default;
-            AsyncCall& operator=(AsyncCall&&) noexcept = default;
-        };
+		AsyncCall(Type p_type, void *p_binding)
+				: type_(p_type), binding_(p_binding) {}
+		~AsyncCall() = default;
 
-        enum EnvironmentFlags : uint8_t
-        {
-            EF_None = 0,
-            EF_MicrotaskCheckpoint = 1 << 0,
-            EF_PreDispose = 1 << 1,
-            EF_PostDispose = 1 << 2,
-            EF_Worker = 1 << 3,
-            EF_Shadow = 1 << 4,
-        };
+		AsyncCall(AsyncCall &&) noexcept = default;
+		AsyncCall &operator=(AsyncCall &&) noexcept = default;
+	};
 
-        friend class Builtins;
-        friend struct InstanceBindingCallbacks;
-        friend struct ClassRegister;
-        friend struct EnvironmentStore;
+	enum EnvironmentFlags : uint8_t {
+		EF_None = 0,
+		EF_MicrotaskCheckpoint = 1 << 0,
+		EF_PreDispose = 1 << 1,
+		EF_PostDispose = 1 << 2,
+		EF_Worker = 1 << 3,
+		EF_Shadow = 1 << 4,
+	};
 
-        //TODO remove this later
-        friend struct ScriptClassInfo;
+	friend class Builtins;
+	friend struct InstanceBindingCallbacks;
+	friend struct ClassRegister;
+	friend struct EnvironmentStore;
 
-        // symbol for class_id on FunctionTemplate of native class
-        v8::Global<v8::Symbol> symbols_[Symbols::kNum];
+	//TODO remove this later
+	friend struct ScriptClassInfo;
 
-        /*volatile*/
-        ThreadEx::ID thread_id_;
+	// symbol for class_id on FunctionTemplate of native class
+	v8::Global<v8::Symbol> symbols_[Symbols::kNum];
 
-        v8::Isolate* isolate_;
-        v8::Global<v8::Context> context_;
+	/*volatile*/
+	ThreadEx::ID thread_id_;
 
-        ArrayBufferAllocator allocator_;
+	v8::Isolate *isolate_;
+	v8::Global<v8::Context> context_;
+
+	ArrayBufferAllocator allocator_;
 
 #if !JSB_WITH_WEB
-        internal::DoubleBuffered<Message> inbox_;
+	internal::DoubleBuffered<Message> inbox_;
 #endif
 
 #if JSB_THREADING
-        internal::DoubleBuffered<AsyncCall> async_calls_;
+	internal::DoubleBuffered<AsyncCall> async_calls_;
 #endif
 
 #if JSB_V8_CPPGC
-        std::unique_ptr<v8::CppHeap> cpp_heap_;
+	std::unique_ptr<v8::CppHeap> cpp_heap_;
 #endif
 
-        // indirect lookup
-        // only godot object classes are mapped
-        HashMap<StringName, NativeClassID> godot_classes_index_;
+	// indirect lookup
+	// only godot object classes are mapped
+	HashMap<StringName, NativeClassID> godot_classes_index_;
 
-        // all exposed native classes
-        internal::SArray<NativeClassInfo, NativeClassID> native_classes_;
+	// all exposed native classes
+	internal::SArray<NativeClassInfo, NativeClassID> native_classes_;
 
-        bool _execution_deferred = false;
+	bool _execution_deferred = false;
 
-        // in certain contexts (such as cross-worker deserialization) we may encounter a class and bind it lazily as
-        // per usual. However, we're unable to execute JavaScript mid-deserialization. Instead we need to keep track of
-        // pending class post bind classes and execute them when it's safe to do so.
-        Vector<Pair<StringName, v8::Local<v8::Function>>> deferred_class_post_binds_;
+	// in certain contexts (such as cross-worker deserialization) we may encounter a class and bind it lazily as
+	// per usual. However, we're unable to execute JavaScript mid-deserialization. Instead we need to keep track of
+	// pending class post bind classes and execute them when it's safe to do so.
+	Vector<Pair<StringName, v8::Local<v8::Function>>> deferred_class_post_binds_;
 
-        //TODO all exported default classes inherit native godot class (directly or indirectly)
-        // they're only collected on a module loaded
-        ScriptClassInfoArray script_classes_;
+	//TODO all exported default classes inherit native godot class (directly or indirectly)
+	// they're only collected on a module loaded
+	ScriptClassInfoArray script_classes_;
 
-        StringNameCache string_name_cache_;
+	StringNameCache string_name_cache_;
 
-        BindingObjectDB object_db_;
-        uint32_t persistent_object_count_ {0};
+	BindingObjectDB object_db_;
+	uint32_t persistent_object_count_{ 0 };
 
-        internal::VariantAllocator variant_allocator_;
+	internal::VariantAllocator variant_allocator_;
 
-        // module_id => loader
-        HashMap<StringName, class IModuleLoader*> module_loaders_;
-        Vector<IModuleResolver*> module_resolvers_;
+	// module_id => loader
+	HashMap<StringName, class IModuleLoader *> module_loaders_;
+	Vector<IModuleResolver *> module_resolvers_;
 
 #if JSB_WITH_ESSENTIALS
-        JSTimerTags<uint64_t> timer_tags_;
-        internal::TTimerManager<JavaScriptTimerAction> timer_manager_;
+	JSTimerTags<uint64_t> timer_tags_;
+	internal::TTimerManager<JavaScriptTimerAction> timer_manager_;
 #endif
 
-        // EnvironmentFlags
-        uint32_t flags_ = EF_None;
+	// EnvironmentFlags
+	uint32_t flags_ = EF_None;
 
 #if JSB_WITH_DEBUGGER
-        JavaScriptDebugger debugger_;
-        std::promise<void> debugger_ready_promise_;
-        std::future<void> debugger_ready_future_;
-        bool wait_for_debugger_ = false;
+	JavaScriptDebugger debugger_;
+	std::promise<void> debugger_ready_promise_;
+	std::future<void> debugger_ready_future_;
+	bool wait_for_debugger_ = false;
 #endif
 
-        internal::SourceMapCache source_map_cache_;
+	internal::SourceMapCache source_map_cache_;
 
-        internal::CFunctionPointers function_pointers_;
+	internal::CFunctionPointers function_pointers_;
 
-        /** it's initially optional until accessed by code (calling get_async_module_manager) */
-        AsyncModuleManager* async_module_manager_ = nullptr;
-        JavaScriptModuleCache module_cache_;
+	/** it's initially optional until accessed by code (calling get_async_module_manager) */
+	AsyncModuleManager *async_module_manager_ = nullptr;
+	JavaScriptModuleCache module_cache_;
 
-        internal::TypeGen<TWeakRef<v8::Function>, internal::Index32>::UnorderedMap function_refs_; // backlink
-        internal::SArray<TStrongRef<v8::Function>, internal::Index32> function_bank_;
+	internal::TypeGen<TWeakRef<v8::Function>, internal::Index32>::UnorderedMap function_refs_; // backlink
+	internal::SArray<TStrongRef<v8::Function>, internal::Index32> function_bank_;
 
-        struct DeferredClassRegister
-        {
-            NativeClassID id = {};
+	struct DeferredClassRegister {
+		NativeClassID id = {};
 
-            // see VariantBind::reflect_bind
-            ClassRegisterFunc register_func = nullptr;
-        };
+		// see VariantBind::reflect_bind
+		ClassRegisterFunc register_func = nullptr;
+	};
 
-        HashMap<StringName, DeferredClassRegister> class_register_map_;
-        StringName godot_primitive_map_[Variant::VARIANT_MAX];
+	HashMap<StringName, DeferredClassRegister> class_register_map_;
+	StringName godot_primitive_map_[Variant::VARIANT_MAX];
 
-        internal::VariantInfoCollection variant_info_collection_;
+	internal::VariantInfoCollection variant_info_collection_;
 
-        EnvironmentRef ref_ {this};
+	EnvironmentRef ref_{ this };
 
-    public:
-        enum class Type : uint8_t
-        {
-            Default,
+public:
+	enum class Type : uint8_t {
+		Default,
 
-            // [reserved] for future use
-            Worker,
+		// [reserved] for future use
+		Worker,
 
-            // [reserved] for future use
-            Shadow,
-        };
+		// [reserved] for future use
+		Shadow,
+	};
 
-        struct CreateParams
-        {
-            int initial_class_slots = 0;
-            int initial_object_slots = 0;
-            int initial_script_slots = 0;
+	struct CreateParams {
+		int initial_class_slots = 0;
+		int initial_object_slots = 0;
+		int initial_script_slots = 0;
 
-            // Port for the debugger. Disable if zero.
-            uint16_t debugger_port = 0;
+		// Port for the debugger. Disable if zero.
+		uint16_t debugger_port = 0;
 
-            ThreadEx::ID thread_id = 0;
-            Type type = Type::Default;
-        };
+		ThreadEx::ID thread_id = 0;
+		Type type = Type::Default;
+	};
 
-        class ExecutionDeferredScope
-        {
-            Environment* env_;
-            bool previous_execution_deferred_;
+	class ExecutionDeferredScope {
+		Environment *env_;
+		bool previous_execution_deferred_;
 
-        public:
-            explicit ExecutionDeferredScope(Environment* p_env) : env_(p_env),
-                                                                    previous_execution_deferred_(
-                                                                        env_->_execution_deferred)
-            {
-                env_->_execution_deferred = true;
-            }
+	public:
+		explicit ExecutionDeferredScope(Environment *p_env) : env_(p_env), previous_execution_deferred_(env_->_execution_deferred) {
+			env_->_execution_deferred = true;
+		}
 
-            ~ExecutionDeferredScope()
-            {
-                env_->_execution_deferred = previous_execution_deferred_;
+		~ExecutionDeferredScope() {
+			env_->_execution_deferred = previous_execution_deferred_;
 
-                if (!previous_execution_deferred_)
-                {
-                    env_->_execute_deferred();
-                }
-            }
-        };
+			if (!previous_execution_deferred_) {
+				env_->_execute_deferred();
+			}
+		}
+	};
 
-        Environment(const CreateParams& p_params);
-        ~Environment();
+	Environment(const CreateParams &p_params);
+	~Environment();
 
-        const EnvironmentRef &get_ref() const { return ref_; }
+	const EnvironmentRef &get_ref() const { return ref_; }
 
-        // standard init
-        void init();
+	// standard init
+	void init();
 
-        // In general use cases, the lifetime of Environment is explicitly managed by ScriptLanguage,
-        // and it must be disposed with the ScriptLanguage finished.
-        //
-        // At the same time, as a shared_ptr, the underlying `Isolate` in Environment will be eventually disposed/deleted until there
-        // is no critical references exist (such as Global handles) to avoid crashes.
-        // Should avoid any script execution during this phase (after disposed before destructed).
-        void dispose();
+	// In general use cases, the lifetime of Environment is explicitly managed by ScriptLanguage,
+	// and it must be disposed with the ScriptLanguage finished.
+	//
+	// At the same time, as a shared_ptr, the underlying `Isolate` in Environment will be eventually disposed/deleted until there
+	// is no critical references exist (such as Global handles) to avoid crashes.
+	// Should avoid any script execution during this phase (after disposed before destructed).
+	void dispose();
 
-        _FORCE_INLINE_ static Environment* wrap(v8::Isolate* p_isolate)
-        {
-            Environment* env = (Environment*) p_isolate->GetData(kIsolateEmbedderData);
-            // jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
-            return env;
-        }
-        _FORCE_INLINE_ static Environment* wrap(const v8::Local<v8::Context>& p_context)
-        {
-            Environment* env = (Environment*) p_context->GetAlignedPointerFromEmbedderData(kContextEmbedderData);
-            // jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
-            return env;
-        }
+	_FORCE_INLINE_ static Environment *wrap(v8::Isolate *p_isolate) {
+		Environment *env = (Environment *)p_isolate->GetData(kIsolateEmbedderData);
+		// jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
+		return env;
+	}
+	_FORCE_INLINE_ static Environment *wrap(const v8::Local<v8::Context> &p_context) {
+		Environment *env = (Environment *)p_context->GetAlignedPointerFromEmbedderData(kContextEmbedderData);
+		// jsb_check(env && env->thread_id_ == ThreadEx::get_caller_id());
+		return env;
+	}
 
-        _FORCE_INLINE_ v8::Isolate* get_isolate() const { return isolate_; }
-        _FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return context_.Get(isolate_); }
-        _FORCE_INLINE_ EnvironmentID id() const { return (EnvironmentID) this; }
+	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return isolate_; }
+	_FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return context_.Get(isolate_); }
+	_FORCE_INLINE_ EnvironmentID id() const { return (EnvironmentID)this; }
 
-        _FORCE_INLINE_ internal::VariantInfoCollection& get_variant_info_collection() { return variant_info_collection_; }
+	_FORCE_INLINE_ internal::VariantInfoCollection &get_variant_info_collection() { return variant_info_collection_; }
 
-        void add_class_register(const Variant::Type p_type, const ClassRegisterFunc p_func)
-        {
-            jsb_check(!internal::VariantUtil::is_valid_name(godot_primitive_map_[p_type]));
-            const String original_name = Variant::get_type_name(p_type);
-            const StringName type_name = internal::NamingUtil::get_class_name(original_name);
+	void add_class_register(const Variant::Type p_type, const ClassRegisterFunc p_func) {
+		jsb_check(!internal::VariantUtil::is_valid_name(godot_primitive_map_[p_type]));
+		const String original_name = Variant::get_type_name(p_type);
+		const StringName type_name = internal::NamingUtil::get_class_name(original_name);
 
-            if (type_name != original_name)
-            {
-                internal::StringNames::get_singleton().add_replacement(original_name, type_name);
-            }
+		if (type_name != original_name) {
+			internal::StringNames::get_singleton().add_replacement(original_name, type_name);
+		}
 
-            godot_primitive_map_[p_type] = type_name;
-            add_class_register(type_name, p_func);
-        }
+		godot_primitive_map_[p_type] = type_name;
+		add_class_register(type_name, p_func);
+	}
 
-        void add_class_register(const StringName& p_type_name, const ClassRegisterFunc p_func)
-        {
-            String name = internal::NamingUtil::get_class_name(p_type_name);
-            jsb_check(internal::VariantUtil::is_valid_name(name));
-            jsb_check(!class_register_map_.has(name));
-            class_register_map_.insert(name, { {}, p_func });
-        }
+	void add_class_register(const StringName &p_type_name, const ClassRegisterFunc p_func) {
+		String name = internal::NamingUtil::get_class_name(p_type_name);
+		jsb_check(internal::VariantUtil::is_valid_name(name));
+		jsb_check(!class_register_map_.has(name));
+		class_register_map_.insert(name, { {}, p_func });
+	}
 
-        //TODO temp, get C++ function pointer (include class methods)
-        _FORCE_INLINE_ static uint8_t* get_function_pointer(const v8::Local<v8::Context>& p_context, uint32_t p_offset)
-        {
-            return wrap(p_context)->function_pointers_[p_offset];
-        }
+	//TODO temp, get C++ function pointer (include class methods)
+	_FORCE_INLINE_ static uint8_t *get_function_pointer(const v8::Local<v8::Context> &p_context, uint32_t p_offset) {
+		return wrap(p_context)->function_pointers_[p_offset];
+	}
 
-        ObjectCacheID get_cached_function(const v8::Local<v8::Function>& p_func);
-        bool release_function(ObjectCacheID p_func_id);
-        Variant call_function(void* p_pointer, ObjectCacheID p_func_id, const Variant** p_args, int p_argcount, GDExtensionCallError &r_error);
+	ObjectCacheID get_cached_function(const v8::Local<v8::Function> &p_func);
+	bool release_function(ObjectCacheID p_func_id);
+	Variant call_function(void *p_pointer, ObjectCacheID p_func_id, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error);
 
-        /**
-         * This method will not throw any JS exception.
-         */
-        Variant call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName& p_method, const Variant** p_argv, int p_argc, GDExtensionCallError& r_error);
+	/**
+	 * This method will not throw any JS exception.
+	 */
+	Variant call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName &p_method, const Variant **p_argv, int p_argc, GDExtensionCallError &r_error);
 
-        void prepare_transfer_out(NativeObjectID p_worker_handle_id, int transfer_index, const Variant& p_variant, TransferData& r_transfer_data);
-        void finalize_transfer_out(const TransferData& p_data);
-        void transfer_in_bind(const v8::Local<v8::Context>& p_context, const TransferData& p_data);
-        void transfer_in_apply_state(const TransferData& p_data);
+	void prepare_transfer_out(NativeObjectID p_worker_handle_id, int transfer_index, const Variant &p_variant, TransferData &r_transfer_data);
+	void finalize_transfer_out(const TransferData &p_data);
+	void transfer_in_bind(const v8::Local<v8::Context> &p_context, const TransferData &p_data);
+	void transfer_in_apply_state(const TransferData &p_data);
 
-        // [EXPERIMENTAL] transfer object between environments.
-        // call this method of the source environment in the source environment thread.
-        // if the transferred object is RefCounted, the reference count will be increased by 1 during the operation.
-        // NOTE: !!! IT MAY CRASH THE ENGINE TO TRANSFER A DEEPLY NESTED OBJECT (such as a godot Array of Objects) !!!
-        //       !!! Ensure all transferred objects are ONLY exist in the source environment !!!
-        // [pseudo] transfer_to_host(worker, master, worker_handle, scene->instantiate());
-        static void transfer_to_host(Environment* p_from, Environment* p_to, NativeObjectID p_worker_handle_id, const Variant& p_variant);
+	// [EXPERIMENTAL] transfer object between environments.
+	// call this method of the source environment in the source environment thread.
+	// if the transferred object is RefCounted, the reference count will be increased by 1 during the operation.
+	// NOTE: !!! IT MAY CRASH THE ENGINE TO TRANSFER A DEEPLY NESTED OBJECT (such as a godot Array of Objects) !!!
+	//       !!! Ensure all transferred objects are ONLY exist in the source environment !!!
+	// [pseudo] transfer_to_host(worker, master, worker_handle, scene->instantiate());
+	static void transfer_to_host(Environment *p_from, Environment *p_to, NativeObjectID p_worker_handle_id, const Variant &p_variant);
 
-        bool get_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo& p_info, Variant& r_val);
-        bool set_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo& p_info, const Variant& p_val);
+	bool get_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, Variant &r_val);
+	bool set_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, const Variant &p_val);
 
-        // Get default property value of a script class.
-        // Potential side effects: This procedure may construct a new CDO instance (the reason why an `Environment` is required).
-        bool get_default_property_value(ScriptClassInfo& p_class_info, const StringName& p_name, Variant& r_val);
+	// Get default property value of a script class.
+	// Potential side effects: This procedure may construct a new CDO instance (the reason why an `Environment` is required).
+	bool get_default_property_value(ScriptClassInfo &p_class_info, const StringName &p_name, Variant &r_val);
 
-        void evaluate_default_values(ScriptClassInfo& p_class_info);
+	void evaluate_default_values(ScriptClassInfo &p_class_info);
 
-        _FORCE_INLINE_ const JavaScriptModuleCache& get_module_cache() const { return module_cache_; }
-        _FORCE_INLINE_ JavaScriptModuleCache& get_module_cache() { return module_cache_; }
+	_FORCE_INLINE_ const JavaScriptModuleCache &get_module_cache() const { return module_cache_; }
+	_FORCE_INLINE_ JavaScriptModuleCache &get_module_cache() { return module_cache_; }
 
-        /**
-         * [env thread only]
-         * Get async module manager.
-         */
-        AsyncModuleManager& get_async_module_manager();
+	/**
+	 * [env thread only]
+	 * Get async module manager.
+	 */
+	AsyncModuleManager &get_async_module_manager();
 
-        //NOTE AVOID USING THIS CALL, CONSIDERING REMOVING IT.
-        //     eval from source
-        JSValueMove eval_source(const char* p_source, int p_length, const String& p_filename, Error& r_err);
+	//NOTE AVOID USING THIS CALL, CONSIDERING REMOVING IT.
+	//     eval from source
+	JSValueMove eval_source(const char *p_source, int p_length, const String &p_filename, Error &r_err);
 
-        /**
-         * \brief load a module script
-         * \param p_name module_id
-         * \param r_module internal module info, DO NOT STORE IT OUTSIDE OF REALM.
-         * \return OK if compiled and run with no error
-         */
-        Error load(const String& p_name, JavaScriptModule** r_module = nullptr);
+	/**
+	 * \brief load a module script
+	 * \param p_name module_id
+	 * \param r_module internal module info, DO NOT STORE IT OUTSIDE OF REALM.
+	 * \return OK if compiled and run with no error
+	 */
+	Error load(const String &p_name, JavaScriptModule **r_module = nullptr);
 
-        //TODO is there a simple way to compile (validate) the script without any side effect?
-        bool validate_script(const String& p_path);
+	//TODO is there a simple way to compile (validate) the script without any side effect?
+	bool validate_script(const String &p_path);
 
-        NativeObjectID crossbind(Object* p_this, ScriptClassID p_class_id, const Variant** p_args, int p_argcount);
+	NativeObjectID crossbind(Object *p_this, ScriptClassID p_class_id, const Variant **p_args, int p_argcount);
 
-        void rebind(Object* p_this, ScriptClassID p_class_id);
+	void rebind(Object *p_this, ScriptClassID p_class_id);
 
-        v8::Local<v8::Function> _new_require_func(const String& p_module_id, bool p_expose_main = true);
+	v8::Local<v8::Function> _new_require_func(const String &p_module_id, bool p_expose_main = true);
 
-        bool _get_main_module(v8::Local<v8::Object>* r_main_module) const;
+	bool _get_main_module(v8::Local<v8::Object> *r_main_module) const;
 
-        // return nullptr if no register for `p_type_name`
-        NativeClassInfoPtr expose_class(const StringName& p_type_name, NativeClassID* r_class_id = nullptr);
+	// return nullptr if no register for `p_type_name`
+	NativeClassInfoPtr expose_class(const StringName &p_type_name, NativeClassID *r_class_id = nullptr);
 
-        NativeClassInfoPtr expose_godot_object_class(const godot::StringName& p_class_name, NativeClassID* r_class_id = nullptr);
+	NativeClassInfoPtr expose_godot_object_class(const godot::StringName &p_class_name, NativeClassID *r_class_id = nullptr);
 
-        NativeClassInfoPtr expose_godot_primitive_class(const Variant::Type p_type, NativeClassID* r_class_id = nullptr)
-        {
-            jsb_check(internal::VariantUtil::is_valid_name(godot_primitive_map_[p_type]));
-            return expose_class(godot_primitive_map_[p_type], r_class_id);
-        }
+	NativeClassInfoPtr expose_godot_primitive_class(const Variant::Type p_type, NativeClassID *r_class_id = nullptr) {
+		jsb_check(internal::VariantUtil::is_valid_name(godot_primitive_map_[p_type]));
+		return expose_class(godot_primitive_map_[p_type], r_class_id);
+	}
 
-        NativeClassID get_godot_primitive_class_id(const Variant::Type p_type) const
-        {
-            return class_register_map_.get(godot_primitive_map_[p_type]).id;
-        }
+	NativeClassID get_godot_primitive_class_id(const Variant::Type p_type) const {
+		return class_register_map_.get(godot_primitive_map_[p_type]).id;
+	}
 
-        // return false if something wrong with an exception thrown
-        // caller should handle the exception if it's not called from js
-        JavaScriptModule* _load_module(const String& p_parent_id, const String& p_module_id);
+	// return false if something wrong with an exception thrown
+	// caller should handle the exception if it's not called from js
+	JavaScriptModule *_load_module(const String &p_parent_id, const String &p_module_id);
 
-        // manually scan changes of modules,
-        // will reload IMMEDIATELY
-        // (modules not attached with GodotJS script are not automatically reloaded by resource manager)
-        void scan_external_changes();
+	// manually scan changes of modules,
+	// will reload IMMEDIATELY
+	// (modules not attached with GodotJS script are not automatically reloaded by resource manager)
+	void scan_external_changes();
 
-        // request to reload a module,
-        // will reload until next load.
-        ModuleReloadResult::Type mark_as_reloading(const StringName& p_name);
+	// request to reload a module,
+	// will reload until next load.
+	ModuleReloadResult::Type mark_as_reloading(const StringName &p_name);
 
-        void start_debugger(uint16_t p_port);
-        bool is_debugger_started() const;
+	void start_debugger(uint16_t p_port);
+	bool is_debugger_started() const;
 
-        // whether it's called from the same thread as the environment spawned
-        _FORCE_INLINE_ bool is_caller_thread() const { return thread_id_ == ThreadEx::UNASSIGNED_ID || ThreadEx::get_caller_id() == thread_id_; }
-        _FORCE_INLINE_ ThreadEx::ID get_thread_id() const { return thread_id_; }
+	// whether it's called from the same thread as the environment spawned
+	_FORCE_INLINE_ bool is_caller_thread() const { return thread_id_ == ThreadEx::UNASSIGNED_ID || ThreadEx::get_caller_id() == thread_id_; }
+	_FORCE_INLINE_ ThreadEx::ID get_thread_id() const { return thread_id_; }
 
-        // ensure it's called from the same thread as the environment spawned
-        _FORCE_INLINE_ void check_internal_state() const
-        {
-            jsb_checkf(is_caller_thread(), "multi-threaded call not supported yet");
-        }
+	// ensure it's called from the same thread as the environment spawned
+	_FORCE_INLINE_ void check_internal_state() const {
+		jsb_checkf(is_caller_thread(), "multi-threaded call not supported yet");
+	}
 
-        _FORCE_INLINE_ internal::SourceMapCache& get_source_map_cache() { return source_map_cache_; }
+	_FORCE_INLINE_ internal::SourceMapCache &get_source_map_cache() { return source_map_cache_; }
 
-        _FORCE_INLINE_ void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
-        _FORCE_INLINE_ bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
-        _FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
+	_FORCE_INLINE_ void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
+	_FORCE_INLINE_ bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
+	_FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
 
-        _FORCE_INLINE_ Variant* alloc_variant(const Variant& p_templet) { jsb_check(p_templet.get_type() != Variant::OBJECT); return variant_allocator_.alloc(p_templet); }
-        _FORCE_INLINE_ Variant* alloc_variant() { return variant_allocator_.alloc(); }
-        _FORCE_INLINE_ void dealloc_variant(Variant* p_var) { variant_allocator_.free(p_var); }
+	_FORCE_INLINE_ Variant *alloc_variant(const Variant &p_templet) {
+		jsb_check(p_templet.get_type() != Variant::OBJECT);
+		return variant_allocator_.alloc(p_templet);
+	}
+	_FORCE_INLINE_ Variant *alloc_variant() { return variant_allocator_.alloc(); }
+	_FORCE_INLINE_ void dealloc_variant(Variant *p_var) { variant_allocator_.free(p_var); }
 
 #if JSB_WITH_ESSENTIALS
-        _FORCE_INLINE_ internal::TTimerManager<JavaScriptTimerAction>& get_timer_manager() { return timer_manager_; }
-        _FORCE_INLINE_ JSTimerTags<uint64_t>& get_timer_tags() { return timer_tags_; }
+	_FORCE_INLINE_ internal::TTimerManager<JavaScriptTimerAction> &get_timer_manager() { return timer_manager_; }
+	_FORCE_INLINE_ JSTimerTags<uint64_t> &get_timer_tags() { return timer_tags_; }
 #endif
 
-        _FORCE_INLINE_ StringNameCache& get_string_name_cache() { return string_name_cache_; }
-        _FORCE_INLINE_ v8::Local<v8::String> get_string_value(const StringName& p_name) { return string_name_cache_.get_string_value(isolate_, p_name); }
-        _FORCE_INLINE_ StringName get_string_name(const v8::Local<v8::String>& p_value) { return string_name_cache_.get_string_name(isolate_, p_value); }
+	_FORCE_INLINE_ StringNameCache &get_string_name_cache() { return string_name_cache_; }
+	_FORCE_INLINE_ v8::Local<v8::String> get_string_value(const StringName &p_name) { return string_name_cache_.get_string_value(isolate_, p_name); }
+	_FORCE_INLINE_ StringName get_string_name(const v8::Local<v8::String> &p_value) { return string_name_cache_.get_string_name(isolate_, p_value); }
 
-        _FORCE_INLINE_ v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
+	_FORCE_INLINE_ v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
 
-    private:
-        // [low level binding] bind a C++ `p_pointer` with a JS `p_object`
-        // p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
-        // p_pointer must be 2-byte aligned (v8 requirement)
-        NativeObjectID bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak = false);
-    public:
-        NativeObjectID bind_godot_object(NativeClassID p_class_id, Object* p_pointer, const v8::Local<v8::Object>& p_object, bool p_js_owned_non_ref = false);
-        // Bind a C++ `p_pointer` with a JS `p_object`, they have same lifecycle.
-        // p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
-        // p_pointer must be 2-byte aligned (v8 requirement)
-        NativeObjectID bind_js_owned_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void* p_pointer, const v8::Local<v8::Object>& p_object) {
-            return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED);
-        }
-        // An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
-        // The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).
-        // May change in the future.
-        _FORCE_INLINE_ void bind_valuetype(Variant* p_pointer, const v8::Local<v8::Object>& p_object)
-        {
-            p_object->SetAlignedPointerInInternalField(IF_Pointer, p_pointer);
-            impl::Helper::SetDeleter(p_pointer, p_object, _valuetype_deleter, this);
-        }
+private:
+	// [low level binding] bind a C++ `p_pointer` with a JS `p_object`
+	// p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
+	// p_pointer must be 2-byte aligned (v8 requirement)
+	NativeObjectID bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak = false);
 
-        _FORCE_INLINE_ NativeObjectID try_get_object_id(void* p_pointer) const { return object_db_.try_get_object_id(p_pointer); }
+public:
+	NativeObjectID bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref = false);
+	// Bind a C++ `p_pointer` with a JS `p_object`, they have same lifecycle.
+	// p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
+	// p_pointer must be 2-byte aligned (v8 requirement)
+	NativeObjectID bind_js_owned_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object) {
+		return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED);
+	}
+	// An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
+	// The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).
+	// May change in the future.
+	_FORCE_INLINE_ void bind_valuetype(Variant *p_pointer, const v8::Local<v8::Object> &p_object) {
+		p_object->SetAlignedPointerInInternalField(IF_Pointer, p_pointer);
+		impl::Helper::SetDeleter(p_pointer, p_object, _valuetype_deleter, this);
+	}
 
-        // whether the `p_pointer` registered in the object binding map
-        // return true, and the corresponding JS value if `p_pointer` is valid
-        template <typename T>
-        _FORCE_INLINE_ bool try_get_object(T p_key, v8::Local<v8::Object>& r_unwrap) const
-        {
-            if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_key))
-            {
-                if (jsb_unlikely(ptr->ref_.IsEmpty()))
-                {
-                    return false;
-                }
-                r_unwrap = ptr->ref_.Get(isolate_);
-                return !r_unwrap.IsEmpty();
-            }
-            return false;
-        }
+	_FORCE_INLINE_ NativeObjectID try_get_object_id(void *p_pointer) const { return object_db_.try_get_object_id(p_pointer); }
 
-        // Get JS object, will crash if object_id is invalid
-        _FORCE_INLINE_ v8::Local<v8::Object> get_object(const NativeObjectID& p_object_id) const
-        {
-            const ObjectHandleConstPtr ptr = object_db_.get_object(p_object_id);
-            jsb_check(native_classes_.get_value(ptr->class_id).type != NativeClassType::GodotPrimitive);
-            return ptr->ref_.Get(isolate_);
-        }
+	// whether the `p_pointer` registered in the object binding map
+	// return true, and the corresponding JS value if `p_pointer` is valid
+	template <typename T>
+	_FORCE_INLINE_ bool try_get_object(T p_key, v8::Local<v8::Object> &r_unwrap) const {
+		if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_key)) {
+			if (jsb_unlikely(ptr->ref_.IsEmpty())) {
+				return false;
+			}
+			r_unwrap = ptr->ref_.Get(isolate_);
+			return !r_unwrap.IsEmpty();
+		}
+		return false;
+	}
 
-        _FORCE_INLINE_ const NativeClassInfo* find_object_class(void* p_pointer) const
-        {
-            if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_pointer))
-            {
-                return &native_classes_.get_value(ptr->class_id);
-            }
-            return nullptr;
-        }
+	// Get JS object, will crash if object_id is invalid
+	_FORCE_INLINE_ v8::Local<v8::Object> get_object(const NativeObjectID &p_object_id) const {
+		const ObjectHandleConstPtr ptr = object_db_.get_object(p_object_id);
+		jsb_check(native_classes_.get_value(ptr->class_id).type != NativeClassType::GodotPrimitive);
+		return ptr->ref_.Get(isolate_);
+	}
 
-        // whether the pointer registered in the object binding map
-        _FORCE_INLINE_ bool verify_object(void* p_pointer) const
-        {
-            return jsb_likely(p_pointer) && object_db_.has_object(p_pointer);
-        }
+	_FORCE_INLINE_ const NativeClassInfo *find_object_class(void *p_pointer) const {
+		if (const ObjectHandleConstPtr ptr = object_db_.try_get_object(p_pointer)) {
+			return &native_classes_.get_value(ptr->class_id);
+		}
+		return nullptr;
+	}
 
-        void* get_verified_object(const v8::Local<v8::Object>& p_obj, NativeClassType::Type p_type) const;
+	// whether the pointer registered in the object binding map
+	_FORCE_INLINE_ bool verify_object(void *p_pointer) const {
+		return jsb_likely(p_pointer) && object_db_.has_object(p_pointer);
+	}
 
-        // return true if operation is successful
-        bool reference_object(void* p_pointer, bool p_is_inc);
-        void mark_as_persistent_object(void* p_pointer);
+	void *get_verified_object(const v8::Local<v8::Object> &p_obj, NativeClassType::Type p_type) const;
 
-        // request a full garbage collection
-        static void gc();
-        void set_battery_save_mode(bool p_enabled) { isolate_->SetBatterySaverMode(p_enabled); }
+	// return true if operation is successful
+	bool reference_object(void *p_pointer, bool p_is_inc);
+	void mark_as_persistent_object(void *p_pointer);
 
-        void update(uint64_t p_delta_msecs);
+	// request a full garbage collection
+	static void gc();
+	void set_battery_save_mode(bool p_enabled) { isolate_->SetBatterySaverMode(p_enabled); }
+
+	void update(uint64_t p_delta_msecs);
 
 #if !JSB_WITH_WEB
-        // [thread safe] it's OK to call this method before the env is initialized.
-        void post_message(Message&& p_message)
-        {
-            JSB_LOG(VeryVerbose, "inbox message %d: %d", p_message.get_id(), p_message.get_buffer().size());
-            inbox_.add(std::move(p_message));
-        }
+	// [thread safe] it's OK to call this method before the env is initialized.
+	void post_message(Message &&p_message) {
+		JSB_LOG(VeryVerbose, "inbox message %d: %d", p_message.get_id(), p_message.get_buffer().size());
+		inbox_.add(std::move(p_message));
+	}
 #endif
 
-        void handle_message(Message&& p_message);
+	void handle_message(Message &&p_message);
 
-        class IModuleLoader* find_module_loader(const StringName& p_module_id) const
-        {
-            const HashMap<StringName, class IModuleLoader*>::ConstIterator it = module_loaders_.find(p_module_id);
-            if (it != module_loaders_.end())
-            {
-                return it->value;
-            }
-            return nullptr;
-        }
+	class IModuleLoader *find_module_loader(const StringName &p_module_id) const {
+		const HashMap<StringName, class IModuleLoader *>::ConstIterator it = module_loaders_.find(p_module_id);
+		if (it != module_loaders_.end()) {
+			return it->value;
+		}
+		return nullptr;
+	}
 
-        template<typename T, typename... ArgumentTypes>
-        T& add_module_loader(const StringName& p_module_id, ArgumentTypes&&... p_args)
-        {
-            if (const HashMap<StringName, IModuleLoader*>::Iterator& it = module_loaders_.find(p_module_id))
-            {
-                JSB_LOG(Warning, "duplicated module loader %s", p_module_id);
-                memdelete(it->value);
-                module_loaders_.remove(it);
-            }
-            T* loader = memnew(T(std::forward<ArgumentTypes>(p_args)...));
-            module_loaders_.insert(p_module_id, loader);
-            return *loader;
-        }
+	template <typename T, typename... ArgumentTypes>
+	T &add_module_loader(const StringName &p_module_id, ArgumentTypes &&...p_args) {
+		if (const HashMap<StringName, IModuleLoader *>::Iterator &it = module_loaders_.find(p_module_id)) {
+			JSB_LOG(Warning, "duplicated module loader %s", p_module_id);
+			memdelete(it->value);
+			module_loaders_.remove(it);
+		}
+		T *loader = memnew(T(std::forward<ArgumentTypes>(p_args)...));
+		module_loaders_.insert(p_module_id, loader);
+		return *loader;
+	}
 
-        class IModuleResolver* find_module_resolver(const String& p_module_id, ModuleSourceInfo& r_source_info) const
-        {
-            for (IModuleResolver* resolver : module_resolvers_)
-            {
-                if (resolver->get_source_info(p_module_id, r_source_info))
-                {
-                    return resolver;
-                }
-            }
+	class IModuleResolver *find_module_resolver(const String &p_module_id, ModuleSourceInfo &r_source_info) const {
+		for (IModuleResolver *resolver : module_resolvers_) {
+			if (resolver->get_source_info(p_module_id, r_source_info)) {
+				return resolver;
+			}
+		}
 
-            return nullptr;
-        }
+		return nullptr;
+	}
 
-        template<typename T, typename... ArgumentTypes>
-        T& add_module_resolver(ArgumentTypes... p_args)
-        {
-            T* resolver = memnew(T(p_args...));
-            module_resolvers_.append(resolver);
-            return *resolver;
-        }
+	template <typename T, typename... ArgumentTypes>
+	T &add_module_resolver(ArgumentTypes... p_args) {
+		T *resolver = memnew(T(p_args...));
+		module_resolvers_.append(resolver);
+		return *resolver;
+	}
 
-        /**
-         * \brief
-         * \param p_type category of the class, a GodotObject class is also registered in `godot_classes_index` map
-         * \param p_class_name class_name must be unique if it's a GodotObject class
-         * \return
-         */
-        NativeClassID add_native_class(const NativeClassType::Type p_type, const StringName& p_class_name)
-        {
-            check_internal_state();
-            const NativeClassID class_id = native_classes_.add(NativeClassInfo());
-            NativeClassInfo& class_info = native_classes_.get_value(class_id);
-            class_info.type = p_type;
-            class_info.name = p_class_name;
-            if (p_type == NativeClassType::GodotObject)
-            {
-                jsb_check(!godot_classes_index_.has(p_class_name));
-                godot_classes_index_.insert(p_class_name, class_id);
-            }
-            JSB_LOG(VeryVerbose, "new class %s (%d)", p_class_name, class_id);
-            return class_id;
-        }
+	/**
+	 * \brief
+	 * \param p_type category of the class, a GodotObject class is also registered in `godot_classes_index` map
+	 * \param p_class_name class_name must be unique if it's a GodotObject class
+	 * \return
+	 */
+	NativeClassID add_native_class(const NativeClassType::Type p_type, const StringName &p_class_name) {
+		check_internal_state();
+		const NativeClassID class_id = native_classes_.add(NativeClassInfo());
+		NativeClassInfo &class_info = native_classes_.get_value(class_id);
+		class_info.type = p_type;
+		class_info.name = p_class_name;
+		if (p_type == NativeClassType::GodotObject) {
+			jsb_check(!godot_classes_index_.has(p_class_name));
+			godot_classes_index_.insert(p_class_name, class_id);
+		}
+		JSB_LOG(VeryVerbose, "new class %s (%d)", p_class_name, class_id);
+		return class_id;
+	}
 
-        // [unsafe, lowlevel, experimental] call a tweak function on the class
-        void on_class_post_bind(const StringName& p_class_name, const v8::Local<v8::Function>& p_class);
+	// [unsafe, lowlevel, experimental] call a tweak function on the class
+	void on_class_post_bind(const StringName &p_class_name, const v8::Local<v8::Function> &p_class);
 
-        // [unsafe]
-        // It's dangerous to hold the `NativeClassInfo` reference/pointer because the address is not ensured stable.
-        // All `get_` methods will crash if `p_class_id` is invalid
-        _FORCE_INLINE_ NativeClassInfoPtr get_native_class(const NativeClassID p_class_id) { return native_classes_.get_value_scoped(p_class_id); }
-        _FORCE_INLINE_ NativeClassInfoConstPtr get_native_class(const NativeClassID p_class_id) const { return native_classes_.get_value_scoped(p_class_id); }
+	// [unsafe]
+	// It's dangerous to hold the `NativeClassInfo` reference/pointer because the address is not ensured stable.
+	// All `get_` methods will crash if `p_class_id` is invalid
+	_FORCE_INLINE_ NativeClassInfoPtr get_native_class(const NativeClassID p_class_id) { return native_classes_.get_value_scoped(p_class_id); }
+	_FORCE_INLINE_ NativeClassInfoConstPtr get_native_class(const NativeClassID p_class_id) const { return native_classes_.get_value_scoped(p_class_id); }
 
-        _FORCE_INLINE_ NativeClassInfoPtr find_native_class(const StringName& p_class_name, NativeClassID *r_class_id = nullptr) {
-            for (auto it = native_classes_.begin(); it!= native_classes_.end(); ++it) {
-                if (it.is_valid() && it->name == p_class_name) {
-                    if (r_class_id) { *r_class_id = it.get_index(); }
-                    return native_classes_.get_value_scoped(it.get_index());
-                }
-            }
-            return NativeClassInfoPtr(nullptr, nullptr); 
-        }
+	_FORCE_INLINE_ NativeClassInfoPtr find_native_class(const StringName &p_class_name, NativeClassID *r_class_id = nullptr) {
+		for (auto it = native_classes_.begin(); it != native_classes_.end(); ++it) {
+			if (it.is_valid() && it->name == p_class_name) {
+				if (r_class_id) {
+					*r_class_id = it.get_index();
+				}
+				return native_classes_.get_value_scoped(it.get_index());
+			}
+		}
+		return NativeClassInfoPtr(nullptr, nullptr);
+	}
 
-        _FORCE_INLINE_ ScriptClassInfoPtr add_script_class(ScriptClassID& r_class_id)
-        {
-            r_class_id = script_classes_.add({});
-            return script_classes_.get_value_scoped(r_class_id);
-        }
-        _FORCE_INLINE_ ScriptClassInfoPtr get_script_class(const ScriptClassID p_class_id) { return script_classes_.get_value_scoped(p_class_id); }
-        _FORCE_INLINE_ ScriptClassInfoConstPtr get_script_class(const ScriptClassID p_class_id) const { return script_classes_.get_value_scoped(p_class_id); }
-        _FORCE_INLINE_ ScriptClassInfoPtr find_script_class(const ScriptClassID p_class_id) { return script_classes_.is_valid_index(p_class_id) ? script_classes_.get_value_scoped(p_class_id) : nullptr; }
-        _FORCE_INLINE_ const ScriptClassInfoArray& get_script_classes() { return script_classes_; }
+	_FORCE_INLINE_ ScriptClassInfoPtr add_script_class(ScriptClassID &r_class_id) {
+		r_class_id = script_classes_.add({});
+		return script_classes_.get_value_scoped(r_class_id);
+	}
+	_FORCE_INLINE_ ScriptClassInfoPtr get_script_class(const ScriptClassID p_class_id) { return script_classes_.get_value_scoped(p_class_id); }
+	_FORCE_INLINE_ ScriptClassInfoConstPtr get_script_class(const ScriptClassID p_class_id) const { return script_classes_.get_value_scoped(p_class_id); }
+	_FORCE_INLINE_ ScriptClassInfoPtr find_script_class(const ScriptClassID p_class_id) { return script_classes_.is_valid_index(p_class_id) ? script_classes_.get_value_scoped(p_class_id) : nullptr; }
+	_FORCE_INLINE_ const ScriptClassInfoArray &get_script_classes() { return script_classes_; }
 
-        void get_statistics(Statistics& r_stats) const;
+	void get_statistics(Statistics &r_stats) const;
 
 #if JSB_WITH_DEBUGGER
 
-        void wait_for_debugger()
-        {
-            wait_for_debugger_ = true;
-        }
+	void wait_for_debugger() {
+		wait_for_debugger_ = true;
+	}
 
-        void debugger_ready()
-        {
-            wait_for_debugger_ = false;
-            debugger_ready_promise_ = {};
-            debugger_ready_promise_.set_value();
-        }
+	void debugger_ready() {
+		wait_for_debugger_ = false;
+		debugger_ready_promise_ = {};
+		debugger_ready_promise_.set_value();
+	}
 
 #endif
 
-        static std::shared_ptr<Environment> _access(void* p_runtime);
+	static std::shared_ptr<Environment> _access(void *p_runtime);
 
-        // [unsafe] get the environment from the current thread
-        // NOTE: you can't get a shadow environment with this method
-        static std::shared_ptr<Environment> _access();
+	// [unsafe] get the environment from the current thread
+	// NOTE: you can't get a shadow environment with this method
+	static std::shared_ptr<Environment> _access();
 
-    private:
-        void exec_async_calls();
-        void exec_async_call(AsyncCall::Type p_type, void* p_binding);
+private:
+	void exec_async_calls();
+	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
 
-        void _on_gc_request();
+	void _on_gc_request();
 
-        /**
-         * @note execution order is not guaranteed
-         */
-        bool add_async_call(AsyncCall::Type p_type, void* p_binding);
+	/**
+	 * @note execution order is not guaranteed
+	 */
+	bool add_async_call(AsyncCall::Type p_type, void *p_binding);
 
-        void _on_worker_transfer(const v8::Local<v8::Context>& p_context, const struct TransferData* p_data);
+	void _on_worker_transfer(const v8::Local<v8::Context> &p_context, const struct TransferData *p_data);
 #if !JSB_WITH_WEB
-        void _on_worker_message(const v8::Local<v8::Context>& p_context, const Message& p_message);
+	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif
 
-        void _rebind(v8::Isolate* isolate, const v8::Local<v8::Context> context, Object* p_this, ScriptClassID p_class_id);
+	void _rebind(v8::Isolate *isolate, const v8::Local<v8::Context> context, Object *p_this, ScriptClassID p_class_id);
 
-        void _execute_class_post_bind(const StringName& p_class_name, const v8::Local<v8::Function>& p_class);
-        void _execute_deferred();
+	void _execute_class_post_bind(const StringName &p_class_name, const v8::Local<v8::Function> &p_class);
+	void _execute_deferred();
 
-        Variant _call(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const v8::Local<v8::Function>& p_func,
-            const v8::Local<v8::Value>& p_self, const Variant** p_args, int p_argcount, GDExtensionCallError& r_error);
+	Variant _call(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Function> &p_func, const v8::Local<v8::Value> &p_self, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error);
 
-        /**
-         * Setup `onready` fields (this method must be called before `_ready`).
-         * This method will not throw any JS exception.
-         */
-        void call_script_prelude(ScriptClassID p_script_class_id, NativeObjectID p_object_id);
+	/**
+	 * Setup `onready` fields (this method must be called before `_ready`).
+	 * This method will not throw any JS exception.
+	 */
+	void call_script_prelude(ScriptClassID p_script_class_id, NativeObjectID p_object_id);
 
-        // NOTE: First-pass weak callbacks are very restricted in V8. Do not do heavy work there.
-        _FORCE_INLINE_ static void object_gc_callback(const v8::WeakCallbackInfo<void>& info)
-        {
-            if (Environment* env = wrap(info.GetIsolate()))
-            {
-                // V8 requires clearing the weak handle in first-pass callbacks.
-                if (ObjectHandlePtr object_handle = env->object_db_.try_get_object(info.GetParameter()))
-                {
-                    object_handle->ref_.Reset();
-                }
+	// NOTE: First-pass weak callbacks are very restricted in V8. Do not do heavy work there.
+	_FORCE_INLINE_ static void object_gc_callback(const v8::WeakCallbackInfo<void> &info) {
+		if (Environment *env = wrap(info.GetIsolate())) {
+			// V8 requires clearing the weak handle in first-pass callbacks.
+			if (ObjectHandlePtr object_handle = env->object_db_.try_get_object(info.GetParameter())) {
+				object_handle->ref_.Reset();
+			}
 
-                if (!env->is_disposing())
-                {
+			if (!env->is_disposing()) {
 #if JSB_WITH_V8
-                    info.SetSecondPassCallback(&object_gc_callback_second_pass);
+				info.SetSecondPassCallback(&object_gc_callback_second_pass);
 #else
-                    object_gc_callback_second_pass(info);
+				object_gc_callback_second_pass(info);
 #endif
-                }
-            }
-        }
+			}
+		}
+	}
 
-        static void object_gc_callback_second_pass(const v8::WeakCallbackInfo<void>& info)
-        {
-            if (Environment* env = wrap(info.GetIsolate()))
-            {
-                // During shutdown we explicitly drain object_db_ in dispose(); skip GC callback work.
-                if (env->is_disposing())
-                {
-                    return;
-                }
+	static void object_gc_callback_second_pass(const v8::WeakCallbackInfo<void> &info) {
+		if (Environment *env = wrap(info.GetIsolate())) {
+			// During shutdown we explicitly drain object_db_ in dispose(); skip GC callback work.
+			if (env->is_disposing()) {
+				return;
+			}
 
-                env->add_async_call(AsyncCall::TYPE_GC_FREE, info.GetParameter());
-            }
-        }
+			env->add_async_call(AsyncCall::TYPE_GC_FREE, info.GetParameter());
+		}
+	}
 
-        // a forward method for non-v8 implementations
-        static void _valuetype_deleter(const v8::WeakCallbackInfo<void>& info)
-        {
-            _valuetype_deleter(info.GetInternalField(IF_Pointer), sizeof(Variant), info.GetParameter());
-        }
+	// a forward method for non-v8 implementations
+	static void _valuetype_deleter(const v8::WeakCallbackInfo<void> &info) {
+		_valuetype_deleter(info.GetInternalField(IF_Pointer), sizeof(Variant), info.GetParameter());
+	}
 
-        static void _valuetype_deleter(void* data, size_t length, void* deleter_data)
-        {
-            Variant* variant = (Variant*) data;
+	static void _valuetype_deleter(void *data, size_t length, void *deleter_data) {
+		Variant *variant = (Variant *)data;
 
-            // we directly use the bare pointer without check it from EnvironmentStore
-            // because of an assumption that the deleter is never called if a JS runtime is already released (~Environment)
-            Environment* env = (Environment*) deleter_data;
+		// we directly use the bare pointer without check it from EnvironmentStore
+		// because of an assumption that the deleter is never called if a JS runtime is already released (~Environment)
+		Environment *env = (Environment *)deleter_data;
 
-            // valuetype deleter is run in a background thread in v8.impl and jsc.impl
+		// valuetype deleter is run in a background thread in v8.impl and jsc.impl
 #if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE
-            // `Callable/Array/Dictionary` may contain reference-based objects.
-            // executing the destructor of a reference-based object may cause crash (not thread-safe),
-            // release them in main thread for simplicity.
-            if (const Variant::Type type = variant->get_type();
-                type == Variant::CALLABLE || type == Variant::ARRAY || type == Variant::DICTIONARY)
-            {
-                env->variant_allocator_.free_safe(variant);
-                JSB_LOG(VeryVerbose, "deleting possibly reference-based variant (%s:%d) thread:%s",
-                    Variant::get_type_name(type), (uintptr_t) variant,
-                    uitos(ThreadEx::get_caller_id()));
-                return;
-            }
-            else
-            {
-                // JSB_LOG(VeryVerbose, "deleting valuetype variant (%s:%d)", Variant::get_type_name(type), (uintptr_t) variant);
-                jsb_check(type != Variant::OBJECT);
-            }
+		// `Callable/Array/Dictionary` may contain reference-based objects.
+		// executing the destructor of a reference-based object may cause crash (not thread-safe),
+		// release them in main thread for simplicity.
+		if (const Variant::Type type = variant->get_type();
+				type == Variant::CALLABLE || type == Variant::ARRAY || type == Variant::DICTIONARY) {
+			env->variant_allocator_.free_safe(variant);
+			JSB_LOG(VeryVerbose, "deleting possibly reference-based variant (%s:%d) thread:%s", Variant::get_type_name(type), (uintptr_t)variant, uitos(ThreadEx::get_caller_id()));
+			return;
+		} else {
+			// JSB_LOG(VeryVerbose, "deleting valuetype variant (%s:%d)", Variant::get_type_name(type), (uintptr_t) variant);
+			jsb_check(type != Variant::OBJECT);
+		}
 #endif
-            env->dealloc_variant(variant);
-        }
+		env->dealloc_variant(variant);
+	}
 
-        void free_object(void* p_pointer, FinalizationType p_finalize);
+	void free_object(void *p_pointer, FinalizationType p_finalize);
 
-    public:
-        /**
-         * @brief 手动释放绑定对象吗，主要用于 [Symbols.dispose] 成员的实现
-         * @param p_js_obj 要释放其c++对象的js对象
-         *
-         * @note 注意只能对有绑定c++指针的对象使用，并且只能释放一次.
-         * @note 请注意你要知道你在干什么！也不要轻易暴露给最终用户！
-         */
-        void dispose_binding_object(const v8::Local<v8::Object> &p_js_obj) {
-            void * binding_pointer = p_js_obj->GetAlignedPointerFromInternalField(IF_Pointer);
-            if (binding_pointer== nullptr ) {
-                JSB_LOG(Warning, "Can not dispose a disposed object.");
-                return;
-            }
-            ObjectHandlePtr object_handle = object_db_.try_get_object(binding_pointer);
-            jsb_checkf(object_handle, "Try to dispose an invalid object.");
-            jsb_checkf(object_handle->is_persist(), "Can't dispose a persist object.");
-            add_async_call(AsyncCall::TYPE_GC_FREE, binding_pointer);
-            p_js_obj->SetAlignedPointerInInternalField(IF_Pointer, nullptr);
-        }
+public:
+	/**
+	 * @brief 手动释放绑定对象吗，主要用于 [Symbols.dispose] 成员的实现
+	 * @param p_js_obj 要释放其c++对象的js对象
+	 *
+	 * @note 注意只能对有绑定c++指针的对象使用，并且只能释放一次.
+	 * @note 请注意你要知道你在干什么！也不要轻易暴露给最终用户！
+	 */
+	void dispose_binding_object(const v8::Local<v8::Object> &p_js_obj) {
+		void *binding_pointer = p_js_obj->GetAlignedPointerFromInternalField(IF_Pointer);
+		if (binding_pointer == nullptr) {
+			JSB_LOG(Warning, "Can not dispose a disposed object.");
+			return;
+		}
+		ObjectHandlePtr object_handle = object_db_.try_get_object(binding_pointer);
+		jsb_checkf(object_handle, "Try to dispose an invalid object.");
+		jsb_checkf(object_handle->is_persist(), "Can't dispose a persist object.");
+		add_async_call(AsyncCall::TYPE_GC_FREE, binding_pointer);
+		p_js_obj->SetAlignedPointerInInternalField(IF_Pointer, nullptr);
+	}
 
-    private:
-        internal::SArray<std::weak_ptr<Environment>, internal::Index32> shadow_env_list_;
+private:
+	internal::SArray<std::weak_ptr<Environment>, internal::Index32> shadow_env_list_;
 
-    public:
-        // Shadow environment will be updated together with the main environment.
-        const internal::Index32 add_shadow_env(const std::shared_ptr<Environment>& p_env) { return shadow_env_list_.add(p_env->weak_from_this()); }
-        void remove_shadow_env(internal::Index32 p_index) { shadow_env_list_.remove_at(p_index); }
-    };
+public:
+	// Shadow environment will be updated together with the main environment.
+	const internal::Index32 add_shadow_env(const std::shared_ptr<Environment> &p_env) { return shadow_env_list_.add(p_env->weak_from_this()); }
+	void remove_shadow_env(internal::Index32 p_index) { shadow_env_list_.remove_at(p_index); }
+};
 
 #if !JSB_WITH_WEB
-    namespace Serialization
-    {
-        enum class SerializationTag : uint8_t
-        {
-            kGodotVariantTransfer = 'V',
-        };
+namespace Serialization {
+enum class SerializationTag : uint8_t {
+	kGodotVariantTransfer = 'V',
+};
 
-        class VariantSerializerDelegate : public v8::ValueSerializer::Delegate
-        {
-        private:
-            Environment* from_env_;
-            internal::ReferentialVariantMap<TransferData>& transfers;
+class VariantSerializerDelegate : public v8::ValueSerializer::Delegate {
+private:
+	Environment *from_env_;
+	internal::ReferentialVariantMap<TransferData> &transfers;
 
-            v8::ValueSerializer* serializer_ = nullptr;
+	v8::ValueSerializer *serializer_ = nullptr;
 
-            internal::ReferentialVariantMap<Variant> clone_map;
+	internal::ReferentialVariantMap<Variant> clone_map;
 
-        public:
-            VariantSerializerDelegate(
-                    Environment* p_from_env,
-                    internal::ReferentialVariantMap<TransferData>& p_transfers) :
-                    from_env_(p_from_env),
-                    transfers(p_transfers)
-            {
-                clone_map.reserve(transfers.size());
+public:
+	VariantSerializerDelegate(
+			Environment *p_from_env,
+			internal::ReferentialVariantMap<TransferData> &p_transfers) : from_env_(p_from_env), transfers(p_transfers) {
+		clone_map.reserve(transfers.size());
 
-                for (auto& pair : transfers)
-                {
-                    clone_map.insert(pair.key, pair.value.variant);
-                }
-            }
+		for (auto &pair : transfers) {
+			clone_map.insert(pair.key, pair.value.variant);
+		}
+	}
 
-            void SetSerializer(v8::ValueSerializer* serializer)
-            {
-                serializer_ = serializer;
-            }
+	void SetSerializer(v8::ValueSerializer *serializer) {
+		serializer_ = serializer;
+	}
 
-            void ThrowDataCloneError(v8::Local<v8::String> p_message) override
-            {
-                from_env_->get_isolate()->ThrowException(v8::Exception::Error(p_message));
-            }
+	void ThrowDataCloneError(v8::Local<v8::String> p_message) override {
+		from_env_->get_isolate()->ThrowException(v8::Exception::Error(p_message));
+	}
 
-            v8::Maybe<bool> WriteHostObject(v8::Isolate* p_isolate, v8::Local<v8::Object> p_object) override
-            {
-                v8::Isolate* isolate = from_env_->get_isolate();
-                v8::Local<v8::Context> context = from_env_->get_context();
+	v8::Maybe<bool> WriteHostObject(v8::Isolate *p_isolate, v8::Local<v8::Object> p_object) override {
+		v8::Isolate *isolate = from_env_->get_isolate();
+		v8::Local<v8::Context> context = from_env_->get_context();
 
-                jsb_checkf(p_isolate == isolate, "GodotObjectTransferDelegate called from the wrong isolate");
+		jsb_checkf(p_isolate == isolate, "GodotObjectTransferDelegate called from the wrong isolate");
 
-                Variant variant;
-                if (!TypeConvert::js_to_gd_var(p_isolate, context, p_object.As<v8::Value>(), variant))
-                {
-                    // Not a Godot binding host object; let runtime serializer handle it normally.
-                    return v8::Just(false);
-                }
+		Variant variant;
+		if (!TypeConvert::js_to_gd_var(p_isolate, context, p_object.As<v8::Value>(), variant)) {
+			// Not a Godot binding host object; let runtime serializer handle it normally.
+			return v8::Just(false);
+		}
 
-                const TransferData* transfer_data = transfers.getptr(variant);
+		const TransferData *transfer_data = transfers.getptr(variant);
 
-                if (!transfer_data)
-                {
-                    bool cloned;
-                    TransferData cloned_transfer_data;
-                    cloned_transfer_data.transfer_index = transfers.size();
-                    cloned_transfer_data.variant = internal::VariantUtil::structured_clone(variant, clone_map, cloned);
+		if (!transfer_data) {
+			bool cloned;
+			TransferData cloned_transfer_data;
+			cloned_transfer_data.transfer_index = transfers.size();
+			cloned_transfer_data.variant = internal::VariantUtil::structured_clone(variant, clone_map, cloned);
 
-                    if (!cloned)
-                    {
-                        ThrowDataCloneError(impl::Helper::new_string_ascii(p_isolate, "A Godot Object was passed that was not in the transfer list."));
-                        return v8::Nothing<bool>();
-                    }
+			if (!cloned) {
+				ThrowDataCloneError(impl::Helper::new_string_ascii(p_isolate, "A Godot Object was passed that was not in the transfer list."));
+				return v8::Nothing<bool>();
+			}
 
-                    transfers.insert(variant, cloned_transfer_data);
+			transfers.insert(variant, cloned_transfer_data);
 
-                    transfer_data = transfers.getptr(variant);
-                    jsb_check(transfer_data);
-                }
+			transfer_data = transfers.getptr(variant);
+			jsb_check(transfer_data);
+		}
 
-                const uint8_t tag = (uint8_t) SerializationTag::kGodotVariantTransfer;
-                serializer_->WriteRawBytes(&tag, sizeof(tag));
-                serializer_->WriteUint32(transfer_data->transfer_index);
+		const uint8_t tag = (uint8_t)SerializationTag::kGodotVariantTransfer;
+		serializer_->WriteRawBytes(&tag, sizeof(tag));
+		serializer_->WriteUint32(transfer_data->transfer_index);
 
-                return v8::Just(true);
-            }
+		return v8::Just(true);
+	}
 
-            v8::Maybe<uint32_t> GetSharedArrayBufferId(v8::Isolate* p_isolate, v8::Local<v8::SharedArrayBuffer> p_shared_array_buffer) override { return v8::Nothing<uint32_t>(); }
-            v8::Maybe<uint32_t> GetWasmModuleTransferId(v8::Isolate* p_isolate, v8::Local<v8::WasmModuleObject> p_module) override { return v8::Nothing<uint32_t>(); }
-        };
+	v8::Maybe<uint32_t> GetSharedArrayBufferId(v8::Isolate *p_isolate, v8::Local<v8::SharedArrayBuffer> p_shared_array_buffer) override { return v8::Nothing<uint32_t>(); }
+	v8::Maybe<uint32_t> GetWasmModuleTransferId(v8::Isolate *p_isolate, v8::Local<v8::WasmModuleObject> p_module) override { return v8::Nothing<uint32_t>(); }
+};
 
-        class VariantDeserializerDelegate : public v8::ValueDeserializer::Delegate
-        {
-        private:
-            Environment* to_env_;
-            const std::vector<TransferData>& transferred_;
+class VariantDeserializerDelegate : public v8::ValueDeserializer::Delegate {
+private:
+	Environment *to_env_;
+	const std::vector<TransferData> &transferred_;
 
-            v8::ValueDeserializer* deserializer_ = nullptr;
+	v8::ValueDeserializer *deserializer_ = nullptr;
 
-        public:
-            VariantDeserializerDelegate(
-                    Environment* p_to_env,
-                    const std::vector<TransferData>& p_transferred) :
-                    to_env_(p_to_env),
-                    transferred_(p_transferred) {}
+public:
+	VariantDeserializerDelegate(
+			Environment *p_to_env,
+			const std::vector<TransferData> &p_transferred) : to_env_(p_to_env), transferred_(p_transferred) {}
 
-            void SetSerializer(v8::ValueDeserializer* deserializer)
-            {
-                this->deserializer_ = deserializer;
-            }
+	void SetSerializer(v8::ValueDeserializer *deserializer) {
+		this->deserializer_ = deserializer;
+	}
 
-            v8::MaybeLocal<v8::Object> ReadHostObject(v8::Isolate* p_isolate) override
-            {
-                const uint8_t* bytes = nullptr;
+	v8::MaybeLocal<v8::Object> ReadHostObject(v8::Isolate *p_isolate) override {
+		const uint8_t *bytes = nullptr;
 
-                if (!deserializer_->ReadRawBytes(sizeof(uint8_t), reinterpret_cast<const void**>(&bytes)))
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject failed to read tag byte");
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		if (!deserializer_->ReadRawBytes(sizeof(uint8_t), reinterpret_cast<const void **>(&bytes))) {
+			JSB_LOG(Error, "delegate ReadHostObject failed to read tag byte");
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                if (bytes[0] != (uint8_t)SerializationTag::kGodotVariantTransfer)
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject unexpected tag: %d", bytes[0]);
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		if (bytes[0] != (uint8_t)SerializationTag::kGodotVariantTransfer) {
+			JSB_LOG(Error, "delegate ReadHostObject unexpected tag: %d", bytes[0]);
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                uint32_t transfer_id = 0;
-                if (!deserializer_->ReadUint32(&transfer_id))
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject failed to read transfer id");
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		uint32_t transfer_id = 0;
+		if (!deserializer_->ReadUint32(&transfer_id)) {
+			JSB_LOG(Error, "delegate ReadHostObject failed to read transfer id");
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                if (transfer_id >= (uint32_t)transferred_.size())
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject transfer id out of range: %d >= %d", transfer_id, transferred_.size());
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		if (transfer_id >= (uint32_t)transferred_.size()) {
+			JSB_LOG(Error, "delegate ReadHostObject transfer id out of range: %d >= %d", transfer_id, transferred_.size());
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                v8::Local<v8::Value> js_value;
-                const Variant& variant = transferred_[transfer_id].variant;
+		v8::Local<v8::Value> js_value;
+		const Variant &variant = transferred_[transfer_id].variant;
 
-                if (!TypeConvert::gd_var_to_js(to_env_->get_isolate(), to_env_->get_context(), variant, js_value))
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject failed gd_var_to_js for variant=%s transfer=%d", Variant::get_type_name(variant.get_type()), transfer_id);
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		if (!TypeConvert::gd_var_to_js(to_env_->get_isolate(), to_env_->get_context(), variant, js_value)) {
+			JSB_LOG(Error, "delegate ReadHostObject failed gd_var_to_js for variant=%s transfer=%d", Variant::get_type_name(variant.get_type()), transfer_id);
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                if (js_value.IsEmpty() || !js_value->IsObject())
-                {
-                    JSB_LOG(Error, "delegate ReadHostObject produced non-object for variant=%s transfer=%d", Variant::get_type_name(variant.get_type()), transfer_id);
-                    return v8::MaybeLocal<v8::Object>();
-                }
+		if (js_value.IsEmpty() || !js_value->IsObject()) {
+			JSB_LOG(Error, "delegate ReadHostObject produced non-object for variant=%s transfer=%d", Variant::get_type_name(variant.get_type()), transfer_id);
+			return v8::MaybeLocal<v8::Object>();
+		}
 
-                return js_value.As<v8::Object>();
-            }
-        };
-    }
+		return js_value.As<v8::Object>();
+	}
+};
+} //namespace Serialization
 #endif
 
-}
+} //namespace jsb
 
 #endif

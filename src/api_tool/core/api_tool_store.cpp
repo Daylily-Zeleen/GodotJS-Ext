@@ -18,93 +18,94 @@ using PayloadReader = ApiToolPayload<true>;
 // ============================================================================
 
 static void deserialize_property_info(PayloadReader &r, PropertyInfo &pi) {
-    r.read(pi.type);
-    r.read(pi.name);
-    r.read(pi.class_name);
-    r.read(pi.hint);
-    r.read(pi.hint_string);
-    r.read(pi.usage);
+	r.read(pi.type);
+	r.read(pi.name);
+	r.read(pi.class_name);
+	r.read(pi.hint);
+	r.read(pi.hint_string);
+	r.read(pi.usage);
 }
 
 static void deserialize_method_info_core(PayloadReader &r, MethodInfo &mi) {
-    r.read(mi.name);
-    r.read(mi.flags);
-    r.read(mi.id);
-    r.read(mi.return_val, deserialize_property_info);
-    r.read(mi.arguments, deserialize_property_info);
-    r.read(mi.default_arguments);
-    r.read(mi.return_val_metadata);
-    r.read(mi.arguments_metadata);
+	r.read(mi.name);
+	r.read(mi.flags);
+	r.read(mi.id);
+	r.read(mi.return_val, deserialize_property_info);
+	r.read(mi.arguments, deserialize_property_info);
+	r.read(mi.default_arguments);
+	r.read(mi.return_val_metadata);
+	r.read(mi.arguments_metadata);
 }
 
-template<typename TApiMethodInfo> requires std::is_base_of_v<ApiMemberMethodBase, TApiMethodInfo>
+template <typename TApiMethodInfo>
+	requires std::is_base_of_v<ApiMemberMethodBase, TApiMethodInfo>
 static void deserialize_api_method_info(PayloadReader &r, TApiMethodInfo &ami) {
-    r.read(ami.method, deserialize_method_info_core);
-    r.read(ami.hash);
+	r.read(ami.method, deserialize_method_info_core);
+	r.read(ami.hash);
 }
 
 static void deserialize_utility_function_info(PayloadReader &r, ApiUtilityFunction &ami) {
-    r.read(ami.method, deserialize_method_info_core);
-    r.read(ami.hash);
-    r.read(ami.category);
+	r.read(ami.method, deserialize_method_info_core);
+	r.read(ami.hash);
+	r.read(ami.category);
 }
 
-static void deserialize_enum_value(PayloadReader &r, ApiEnumValue& v) {
-    r.read(v.name);
-    r.read(v.value);
+static void deserialize_enum_value(PayloadReader &r, ApiEnumValue &v) {
+	r.read(v.name);
+	r.read(v.value);
 }
 
 static void deserialize_enum_info(PayloadReader &r, ApiEnumInfo &v) {
-    r.read(v.name);
-    r.read(v.is_bitfield);
-    r.read(v.values, deserialize_enum_value);
+	r.read(v.name);
+	r.read(v.is_bitfield);
+	r.read(v.values, deserialize_enum_value);
 }
 
 static void deserialize_constant_info(PayloadReader &r, ApiConstantInfo &v) {
-    r.read(v.name);
-    r.read(v.value);
-    r.read(v.is_bitfield);
+	r.read(v.name);
+	r.read(v.value);
+	r.read(v.is_bitfield);
 }
 
 static void deserialize_builtin_class_constant_info(PayloadReader &r, ApiBuiltInClassConstantInfo &v) {
-    r.read(v.name);
-    r.read(v.type);
-    r.read(v.value);
+	r.read(v.name);
+	r.read(v.type);
+	r.read(v.value);
 }
 
 static void deserialize_signal_info(PayloadReader &r, ApiSignalInfo &v) {
-    r.read(v.name);
-    r.read(v.arguments, deserialize_property_info);
+	r.read(v.name);
+	r.read(v.arguments, deserialize_property_info);
 }
 
 static void deserialize_api_property_info(PayloadReader &r, ApiPropertyInfo &v) {
-    r.read(v.property, deserialize_property_info);
-    r.read(v.setter);
-    r.read(v.getter);
-    r.read(v.index);
+	r.read(v.property, deserialize_property_info);
+	r.read(v.setter);
+	r.read(v.getter);
+	r.read(v.index);
 }
 
 static void deserialize_operator_info(PayloadReader &r, ApiOperatorInfo &v) {
-    r.read(v.op);
-    r.read(v.return_type);
-    r.read(v.left_type);
-    r.read(v.right_type);
+	r.read(v.op);
+	r.read(v.return_type);
+	r.read(v.left_type);
+	r.read(v.right_type);
 }
 
 static void deserialize_constructor_info(PayloadReader &r, ApiConstructorInfo &v) {
-    r.read(v.arguments, deserialize_property_info);
+	r.read(v.arguments, deserialize_property_info);
 }
 
 static void deserialize_method_compat_hashes(PayloadReader &r, ApiMethodCompatibilityHashes &v) {
 #ifndef DISABLE_DEPRECATED
-    r.read(v.method_name);
-    r.read(v.hashes);
+	r.read(v.method_name);
+	r.read(v.hashes);
 #endif // DISABLE_DEPRECATED
 }
 
 static void deserialize_member_info(PayloadReader &r, ApiMemberInfo &v) {
-    r.read(v.name);
-    r.read(v.type);
+	r.read(v.name);
+	r.read(v.type);
 }
 
 // ============================================================================
@@ -112,19 +113,19 @@ static void deserialize_member_info(PayloadReader &r, ApiMemberInfo &v) {
 // ============================================================================
 
 Error ApiStoreReader::read_header(const String &p_path, ApiHeader &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.version_major);
-    r.read(r_data.version_minor);
-    r.read(r_data.version_patch);
-    r.read(r_data.version_status);
-    r.read(r_data.version_build);
-    r.read(r_data.version_full_name);
-    r.read(r_data.precision);
-    return OK;
+	r.read(r_data.version_major);
+	r.read(r_data.version_minor);
+	r.read(r_data.version_patch);
+	r.read(r_data.version_status);
+	r.read(r_data.version_build);
+	r.read(r_data.version_full_name);
+	r.read(r_data.precision);
+	return OK;
 }
 
 // ============================================================================
@@ -132,13 +133,13 @@ Error ApiStoreReader::read_header(const String &p_path, ApiHeader &r_data) {
 // ============================================================================
 
 Error ApiStoreReader::read_utility_functions(const String &p_path, LocalVector<ApiUtilityFunction> &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data, deserialize_utility_function_info);
-    return OK;
+	r.read(r_data, deserialize_utility_function_info);
+	return OK;
 }
 
 // ============================================================================
@@ -146,32 +147,32 @@ Error ApiStoreReader::read_utility_functions(const String &p_path, LocalVector<A
 // ============================================================================
 
 Error ApiStoreReader::read_builtin_class(const String &p_path, ApiBuiltinClass &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.type);
-    r.read(r_data.has_indexing_return_type);
-    if (r_data.has_indexing_return_type) {
-        r.read(r_data.indexing_type);
-    }
-    r.read(r_data.is_keyed);
-    r.read(r_data.has_destructor);
-    r.read(r_data.members, deserialize_member_info);
-    r.read(r_data.constants, deserialize_builtin_class_constant_info);
-    r.read(r_data.enums, deserialize_enum_info);
+	r.read(r_data.type);
+	r.read(r_data.has_indexing_return_type);
+	if (r_data.has_indexing_return_type) {
+		r.read(r_data.indexing_type);
+	}
+	r.read(r_data.is_keyed);
+	r.read(r_data.has_destructor);
+	r.read(r_data.members, deserialize_member_info);
+	r.read(r_data.constants, deserialize_builtin_class_constant_info);
+	r.read(r_data.enums, deserialize_enum_info);
 
-    r.read(r_data.methods, deserialize_api_method_info<ApiBuiltInMethod>);
-    r.read(r_data.operators, deserialize_operator_info);
-    r.read(r_data.constructors, deserialize_constructor_info);
+	r.read(r_data.methods, deserialize_api_method_info<ApiBuiltInMethod>);
+	r.read(r_data.operators, deserialize_operator_info);
+	r.read(r_data.constructors, deserialize_constructor_info);
 
-    // Special handle for initialization.
-    for (auto &m : r_data.methods) {
-        m.variant_type = r_data.type;
-    }
-    r_data.initialize();
-    return OK;
+	// Special handle for initialization.
+	for (auto &m : r_data.methods) {
+		m.variant_type = r_data.type;
+	}
+	r_data.initialize();
+	return OK;
 }
 
 // ============================================================================
@@ -179,27 +180,27 @@ Error ApiStoreReader::read_builtin_class(const String &p_path, ApiBuiltinClass &
 // ============================================================================
 
 Error ApiStoreReader::read_class(const String &p_path, ApiClass &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.name);
-    r.read(r_data.inherits);
-    r.read(r_data.api_type);
-    r.read(r_data.is_refcounted);
-    r.read(r_data.is_instantiable);
-    r.read(r_data.methods, deserialize_api_method_info<ApiClassMethod>);
-    r.read(r_data.signals, deserialize_signal_info);
-    r.read(r_data.properties, deserialize_api_property_info);
-    r.read(r_data.enums, deserialize_enum_info);
-    r.read(r_data.constants, deserialize_constant_info);
+	r.read(r_data.name);
+	r.read(r_data.inherits);
+	r.read(r_data.api_type);
+	r.read(r_data.is_refcounted);
+	r.read(r_data.is_instantiable);
+	r.read(r_data.methods, deserialize_api_method_info<ApiClassMethod>);
+	r.read(r_data.signals, deserialize_signal_info);
+	r.read(r_data.properties, deserialize_api_property_info);
+	r.read(r_data.enums, deserialize_enum_info);
+	r.read(r_data.constants, deserialize_constant_info);
 
-    // Special handle for initialization.
-    for (auto&m:r_data.methods){
-        m.owner_class_name = r_data.name;
-    }
-    return OK;
+	// Special handle for initialization.
+	for (auto &m : r_data.methods) {
+		m.owner_class_name = r_data.name;
+	}
+	return OK;
 }
 
 // ============================================================================
@@ -207,13 +208,13 @@ Error ApiStoreReader::read_class(const String &p_path, ApiClass &r_data) {
 // ============================================================================
 
 Error ApiStoreReader::read_global_enum(const String &p_path, ApiEnumInfo &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data, deserialize_enum_info);
-    return OK;
+	r.read(r_data, deserialize_enum_info);
+	return OK;
 }
 
 // ============================================================================
@@ -221,13 +222,13 @@ Error ApiStoreReader::read_global_enum(const String &p_path, ApiEnumInfo &r_data
 // ============================================================================
 
 Error ApiStoreReader::read_global_constant(const String &p_path, ApiConstantInfo &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data, deserialize_constant_info);
-    return OK;
+	r.read(r_data, deserialize_constant_info);
+	return OK;
 }
 
 // ============================================================================
@@ -235,16 +236,16 @@ Error ApiStoreReader::read_global_constant(const String &p_path, ApiConstantInfo
 // ============================================================================
 
 Error ApiStoreReader::read_singletons(const String &p_path, LocalVector<ApiSingleton> &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data, [](PayloadReader &r, ApiSingleton &s) {
-        r.read(s.name);
-        r.read(s.type);
-    });
-    return OK;
+	r.read(r_data, [](PayloadReader &r, ApiSingleton &s) {
+		r.read(s.name);
+		r.read(s.type);
+	});
+	return OK;
 }
 
 // ============================================================================
@@ -252,16 +253,16 @@ Error ApiStoreReader::read_singletons(const String &p_path, LocalVector<ApiSingl
 // ============================================================================
 
 Error ApiStoreReader::read_native_structures(const String &p_path, LocalVector<ApiNativeStructure> &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data, [](PayloadReader &r, ApiNativeStructure &ns) {
-        r.read(ns.name);
-        r.read(ns.format); // TODO: 解析后调整反序列化
-    });
-    return OK;
+	r.read(r_data, [](PayloadReader &r, ApiNativeStructure &ns) {
+		r.read(ns.name);
+		r.read(ns.format); // TODO: 解析后调整反序列化
+	});
+	return OK;
 }
 
 #ifdef TOOLS_ENABLED
@@ -270,100 +271,100 @@ Error ApiStoreReader::read_native_structures(const String &p_path, LocalVector<A
 // ============================================================================
 
 static void deserialize_method_document(PayloadReader &r, ApiMethodDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
-static void  deserialize_signal_document(PayloadReader &r, ApiSignalDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
-    r.read(d.arguments, deserialize_property_info);
+static void deserialize_signal_document(PayloadReader &r, ApiSignalDocument &d) {
+	r.read(d.name);
+	r.read(d.description);
+	r.read(d.arguments, deserialize_property_info);
 }
 
 static void deserialize_property_document(PayloadReader &r, ApiPropertyDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
 static void deserialize_member_document(PayloadReader &r, ApiMemberDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
 static void deserialize_constant_document(PayloadReader &r, ApiConstantDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
 static void deserialize_enum_value_document(PayloadReader &r, ApiEnumValueDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
 static void deserialize_enum_document(PayloadReader &r, ApiEnumDocument &d) {
-    r.read(d.name);
-    r.read(d.values, deserialize_enum_value_document);
+	r.read(d.name);
+	r.read(d.values, deserialize_enum_value_document);
 }
 
 static void deserialize_operator_document(PayloadReader &r, ApiOperatorDocument &d) {
-    r.read(d.name);
-    r.read(d.description);
+	r.read(d.name);
+	r.read(d.description);
 }
 
 static void deserialize_constructor_document(PayloadReader &r, ApiConstructorDocument &d) {
-    r.read(d.description);
+	r.read(d.description);
 }
 
 Error ApiStoreReader::read_document(const godot::String &p_path, ApiClassDocument &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.name);
-    r.read(r_data.brief_description);
-    r.read(r_data.description);
-    r.read(r_data.methods, deserialize_method_document);
-    r.read(r_data.signals, deserialize_signal_document);
-    r.read(r_data.properties, deserialize_property_document);
-    r.read(r_data.enums, deserialize_enum_document);
-    r.read(r_data.constants, deserialize_constant_document);
-    r.read(r_data.operators, deserialize_operator_document);
-    r.read(r_data.constructors, deserialize_constructor_document);
-    return OK;
+	r.read(r_data.name);
+	r.read(r_data.brief_description);
+	r.read(r_data.description);
+	r.read(r_data.methods, deserialize_method_document);
+	r.read(r_data.signals, deserialize_signal_document);
+	r.read(r_data.properties, deserialize_property_document);
+	r.read(r_data.enums, deserialize_enum_document);
+	r.read(r_data.constants, deserialize_constant_document);
+	r.read(r_data.operators, deserialize_operator_document);
+	r.read(r_data.constructors, deserialize_constructor_document);
+	return OK;
 }
 
 Error ApiStoreReader::read_utility_function_document(const godot::String &p_path, ApiUtilityFunctionDocument &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.name);
-    r.read(r_data.description);
-    return OK;
+	r.read(r_data.name);
+	r.read(r_data.description);
+	return OK;
 }
 
 Error ApiStoreReader::read_global_enum_document(const godot::String &p_path, ApiGlobalEnumDocument &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.name);
-    r.read(r_data.values, deserialize_enum_value_document);
-    return OK;
+	r.read(r_data.name);
+	r.read(r_data.values, deserialize_enum_value_document);
+	return OK;
 }
 
 Error ApiStoreReader::read_global_constant_document(const godot::String &p_path, ApiGlobalConstantDocument &r_data) {
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.name);
-    r.read(r_data.description);
-    return OK;
+	r.read(r_data.name);
+	r.read(r_data.description);
+	return OK;
 }
 #endif // TOOLS_ENABLED
 
@@ -373,14 +374,14 @@ Error ApiStoreReader::read_global_constant_document(const godot::String &p_path,
 
 Error ApiStoreReader::read_compatibility_hashes(const godot::String &p_path, ApiCompatibilityHashData &r_data) {
 #ifndef DISABLE_DEPRECATED
-    Error err {OK};
-    std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
-    if (err) return err;
-    PayloadReader &r = *r_ptr.get();
+	Error err{ OK };
+	std::unique_ptr<PayloadReader> r_ptr = PayloadReader::open(p_path, err);
+	if (err) return err;
+	PayloadReader &r = *r_ptr.get();
 
-    r.read(r_data.methods, deserialize_method_compat_hashes);
+	r.read(r_data.methods, deserialize_method_compat_hashes);
 #endif // DISABLE_DEPRECATED
-    return OK;
+	return OK;
 }
 
-} // namespace api_tool
+} //namespace api_tool::internal

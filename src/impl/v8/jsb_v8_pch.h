@@ -1,15 +1,15 @@
 ﻿#ifndef GODOTJS_V8_HEADERS_H
 #define GODOTJS_V8_HEADERS_H
 
-#include <v8.h>
-#include <v8-persistent-handle.h>
 #include <libplatform/libplatform.h>
 #include <v8-inspector.h>
+#include <v8-persistent-handle.h>
 #include <v8-version-string.h>
+#include <v8.h>
 
 #if JSB_V8_CPPGC
-#   include <v8-cppgc.h>
-#   include <cppgc/default-platform.h>
+#	include <cppgc/default-platform.h>
+#	include <v8-cppgc.h>
 #endif
 
 #include "../../internal/jsb_logger.h"

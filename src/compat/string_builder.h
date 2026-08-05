@@ -79,4 +79,4 @@ public:
 		return as_string();
 	}
 };
-}
+} //namespace godot

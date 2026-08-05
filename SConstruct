@@ -257,8 +257,7 @@ def write_file(filename, ostream):
 def generate_jsb_gen_header():
     output = io.StringIO()
     output.write("// AUTO-GENERATED\n")
-    output.write("#ifndef GODOTJS_GEN_H\n")
-    output.write("#define GODOTJS_GEN_H\n")
+    output.write("#pragma once\n")
     output.write("\n")
     output.write(f"#define JSB_MODULE_NAME {module_name}\n")
     output.write(f"#define jsb_initialize_module initialize_{module_name}_module\n")
@@ -273,7 +272,6 @@ def generate_jsb_gen_header():
                 output.write(f"// {t.help}\n")
         output.write(f"#define {t.name} {t.value}\n")
     output.write("\n")
-    output.write("#endif\n")
     write_file(os.path.join(src_dir, "jsb.gen.h"), output)
 
 # =============================================================================

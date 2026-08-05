@@ -6,11 +6,9 @@
 #include <godot_cpp/classes/editor_dock.hpp>
 #include <godot_cpp/classes/tab_container.hpp>
 
-class GodotJSDockedPanel : public EditorDock
-{
-
+class GodotJSDockedPanel : public EditorDock {
 private:
-	TabContainer* tabs;
+	TabContainer *tabs;
 
 public:
 	GodotJSDockedPanel();
@@ -21,4 +19,3 @@ private:
 };
 
 #endif
-
