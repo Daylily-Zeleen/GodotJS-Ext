@@ -3,34 +3,31 @@
 
 #include "jsb_web_typedef.h"
 
-namespace v8
-{
-    template<typename T>
-    class Local;
+namespace v8 {
+template <typename T>
+class Local;
 
-    class Promise;
-    class Value;
+class Promise;
+class Value;
 
-    class PromiseRejectMessage
-    {
-    public:
-        PromiseRejectMessage(Isolate* isolate, PromiseRejectEvent event, jsb::impl::StackPosition promise_sp, jsb::impl::StackPosition reason_sp)
-        : isolate_(isolate), event_(event), promise_sp_(promise_sp), reason_sp_(reason_sp)
-        {}
+class PromiseRejectMessage {
+public:
+	PromiseRejectMessage(Isolate *isolate, PromiseRejectEvent event, jsb::impl::StackPosition promise_sp, jsb::impl::StackPosition reason_sp)
+			: isolate_(isolate), event_(event), promise_sp_(promise_sp), reason_sp_(reason_sp) {}
 
-        PromiseRejectEvent GetEvent() const { return event_; }
+	PromiseRejectEvent GetEvent() const { return event_; }
 
-        Local<Promise> GetPromise() const;
-        Local<Value> GetValue() const;
+	Local<Promise> GetPromise() const;
+	Local<Value> GetValue() const;
 
-    private:
-        Isolate* isolate_;
-        PromiseRejectEvent event_;
-        jsb::impl::StackPosition promise_sp_;
-        jsb::impl::StackPosition reason_sp_;
-    };
+private:
+	Isolate *isolate_;
+	PromiseRejectEvent event_;
+	jsb::impl::StackPosition promise_sp_;
+	jsb::impl::StackPosition reason_sp_;
+};
 
-    using PromiseRejectCallback = void (*)(PromiseRejectMessage);
-}
+using PromiseRejectCallback = void (*)(PromiseRejectMessage);
+} //namespace v8
 
 #endif

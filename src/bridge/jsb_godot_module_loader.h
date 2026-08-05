@@ -3,23 +3,20 @@
 
 #include "jsb_module_loader.h"
 
-namespace jsb
-{
-    // a lazy loader for Godot classes (and singletons/constants)
-    class GodotModuleLoader : public IModuleLoader
-    {
-    public:
-        virtual ~GodotModuleLoader() override = default;
+namespace jsb {
+// a lazy loader for Godot classes (and singletons/constants)
+class GodotModuleLoader : public IModuleLoader {
+public:
+	virtual ~GodotModuleLoader() override = default;
 
-        virtual bool load(Environment* p_env, JavaScriptModule& p_module) override;
+	virtual bool load(Environment *p_env, JavaScriptModule &p_module) override;
 
-    private:
-        v8::Local<v8::Object> _get_loader_proxy(Environment* p_env);
+private:
+	v8::Local<v8::Object> _get_loader_proxy(Environment *p_env);
 
-        v8::Global<v8::Object> loader_;
+	v8::Global<v8::Object> loader_;
+};
 
-    };
-
-}
+} //namespace jsb
 
 #endif

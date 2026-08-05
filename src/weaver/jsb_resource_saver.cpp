@@ -2,9 +2,9 @@
 #include "jsb_script.h"
 #include "jsb_script_language.h"
 
-#include <godot_cpp/classes/resource_uid.hpp>
-#include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/resource_saver.hpp>
+#include <godot_cpp/classes/resource_uid.hpp>
 
 #define UID_COMMENT_PREFIX "// uid://"
 #define UID_COMMENT_SUFFIX "This line is generated, don't modify or remove it."
@@ -67,71 +67,64 @@ bool ResourceFormatSaverGodotJSScript::add_uid_to_source(String &p_r_source, con
 }
 
 // @seealso: gdscript.cpp ResourceFormatSaverGDScript::save
-Error ResourceFormatSaverGodotJSScript::_save(const Ref<Resource>& p_resource, const String& p_path, uint32_t p_flags)
-{
-    const Ref<GodotJSScript> sqscr = p_resource;
-    ERR_FAIL_COND_V(sqscr.is_null(), ERR_INVALID_PARAMETER);
+Error ResourceFormatSaverGodotJSScript::_save(const Ref<Resource> &p_resource, const String &p_path, uint32_t p_flags) {
+	const Ref<GodotJSScript> sqscr = p_resource;
+	ERR_FAIL_COND_V(sqscr.is_null(), ERR_INVALID_PARAMETER);
 
-    const Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
-    if (file.is_null())
-    {
-        Error err = FileAccess::get_open_error();
-        JSB_LOG(Error, "Cannot save %s file '%s'.", jsb_typename(GodotJSScript), p_path);
-        return err;
-    }
+	const Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
+	if (file.is_null()) {
+		Error err = FileAccess::get_open_error();
+		JSB_LOG(Error, "Cannot save %s file '%s'.", jsb_typename(GodotJSScript), p_path);
+		return err;
+	}
 
-    String source = sqscr->get_source_code();
-    bool source_changed = false;
-    if (!FileAccess::file_exists(p_path + String(".uid"))) {
+	String source = sqscr->get_source_code();
+	bool source_changed = false;
+	if (!FileAccess::file_exists(p_path + String(".uid"))) {
 		source_changed = add_uid_to_source(source, p_path);
-    }
+	}
 
-    file->store_string(sqscr->get_source_code());
-    if (file->get_error() != OK && file->get_error() != ERR_FILE_EOF)
-    {
-        return ERR_CANT_CREATE;
-    }
-    file->close();
+	file->store_string(sqscr->get_source_code());
+	if (file->get_error() != OK && file->get_error() != ERR_FILE_EOF) {
+		return ERR_CANT_CREATE;
+	}
+	file->close();
 
-    if (source_changed) {
-        sqscr->_set_source_code(source);
-        sqscr->_reload(true);
-        sqscr->emit_changed();
-    }
+	if (source_changed) {
+		sqscr->_set_source_code(source);
+		sqscr->_reload(true);
+		sqscr->emit_changed();
+	}
 
-    // TODO: Reload scripts on save (equivalent to ScriptServer::is_reload_scripts_on_save_enabled())
-    {
-        // WTF??
-        GodotJSScriptLanguage::get_singleton()->_reload_tool_script(p_resource, true);
-    }
+	// TODO: Reload scripts on save (equivalent to ScriptServer::is_reload_scripts_on_save_enabled())
+	{
+		// WTF??
+		GodotJSScriptLanguage::get_singleton()->_reload_tool_script(p_resource, true);
+	}
 
-    return OK;
+	return OK;
 }
 
-PackedStringArray ResourceFormatSaverGodotJSScript::_get_recognized_extensions(const Ref<Resource>& p_resource) const
-{
-    if (Object::cast_to<GodotJSScript>(*p_resource))
-    {
-        PackedStringArray exts;
+PackedStringArray ResourceFormatSaverGodotJSScript::_get_recognized_extensions(const Ref<Resource> &p_resource) const {
+	if (Object::cast_to<GodotJSScript>(*p_resource)) {
+		PackedStringArray exts;
 #if JSB_USE_TYPESCRIPT
-        exts.push_back(JSB_TYPESCRIPT_EXT);
+		exts.push_back(JSB_TYPESCRIPT_EXT);
 #endif
-        exts.push_back(JSB_JAVASCRIPT_EXT);
-        exts.push_back(JSB_COMMONJS_EXT);
-        exts.push_back(JSB_MODULE_EXT);
-        return exts;
-    }
-    return PackedStringArray();
+		exts.push_back(JSB_JAVASCRIPT_EXT);
+		exts.push_back(JSB_COMMONJS_EXT);
+		exts.push_back(JSB_MODULE_EXT);
+		return exts;
+	}
+	return PackedStringArray();
 }
 
-bool ResourceFormatSaverGodotJSScript::_recognize(const Ref<Resource>& p_resource) const
-{
-    return Object::cast_to<GodotJSScript>(*p_resource) != nullptr;
+bool ResourceFormatSaverGodotJSScript::_recognize(const Ref<Resource> &p_resource) const {
+	return Object::cast_to<GodotJSScript>(*p_resource) != nullptr;
 }
 
-Error ResourceFormatSaverGodotJSScript::_set_uid(const String &p_path, int64_t p_uid)
-{
-    if (FileAccess::file_exists(p_path + String(".uid"))) {
+Error ResourceFormatSaverGodotJSScript::_set_uid(const String &p_path, int64_t p_uid) {
+	if (FileAccess::file_exists(p_path + String(".uid"))) {
 		Ref<FileAccess> f = FileAccess::open(p_path + String(".uid"), FileAccess::WRITE);
 		if (f.is_valid()) {
 			f->store_line(ResourceUID::get_singleton()->id_to_text(p_uid));

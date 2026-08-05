@@ -3,15 +3,14 @@
 
 #include "jsb_sindex.h"
 
-namespace jsb
-{
-    typedef internal::Index32 StringNameID;
-    typedef internal::Index32 NativeClassID;
-    typedef internal::Index32 ScriptClassID;
-    typedef void* EnvironmentID;
-    typedef internal::Index64 NativeObjectID;
+namespace jsb {
+typedef internal::Index32 StringNameID;
+typedef internal::Index32 NativeClassID;
+typedef internal::Index32 ScriptClassID;
+typedef void *EnvironmentID;
+typedef internal::Index64 NativeObjectID;
 
-    typedef internal::Index32 ObjectCacheID;
+typedef internal::Index32 ObjectCacheID;
 
-}
+} //namespace jsb
 #endif

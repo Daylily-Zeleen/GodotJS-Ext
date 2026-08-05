@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,14 +32,14 @@
 extern "C" {
 #endif
 
-    typedef const struct OpaqueJSWeak* JSWeakRef;
+typedef const struct OpaqueJSWeak *JSWeakRef;
 
-    JS_EXPORT JSWeakRef JSWeakCreate(JSContextGroupRef, JSObjectRef);
+JS_EXPORT JSWeakRef JSWeakCreate(JSContextGroupRef, JSObjectRef);
 
-    JS_EXPORT void JSWeakRetain(JSContextGroupRef, JSWeakRef);
-    JS_EXPORT void JSWeakRelease(JSContextGroupRef, JSWeakRef);
+JS_EXPORT void JSWeakRetain(JSContextGroupRef, JSWeakRef);
+JS_EXPORT void JSWeakRelease(JSContextGroupRef, JSWeakRef);
 
-    JS_EXPORT JSObjectRef JSWeakGetObject(JSWeakRef);
+JS_EXPORT JSObjectRef JSWeakGetObject(JSWeakRef);
 
 #ifdef __cplusplus
 }

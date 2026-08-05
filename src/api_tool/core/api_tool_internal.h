@@ -9,7 +9,7 @@ namespace internal {
 static bool double_precision{ false };
 
 // 不需要 PtrToArg<Ref<RefCounted>>，UtilityFunctions 与 内建类的函数都不涉及RefCounted参数与返回值，非内建类的调用全都转换成 Variant 了。
-_FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr, godot::Variant::Type p_type = godot::Variant::VARIANT_MAX,  const GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE) {
+_FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr, godot::Variant::Type p_type = godot::Variant::VARIANT_MAX, const GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE) {
 	using namespace godot;
 	if (p_type >= Variant::VARIANT_MAX) {
 		p_type = p_val.get_type();
@@ -17,16 +17,16 @@ _FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr,
 	switch (p_type) {
 		case Variant::Type::NIL: {
 			using T = PtrToArg<Variant>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Variant>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::Type::BOOL: {
 			using T = PtrToArg<bool>::EncodeT;
-			*(T*)r_arg_ptr = false;
+			*(T *)r_arg_ptr = false;
 			PtrToArg<bool>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::Type::INT: {
-			*(int64_t*)r_arg_ptr = 0;
+			*(int64_t *)r_arg_ptr = 0;
 			switch (p_meta) {
 				case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:
 					PtrToArg<int8_t>::encode(p_val, r_arg_ptr);
@@ -67,7 +67,7 @@ _FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr,
 			}
 		} break;
 		case Variant::Type::FLOAT: {
-			*(double*)r_arg_ptr = 0.0;
+			*(double *)r_arg_ptr = 0.0;
 			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_REAL_IS_DOUBLE) {
 				PtrToArg<double>::encode(p_val, r_arg_ptr);
 			} else if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_REAL_IS_FLOAT) {
@@ -82,177 +82,177 @@ _FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr,
 		} break;
 		case Variant::Type::STRING: {
 			using T = PtrToArg<String>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<String>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR2: {
 			using T = PtrToArg<Vector2>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector2>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR2I: {
 			using T = PtrToArg<Vector2i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector2i>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::RECT2: {
 			using T = PtrToArg<Rect2>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Rect2>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::RECT2I: {
 			using T = PtrToArg<Rect2i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Rect2i>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR3: {
 			using T = PtrToArg<Vector3>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector3>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR3I: {
 			using T = PtrToArg<Vector3i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector3i>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::TRANSFORM2D: {
 			using T = PtrToArg<Transform2D>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Transform2D>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR4: {
 			using T = PtrToArg<Vector4>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector4>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::VECTOR4I: {
 			using T = PtrToArg<Vector4i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Vector4i>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PLANE: {
 			using T = PtrToArg<Plane>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Plane>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::QUATERNION: {
 			using T = PtrToArg<Quaternion>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Quaternion>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::AABB: {
 			using T = PtrToArg<AABB>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<AABB>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::BASIS: {
 			using T = PtrToArg<Basis>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Basis>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::TRANSFORM3D: {
 			using T = PtrToArg<Transform3D>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Transform3D>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PROJECTION: {
 			using T = PtrToArg<Projection>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Projection>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::COLOR: {
 			using T = PtrToArg<Color>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Color>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::STRING_NAME: {
 			using T = PtrToArg<StringName>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<StringName>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::NODE_PATH: {
 			using T = PtrToArg<NodePath>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<NodePath>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::RID: {
 			using T = PtrToArg<RID>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<RID>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::OBJECT: {
-			using T = PtrToArg<Object*>::EncodeT;
-			*(T*)r_arg_ptr = nullptr;
+			using T = PtrToArg<Object *>::EncodeT;
+			*(T *)r_arg_ptr = nullptr;
 			PtrToArg<Object *>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::CALLABLE: {
 			using T = PtrToArg<Callable>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Callable>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::SIGNAL: {
 			using T = PtrToArg<Signal>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Signal>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::DICTIONARY: {
 			using T = PtrToArg<Dictionary>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Dictionary>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::ARRAY: {
 			using T = PtrToArg<Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_BYTE_ARRAY: {
 			using T = PtrToArg<PackedByteArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedByteArray>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_INT32_ARRAY: {
 			using T = PtrToArg<PackedInt32Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedInt32Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_INT64_ARRAY: {
 			using T = PtrToArg<PackedInt64Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedInt64Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_FLOAT32_ARRAY: {
 			using T = PtrToArg<PackedFloat32Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedFloat32Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_FLOAT64_ARRAY: {
 			using T = PtrToArg<PackedFloat64Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedFloat64Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_STRING_ARRAY: {
 			using T = PtrToArg<PackedStringArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedStringArray>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_VECTOR2_ARRAY: {
 			using T = PtrToArg<PackedVector2Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedVector2Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_VECTOR3_ARRAY: {
 			using T = PtrToArg<PackedVector3Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedVector3Array>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_COLOR_ARRAY: {
 			using T = PtrToArg<PackedColorArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedColorArray>::encode(p_val, r_arg_ptr);
 		} break;
 		case Variant::PACKED_VECTOR4_ARRAY: {
 			using T = PtrToArg<PackedVector4Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 			PtrToArg<PackedVector4Array>::encode(p_val, r_arg_ptr);
 		} break;
 		default: {
@@ -439,159 +439,159 @@ _FORCE_INLINE_ void ctor_arg_ptr(void *r_arg_ptr, const godot::Variant::Type p_t
 	switch (p_type) {
 		case Variant::Type::NIL: {
 			using T = PtrToArg<Variant>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::Type::BOOL: {
 			using T = PtrToArg<bool>::EncodeT;
-			*(T*)r_arg_ptr = false;
+			*(T *)r_arg_ptr = false;
 		} break;
 		case Variant::Type::INT: {
 			using T = PtrToArg<int64_t>::EncodeT;
-			*(T*)r_arg_ptr = 0;
+			*(T *)r_arg_ptr = 0;
 		} break;
 		case Variant::Type::FLOAT: {
 			using T = PtrToArg<double>::EncodeT;
-			*(T*)r_arg_ptr = 0.0;
+			*(T *)r_arg_ptr = 0.0;
 		} break;
 		case Variant::Type::STRING: {
 			using T = PtrToArg<String>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR2: {
 			using T = PtrToArg<Vector2>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR2I: {
 			using T = PtrToArg<Vector2i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::RECT2: {
 			using T = PtrToArg<Rect2>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::RECT2I: {
 			using T = PtrToArg<Rect2i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR3: {
 			using T = PtrToArg<Vector3>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR3I: {
 			using T = PtrToArg<Vector3i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::TRANSFORM2D: {
 			using T = PtrToArg<Transform2D>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR4: {
 			using T = PtrToArg<Vector4>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::VECTOR4I: {
 			using T = PtrToArg<Vector4i>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PLANE: {
 			using T = PtrToArg<Plane>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::QUATERNION: {
 			using T = PtrToArg<Quaternion>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::AABB: {
 			using T = PtrToArg<AABB>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::BASIS: {
 			using T = PtrToArg<Basis>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::TRANSFORM3D: {
 			using T = PtrToArg<Transform3D>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PROJECTION: {
 			using T = PtrToArg<Projection>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::COLOR: {
 			using T = PtrToArg<Color>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::STRING_NAME: {
 			using T = PtrToArg<StringName>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::NODE_PATH: {
 			using T = PtrToArg<NodePath>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::RID: {
 			using T = PtrToArg<RID>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::OBJECT: {
-			using T = PtrToArg<Object*>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			using T = PtrToArg<Object *>::EncodeT;
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::CALLABLE: {
 			using T = PtrToArg<Callable>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::SIGNAL: {
 			using T = PtrToArg<Signal>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::DICTIONARY: {
 			using T = PtrToArg<Dictionary>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::ARRAY: {
 			using T = PtrToArg<Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_BYTE_ARRAY: {
 			using T = PtrToArg<PackedByteArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_INT32_ARRAY: {
 			using T = PtrToArg<PackedInt32Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_INT64_ARRAY: {
 			using T = PtrToArg<PackedInt64Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_FLOAT32_ARRAY: {
 			using T = PtrToArg<PackedFloat32Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_FLOAT64_ARRAY: {
 			using T = PtrToArg<PackedFloat64Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_STRING_ARRAY: {
 			using T = PtrToArg<PackedStringArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_VECTOR2_ARRAY: {
 			using T = PtrToArg<PackedVector2Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_VECTOR3_ARRAY: {
 			using T = PtrToArg<PackedVector3Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_COLOR_ARRAY: {
 			using T = PtrToArg<PackedColorArray>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		case Variant::PACKED_VECTOR4_ARRAY: {
 			using T = PtrToArg<PackedVector4Array>::EncodeT;
-			memnew_placement((T*)r_arg_ptr, T);
+			memnew_placement((T *)r_arg_ptr, T);
 		} break;
 		default: {
 			CRASH_NOW_MSG("Invalid variant type: " + Variant::get_type_name(p_type));
@@ -602,11 +602,11 @@ _FORCE_INLINE_ void ctor_arg_ptr(void *r_arg_ptr, const godot::Variant::Type p_t
 _FORCE_INLINE_ void dctor_arg_ptr(void *arg_ptr, const godot::Variant::Type p_type) {
 	using namespace godot;
 	switch (p_type) {
-		case godot::Variant::NIL:{
+		case godot::Variant::NIL: {
 			using T = PtrToArg<Variant>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::STRING:{
+		case godot::Variant::STRING: {
 			using T = PtrToArg<String>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
@@ -614,67 +614,67 @@ _FORCE_INLINE_ void dctor_arg_ptr(void *arg_ptr, const godot::Variant::Type p_ty
 			using T = PtrToArg<StringName>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::NODE_PATH:{
+		case godot::Variant::NODE_PATH: {
 			using T = PtrToArg<NodePath>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::CALLABLE:{
+		case godot::Variant::CALLABLE: {
 			using T = PtrToArg<Callable>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::SIGNAL:{
+		case godot::Variant::SIGNAL: {
 			using T = PtrToArg<Signal>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::DICTIONARY:{
+		case godot::Variant::DICTIONARY: {
 			using T = PtrToArg<Dictionary>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::ARRAY:{
+		case godot::Variant::ARRAY: {
 			using T = PtrToArg<Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_BYTE_ARRAY:{
+		case godot::Variant::PACKED_BYTE_ARRAY: {
 			using T = PtrToArg<PackedByteArray>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_INT32_ARRAY:{
+		case godot::Variant::PACKED_INT32_ARRAY: {
 			using T = PtrToArg<PackedInt32Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_INT64_ARRAY:{
+		case godot::Variant::PACKED_INT64_ARRAY: {
 			using T = PtrToArg<PackedInt64Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_FLOAT32_ARRAY:{
+		case godot::Variant::PACKED_FLOAT32_ARRAY: {
 			using T = PtrToArg<PackedFloat32Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_FLOAT64_ARRAY:{
+		case godot::Variant::PACKED_FLOAT64_ARRAY: {
 			using T = PtrToArg<PackedFloat64Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_STRING_ARRAY:{
+		case godot::Variant::PACKED_STRING_ARRAY: {
 			using T = PtrToArg<PackedStringArray>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_VECTOR2_ARRAY:{
+		case godot::Variant::PACKED_VECTOR2_ARRAY: {
 			using T = PtrToArg<PackedStringArray>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_VECTOR3_ARRAY:{
+		case godot::Variant::PACKED_VECTOR3_ARRAY: {
 			using T = PtrToArg<PackedVector3Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_COLOR_ARRAY:{
+		case godot::Variant::PACKED_COLOR_ARRAY: {
 			using T = PtrToArg<PackedColorArray>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		case godot::Variant::PACKED_VECTOR4_ARRAY:{
+		case godot::Variant::PACKED_VECTOR4_ARRAY: {
 			using T = PtrToArg<PackedVector4Array>::EncodeT;
 			reinterpret_cast<T *>(arg_ptr)->~T();
 		} break;
-		default:{
+		default: {
 			return;
 		}
 	}

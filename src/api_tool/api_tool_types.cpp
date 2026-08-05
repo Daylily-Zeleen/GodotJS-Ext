@@ -2,7 +2,7 @@
 #include <godot_cpp/templates/hash_map.hpp>
 
 #ifndef DISABLE_DEPRECATED
-#include "api_tool.h"
+#	include "api_tool.h"
 #endif // DISABLE_DEPRECATED
 
 using namespace godot;
@@ -52,7 +52,7 @@ const godot::String &get_variant_operator_name(godot::Variant::Operator p_op) {
 void ApiBuiltInMethod::try_load_compatible_func_ptr() const {
 #ifndef DISABLE_DEPRECATED
 	const StringName &method_name = method.name;
-	const LocalVector<MethodHash>* compatibility_hashes = get_builtin_method_compatibility_hashes(variant_type, method_name);
+	const LocalVector<MethodHash> *compatibility_hashes = get_builtin_method_compatibility_hashes(variant_type, method_name);
 	if (compatibility_hashes) {
 		for (const MethodHash hash : *compatibility_hashes) {
 			func = ::godot::gdextension_interface::variant_get_ptr_builtin_method(
@@ -70,7 +70,7 @@ void ApiBuiltInMethod::try_load_compatible_func_ptr() const {
 void ApiClassMethod::try_load_compatible_method_bind() const {
 #ifndef DISABLE_DEPRECATED
 	const StringName &method_name = method.name;
-	const LocalVector<MethodHash>* compatibility_hashes = get_class_method_compatibility_hashes(owner_class_name, method_name);
+	const LocalVector<MethodHash> *compatibility_hashes = get_class_method_compatibility_hashes(owner_class_name, method_name);
 	if (compatibility_hashes) {
 		for (const MethodHash hash : *compatibility_hashes) {
 			method_bind = ::godot::gdextension_interface::classdb_get_method_bind(

@@ -3,13 +3,12 @@
 
 #include "jsb.gen.h"
 
-
 #ifndef JSB_DEBUG
-#   if defined(DEBUG_ENABLED)
-#       define JSB_DEBUG 1
-#   else
-#       define JSB_DEBUG 0
-#   endif
+#	if defined(DEBUG_ENABLED)
+#		define JSB_DEBUG 1
+#	else
+#		define JSB_DEBUG 0
+#	endif
 #endif
 
 #define JSB_WITH_ESSENTIALS !JSB_WITH_WEB
@@ -23,16 +22,16 @@
 // lower log levels are completely skipped (at compile-time)
 // see `internal/jsb_log_severity.def.h`
 #ifndef JSB_MIN_LOG_LEVEL
-#   if JSB_DEBUG
-#       define JSB_MIN_LOG_LEVEL Verbose
-#   else
-#       define JSB_MIN_LOG_LEVEL Warning
-#   endif
+#	if JSB_DEBUG
+#		define JSB_MIN_LOG_LEVEL Verbose
+#	else
+#		define JSB_MIN_LOG_LEVEL Warning
+#	endif
 #endif // JSB_MIN_LOG_LEVEL
 
 // enable jsb_check
 #ifndef JSB_WITH_CHECK
-#define JSB_WITH_CHECK JSB_DEBUG
+#	define JSB_WITH_CHECK JSB_DEBUG
 #endif
 
 // output verbose log anyway even if `OS::get_singleton()->is_stdout_verbose()` is false
@@ -114,15 +113,15 @@
 
 // [EXPERIMENTAL] DONT CHANGE IT, AND NEED CLANG TOOLSET IF USING MSVC
 #if !defined(_MSC_VER) || defined(__clang__)
-#   define JSB_V8_CPPGC 0 // 1
+#	define JSB_V8_CPPGC 0 // 1
 #else
-#   define JSB_V8_CPPGC 0
+#	define JSB_V8_CPPGC 0
 #endif
 
 #ifdef IOS_ENABLED
-#   define JSB_V8_JITLESS 1
+#	define JSB_V8_JITLESS 1
 #else
-#   define JSB_V8_JITLESS 0
+#	define JSB_V8_JITLESS 0
 #endif
 
 #define JSB_SHADOW_ENVIRONMENT_AS_PARSER 1
@@ -157,14 +156,14 @@
 // they usually used for testing (like mocha, jest, etc).
 #define JSB_EXCLUDE_TEST_RES_SCRIPTS 1
 
-#define JSB_DTS_EXT        "d.ts"
+#define JSB_DTS_EXT "d.ts"
 #define JSB_TYPESCRIPT_EXT "ts"
 #define JSB_JAVASCRIPT_EXT "js"
-#define JSB_COMMONJS_EXT   "cjs"
-#define JSB_MODULE_EXT     "mjs"
-#define JSB_JSON_EXT       "json"
+#define JSB_COMMONJS_EXT "cjs"
+#define JSB_MODULE_EXT "mjs"
+#define JSB_JSON_EXT "json"
 
-/** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */ 
+/** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */
 #define JSB_SHADOW_REALM_ENABLED 1
 
 // A helper version tag for the jsb.*.bundle.js scripts (which is embedded in .cpp source).

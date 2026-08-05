@@ -2,7 +2,6 @@
 #include "../internal/jsb_internal.h"
 #include "jsb_script_language.h"
 
-
 #include <godot_cpp/classes/performance.hpp>
 
 #define JSB_REGISTER_MONITOR(MonitorName) \

@@ -2,16 +2,14 @@
 #define GODOTJS_WEB_GLOBAL_INIT_H
 #include "jsb_web_pch.h"
 
-namespace jsb::impl
-{
-    struct GlobalInitialize
-    {
-        GlobalInitialize();
+namespace jsb::impl {
+struct GlobalInitialize {
+	GlobalInitialize();
 
-        static void init();
+	static void init();
 
-        static void shutdown();
-    };
+	static void shutdown();
+};
 
-}
+} //namespace jsb::impl
 #endif

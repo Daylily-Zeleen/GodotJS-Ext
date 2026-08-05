@@ -19,6 +19,6 @@ public:
 	_FORCE_INLINE_ operator UnderlyingType() const { return value; }
 };
 
-}
+} //namespace templates
 
 #endif // JSB_FLAGS_H

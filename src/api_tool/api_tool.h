@@ -6,12 +6,12 @@
 // Provides lazy-loading queries, listing, and generation of API data.
 
 #include <cstdint>
-#include <memory>
-#include <godot_cpp/variant/variant.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
+#include <godot_cpp/variant/variant.hpp>
+#include <memory>
 
 #ifdef TOOLS_ENABLED
-#include <godot_cpp/templates/vector.hpp>
+#	include <godot_cpp/templates/vector.hpp>
 #endif // TOOLS_ENABLED
 
 // Include type definitions (including global-scope callback types)
@@ -112,8 +112,8 @@ int32_t get_global_constant_count();
 // Compatibility hash queries (no cache, direct file read)
 // ============================================================================
 
-const godot::LocalVector<MethodHash>* get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName& p_name);
-const godot::LocalVector<MethodHash>* get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName& p_name);
+const godot::LocalVector<MethodHash> *get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName &p_name);
+const godot::LocalVector<MethodHash> *get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_name);
 
 // ============================================================================
 // Editor-only: API generation (only TOOLS_ENABLED)
@@ -131,7 +131,6 @@ void full_generate_and_reboot();
 // Cache is invalidated at the start.
 // Returns godot::OK on success, error code on failure.
 godot::Error generate_api_tool_data(const godot::String &p_extension_api_json_path);
-
 
 /**
  * @brief 返回 res://.godot/.api_dumping/ (或 res://godot/.api_dumping/) 下除了 documents 文件夹外的所有文件

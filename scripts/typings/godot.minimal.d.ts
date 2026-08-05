@@ -37,12 +37,6 @@ declare module "godot-jsb" {
      */
     function callable<S extends GObject, F extends (this: S, ...args: any[]) => any>(self: S, fn: F): Callable<F>;
 
-    /**
-     * Explicitly convert a `PackedByteArray`(aka `Vector<uint8_t>`) into a javascript `ArrayBuffer`
-     * @deprecated [WARNING] This free function '_to_array_buffer' is deprecated and will be removed in a future version, use 'PackedByteArray.to_array_buffer()' instead.
-     */
-    function to_array_buffer(packed: PackedByteArray): ArrayBuffer;
-
     type AsyncModuleSourceLoaderResolveFunc = (source: string) => void;
     type AsyncModuleSourceLoaderRejectFunc = (error: string) => void;
 

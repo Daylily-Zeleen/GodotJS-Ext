@@ -2,23 +2,21 @@
 #define GODOTJS_WEB_HANDLE_SCOPE_H
 #include "jsb_web_pch.h"
 
-namespace v8
-{
-    class Isolate;
+namespace v8 {
+class Isolate;
 
-    class HandleScope
-    {
-    private:
-        Isolate* isolate_;
+class HandleScope {
+private:
+	Isolate *isolate_;
 
-    public:
-        HandleScope(Isolate* isolate);
-        ~HandleScope();
+public:
+	HandleScope(Isolate *isolate);
+	~HandleScope();
 
-        HandleScope(HandleScope&& other) = delete;
-        HandleScope& operator=(HandleScope&& other) = delete;
-        HandleScope(const HandleScope&) = delete;
-        HandleScope& operator=(const HandleScope&) = delete;
-    };
-}
+	HandleScope(HandleScope &&other) = delete;
+	HandleScope &operator=(HandleScope &&other) = delete;
+	HandleScope(const HandleScope &) = delete;
+	HandleScope &operator=(const HandleScope &) = delete;
+};
+} //namespace v8
 #endif

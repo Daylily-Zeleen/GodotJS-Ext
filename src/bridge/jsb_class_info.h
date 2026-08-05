@@ -1,254 +1,232 @@
 #ifndef GODOTJS_CLASS_INFO_H
 #define GODOTJS_CLASS_INFO_H
 
+#include "internal/jsb_bit_field.h"
 #include "jsb_bridge_pch.h"
 #include "jsb_module.h"
-#include "internal/jsb_bit_field.h"
 
-namespace jsb
-{
-    enum class FinalizationType : uint8_t
-    {
-        // break the binding, no delete
-        None,
+namespace jsb {
+enum class FinalizationType : uint8_t {
+	// break the binding, no delete
+	None,
 
-        //
-        Default,
-    };
+	//
+	Default,
+};
 
-    typedef void (*ConstructorFunc)(const v8::FunctionCallbackInfo<v8::Value>&);
-    typedef void (*FinalizerFunc)(Environment*, void*, FinalizationType);
+typedef void (*ConstructorFunc)(const v8::FunctionCallbackInfo<v8::Value> &);
+typedef void (*FinalizerFunc)(Environment *, void *, FinalizationType);
 
-    /**
-     * @brief Correspond with [NativeClassType::Type::Custom].
-     * Typically,get `CustomNativeBase*` from js object's internal field use `dynamic_cast<>()` to cast to child class.
-     */
-    class CustomNativeBase
-    {
-    public:
-        virtual ~CustomNativeBase() = default;
-    };
+/**
+ * @brief Correspond with [NativeClassType::Type::Custom].
+ * Typically,get `CustomNativeBase*` from js object's internal field use `dynamic_cast<>()` to cast to child class.
+ */
+class CustomNativeBase {
+public:
+	virtual ~CustomNativeBase() = default;
+};
 
-    namespace NativeClassType
-    {
-        //NOTE the enum value of Type must be a even number, since it's stored as AlignedPointerInternalField
-        enum Type : uint8_t
-        {
-            // never used
-            None = 0,
+namespace NativeClassType {
+//NOTE the enum value of Type must be a even number, since it's stored as AlignedPointerInternalField
+enum Type : uint8_t {
+	// never used
+	None = 0,
 
-            //TODO a FASTPATH implementation? avoid unnecessary Variant wrapping for special builtin primitives (from Vector2 to Color)
-            //     But a VALUE still can not be binded as VALUE itself, it seems impossible to avoid thread-safe TYPED pools. Is it worth to implement?
-            // [BEGIN] RESERVED FOR FUTURE USE
-            // Vector2 = 2,
-            // Vector3 = 10,
-            // Color = 32,
-            // [END  ] RESERVED FOR FUTURE USE
-            _RESERVED = 32,
+	//TODO a FASTPATH implementation? avoid unnecessary Variant wrapping for special builtin primitives (from Vector2 to Color)
+	//     But a VALUE still can not be binded as VALUE itself, it seems impossible to avoid thread-safe TYPED pools. Is it worth to implement?
+	// [BEGIN] RESERVED FOR FUTURE USE
+	// Vector2 = 2,
+	// Vector3 = 10,
+	// Color = 32,
+	// [END  ] RESERVED FOR FUTURE USE
+	_RESERVED = 32,
 
-            // Godot Variant classes (valuetype).
-            // Classes are anonymously registered in Environment, only support retrieving NativeClassInfo by ClassID.
-            // Variant is a special case, it's fully managed by JS without an object mapping in object_db.
-            GodotPrimitive = 34,
+	// Godot Variant classes (valuetype).
+	// Classes are anonymously registered in Environment, only support retrieving NativeClassInfo by ClassID.
+	// Variant is a special case, it's fully managed by JS without an object mapping in object_db.
+	GodotPrimitive = 34,
 
-            // Godot Object classes are registered with name in Environment,
-            // support retrieving ClassID by the class name from godot_classes_index_.
-            // unnecessary but used to avoid class lookup.
-            GodotObject = 36,
+	// Godot Object classes are registered with name in Environment,
+	// support retrieving ClassID by the class name from godot_classes_index_.
+	// unnecessary but used to avoid class lookup.
+	GodotObject = 36,
 
-            // type for JSWorker.
-            // unnecessary but used to avoid class lookup.
-            Worker = 38,
+	// type for JSWorker.
+	// unnecessary but used to avoid class lookup.
+	Worker = 38,
 
-            // type for Shadow.
-            // unnecessary but used to avoid class lookup.
-            Shadow = 40,
+	// type for Shadow.
+	// unnecessary but used to avoid class lookup.
+	Shadow = 40,
 
-            // reserved for future use
-            Custom = 64,
-        };
-    }
+	// reserved for future use
+	Custom = 64,
+};
+} //namespace NativeClassType
 
-    struct NativeBindingInfo
-    {
-        void* ptr;
-        NativeClassType::Type type;
-    };
+struct NativeBindingInfo {
+	void *ptr;
+	NativeClassType::Type type;
+};
 
-    struct NativeClassInfo
-    {
-        // the func to release the exposed C++ (godot/variant/native) object
-        // it's called when a JS value with this class type garbage collected by JS runtime
-        FinalizerFunc finalizer;
+struct NativeClassInfo {
+	// the func to release the exposed C++ (godot/variant/native) object
+	// it's called when a JS value with this class type garbage collected by JS runtime
+	FinalizerFunc finalizer;
 
-        //TODO RESERVED FOR FUTURE USE
-        NativeClassType::Type type;
+	//TODO RESERVED FOR FUTURE USE
+	NativeClassType::Type type;
 
-        // *only if type == GodotObject*
-        // godot_object_constructor use this name to look up classdb
-        StringName name;
+	// *only if type == GodotObject*
+	// godot_object_constructor use this name to look up classdb
+	StringName name;
 
-        impl::Class clazz;
-    };
+	impl::Class clazz;
+};
 
-    // Safe pointer of NativeClassInfo
-    typedef internal::SArray<NativeClassInfo, NativeClassID>::Pointer NativeClassInfoPtr;
-    typedef internal::SArray<NativeClassInfo, NativeClassID>::ConstPointer NativeClassInfoConstPtr;
+// Safe pointer of NativeClassInfo
+typedef internal::SArray<NativeClassInfo, NativeClassID>::Pointer NativeClassInfoPtr;
+typedef internal::SArray<NativeClassInfo, NativeClassID>::ConstPointer NativeClassInfoConstPtr;
 
-    struct ClassRegister;
-    typedef NativeClassInfoPtr (*ClassRegisterFunc)(const ClassRegister& p_register, NativeClassID* r_class_id);
+struct ClassRegister;
+typedef NativeClassInfoPtr (*ClassRegisterFunc)(const ClassRegister &p_register, NativeClassID *r_class_id);
 
-    namespace ScriptClassDocField
-    {
-        enum Type
-        {
-            Deprecated = 0,
-            Experimental = 1,
-            Help = 2,
-        };
-    }
+namespace ScriptClassDocField {
+enum Type {
+	Deprecated = 0,
+	Experimental = 1,
+	Help = 2,
+};
+}
 
 #ifdef TOOLS_ENABLED
-    struct ScriptBaseDoc
-    {
-        String brief_description;
+struct ScriptBaseDoc {
+	String brief_description;
 
-        String deprecated_message;
-        String experimental_message;
+	String deprecated_message;
+	String experimental_message;
 
-        bool is_deprecated = false;
-        bool is_experimental = false;
+	bool is_deprecated = false;
+	bool is_experimental = false;
+};
 
-    };
-
-    struct ScriptClassDoc : ScriptBaseDoc {};
-    struct ScriptMethodDoc : ScriptBaseDoc {};
-    struct ScriptPropertyDoc : ScriptBaseDoc {};
+struct ScriptClassDoc : ScriptBaseDoc {};
+struct ScriptMethodDoc : ScriptBaseDoc {};
+struct ScriptPropertyDoc : ScriptBaseDoc {};
 #else
-    struct ScriptClassDoc {};
-    struct ScriptMethodDoc {};
-    struct ScriptPropertyDoc {};
+struct ScriptClassDoc {};
+struct ScriptMethodDoc {};
+struct ScriptPropertyDoc {};
 #endif
 
-    namespace ScriptMethodFlags
-    {
-        enum Type : uint8_t
-        {
-            None = 0,
-            Static = 1,
-        };
-    }
-
-    struct ScriptSignalInfo
-    {
-    };
-
-    struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
-    {
-        // only valid with TOOLS_ENABLED
-        ScriptMethodDoc doc;
-
-        ScriptMethodFlags::Type flags = ScriptMethodFlags::None;
-
-        // v8::Global<v8::Function> cache_;
-
-        _FORCE_INLINE_ bool is_static() const { return flags & ScriptMethodFlags::Static; }
-
-    };
-
-    struct ScriptPropertyInfo : public PropertyInfo
-    {
-        ScriptPropertyDoc doc;
-
-        // valid only if _Evaluated flag is set in ScriptClassInfo.flags
-        Variant default_value;
-
-        bool cache;
-
-        ScriptPropertyInfo() = default;
-        ScriptPropertyInfo(Variant::Type p_type, const StringName &p_name, PropertyHint p_hint = PROPERTY_HINT_NONE, const String &p_hint_string = "", uint32_t p_usage = PROPERTY_USAGE_DEFAULT, const StringName &p_class_name = ""):
-            PropertyInfo(p_type, p_name, p_hint, p_hint_string, p_usage, p_class_name) {};
-    };
-
-    namespace ScriptClassFlags
-    {
-        enum Type : uint8_t
-        {
-            None = 0,
-
-            //TODO we have no idea about it with javascript itself. maybe we can decorate the abstract class and check here?
-            Abstract = 1 << 0,
-            Tool = 1 << 1,
-
-            // (INTERNAL USE ONLY) whether the default value of properties are evaluated or not
-            _Evaluated = 1 << 2,
-        };
-    }
-
-    // exchange internal javascript class (object) information.
-    struct StatelessScriptClassInfo
-    {
-    public:
-        // name of the owner module
-        StringName module_id;
-
-        // js class name (name of the exported default class in module)
-        StringName js_class_name;
-
-        // a fastpath to read the name of native class (the GodotJS class inherits from).
-        //NOTE it's a redundant field only for performance. evaluated from 'native_class_id' and must be a godot object class.
-        StringName native_class_name;
-
-        // [EXPERIMENTAL] module fastpath for getting script class of base
-        StringName base_script_module_id;
-
-        // script icon path for showing in scene hierarchy
-        String icon;
-
-        // only valid with TOOLS_ENABLED
-        ScriptClassDoc doc;
-
-        Dictionary rpc_config;
-
-        HashMap<StringName, ScriptMethodInfo> methods;
-        HashMap<StringName, ScriptSignalInfo> signals;
-        HashMap<StringName, ScriptPropertyInfo> properties;
-
-        ::templates::BitField<ScriptClassFlags::Type> flags { ScriptClassFlags::None };
-
-        //TODO whether the internal class object alive or not
-        _FORCE_INLINE_ bool is_valid() const { return true; }
-
-        _FORCE_INLINE_ bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }
-        _FORCE_INLINE_ bool is_abstract() const { return flags.has_flag(ScriptClassFlags::Abstract); }
-    };
-
-    struct ScriptClassInfo : StatelessScriptClassInfo
-    {
-        // the native class id the current class inherits from.
-        NativeClassID native_class_id;
-
-        // SIDE NOTE:
-        //     js_class.prototype: prototype definition
-        //     js_class.prototype.__proto__: prototype of the base js_class (B.prototype.__proto__ === A.prototype, if B directly extends A)
-        //     js_class.constructor: the real function for constructing
-
-        // for constructor access
-        v8::Global<v8::Object> js_class;
-
-        internal::TypeGen<StringName, v8::Global<v8::Function>>::UnorderedMap method_cache;
-
-        static void instantiate(Environment* p_env, const StringName& p_module_id, const v8::Local<v8::Object>& p_self);
-
-        static bool _parse_script_class(const v8::Local<v8::Context>& p_context, JavaScriptModule& p_module);
-
-    };
-
-    // Safe pointer of ScriptClassInfo
-    typedef internal::SArray<ScriptClassInfo, ScriptClassID> ScriptClassInfoArray;
-    typedef internal::SArray<ScriptClassInfo, ScriptClassID>::Pointer ScriptClassInfoPtr;
-    typedef internal::SArray<ScriptClassInfo, ScriptClassID>::ConstPointer ScriptClassInfoConstPtr;
-
+namespace ScriptMethodFlags {
+enum Type : uint8_t {
+	None = 0,
+	Static = 1,
+};
 }
+
+struct ScriptSignalInfo {
+};
+
+struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
+{
+	// only valid with TOOLS_ENABLED
+	ScriptMethodDoc doc;
+
+	ScriptMethodFlags::Type flags = ScriptMethodFlags::None;
+
+	// v8::Global<v8::Function> cache_;
+
+	_FORCE_INLINE_ bool is_static() const { return flags & ScriptMethodFlags::Static; }
+};
+
+struct ScriptPropertyInfo : public PropertyInfo {
+	ScriptPropertyDoc doc;
+
+	// valid only if _Evaluated flag is set in ScriptClassInfo.flags
+	Variant default_value;
+
+	bool cache;
+
+	ScriptPropertyInfo() = default;
+	ScriptPropertyInfo(Variant::Type p_type, const StringName &p_name, PropertyHint p_hint = PROPERTY_HINT_NONE, const String &p_hint_string = "", uint32_t p_usage = PROPERTY_USAGE_DEFAULT, const StringName &p_class_name = "") : PropertyInfo(p_type, p_name, p_hint, p_hint_string, p_usage, p_class_name) {};
+};
+
+namespace ScriptClassFlags {
+enum Type : uint8_t {
+	None = 0,
+
+	//TODO we have no idea about it with javascript itself. maybe we can decorate the abstract class and check here?
+	Abstract = 1 << 0,
+	Tool = 1 << 1,
+
+	// (INTERNAL USE ONLY) whether the default value of properties are evaluated or not
+	_Evaluated = 1 << 2,
+};
+}
+
+// exchange internal javascript class (object) information.
+struct StatelessScriptClassInfo {
+public:
+	// name of the owner module
+	StringName module_id;
+
+	// js class name (name of the exported default class in module)
+	StringName js_class_name;
+
+	// a fastpath to read the name of native class (the GodotJS class inherits from).
+	//NOTE it's a redundant field only for performance. evaluated from 'native_class_id' and must be a godot object class.
+	StringName native_class_name;
+
+	// [EXPERIMENTAL] module fastpath for getting script class of base
+	StringName base_script_module_id;
+
+	// script icon path for showing in scene hierarchy
+	String icon;
+
+	// only valid with TOOLS_ENABLED
+	ScriptClassDoc doc;
+
+	Dictionary rpc_config;
+
+	HashMap<StringName, ScriptMethodInfo> methods;
+	HashMap<StringName, ScriptSignalInfo> signals;
+	HashMap<StringName, ScriptPropertyInfo> properties;
+
+	::templates::BitField<ScriptClassFlags::Type> flags{ ScriptClassFlags::None };
+
+	//TODO whether the internal class object alive or not
+	_FORCE_INLINE_ bool is_valid() const { return true; }
+
+	_FORCE_INLINE_ bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }
+	_FORCE_INLINE_ bool is_abstract() const { return flags.has_flag(ScriptClassFlags::Abstract); }
+};
+
+struct ScriptClassInfo : StatelessScriptClassInfo {
+	// the native class id the current class inherits from.
+	NativeClassID native_class_id;
+
+	// SIDE NOTE:
+	//     js_class.prototype: prototype definition
+	//     js_class.prototype.__proto__: prototype of the base js_class (B.prototype.__proto__ === A.prototype, if B directly extends A)
+	//     js_class.constructor: the real function for constructing
+
+	// for constructor access
+	v8::Global<v8::Object> js_class;
+
+	internal::TypeGen<StringName, v8::Global<v8::Function>>::UnorderedMap method_cache;
+
+	static void instantiate(Environment *p_env, const StringName &p_module_id, const v8::Local<v8::Object> &p_self);
+
+	static bool _parse_script_class(const v8::Local<v8::Context> &p_context, JavaScriptModule &p_module);
+};
+
+// Safe pointer of ScriptClassInfo
+typedef internal::SArray<ScriptClassInfo, ScriptClassID> ScriptClassInfoArray;
+typedef internal::SArray<ScriptClassInfo, ScriptClassID>::Pointer ScriptClassInfoPtr;
+typedef internal::SArray<ScriptClassInfo, ScriptClassID>::ConstPointer ScriptClassInfoConstPtr;
+
+} //namespace jsb
 
 #endif

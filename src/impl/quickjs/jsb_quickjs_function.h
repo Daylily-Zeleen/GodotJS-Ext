@@ -1,41 +1,39 @@
 #ifndef GODOTJS_QUICKJS_FUNCTION_H
 #define GODOTJS_QUICKJS_FUNCTION_H
-#include "jsb_quickjs_object.h"
 #include "jsb_quickjs_function_interop.h"
+#include "jsb_quickjs_object.h"
 
-namespace jsb::impl
-{
-    namespace FuncPayload
-    {
-        enum { kCallback, kData, kNum, };
-    }
-
-    class Helper;
+namespace jsb::impl {
+namespace FuncPayload {
+enum { kCallback,
+	kData,
+	kNum,
+};
 }
 
-namespace v8
-{
-    class Function : public Object
-    {
-        friend class jsb::impl::Helper;
-        friend class FunctionTemplate;
+class Helper;
+} //namespace jsb::impl
 
-    public:
-        MaybeLocal<Value> Call(
-            Local<Context> context,
-            Local<Value> recv, int argc,
-            Local<Value> argv[]);
+namespace v8 {
+class Function : public Object {
+	friend class jsb::impl::Helper;
+	friend class FunctionTemplate;
 
-        static MaybeLocal<Function> New(
-            Local<Context> context, FunctionCallback callback,
-            Local<Value> data = Local<Value>(),
-            int length = 0);
+public:
+	MaybeLocal<Value> Call(
+			Local<Context> context,
+			Local<Value> recv,
+			int argc,
+			Local<Value> argv[]);
 
-        Local<Context> GetCreationContextChecked() const;
+	static MaybeLocal<Function> New(
+			Local<Context> context, FunctionCallback callback, Local<Value> data = Local<Value>(), int length = 0);
 
-    private:
-        static JSValue _function_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data);
-    };
+	Local<Context> GetCreationContextChecked() const;
 
-}
+private:
+	static JSValue _function_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data);
+};
+
+} //namespace v8
 #endif

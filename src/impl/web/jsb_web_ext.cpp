@@ -1,6 +1,5 @@
 #include "jsb_web_ext.h"
 
-namespace jsb::impl
-{
+namespace jsb::impl {
 
 }
