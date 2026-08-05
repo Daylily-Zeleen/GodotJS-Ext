@@ -1,5 +1,4 @@
-#ifndef GODOTJS_CUSTOM_FIELD_H
-#define GODOTJS_CUSTOM_FIELD_H
+#pragma once
 
 #include <cstdint>
 #include <godot_cpp/variant/string.hpp>
@@ -69,4 +68,3 @@ struct CustomField {
 	}
 };
 } //namespace jsb::impl
-#endif

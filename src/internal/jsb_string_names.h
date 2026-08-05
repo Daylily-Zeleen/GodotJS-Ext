@@ -1,5 +1,4 @@
-#ifndef GODOTJS_STRING_NAMES_H
-#define GODOTJS_STRING_NAMES_H
+#pragma once
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
@@ -67,4 +66,3 @@ public:
 #pragma pop_macro("DEF")
 };
 } //namespace jsb::internal
-#endif

@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_SOURCE_READER_H
-#define GODOTJS_SOURCE_READER_H
+﻿#pragma once
 #include "jsb_internal_pch.h"
 
 #include <godot_cpp/classes/file_access.hpp>
@@ -66,4 +65,3 @@ public:
 	virtual uint64_t get_buffer(uint8_t *p_dst, uint64_t p_length) const override;
 };
 } //namespace jsb::internal
-#endif

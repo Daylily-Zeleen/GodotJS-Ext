@@ -1,5 +1,4 @@
-#ifndef GODOTJS_VARIANT_INFO_H
-#define GODOTJS_VARIANT_INFO_H
+#pragma once
 #include "api_tool/api_tool_types.h"
 #include "jsb_macros.h"
 #include "jsb_variant_util.h"
@@ -76,4 +75,3 @@ struct VariantInfoCollection {
 	Vector<FPropertyInfo2> object_properties;
 };
 } //namespace jsb::internal
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_INTERNAL_MODULE_LOADER_H
-#define GODOTJS_INTERNAL_MODULE_LOADER_H
+#pragma once
 
 #include "jsb_module_loader.h"
 
@@ -18,4 +17,3 @@ private:
 
 } //namespace jsb
 
-#endif

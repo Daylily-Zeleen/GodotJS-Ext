@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_EXPORT_PLUGIN_H
-#define GODOTJS_EXPORT_PLUGIN_H
+﻿#pragma once
 
 #include "jsb_editor_pch.h"
 #include <godot_cpp/classes/editor_export_platform.hpp>
@@ -39,4 +38,3 @@ private:
 	std::shared_ptr<jsb::Environment> env_;
 };
 
-#endif

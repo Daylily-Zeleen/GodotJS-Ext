@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SCRIPT_H
-#define GODOTJS_SCRIPT_H
+#pragma once
 
 #include "../bridge/jsb_bridge.h"
 #include "../compat/jsb_compat.h"
@@ -238,4 +237,3 @@ public:
 	}
 };
 
-#endif

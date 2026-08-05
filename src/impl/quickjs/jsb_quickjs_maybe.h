@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_MAYBE_H
-#define GODOTJS_QUICKJS_MAYBE_H
+#pragma once
 namespace v8 {
 template <typename T>
 class Maybe {
@@ -46,4 +45,3 @@ inline Maybe<T> Nothing() {
 	return Maybe<T>();
 }
 } //namespace v8
-#endif

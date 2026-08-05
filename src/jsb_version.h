@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_VERSION_H
-#define GODOTJS_VERSION_H
+﻿#pragma once
 
 #include "jsb.gen.h"
 
@@ -7,4 +6,3 @@
 #define JSB_MINOR_VERSION 0
 #define JSB_PATCH_VERSION 0
 
-#endif

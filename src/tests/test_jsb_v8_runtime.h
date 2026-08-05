@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TESTS_JSB_V8_RUNTIME_H
-#define GODOTJS_TESTS_JSB_V8_RUNTIME_H
+#pragma once
 
 #include "../bridge/jsb_builtins.h"
 #include "jsb_test_helpers.h"
@@ -10,4 +9,3 @@ namespace jsb::tests {
 }
 #endif
 
-#endif

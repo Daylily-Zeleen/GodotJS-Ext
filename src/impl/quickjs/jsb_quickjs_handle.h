@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_HANDLE_H
-#define GODOTJS_QUICKJS_HANDLE_H
+#pragma once
 
 #include "jsb_quickjs_broker.h"
 #include "jsb_quickjs_data.h"
@@ -320,4 +319,3 @@ bool Local<T>::operator!=(const Global<S> &other) const {
 
 } //namespace v8
 
-#endif

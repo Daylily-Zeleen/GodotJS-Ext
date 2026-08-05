@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_CONTEXT_H
-#define GODOTJS_WEB_CONTEXT_H
+#pragma once
 
 #include "jsb_web_handle.h"
 #include "jsb_web_pch.h"
@@ -73,4 +72,3 @@ private:
 };
 } //namespace v8
 
-#endif

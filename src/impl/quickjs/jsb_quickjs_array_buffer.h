@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_QUICKJS_ARRAY_BUFFER_H
-#define GODOTJS_QUICKJS_ARRAY_BUFFER_H
+﻿#pragma once
 #include "jsb_quickjs_object.h"
 
 namespace v8 {
@@ -25,4 +24,3 @@ private:
 	static void _free(JSRuntime *rt, void *opaque, void *ptr);
 };
 } //namespace v8
-#endif

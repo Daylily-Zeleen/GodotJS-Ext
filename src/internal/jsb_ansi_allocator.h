@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ANSI_ALLOCATOR_H
-#define GODOTJS_ANSI_ALLOCATOR_H
+#pragma once
 
 #include <compat/jsb_compat.h>
 #include <godot_cpp/core/math_funcs_binary.hpp>
@@ -66,4 +65,3 @@ struct AnsiAllocator {
 	};
 };
 } //namespace jsb::internal
-#endif

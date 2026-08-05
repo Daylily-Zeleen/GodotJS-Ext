@@ -1,5 +1,4 @@
-#ifndef GODOTJS_LOG_SEVERITY_DEF_H
-#define GODOTJS_LOG_SEVERITY_DEF_H
+#pragma once
 
 #include <cstdint>
 
@@ -16,4 +15,3 @@ enum Type : uint8_t {
 } //namespace ELogSeverity
 } //namespace jsb::internal
 
-#endif

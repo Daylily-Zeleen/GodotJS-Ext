@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_WEB_ARRAY_BUFFER_H
-#define GODOTJS_WEB_ARRAY_BUFFER_H
+﻿#pragma once
 #include "jsb_web_object.h"
 
 namespace v8 {
@@ -15,4 +14,3 @@ public:
 	};
 };
 } //namespace v8
-#endif

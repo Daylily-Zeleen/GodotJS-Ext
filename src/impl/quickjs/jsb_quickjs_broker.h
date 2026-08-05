@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_BROKER_H
-#define GODOTJS_QUICKJS_BROKER_H
+#pragma once
 #include "jsb_quickjs_pch.h"
 
 namespace v8 {
@@ -32,4 +31,3 @@ public:
 	static void _remove_reference(v8::Isolate *isolate);
 };
 } //namespace jsb::impl
-#endif

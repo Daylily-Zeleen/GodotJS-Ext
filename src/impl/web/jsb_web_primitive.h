@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_PRIMITIVE_H
-#define GODOTJS_WEB_PRIMITIVE_H
+#pragma once
 #include "jsb_web_data.h"
 #include "jsb_web_handle.h"
 #include "jsb_web_pch.h"
@@ -86,4 +85,3 @@ public:
 Local<Primitive> Undefined(Isolate *isolate);
 Local<Primitive> Null(Isolate *isolate);
 } //namespace v8
-#endif

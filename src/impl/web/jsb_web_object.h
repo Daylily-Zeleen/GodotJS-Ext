@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_OBJECT_H
-#define GODOTJS_WEB_OBJECT_H
+#pragma once
 #include "jsb_web_handle.h"
 #include "jsb_web_maybe.h"
 #include "jsb_web_pch.h"
@@ -62,4 +61,3 @@ public:
 };
 
 } //namespace v8
-#endif

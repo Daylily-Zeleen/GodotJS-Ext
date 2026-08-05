@@ -1,5 +1,4 @@
-#ifndef GODOTJS_V8_GLOBAL_INIT_H
-#define GODOTJS_V8_GLOBAL_INIT_H
+#pragma once
 #include "jsb_v8_pch.h"
 
 namespace jsb::impl {
@@ -63,4 +62,3 @@ public:
 };
 
 } //namespace jsb::impl
-#endif

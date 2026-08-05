@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_WEB_PCH_H
-#define GODOTJS_WEB_PCH_H
+﻿#pragma once
 
 #include "../../internal/jsb_internal.h"
 #include "../../jsb.gen.h"
@@ -12,4 +11,3 @@
 #include "../shared/jsb_custom_field.h"
 #include "jsb_web_interop.h"
 
-#endif

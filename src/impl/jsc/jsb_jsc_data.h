@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_DATA_H
-#define GODOTJS_JSC_DATA_H
+#pragma once
 #include "jsb_jsc_pch.h"
 
 namespace v8 {
@@ -45,4 +44,3 @@ private:
 	bool strict_eq(const Data &other) const;
 };
 } //namespace v8
-#endif

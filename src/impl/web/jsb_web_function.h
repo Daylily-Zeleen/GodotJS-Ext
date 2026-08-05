@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_FUNCTION_H
-#define GODOTJS_WEB_FUNCTION_H
+#pragma once
 #include "jsb_web_function_interop.h"
 #include "jsb_web_object.h"
 
@@ -33,4 +32,3 @@ public:
 };
 
 } //namespace v8
-#endif

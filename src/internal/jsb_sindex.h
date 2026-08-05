@@ -1,5 +1,4 @@
-#ifndef GODOTJS_INDEX_H
-#define GODOTJS_INDEX_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 #include "jsb_macros.h"
@@ -76,4 +75,3 @@ typedef TIndex<uint64_t, 32, 0xffffffff> Index64;
 // index(0, 67_108_863) revision(1, 63)
 typedef TIndex<uint32_t, 6, 0x3f> Index32;
 } //namespace jsb::internal
-#endif

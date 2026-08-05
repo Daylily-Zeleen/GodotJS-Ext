@@ -1,5 +1,4 @@
-#ifndef JSB_FLAGS_H
-#define JSB_FLAGS_H
+#pragma once
 
 #include <godot_cpp/core/defs.hpp>
 
@@ -21,4 +20,3 @@ public:
 
 } //namespace templates
 
-#endif // JSB_FLAGS_H

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_CLASS_H
-#define GODOTJS_WEB_CLASS_H
+#pragma once
 #include "jsb_web_handle.h"
 #include "jsb_web_pch.h"
 
@@ -49,4 +48,3 @@ private:
 	}
 };
 } //namespace jsb::impl
-#endif

@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_EDITOR_PROGRESS_H
-#define GODOTJS_EDITOR_PROGRESS_H
+﻿#pragma once
 
 #include "godot_cpp/classes/window.hpp"
 #include "godot_cpp/templates/hash_map.hpp"
@@ -48,4 +47,3 @@ public:
 
 }; //namespace godot
 
-#endif // GODOTJS_EDITOR_PROGRESS_H

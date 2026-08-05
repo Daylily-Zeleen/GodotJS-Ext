@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_H
-#define GODOTJS_WEB_H
+#pragma once
 
 #include "jsb_web_context.h"
 #include "jsb_web_handle.h"
@@ -20,4 +19,3 @@
 #include "jsb_web_class.h"
 #include "jsb_web_class_builder.h"
 #include "jsb_web_global_init.h"
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_FUNCTION_H
-#define GODOTJS_JSC_FUNCTION_H
+#pragma once
 #include "jsb_jsc_function_interop.h"
 #include "jsb_jsc_object.h"
 
@@ -29,4 +28,3 @@ private:
 };
 
 } //namespace v8
-#endif

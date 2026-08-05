@@ -1,5 +1,4 @@
-#ifndef GODOTJS_OBJECT_BINDINGS_H
-#define GODOTJS_OBJECT_BINDINGS_H
+#pragma once
 #include "jsb_bridge_pch.h"
 #include "jsb_class_info.h"
 
@@ -18,4 +17,3 @@ struct ObjectReflectBindingUtil {
 	static void _godot_utility_func(const v8::FunctionCallbackInfo<v8::Value> &info);
 };
 } //namespace jsb
-#endif

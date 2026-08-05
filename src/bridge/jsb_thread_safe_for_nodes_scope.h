@@ -1,5 +1,4 @@
-#ifndef GODOTJS_THREAD_SAFE_FOR_NODES_SCOPE_H
-#define GODOTJS_THREAD_SAFE_FOR_NODES_SCOPE_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -20,4 +19,3 @@ public:
 };
 } //namespace jsb
 
-#endif

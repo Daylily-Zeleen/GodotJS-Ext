@@ -1,5 +1,4 @@
-#ifndef GODOTJS_FUNCTION_POINTER_H
-#define GODOTJS_FUNCTION_POINTER_H
+#pragma once
 
 #include "../compat/jsb_compat.h"
 #include <cinttypes>
@@ -25,4 +24,3 @@ struct CFunctionPointers {
 	Vector<uint8_t> pointer_;
 };
 } //namespace jsb::internal
-#endif

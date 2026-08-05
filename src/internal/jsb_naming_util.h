@@ -1,5 +1,4 @@
-#ifndef GODOTJS_NAMING_UTIL_H
-#define GODOTJS_NAMING_UTIL_H
+#pragma once
 
 #include "jsb_settings.h"
 #include <godot_cpp/templates/list.hpp>
@@ -95,4 +94,3 @@ public:
 };
 } //namespace jsb::internal
 
-#endif

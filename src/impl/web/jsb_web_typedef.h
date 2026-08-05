@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_TYPEDEF_H
-#define GODOTJS_WEB_TYPEDEF_H
+#pragma once
 
 #include "jsb_web_pch.h"
 #define JSB_IMPL_VERSION_STRING "jsbi-experimental"
@@ -107,4 +106,3 @@ using AccessorNameGetterCallback = void (*)(Local<Name> property, const Property
 
 } //namespace v8
 
-#endif

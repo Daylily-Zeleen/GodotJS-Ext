@@ -1,5 +1,4 @@
-#ifndef GODOTJS_OBJECT_HANDLE_H
-#define GODOTJS_OBJECT_HANDLE_H
+#pragma once
 
 #include "jsb_bit_field.h"
 #include "jsb_bridge_pch.h"
@@ -52,4 +51,3 @@ struct ObjectHandle {
 
 } //namespace jsb
 
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_SARRAY_H
-#define GODOTJS_SARRAY_H
+#pragma once
 
 #include <algorithm>
 
@@ -920,4 +919,3 @@ private:
 	}
 };
 } //namespace jsb::internal
-#endif

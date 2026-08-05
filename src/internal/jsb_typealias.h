@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_TYPE_ALIAS_H
-#define GODOTJS_TYPE_ALIAS_H
+﻿#pragma once
 
 #include "jsb_sindex.h"
 
@@ -13,4 +12,3 @@ typedef internal::Index64 NativeObjectID;
 typedef internal::Index32 ObjectCacheID;
 
 } //namespace jsb
-#endif

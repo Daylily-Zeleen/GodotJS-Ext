@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_FUNCTION_INTEROP_H
-#define GODOTJS_JSC_FUNCTION_INTEROP_H
+#pragma once
 #include "jsb_jsc_isolate.h"
 #include "jsb_jsc_object.h"
 #include "jsb_jsc_typedef.h"
@@ -98,4 +97,3 @@ private:
 	uint16_t stack_pos_;
 };
 } //namespace v8
-#endif

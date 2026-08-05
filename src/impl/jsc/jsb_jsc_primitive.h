@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_PRIMITIVE_H
-#define GODOTJS_JSC_PRIMITIVE_H
+#pragma once
 #include "jsb_jsc_data.h"
 #include "jsb_jsc_handle.h"
 #include "jsb_jsc_pch.h"
@@ -93,4 +92,3 @@ public:
 Local<Primitive> Undefined(Isolate *isolate);
 Local<Primitive> Null(Isolate *isolate);
 } //namespace v8
-#endif

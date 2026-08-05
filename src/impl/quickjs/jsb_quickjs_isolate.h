@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_ISOLATE_H
-#define GODOTJS_QUICKJS_ISOLATE_H
+#pragma once
 
 #include "jsb_quickjs_array_buffer.h"
 #include "jsb_quickjs_handle_scope.h"
@@ -432,4 +431,3 @@ private:
 };
 } //namespace v8
 
-#endif

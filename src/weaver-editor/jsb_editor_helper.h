@@ -1,5 +1,4 @@
-#ifndef GODOTJS_EDITOR_HELPER_H
-#define GODOTJS_EDITOR_HELPER_H
+#pragma once
 #include "jsb_editor_pch.h"
 
 #include <compat/editor_settings.h>
@@ -35,4 +34,3 @@ public:
 	static bool is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
 };
 
-#endif

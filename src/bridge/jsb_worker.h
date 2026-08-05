@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WORKER_H
-#define GODOTJS_WORKER_H
+#pragma once
 #include "jsb_bridge_pch.h"
 #include "jsb_buffer.h"
 #include "jsb_class_info.h"
@@ -140,4 +139,3 @@ private:
 };
 } //namespace jsb
 
-#endif

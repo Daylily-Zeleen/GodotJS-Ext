@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_OBJECT_H
-#define GODOTJS_JSC_OBJECT_H
+#pragma once
 #include "jsb_jsc_handle.h"
 #include "jsb_jsc_maybe.h"
 #include "jsb_jsc_pch.h"
@@ -67,4 +66,3 @@ public:
 };
 
 } //namespace v8
-#endif

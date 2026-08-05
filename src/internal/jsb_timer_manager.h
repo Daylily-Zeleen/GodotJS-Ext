@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TIMER_MANAGER_H
-#define GODOTJS_TIMER_MANAGER_H
+#pragma once
 
 #include "jsb_internal_pch.h"
 
@@ -298,4 +297,3 @@ private:
 };
 } //namespace jsb::internal
 
-#endif

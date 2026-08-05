@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_BROKER_H
-#define GODOTJS_WEB_BROKER_H
+#pragma once
 #include "jsb_web_pch.h"
 
 namespace v8 {
@@ -15,4 +14,3 @@ public:
 	static JSRuntime get_engine(v8::Isolate *isolate);
 };
 } //namespace jsb::impl
-#endif

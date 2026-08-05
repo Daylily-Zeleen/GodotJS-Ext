@@ -1,5 +1,4 @@
-#ifndef GODOTJS_PCH_H
-#define GODOTJS_PCH_H
+#pragma once
 
 #include <cstdint>
 #include <memory>
@@ -25,4 +24,3 @@
 
 #include "../internal/jsb_internal.h"
 
-#endif

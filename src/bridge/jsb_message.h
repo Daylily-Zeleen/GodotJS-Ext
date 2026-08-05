@@ -1,5 +1,4 @@
-#ifndef GODOTJS_MESSAGE_H
-#define GODOTJS_MESSAGE_H
+#pragma once
 #include "jsb_bridge_pch.h"
 #include "jsb_buffer.h"
 
@@ -64,4 +63,3 @@ private:
 };
 
 } //namespace jsb
-#endif

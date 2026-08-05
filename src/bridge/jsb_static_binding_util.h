@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_STATIC_BINDING_UTIL_H
-#define GODOTJS_STATIC_BINDING_UTIL_H
+﻿#pragma once
 #include "jsb_bridge_pch.h"
 
 #include "jsb_type_convert.h"
@@ -130,4 +129,3 @@ struct StaticBindingUtil<int32_t> {
 };
 } //namespace jsb
 
-#endif

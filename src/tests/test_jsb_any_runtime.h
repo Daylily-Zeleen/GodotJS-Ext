@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TESTS_JSB_ANY_RUNTIME_H
-#define GODOTJS_TESTS_JSB_ANY_RUNTIME_H
+#pragma once
 
 #include "../bridge/jsb_essentials.h"
 #include "../bridge/jsb_object_db.h"
@@ -528,4 +527,3 @@ file = undefined;
 }
 } //namespace jsb::tests
 
-#endif

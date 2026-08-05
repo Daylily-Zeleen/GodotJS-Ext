@@ -1,5 +1,4 @@
-#ifndef GODOTJS_PRESET_LOADER_H
-#define GODOTJS_PRESET_LOADER_H
+#pragma once
 #include "jsb_internal_pch.h"
 #include "jsb_logger.h"
 #include "jsb_macros.h"
@@ -113,4 +112,3 @@ private:
 	}
 };
 } //namespace jsb::internal
-#endif

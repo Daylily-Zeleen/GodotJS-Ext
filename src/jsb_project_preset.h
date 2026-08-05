@@ -1,5 +1,4 @@
-#ifndef GODOTJS_PROJECT_PRESET_H
-#define GODOTJS_PROJECT_PRESET_H
+#pragma once
 
 #include "compat/jsb_compat.h"
 #include "internal/jsb_preset_source.h"
@@ -11,4 +10,3 @@ struct GodotJSProjectPreset {
 	static jsb::internal::PresetSource get_source_ed(const String &p_filename);
 #endif
 };
-#endif

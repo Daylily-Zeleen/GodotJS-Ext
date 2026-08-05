@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ENVIRONMENT_H
-#define GODOTJS_ENVIRONMENT_H
+#pragma once
 
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
@@ -908,4 +907,3 @@ public:
 
 } //namespace jsb
 
-#endif

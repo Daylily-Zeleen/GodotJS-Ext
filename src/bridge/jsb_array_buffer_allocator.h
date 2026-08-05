@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ARRAY_BUFFER_ALLOCATOR_H
-#define GODOTJS_ARRAY_BUFFER_ALLOCATOR_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -22,4 +21,3 @@ public:
 };
 } //namespace jsb
 
-#endif

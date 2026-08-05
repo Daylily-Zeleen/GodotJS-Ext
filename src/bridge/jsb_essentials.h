@@ -1,5 +1,4 @@
-#ifndef GODOTJS_ESSENTIALS_H
-#define GODOTJS_ESSENTIALS_H
+#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -12,4 +11,3 @@ public:
 };
 } //namespace jsb
 
-#endif

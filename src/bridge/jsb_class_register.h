@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_CLASS_REGISTER_H
-#define GODOTJS_CLASS_REGISTER_H
+﻿#pragma once
 
 #include "jsb_bridge_pch.h"
 #include "jsb_environment.h"
@@ -21,4 +20,3 @@ struct ClassRegister {
 };
 } //namespace jsb
 
-#endif

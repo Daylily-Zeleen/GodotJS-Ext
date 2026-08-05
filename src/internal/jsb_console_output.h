@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_CONSOLE_OUTPUT_H
-#define GODOTJS_CONSOLE_OUTPUT_H
+﻿#pragma once
 
 #include "../compat/jsb_compat.h"
 #include "jsb_log_severity.h"
@@ -21,4 +20,3 @@ protected:
 };
 } //namespace internal
 } //namespace jsb
-#endif

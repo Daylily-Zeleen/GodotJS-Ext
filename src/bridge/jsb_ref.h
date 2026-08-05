@@ -1,5 +1,4 @@
-#ifndef GODOTJS_FUNCTION_H
-#define GODOTJS_FUNCTION_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 
@@ -108,4 +107,3 @@ struct TStrongRef {
 };
 } //namespace jsb
 
-#endif

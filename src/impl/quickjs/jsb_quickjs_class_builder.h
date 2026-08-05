@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_CLASS_BUILDER_H
-#define GODOTJS_QUICKJS_CLASS_BUILDER_H
+#pragma once
 #include "jsb_quickjs_class.h"
 #include "jsb_quickjs_function_interop.h"
 #include "jsb_quickjs_handle_scope.h"
@@ -271,4 +270,3 @@ private:
 };
 
 } //namespace jsb::impl
-#endif

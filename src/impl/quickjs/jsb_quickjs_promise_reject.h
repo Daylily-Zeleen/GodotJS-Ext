@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_PROMISE_REJECT_H
-#define GODOTJS_QUICKJS_PROMISE_REJECT_H
+#pragma once
 
 #include "jsb_quickjs_typedef.h"
 
@@ -30,4 +29,3 @@ private:
 using PromiseRejectCallback = void (*)(PromiseRejectMessage);
 } //namespace v8
 
-#endif

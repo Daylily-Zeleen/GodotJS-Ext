@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_JSC_ARRAY_BUFFER_H
-#define GODOTJS_JSC_ARRAY_BUFFER_H
+﻿#pragma once
 #include "jsb_jsc_object.h"
 
 namespace v8 {
@@ -25,4 +24,3 @@ private:
 	static void _deallocator(void *bytes, void *deallocatorContext);
 };
 } //namespace v8
-#endif

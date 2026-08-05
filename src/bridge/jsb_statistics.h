@@ -1,5 +1,4 @@
-#ifndef GODOTJS_STATISTICS_H
-#define GODOTJS_STATISTICS_H
+#pragma once
 
 #include "../impl/shared/jsb_custom_field.h"
 #include "jsb_bridge_pch.h"
@@ -34,4 +33,3 @@ struct Statistics {
 	}
 };
 } //namespace jsb
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_V8_CLASS_BUILDER_H
-#define GODOTJS_V8_CLASS_BUILDER_H
+#pragma once
 
 #include "jsb_v8_class.h"
 #include "jsb_v8_helper.h"
@@ -264,4 +263,3 @@ private:
 };
 } //namespace jsb::impl
 
-#endif

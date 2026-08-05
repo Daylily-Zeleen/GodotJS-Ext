@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_BROKER_H
-#define GODOTJS_JSC_BROKER_H
+#pragma once
 #include "jsb_jsc_pch.h"
 
 namespace v8 {
@@ -30,4 +29,3 @@ public:
 	static bool IsStrictEqual(v8::Isolate *isolate, JSValueRef a, JSValueRef b);
 };
 } //namespace jsb::impl
-#endif

@@ -1,5 +1,4 @@
-#ifndef GODOTJS_TRANSPILER_H
-#define GODOTJS_TRANSPILER_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 #include "jsb_environment.h"
@@ -388,4 +387,3 @@ namespace bind {
 
 } //namespace jsb
 
-#endif

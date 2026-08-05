@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_TYPEDEF_H
-#define GODOTJS_QUICKJS_TYPEDEF_H
+#pragma once
 
 #include "jsb_quickjs_pch.h"
 #if JSB_PREFER_QUICKJS_NG
@@ -106,4 +105,3 @@ using AccessorNameGetterCallback = void (*)(Local<Name> property, const Property
 
 } //namespace v8
 
-#endif

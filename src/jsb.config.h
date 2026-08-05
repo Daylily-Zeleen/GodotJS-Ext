@@ -1,5 +1,4 @@
-#ifndef GODOTJS_CONFIG_H
-#define GODOTJS_CONFIG_H
+#pragma once
 
 #include "jsb.gen.h"
 
@@ -171,4 +170,3 @@
 // If static_assert in `jsb_project_preset.gen.cpp` fails, please run your `scons` command again to update all bundle scripts.
 #define JSB_BUNDLE_VERSION 11
 
-#endif

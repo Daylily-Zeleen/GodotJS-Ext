@@ -1,5 +1,4 @@
-#ifndef GODOTJS_EDITOR_PLUGINS_H
-#define GODOTJS_EDITOR_PLUGINS_H
+#pragma once
 
 #include "jsb_editor_pch.h"
 
@@ -151,4 +150,3 @@ private:
 	static void _finish_progress_task(const String &p_task_name);
 };
 
-#endif

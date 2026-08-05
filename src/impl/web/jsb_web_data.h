@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_DATA_H
-#define GODOTJS_WEB_DATA_H
+#pragma once
 #include "jsb_web_pch.h"
 #include "jsb_web_typedef.h"
 
@@ -44,4 +43,3 @@ private:
 	bool strict_eq(const Data &other) const;
 };
 } //namespace v8
-#endif

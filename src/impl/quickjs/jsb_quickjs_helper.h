@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_QUICKJS_HELPER_H
-#define GODOTJS_QUICKJS_HELPER_H
+﻿#pragma once
 #include "jsb_quickjs_catch.h"
 #include "jsb_quickjs_context.h"
 #include "jsb_quickjs_function.h"
@@ -246,4 +245,3 @@ public:
 };
 } //namespace jsb::impl
 
-#endif

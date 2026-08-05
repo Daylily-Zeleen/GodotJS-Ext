@@ -1,5 +1,4 @@
-#ifndef GODOTJS_CLASS_INFO_H
-#define GODOTJS_CLASS_INFO_H
+#pragma once
 
 #include "internal/jsb_bit_field.h"
 #include "jsb_bridge_pch.h"
@@ -229,4 +228,3 @@ typedef internal::SArray<ScriptClassInfo, ScriptClassID>::ConstPointer ScriptCla
 
 } //namespace jsb
 
-#endif

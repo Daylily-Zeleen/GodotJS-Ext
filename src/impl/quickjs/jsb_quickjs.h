@@ -1,5 +1,4 @@
-#ifndef GODOTJS_QUICKJS_H
-#define GODOTJS_QUICKJS_H
+#pragma once
 
 #include "jsb_quickjs_context.h"
 #include "jsb_quickjs_handle.h"
@@ -22,4 +21,3 @@
 #include "jsb_quickjs_class_builder.h"
 #include "jsb_quickjs_global_init.h"
 
-#endif

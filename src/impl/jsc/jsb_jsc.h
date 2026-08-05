@@ -1,5 +1,4 @@
-#ifndef GODOTJS_JSC_H
-#define GODOTJS_JSC_H
+#pragma once
 
 #include "jsb_jsc_context.h"
 #include "jsb_jsc_handle.h"
@@ -22,4 +21,3 @@
 #include "jsb_jsc_class_builder.h"
 #include "jsb_jsc_global_init.h"
 
-#endif

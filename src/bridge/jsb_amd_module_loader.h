@@ -1,5 +1,4 @@
-#ifndef GODOTJS_AMD_MODULE_LOADER_H
-#define GODOTJS_AMD_MODULE_LOADER_H
+#pragma once
 #include "../internal/jsb_preset_source.h"
 #include "jsb_bridge_pch.h"
 #include "jsb_module_loader.h"
@@ -30,4 +29,3 @@ public:
 };
 
 } //namespace jsb
-#endif

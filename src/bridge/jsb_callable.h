@@ -1,5 +1,4 @@
-#ifndef GODOTJS_CALLABLE_H
-#define GODOTJS_CALLABLE_H
+#pragma once
 
 #include "jsb_bridge.h"
 #include <compat/misc.h>
@@ -48,4 +47,3 @@ public:
 };
 } //namespace jsb
 
-#endif

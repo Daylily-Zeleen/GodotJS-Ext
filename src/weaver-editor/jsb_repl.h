@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_REPL_H
-#define GODOTJS_REPL_H
+﻿#pragma once
 #include "jsb_editor_pch.h"
 
 #include <godot_cpp/classes/button.hpp>
@@ -73,4 +72,3 @@ public:
 
 	void write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) override;
 };
-#endif

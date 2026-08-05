@@ -1,5 +1,4 @@
-#ifndef GODOTJS_MONITOR_H
-#define GODOTJS_MONITOR_H
+#pragma once
 
 #include <compat/jsb_compat.h>
 
@@ -36,4 +35,3 @@ public:
 	static void unregister_monitors();
 };
 
-#endif

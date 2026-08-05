@@ -1,5 +1,4 @@
-#ifndef GODOTJS_BUILTINS_H
-#define GODOTJS_BUILTINS_H
+#pragma once
 #include "jsb_bridge_pch.h"
 
 namespace jsb {
@@ -9,4 +8,3 @@ public:
 	static void _define(const v8::FunctionCallbackInfo<v8::Value> &info);
 };
 } //namespace jsb
-#endif

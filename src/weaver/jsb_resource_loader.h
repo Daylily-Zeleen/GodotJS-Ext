@@ -1,5 +1,4 @@
-#ifndef GODOTJS_RESOURCE_LOADER_H
-#define GODOTJS_RESOURCE_LOADER_H
+#pragma once
 
 #include <compat/jsb_compat.h>
 
@@ -28,4 +27,3 @@ public:
 	static bool is_not_godot_resource_script(const String &p_path);
 };
 
-#endif

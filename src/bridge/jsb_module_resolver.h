@@ -1,5 +1,4 @@
-#ifndef GODOTJS_MODULE_RESOLVER_H
-#define GODOTJS_MODULE_RESOLVER_H
+#pragma once
 
 #include "jsb_bridge_pch.h"
 #include "jsb_module.h"
@@ -66,4 +65,3 @@ private:
 };
 } //namespace jsb
 
-#endif

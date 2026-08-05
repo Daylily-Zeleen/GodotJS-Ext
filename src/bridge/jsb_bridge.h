@@ -1,6 +1,4 @@
-﻿#ifndef GODOTJS_BRIDGE_H
-#define GODOTJS_BRIDGE_H
+﻿#pragma once
 
 #include "jsb_environment.h"
 
-#endif

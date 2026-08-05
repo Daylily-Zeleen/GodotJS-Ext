@@ -1,5 +1,4 @@
-﻿#ifndef GODOTJS_ASYNC_MODULE_MANAGER_H
-#define GODOTJS_ASYNC_MODULE_MANAGER_H
+﻿#pragma once
 #include "jsb_async_module_loader.h"
 #include "jsb_bridge_pch.h"
 
@@ -53,4 +52,3 @@ public:
 	void set_loader(const std::shared_ptr<IAsyncModuleLoader> &p_loader);
 };
 } //namespace jsb
-#endif

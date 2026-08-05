@@ -1,5 +1,4 @@
-#ifndef GODOTJS_WEB_HANDLE_H
-#define GODOTJS_WEB_HANDLE_H
+#pragma once
 
 #include "jsb_web_broker.h"
 #include "jsb_web_data.h"
@@ -300,4 +299,3 @@ bool Local<T>::operator!=(const Global<S> &other) const {
 
 } //namespace v8
 
-#endif
