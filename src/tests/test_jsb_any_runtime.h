@@ -139,7 +139,6 @@ TEST_CASE("[jsb] BindingObjectDB remove while handle alive") {
 }
 
 TEST_CASE("[jsb] raw isolate essential tests") {
-	impl::GlobalInitialize::init();
 	ArrayBufferAllocator allocator;
 	v8::Isolate::CreateParams create_params;
 	create_params.array_buffer_allocator = &allocator;

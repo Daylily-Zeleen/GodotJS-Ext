@@ -92,7 +92,7 @@ C++ unit tests use [doctest](https://github.com/doctest/doctest) and are run by 
 scons platform=windows target=editor dev_build=yes tests=yes -j10
 
 # Run tests (requires Godot editor binary)
-"F:\godot\godot\bin\Godot_v4.7-stable_win64.exe" --path project --jsb-run-tests
+Godot_v4.7.1-stable_win64.exe --path project --jsb-run-tests
 ```
 
 #### TypeScript Integration Tests

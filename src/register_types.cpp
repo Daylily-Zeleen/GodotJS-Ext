@@ -16,6 +16,8 @@
 
 #ifdef JSB_TESTS_ENABLED
 #	include "doctest/doctest.h"
+#	include <godot_cpp/classes/window.hpp>
+#	include <godot_cpp/classes/scene_tree.hpp>
 #endif
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
@@ -130,7 +132,12 @@ void jsb_startup() {
 		}
 		if (run_tests) {
 			doctest::Context context;
-			std::exit(context.run());
+			int exit_code = context.run();
+			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
+				scene_tree->quit(exit_code);
+			} else {
+				std::exit(exit_code);
+			}
 		}
 	}
 #endif // JSB_TESTS_ENABLED

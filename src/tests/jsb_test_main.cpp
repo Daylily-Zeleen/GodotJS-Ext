@@ -14,4 +14,8 @@
 #	include "tests/test_jsb_v8_runtime.h"
 #endif
 
+TEST_CASE("[jsb] Finalize tests") {
+	GodotJSScriptLanguage::get_singleton()->_init();
+}
+
 // doctest will automatically collect all TEST_CASE and run them in main()
