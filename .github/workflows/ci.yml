@@ -201,12 +201,10 @@ jobs:
 
       - name: Run C++ unit tests
         shell: bash
-        # NOTE: Run in editor mode so the GDExtension is loaded via the
-        # [gdextensions] section in project.godot. Runtime mode requires a
-        # pre-generated .godot/extension_list.cfg (created by the editor),
-        # which does not exist in a fresh CI checkout.
+        # C++ unit tests run headlessly via --jsb-run-tests and exit on their
+        # own; they are independent from the TypeScript integration tests below.
         run: |
-          timeout 120 tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --verbose --editor --path project --jsb-run-tests
+          timeout 120 tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --path project --jsb-run-tests
 
       - name: Run TypeScript integration tests
         shell: bash
