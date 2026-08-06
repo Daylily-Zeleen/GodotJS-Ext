@@ -57,15 +57,11 @@ public:
 	static Local<String> NewFromUtf8Literal(
 			Isolate *isolate, const char (&literal)[N], NewStringType type = NewStringType::kNormal) {
 		static_assert(N <= kMaxLength, "String is too long");
+		if constexpr (N == 1) {
+			// Zero-length string specialization (templated string size includes terminator).
+			return String::Empty(isolate);
+		}
 		return NewFromUtf8Literal(isolate, literal, type, N - 1);
-	}
-
-	// Zero-length string specialization (templated string size includes
-	// terminator).
-	template <>
-	inline Local<String> NewFromUtf8Literal(
-			Isolate *isolate, const char (&literal)[1], NewStringType type) {
-		return String::Empty(isolate);
 	}
 
 private:

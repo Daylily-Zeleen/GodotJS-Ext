@@ -480,7 +480,7 @@ void GodotJSScript::load_module_immediately() {
 			for (RBSet<Object *>::Element *E = instances_.front(); E;) {
 				RBSet<Object *>::Element *N = E->next();
 				Object *obj = E->get();
-				jsb_check(obj->get_script() == Ref(this));
+				jsb_check(Variant(obj->get_script()) == Variant(this));
 				jsb_check(env->verify_object(obj));
 
 				if (ClassDB::is_parent_class(env->get_script_class(module->script_class_id)->native_class_name, obj->get_class())) {
@@ -689,7 +689,9 @@ void GodotJSScript::_bind_methods() {
 }
 
 // ============
-Dictionary convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }
+namespace {
+static Dictionary convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }
+} // namespace
 
 TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	TypedArray<Dictionary> result;
@@ -697,24 +699,28 @@ TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	return result;
 }
 
-Dictionary convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
+namespace {
+static Dictionary convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
 	Dictionary dict;
 	dict["name"] = p_name;
 	// TODO: 其他细节
 	return dict;
 }
+} // namespace
 
 TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const {
 	TypedArray<Dictionary> result;
 	get_script_method_list<Dictionary, &convert_method_info, TypedArray<Dictionary>>(result);
 	return result;
 }
-Dictionary convert_signal_info(const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
+namespace {
+static Dictionary convert_signal_info(const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
 	Dictionary dict;
 	dict["name"] = p_name;
 	// TODO: 其他细节
 	return dict;
 }
+} // namespace
 TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> result;
 	get_script_signal_list<Dictionary, &convert_signal_info, TypedArray<Dictionary>>(result);

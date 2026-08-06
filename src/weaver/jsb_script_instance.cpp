@@ -339,7 +339,9 @@ void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &
 	free_temporary_property_list();
 }
 
-PropertyInfo convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info; }
+namespace {
+static PropertyInfo convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info; }
+} // namespace
 LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_list() const {
 	jsb_check(!temporary_script_property_list_cache);
 	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
@@ -347,11 +349,13 @@ LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_li
 	return temporary_script_property_list_cache;
 }
 
-MethodInfo convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
+namespace {
+static MethodInfo convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
 	MethodInfo ret(p_name);
 	// TODO: 更多细节
 	return ret;
 }
+} // namespace
 
 LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list() {
 	jsb_check(!temporary_script_method_list_cache);
