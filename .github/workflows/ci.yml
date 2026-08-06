@@ -148,8 +148,8 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@1.1.2
         with:
           repo: godotengine/godot
-          version: tags/4.7-stable
-          file: Godot_v4.7-stable_linux.x86_64.zip
+          version: tags/4.7.1-stable
+          file: Godot_v4.7.1-stable_linux.x86_64.zip
           target: godot/godot.zip
 
       - name: Extract Godot
@@ -188,25 +188,23 @@ jobs:
         #   1. dump the extension API (with docs) into project/extension_api.json
         #   2. convert it into project/.godot/.api_dumping/*.capi via the
         #      --godotjs-api-generate extension command.
-        # NOTE: On Godot 4.7 both steps can crash during editor shutdown/reimport
+        # NOTE: On Godot 4.7.1 both steps can crash during editor shutdown/reimport
         # (exit non-zero) even though the data is written correctly before that;
         # tolerate the crash and verify the generated files instead. The C++
         # unit test step below also depends on this data, so a genuinely
         # incomplete generation would fail there.
         run: |
-          tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --editor --path project --dump-extension-api-with-docs || true
+          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
-          tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
           test -f project/.godot/.api_dumping/header.capi
 
       - name: Run C++ unit tests
         shell: bash
-        # C++ unit tests run headlessly via --jsb-run-tests and exit on their
-        # own; they are independent from the TypeScript integration tests below.
-        # NOTE: The process may crash during shutdown (exit 134) after all
-        # tests pass; tolerate the non-zero exit and verify via doctest output.
+        # C++ unit tests run via --jsb-run-tests and exit on their own;
+        # they are independent from the TypeScript integration tests below.
         run: |
-          timeout 120 tests/bin/Godot_v4.7-stable_linux.x86_64 --headless --path project --jsb-run-tests || true
+          timeout 120 tests/bin/Godot_v4.7.1-stable_linux.x86_64 --path project --jsb-run-tests
 
       - name: Run TypeScript integration tests
         shell: bash
