@@ -204,7 +204,7 @@ jobs:
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
         run: |
-          timeout 120 tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --path project --jsb-run-tests
+          timeout 120 tests/bin/Godot_v4.7.1-stable_linux.x86_64 --path project --jsb-run-tests
 
       - name: Run TypeScript integration tests
         shell: bash
