@@ -9,6 +9,10 @@
 # Ignore scons database
 .sconsign*.dblite
 
+# Ignore prebuilt third-party libraries (downloaded by SConstruct)
+/third/v8/
+/third/lws/
+
 # Ignore custom.py
 custom.py
 

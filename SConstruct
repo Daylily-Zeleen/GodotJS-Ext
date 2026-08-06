@@ -58,6 +58,11 @@ third_dir = third_folder_name
 
 env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs})
 
+# godot-cpp sets SHLIBPREFIX="" only on Windows; on Linux/macOS the default is
+# "lib" which produces libgodotjs-ext.*.so — but our .gdextension file expects
+# the name without the lib prefix. Override to keep all platforms consistent.
+env['SHLIBPREFIX'] = ''
+
 # Source root directory
 src_dir = "src"
 
@@ -171,7 +176,10 @@ def download_dependency(name, version, target_dir):
         urllib.request.urlretrieve(url, filename)
         print(f"Extracting {filename} ...")
         with zipfile.ZipFile(filename, 'r') as zip_ref:
-            zip_ref.extractall(".")
+            # The archive contains a top-level directory named after the dependency
+            # (e.g. "v8"), so extract into the parent of target_dir (e.g. "third/").
+            os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+            zip_ref.extractall(os.path.dirname(target_dir))
         if os.path.exists(filename):
             os.remove(filename)
         if not os.path.exists(target_dir):
@@ -186,11 +194,14 @@ quickjs_support = get_thirdparty_support(quickjs_src_descs, use_quickjs)
 
 if quickjs_support is None and jsc_support is None and is_library_supported(v8_prebuilt_libs):
     download_dependency("v8", deps_v8_version, f"{third_folder_name}/v8")
-    if is_library_supported(lws_prebuilt_libs):
+    # TEMPORARY (see TODO.md): linux prebuilt lws is not PIC and cannot be linked into a
+    # shared library. Disable lws on linux until a PIC build is available.
+    if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
         download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
 
 v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
-lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None else None
+# TEMPORARY (see TODO.md): disable lws on linux (prebuilt lib is not PIC).
+lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and jsb_platform != "linux" else None
 
 jsb_defines = [
     CompileDefines("JSB_USE_TYPESCRIPT", 1 if env.get("use_typescript", True) else 0),
@@ -438,7 +449,8 @@ root_dir = Dir('#').abspath
 # Detect MSVC vs GCC/Clang: check if use_mingw or use_llvm is set
 cxx_compiler = str(env.subst('$CXX'))
 cxx_flags :list = env["CXXFLAGS"]
-if 'cl' in os.path.basename(cxx_compiler).lower() and not env.get('use_mingw', False):
+cxx_compiler_base = os.path.basename(cxx_compiler).lower()
+if cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
     if '/std:c++17' in cxx_flags:
         cxx_flags.remove('/std:c++17')
     cxx_flags.append('/std:c++20')
@@ -471,7 +483,7 @@ natvis_sources = [
 merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
 merged_natvis = os.path.join(root_dir, "godotjs-ext.natvis")
 
-is_msvc_linker = 'cl' in os.path.basename(cxx_compiler).lower() and not env.get('use_mingw', False)
+is_msvc_linker = env.get("is_msvc", False)
 if env.get("embedded_natvis", True) and is_msvc_linker:
     # MSVC / clang-cl: embed each natvis file into the PDB.
     for natvis_path in natvis_sources:
@@ -516,6 +528,9 @@ if lws_support is not None:
         env.Append(LIBS=[File(os.path.join(third_dir, "lws", lws_basename, "websockets_static.lib"))])
         env.Append(LIBS=["ws2_32.lib"])
     elif jsb_platform == "linux":
+        # NOTE: lws is disabled on linux (see TODO.md) because the prebuilt lib is not PIC.
+        pass
+    elif jsb_platform == "macos":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
 # Add all GodotJS source files (migrated to src/)
@@ -554,14 +569,19 @@ if quickjs_support is not None:
     quickjs_dir = quickjs_support[1].path
     # Create a clone environment for C compilation with C11 flags
     env_c = env.Clone()
-    if 'cl' in os.path.basename(str(env.subst('$CC'))).lower() and not env.get('use_mingw', False):
+    cc_compiler_base = os.path.basename(str(env.subst('$CC'))).lower()
+    if cc_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
         env_c.Append(CCFLAGS=["/std:c11"])
         if "third/quickjs-ng" in quickjs_dir:
             env_c.Append(CCFLAGS=["/experimental:c11atomics"])
     else:
-        env_c.Append(CCFLAGS=["-std=c11"])
+        env_c.Append(CCFLAGS=["-std=gnu11"])
+    # NOTE: use SharedObject (not Object) so the C objects are marked as PIC and
+    # can be linked into the shared library. SCons rejects plain static .o files
+    # when linking a shared library on linux/macos ("is static and is not
+    # compatible with shared target").
     for src in quickjs_support[1].sources:
-        quickjs_obj.append(env_c.Object(File(os.path.join(quickjs_dir, src))))
+        quickjs_obj.append(env_c.SharedObject(File(os.path.join(quickjs_dir, src))))
 
 # Combine all sources for compilation
 all_sources = godotjs_sources + quickjs_obj

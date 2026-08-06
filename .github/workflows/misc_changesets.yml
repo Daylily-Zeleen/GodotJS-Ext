@@ -34,9 +34,9 @@ jobs:
           commit: "chore: update versions"
           title: "chore: update versions"
           version: pnpm ci:version
+          cwd: scripts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: scripts
 
       - name: Should publish
         id: should_publish
@@ -50,3 +50,4 @@ jobs:
           else
             echo "publish=false" >> $GITHUB_OUTPUT
           fi
+        working-directory: scripts

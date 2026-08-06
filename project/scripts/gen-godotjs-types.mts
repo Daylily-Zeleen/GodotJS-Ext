@@ -21,7 +21,7 @@ execFileSync('pnpm', ['exec', 'tsc', '--noCheck'], {
 execFileSync(
 	godotBinary,
 	['--headless', '--editor', '--generate-types', '--path', testsProjectRoot],
-	{ stdio: 'inherit' },
+	{ stdio: 'inherit', timeout: 120_000 },
 );
 
 // The placeholder file is useful for in-module compilation, but it conflicts with strict project checks.
