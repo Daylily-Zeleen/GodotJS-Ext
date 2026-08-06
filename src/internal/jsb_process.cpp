@@ -24,6 +24,14 @@
 
 #define JSB_PROCESS_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSProcess, Severity, Format, ##__VA_ARGS__)
 
+// On macOS (LP64) `uintptr_t` is `unsigned long`, which godot-cpp has no GetTypeInfo specialization for.
+// Use `uint64_t` there (equivalent to `uintptr_t` on the other supported platforms).
+#if defined(MACOS_ENABLED)
+using process_thread_param_t = uint64_t;
+#else
+using process_thread_param_t = uintptr_t;
+#endif
+
 namespace jsb::internal {
 #if defined(WINDOWS_ENABLED)
 class ProcessImpl : public Process {
@@ -117,13 +125,13 @@ public:
 		{
 			//TODO use async io instead of threading;
 			thread.instantiate();
-			thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<uintptr_t>(this)), Thread::PRIORITY_LOW);
+			thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<process_thread_param_t>(this)), Thread::PRIORITY_LOW);
 		}
 		return OK;
 	}
 
 	// static void _thread_run(void* p_userdata)
-	static void _thread_run(uintptr_t p_userdata) {
+	static void _thread_run(process_thread_param_t p_userdata) {
 		ProcessImpl *impl = reinterpret_cast<ProcessImpl *>(p_userdata);
 		int start_state = 0;
 		char buffer[4096];
@@ -239,13 +247,13 @@ public:
 		close(pipefd[1]);
 		{
 			thread.instantiate();
-			thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<uintptr_t>(this)), Thread::PRIORITY_LOW);
+			thread->start(callable_mp_static(&ProcessImpl::_thread_run).bind(reinterpret_cast<process_thread_param_t>(this)), Thread::PRIORITY_LOW);
 		}
 		return OK;
 	}
 
-	static void _thread_run(void *p_userdata) {
-		ProcessImpl *impl = (ProcessImpl *)p_userdata;
+	static void _thread_run(process_thread_param_t p_userdata) {
+		ProcessImpl *impl = reinterpret_cast<ProcessImpl *>(p_userdata);
 		char buffer[4096];
 		int start_state = 0;
 
@@ -288,8 +296,8 @@ public:
 
 	void _flush() {
 		if (rd_line.is_empty()) return;
-		String line;
-		if (line.append_utf8(rd_line.ptr()) == OK) JSB_PROCESS_LOG(Log, "[%s] %s", proc_name, line);
+		const String line = String::utf8(rd_line.ptr(), rd_line.size());
+		if (!line.is_empty()) JSB_PROCESS_LOG(Log, "[%s] %s", proc_name, line);
 		rd_line.clear();
 	}
 

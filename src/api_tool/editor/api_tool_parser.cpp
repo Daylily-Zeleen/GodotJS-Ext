@@ -353,7 +353,8 @@ Error ApiParser::parse_and_write_header(const Dictionary &p_root, const String &
 	header.version_status = hdr.get("version_status", "");
 	header.version_build = hdr.get("version_build", "");
 	header.version_full_name = hdr.get("version_full_name", "");
-	header.precision = hdr.get("precision", "") == "double" ? RealPrecision::DOUBLE : RealPrecision::SINGLE;
+	const String precision = hdr.get("precision", "");
+	header.precision = precision == "double" ? RealPrecision::DOUBLE : RealPrecision::SINGLE;
 
 	String path = p_output_dir + String("/") + String(FILE_HEADER);
 	return ApiStoreWriter::write_header(path, header);

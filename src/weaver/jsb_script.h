@@ -18,6 +18,9 @@
 
 class ScriptInstance;
 class PlaceholderScriptInstance;
+class GodotJSScriptInstance;
+class GodotJSScriptInstanceBase;
+class GodotJSShadowScriptInstance;
 
 class GodotJSScript : public ScriptExtension {
 	GDCLASS(GodotJSScript, ScriptExtension)

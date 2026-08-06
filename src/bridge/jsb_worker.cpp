@@ -14,6 +14,14 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/thread.hpp>
 
+// On macOS (LP64) `uintptr_t` is `unsigned long`, which godot-cpp has no GetTypeInfo specialization for.
+// Use `uint64_t` there (equivalent to `uintptr_t` on the other supported platforms).
+#if defined(MACOS_ENABLED)
+using worker_thread_param_t = uint64_t;
+#else
+using worker_thread_param_t = uintptr_t;
+#endif
+
 #if JSB_WITH_WEB
 #	include "../impl/web/jsb_web_interop.h"
 #	include <emscripten/emscripten.h>
@@ -340,7 +348,7 @@ public:
 		}
 	}
 
-	static void _run(uintptr_t data) {
+	static void _run(worker_thread_param_t data) {
 		WorkerImpl *impl = reinterpret_cast<WorkerImpl *>(data);
 		internal::ThreadUtil::set_name(jsb_format("JSWorker_%d", *impl->id_));
 
@@ -441,7 +449,7 @@ public:
 		jsb_check(p_id);
 		id_ = p_id;
 		JSB_WORKER_LOG(VeryVerbose, "starting Worker %d", p_id);
-		thread_->start(callable_mp_static(_run).bind(reinterpret_cast<uintptr_t>(this)), Thread::PRIORITY_LOW);
+		thread_->start(callable_mp_static(_run).bind(reinterpret_cast<worker_thread_param_t>(this)), Thread::PRIORITY_LOW);
 		thread_id_ = thread_->get_id().to_int();
 	}
 

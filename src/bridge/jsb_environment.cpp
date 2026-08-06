@@ -436,7 +436,7 @@ void Environment::init() {
 #else
 	// Users may consume editor APIs in codegen functions. However, we want to permit regular ES6 import syntax.
 	// We provide a dummy module that can be imported (but not used) in runtime-only builds.
-	static constexpr char kDummyModule[] = u8"(function(define){define('jsb.editor.codegen',[],function(){return{}})})";
+	static constexpr char kDummyModule[] = "(function(define){define('jsb.editor.codegen',[],function(){return{}})})";
 	AMDModuleLoader::load_source(this, kDummyModule, sizeof(kDummyModule) - 1, kEditorBundleFile);
 #endif
 }
