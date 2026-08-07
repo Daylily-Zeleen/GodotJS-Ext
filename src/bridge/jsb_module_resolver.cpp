@@ -485,7 +485,7 @@ bool DefaultModuleResolver::load(Environment *p_env, const String &p_asset_path,
 #endif
 	{
 		v8::Isolate *isolate = p_env->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		v8::Local<v8::Context> context = isolate->GetCurrentContext();
 		v8::Context::Scope context_scope(context);

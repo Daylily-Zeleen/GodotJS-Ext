@@ -221,7 +221,7 @@ public:
 		}
 
 		v8::Isolate *isolate = env_->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = env_->get_context();
 		v8::Context::Scope context_scope(context);
@@ -296,7 +296,7 @@ public:
 		}
 
 		v8::Isolate *isolate = p_env->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = p_env->get_context();
 		v8::Context::Scope context_scope(context);
@@ -383,7 +383,7 @@ public:
 						impl->get_id());
 
 				v8::Isolate *isolate = env->get_isolate();
-				v8::Isolate::Scope isolate_scope(isolate);
+				JSB_ISOLATE_SCOPE(isolate);
 				v8::HandleScope handle_scope(isolate);
 				const v8::Local<v8::Context> context = env->get_context();
 				v8::Context::Scope context_scope(context);
@@ -547,7 +547,7 @@ private:
 	void _on_ready() {
 		v8::Isolate *isolate = env_->get_isolate();
 		v8::HandleScope handle_scope(isolate);
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		WorkerImplPtr worker_impl_ptr;
 		if (!Worker::try_get_worker(get_id(), worker_impl_ptr)) {
@@ -587,7 +587,7 @@ private:
 	static void worker_close(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::HandleScope handle_scope(isolate);
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const WorkerID worker_id = (WorkerID)info.Data().As<v8::Uint32>()->Value();
 		Worker::terminate(worker_id);
 	}
@@ -597,7 +597,7 @@ private:
 		v8::Isolate *isolate = info.GetIsolate();
 		Environment *env = Environment::wrap(isolate);
 		v8::HandleScope handle_scope(isolate);
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 		const WorkerID worker_id = (WorkerID)info.Data().As<v8::Uint32>()->Value();
 
@@ -625,7 +625,7 @@ private:
 	static void worker_post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::HandleScope handle_scope(isolate);
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		Environment *from_env = Environment::wrap(isolate);
 		from_env->check_internal_state();
 		const WorkerID worker_id = (WorkerID)info.Data().As<v8::Uint32>()->Value();
@@ -728,7 +728,7 @@ public:
 
 	virtual bool load(Environment *p_env, JavaScriptModule &p_module) override {
 		v8::Isolate *isolate = p_env->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = p_env->get_context();
 		v8::Context::Scope context_scope(context);
@@ -812,7 +812,7 @@ void Worker::on_web_message_from_pthread(uintptr_t p_sender_pthread_id, jsb::imp
 	}
 
 	v8::Isolate *isolate = master->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = master->get_context();
 	v8::Context::Scope context_scope(context);
@@ -1016,7 +1016,7 @@ void Worker::finalizer(Environment *, void *pointer, FinalizationType /* p_final
 void Worker::constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	const v8::Local<v8::Object> self = info.This();
 	const internal::Index32 class_id(info.Data().As<v8::Uint32>()->Value());
 
@@ -1040,7 +1040,7 @@ void Worker::_placeholder(const v8::FunctionCallbackInfo<v8::Value> &info) {}
 void Worker::post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	Environment *from_env = Environment::wrap(isolate);
 	from_env->check_internal_state();
 
@@ -1150,7 +1150,7 @@ void Worker::post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 void Worker::terminate(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	const v8::Local<v8::Object> self = info.This();
 	if (!TypeConvert::is_object(self, NativeClassType::Worker)) {
 		jsb_throw(isolate, "bad this");

@@ -111,7 +111,7 @@ public:
 			}
 
 			v8::Isolate *isolate = isolate_;
-			v8::Isolate::Scope isolate_scope(isolate);
+			JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope handle_scope(isolate);
 			const impl::TryCatch try_catch(isolate);
 
@@ -219,7 +219,7 @@ public:
 		JSB_BENCHMARK_SCOPE(JSDebugger, Init);
 
 		v8::Isolate *isolate = isolate_;
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 
 		//lws_set_log_level(LLL_USER | LLL_DEBUG | LLL_NOTICE | LLL_ERR | LLL_WARN | LLL_INFO | LLL_CLIENT | LLL_THREAD, _lws_log_callback);

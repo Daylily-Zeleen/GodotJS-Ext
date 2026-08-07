@@ -147,7 +147,7 @@ TEST_CASE("[jsb] raw isolate essential tests") {
 	v8::Global<v8::Context> context_v;
 	{
 		{
-			// v8::Isolate::Scope isolate_scope(isolate);
+			// JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope scope_0(isolate);
 			v8::Local<v8::Context> context = v8::Context::New(isolate);
 
@@ -157,7 +157,7 @@ TEST_CASE("[jsb] raw isolate essential tests") {
 
 		// test Map::New()
 		{
-			// v8::Isolate::Scope isolate_scope(isolate);
+			// JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope scope_1(isolate);
 			v8::Local<v8::Context> context = context_v.Get(isolate);
 			const v8::Context::Scope context_scope(context);
@@ -168,7 +168,7 @@ TEST_CASE("[jsb] raw isolate essential tests") {
 
 		// test Symbol::New()
 		{
-			// v8::Isolate::Scope isolate_scope(isolate);
+			// JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope scope_1(isolate);
 			v8::Local<v8::Context> context = context_v.Get(isolate);
 			const v8::Context::Scope context_scope(context);

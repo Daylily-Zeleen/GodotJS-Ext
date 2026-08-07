@@ -175,7 +175,7 @@ v8::Local<v8::Object> GodotModuleLoader::_get_loader_proxy(Environment *p_env) {
 
 bool GodotModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 	v8::Isolate *isolate = p_env->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = p_env->get_context();
 	v8::Context::Scope context_scope(context);
