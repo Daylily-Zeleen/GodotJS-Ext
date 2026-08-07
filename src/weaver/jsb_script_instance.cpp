@@ -653,9 +653,12 @@ Variant GodotJSScriptInstance::callp(const StringName &p_method, const Variant *
 	return env_->call_script_method(class_id_, object_id_, p_method, p_args, p_argcount, r_error);
 }
 
+enum {
+	NOTIFICATION_PREDELETE_CLEANUP = 3
+};
+
 void GodotJSScriptInstance::notification(int p_notification, bool p_reversed) {
-	if (p_reversed && (p_notification == Object::NOTIFICATION_PREDELETE)) // NOTIFICATION_PREDELETE_CLEANUP
-	{
+	if (p_reversed && (p_notification == Object::NOTIFICATION_PREDELETE || p_notification == NOTIFICATION_PREDELETE_CLEANUP)) {
 		// the JS counterpart is garbage collected (which finally caused Godot Object deleting)
 		// so, some of the reversed notifications can not be handled by script instances
 		return;
