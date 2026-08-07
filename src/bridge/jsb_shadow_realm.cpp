@@ -33,7 +33,7 @@ static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env,
 
 /** NOTE: 将在 p_to_isolate 的作用域下创建返回值 */
 static v8::Local<v8::String> _transfer_string(v8::Isolate *p_from_isolate, const v8::Local<v8::String> &p_from_str, v8::Isolate *p_to_isolate) {
-	const v8::Isolate::Scope isolate_scope1(p_from_isolate);
+	JSB_ISOLATE_SCOPE(p_from_isolate);
 
 	v8::Local<v8::String> to_str;
 
@@ -43,7 +43,7 @@ static v8::Local<v8::String> _transfer_string(v8::Isolate *p_from_isolate, const
 		char buffer[257];
 		int len = p_from_str->WriteUtf8(p_from_isolate, buffer, 257);
 
-		const v8::Isolate::Scope isolate_scope1(p_to_isolate);
+		JSB_ISOLATE_SCOPE(p_to_isolate);
 		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len).ToLocalChecked();
 	} else {
 		const int buffer_len = max_utf8_length + 1;
@@ -51,7 +51,7 @@ static v8::Local<v8::String> _transfer_string(v8::Isolate *p_from_isolate, const
 		memset(buffer, 0, buffer_len);
 		int len = p_from_str->WriteUtf8(p_from_isolate, buffer, buffer_len);
 
-		const v8::Isolate::Scope isolate_scope1(p_from_isolate);
+		JSB_ISOLATE_SCOPE(p_from_isolate);
 		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len).ToLocalChecked();
 
 		memdelete_arr(buffer);
@@ -304,7 +304,7 @@ public:
 		}
 
 		v8::HandleScope handle_scope(p_isolate);
-		const v8::Isolate::Scope isolate_scope(p_isolate);
+		JSB_ISOLATE_SCOPE(p_isolate);
 		if (!get_symbol_key_for(p_isolate, p_symbol).IsEmpty() || v8::Symbol::GetAsyncIterator(p_isolate) == p_symbol || v8::Symbol::GetHasInstance(p_isolate) == p_symbol || v8::Symbol::GetIsConcatSpreadable(p_isolate) == p_symbol || v8::Symbol::GetIterator(p_isolate) == p_symbol || v8::Symbol::GetMatch(p_isolate) == p_symbol || v8::Symbol::GetReplace(p_isolate) == p_symbol || v8::Symbol::GetSearch(p_isolate) == p_symbol || v8::Symbol::GetSplit(p_isolate) == p_symbol || v8::Symbol::GetToPrimitive(p_isolate) == p_symbol || v8::Symbol::GetToStringTag(p_isolate) == p_symbol || v8::Symbol::GetUnscopables(p_isolate) == p_symbol) {
 			return false;
 		}
@@ -318,7 +318,7 @@ public:
 		// Well-Known
 		WellKnownSymbolGetter *getter = get_well_known_symbol_getter(p_from_isolate, p_from_symbol);
 		if (getter != nullptr) {
-			const v8::Isolate::Scope isolate_scope2(p_to_isolate);
+			JSB_ISOLATE_SCOPE(p_to_isolate);
 			const v8::Local<v8::Symbol> to_symbol = (*getter)(p_to_isolate);
 			return to_symbol;
 		}
@@ -332,12 +332,12 @@ public:
 		}
 
 		const v8::HandleScope handle_scope1(p_from_isolate);
-		const v8::Isolate::Scope isolate_scope1(p_from_isolate);
+		JSB_ISOLATE_SCOPE(p_from_isolate);
 
 		// Create new cache
 		const bool is_normal = get_symbol_key_for(p_from_isolate, p_from_symbol).IsEmpty();
 
-		const v8::Isolate::Scope isolate_scope2(p_to_isolate);
+		JSB_ISOLATE_SCOPE(p_to_isolate);
 
 		v8::Local<v8::Value> desc_value = p_from_symbol->Description(p_from_isolate);
 
@@ -440,7 +440,7 @@ public:
 		v8::Local<v8::Name> symbol;
 		auto it = flag_symbols_.find(p_isolate);
 		if (it == flag_symbols_.end()) {
-			const v8::Isolate::Scope isolate_scope(p_isolate);
+			JSB_ISOLATE_SCOPE(p_isolate);
 			v8::HandleScope handle_scope(p_isolate);
 			v8::Local<v8::Symbol> symbol = v8::Symbol::New(p_isolate, v8::String::NewFromUtf8Literal(p_isolate, "DontTouchMe!"));
 			it = flag_symbols_.emplace(p_isolate, TStrongRef<v8::Name>{ p_isolate, symbol }).first;
@@ -481,7 +481,7 @@ public:
 		v8::Isolate *isolate = p_host_env->get_isolate();
 		jsb_check(isolate != p_guest_isolate);
 
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		NativeClassID class_id;
 		const StringName &class_name = jsb_string_name(FunctionCrossWrapper);
@@ -510,13 +510,13 @@ public:
 		v8::Isolate *host_isolate = info.GetIsolate();
 		Environment *host_env = Environment::wrap(host_isolate);
 		const v8::HandleScope handle_scope(host_isolate);
-		const v8::Isolate::Scope isolate_scope(host_isolate);
+		JSB_ISOLATE_SCOPE(host_isolate);
 
 		const FunctionCrossWrapper *wrapper = (const FunctionCrossWrapper *)(info.Data().As<v8::Object>()->GetAlignedPointerFromInternalField(IF_Pointer));
 
 		v8::Isolate *guest_isolate = wrapper->get_isolate();
 		const v8::HandleScope handle_scope1(guest_isolate);
-		const v8::Isolate::Scope isolate_scope1(guest_isolate);
+		JSB_ISOLATE_SCOPE(guest_isolate);
 		Environment *guest_env = Environment::wrap(guest_isolate);
 
 		// TODO: jsb_stackalloc
@@ -541,7 +541,7 @@ public:
 	static void register_class(Environment *p_env) {
 		v8::Isolate *isolate = p_env->get_isolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		{
 			const StringName &class_name = jsb_string_name(FunctionCrossWrapper);
@@ -561,7 +561,7 @@ public:
 
 		v8::Isolate *isolate = self->get_isolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		remove_cache(isolate, self->get_raw_value());
 
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "deleting FunctionCrossWrapper.");
@@ -603,7 +603,7 @@ public:
 
 		v8::Isolate *isolate = p_host_env->get_isolate();
 		jsb_check(isolate != p_guest_isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		const v8::Local<v8::Context> context = p_host_env->get_context();
 		const v8::Context::Scope context_scope(context);
@@ -645,7 +645,7 @@ public:
 	static void proxy_has(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		jsb_check(info.Length() == 2);
 		v8::Local<v8::Object> target = info[0].As<v8::Object>();
@@ -661,7 +661,7 @@ public:
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
 
-			const v8::Isolate::Scope isolate_scope1(guest_isolate);
+			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
@@ -681,7 +681,7 @@ public:
 	static void proxy_get(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		jsb_check(info.Length() == 3);
 		const v8::Local<v8::Object> target = info[0].As<v8::Object>();
@@ -697,7 +697,7 @@ public:
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
 
-			const v8::Isolate::Scope isolate_scope1(guest_isolate);
+			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
@@ -717,7 +717,7 @@ public:
 	static void proxy_set(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		jsb_check(info.Length() == 4);
 		const v8::Local<v8::Object> target = info[0].As<v8::Object>();
@@ -733,7 +733,7 @@ public:
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
 
-			const v8::Isolate::Scope isolate_scope1(guest_isolate);
+			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
@@ -754,7 +754,7 @@ public:
 public:
 	static void register_class(Environment *p_env) {
 		v8::Isolate *isolate = p_env->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 
 		{
@@ -774,7 +774,7 @@ public:
 	static void finalizer(Environment *, void *pointer, FinalizationType /* p_finalize */) {
 		ObjectCrossWrapper *self = (ObjectCrossWrapper *)pointer;
 		v8::Isolate *isolate = self->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 		remove_cache(isolate, self->get_raw_value());
 
@@ -787,14 +787,14 @@ public:
 static _FORCE_INLINE_ v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
 	v8::Isolate *host_isolate = p_host_env->get_isolate();
 
-	const v8::Isolate::Scope guest_isolate_scope(p_guest_isolate);
+	JSB_ISOLATE_SCOPE(p_guest_isolate);
 	const v8::HandleScope guest_handle_scope(p_guest_isolate);
 	if (host_isolate == p_guest_isolate) {
 		// 同环境，直接返回
 		return p_guest_value;
 	}
 
-	const v8::Isolate::Scope isolate_scope(host_isolate);
+	JSB_ISOLATE_SCOPE(host_isolate);
 
 	const v8::Local<v8::Context> guest_context = Environment::wrap(p_guest_isolate)->get_context();
 	const v8::Context::Scope context_scope(guest_context);
@@ -906,7 +906,7 @@ protected:
 		v8::Isolate *isolate = info.GetIsolate();
 		Environment *env = Environment::wrap(isolate);
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
 		const v8::Context::Scope context_scope(context);
 
@@ -1017,7 +1017,7 @@ protected:
 		if (env_.get()) {
 			v8::Isolate *isolate = env_->get_isolate();
 			{
-				const v8::Isolate::Scope isolate_scope(isolate);
+				JSB_ISOLATE_SCOPE(isolate);
 				const v8::HandleScope handle_scope(isolate);
 				if (isolate->IsExecutionTerminating()) {
 					JSB_SHADOW_REALM_LOG(Log, "shadow_realm is terminating %d", id_);
@@ -1059,14 +1059,14 @@ protected:
 		const v8::Local<v8::Context> context = env->get_context();
 
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Context::Scope context_scope(context);
 
 		const String module_id = impl::Helper::to_string(isolate, specifier);
 
 		v8::Isolate *guest_isolate = realm->env_->get_isolate();
 		const v8::HandleScope handle_scope1(guest_isolate);
-		const v8::Isolate::Scope isolate_scope1(guest_isolate);
+		JSB_ISOLATE_SCOPE(guest_isolate);
 
 		impl::TryCatch try_catch(guest_isolate);
 
@@ -1139,7 +1139,7 @@ public:
 		}
 
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		if (info.Length() <= 0 || !info[0]->IsString()) {
 			jsb_throw(isolate, "bad argument: require a string.");
@@ -1191,7 +1191,7 @@ public:
 		{
 			v8::Isolate *guest_isolate = realm->env_->get_isolate();
 			const v8::HandleScope handle_scope1(guest_isolate);
-			const v8::Isolate::Scope isolate_scope1(guest_isolate);
+			JSB_ISOLATE_SCOPE(guest_isolate);
 
 			const v8::Local<v8::Context> guest_context = realm->env_->get_context();
 			const v8::Context::Scope context_scope(guest_context);
@@ -1208,7 +1208,7 @@ public:
 			}
 
 			const v8::HandleScope handle_scope(host_isolate);
-			const v8::Isolate::Scope isolate_scope(host_isolate); /** NOTE: 将在 host_env 中创建对象 */
+			JSB_ISOLATE_SCOPE(host_isolate); /** NOTE: 将在 host_env 中创建对象 */
 			Environment *host_env = Environment::wrap(host_isolate);
 			v8::Local<v8::Value> wrapped_result = wrap_cross_env_value(host_env, guest_isolate, result);
 
@@ -1236,7 +1236,7 @@ public:
 		const v8::Local<v8::Context> context = env->get_context();
 
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Context::Scope context_scope(context);
 
 		// 创建 Promise resolver
@@ -1291,7 +1291,7 @@ public:
 		const v8::Local<v8::Context> context = env->get_context();
 
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Context::Scope context_scope(context);
 
 		if (info.Length() <= 0 || !info[0]->IsString() || info[0].As<v8::String>()->Length() <= 0) {
@@ -1416,7 +1416,7 @@ class TransferableShadowRealmImpl : public ShadowRealmImpl {
 protected:
 	virtual void init_environment() override {
 		v8::Isolate *isolate = env_->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = env_->get_context();
 		const v8::Context::Scope context_scope(context);
@@ -1476,7 +1476,7 @@ private:
 
 	static std::pair<uint8_t *, size_t> handle_post_message(const v8::FunctionCallbackInfo<v8::Value> &info, internal::ReferentialVariantMap<TransferData> &transfers) {
 		v8::Isolate *isolate = info.GetIsolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
@@ -1573,7 +1573,7 @@ private:
 	// handle message from master
 	void _on_message(const ShadowRealmMessage &p_message) {
 		v8::Isolate *isolate = env_->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = env_->get_context();
 		const v8::Context::Scope context_scope(context);
@@ -1664,7 +1664,7 @@ private:
 	static void close_from_shadow_realm(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
 		ShadowRealmImpl::_terminate(shadow_realm_id);
 	}
@@ -1673,7 +1673,7 @@ private:
 	static void post_message_to_host(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
 
@@ -1729,7 +1729,7 @@ public:
 		}
 
 		const v8::HandleScope handle_scope(isolate);
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 
 		internal::ReferentialVariantMap<TransferData> transfer_map;
 		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
@@ -1775,7 +1775,7 @@ public:
 
 	virtual bool load(Environment *p_env, JavaScriptModule &p_module) override {
 		v8::Isolate *isolate = p_env->get_isolate();
-		const v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Context> context = p_env->get_context();

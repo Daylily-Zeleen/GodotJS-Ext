@@ -459,7 +459,7 @@ void _add_script_signal(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 	v8::Isolate *isolate = p_env->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	v8::Context::Scope context_scope(context);

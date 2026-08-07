@@ -173,7 +173,7 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 	// force module loading. ensure the module hierarchy available.
 	if (jsb::JavaScriptModule *module; env_->load(p_path, &module) == OK) {
 		v8::Isolate *isolate = env_->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = env_->get_context();
 		v8::Context::Scope context_scope(context);

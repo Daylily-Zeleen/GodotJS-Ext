@@ -17,7 +17,7 @@ bool JSValueMove::is_valid() const {
 Variant JSValueMove::to_variant() const {
 	if (!is_valid()) return {};
 	v8::Isolate *isolate = env_->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = env_->get_context();
 	v8::Context::Scope context_scope(context);
@@ -30,7 +30,7 @@ Variant JSValueMove::to_variant() const {
 String JSValueMove::to_string() const {
 	if (!is_valid()) return {};
 	v8::Isolate *isolate = env_->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = env_->get_context();
 	v8::Context::Scope context_scope(context);

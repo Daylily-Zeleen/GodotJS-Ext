@@ -751,7 +751,7 @@ try {
     }))--";
 		std::shared_ptr<jsb::Environment> environment = lang->get_environment();
 		v8::Isolate *isolate = environment->get_isolate();
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		v8::Local<v8::Context> context = environment->get_context();
 		v8::Context::Scope context_scope(context);
@@ -974,7 +974,7 @@ try {
 
 	std::shared_ptr<jsb::Environment> environment = lang->get_environment();
 	v8::Isolate *isolate = environment->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 
 	v8::HandleScope handle_scope(isolate);
 
@@ -1057,7 +1057,7 @@ try {
 
 	std::shared_ptr<jsb::Environment> environment = lang->get_environment();
 	v8::Isolate *isolate = environment->get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 
 	v8::HandleScope handle_scope(isolate);
 

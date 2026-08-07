@@ -270,7 +270,7 @@ Environment::Environment(const CreateParams &p_params)
 #endif
 
 	{
-		v8::Isolate::Scope isolate_scope(isolate_);
+		JSB_ISOLATE_SCOPE(isolate_);
 
 		// create context
 		{
@@ -448,7 +448,7 @@ void Environment::dispose() {
 	// destroy context
 	{
 		v8::Isolate *isolate = this->isolate_;
-		v8::Isolate::Scope isolate_scope(isolate);
+		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 		v8::Local<v8::Context> context = context_.Get(get_isolate());
 
@@ -512,7 +512,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	{
 		std::vector<Message> &messages = inbox_.swap();
 		if (!messages.empty()) {
-			v8::Isolate::Scope isolate_scope(isolate_);
+			JSB_ISOLATE_SCOPE(isolate_);
 			v8::HandleScope handle_scope(isolate_);
 			const v8::Local<v8::Context> context = context_.Get(isolate_);
 			v8::Context::Scope context_scope(context);
@@ -566,7 +566,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 }
 
 void Environment::handle_message(Message &&p_message) {
-	v8::Isolate::Scope isolate_scope(isolate_);
+	JSB_ISOLATE_SCOPE(isolate_);
 	v8::HandleScope handle_scope(isolate_);
 	const v8::Local<v8::Context> context = context_.Get(isolate_);
 	v8::Context::Scope context_scope(context);
@@ -603,7 +603,7 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
 			//TODO need a better way to control lifetime of TransferData?
 			TransferData *transfer_data = (TransferData *)p_binding;
 			{
-				v8::Isolate::Scope isolate_scope(isolate_);
+				JSB_ISOLATE_SCOPE(isolate_);
 				v8::HandleScope handle_scope(isolate_);
 				const v8::Local<v8::Context> context = context_.Get(isolate_);
 				const v8::Context::Scope context_scope(context);
@@ -1228,7 +1228,7 @@ JavaScriptModule *Environment::_load_module(const String &p_parent_id, const Str
 NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, const Variant **p_args, int p_argcount) {
 	this->check_internal_state();
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = context_.Get(isolate);
 	v8::Context::Scope context_scope(context);
@@ -1414,7 +1414,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 #endif
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	v8::Local<v8::Context> context = context_.Get(isolate);
 	v8::Context::Scope context_scope(context);
@@ -1503,7 +1503,7 @@ void Environment::on_class_post_bind(const StringName &p_class_name, const v8::L
 
 JSValueMove Environment::eval_source(const char *p_source, int p_length, const String &p_filename, Error &r_err) {
 	JSB_BENCHMARK_SCOPE(JSRealm, eval_source);
-	v8::Isolate::Scope isolate_scope(isolate_);
+	JSB_ISOLATE_SCOPE(isolate_);
 	v8::HandleScope handle_scope(isolate_);
 	const v8::Local<v8::Context> context = context_.Get(isolate_);
 	v8::Context::Scope context_scope(context);
@@ -1545,7 +1545,7 @@ bool Environment::release_function(ObjectCacheID p_func_id) {
 		TStrongRef<v8::Function> &strong_ref = function_bank_.get_value(p_func_id);
 		if (strong_ref.unref()) {
 			v8::Isolate *isolate = get_isolate();
-			v8::Isolate::Scope isolate_scope(isolate);
+			JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope handle_scope(isolate);
 			if (jsb_likely(!strong_ref.object_.IsEmpty())) {
 				const size_t r = function_refs_.erase(TWeakRef(isolate, strong_ref.object_));
@@ -1612,7 +1612,7 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 	}
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
@@ -1651,7 +1651,7 @@ bool Environment::set_script_property_value(NativeObjectID p_object_id, const Sc
 	}
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
@@ -1692,7 +1692,7 @@ void Environment::evaluate_default_values(ScriptClassInfo &p_class_info) {
 	p_class_info.flags.set_flag(ScriptClassFlags::_Evaluated);
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = get_context();
 	v8::Context::Scope context_scope(context);
@@ -1747,7 +1747,7 @@ void Environment::call_script_prelude(ScriptClassID p_script_class_id, NativeObj
 	jsb_checkf(ClassDB::is_parent_class(this->get_script_class(p_script_class_id)->native_class_name, jsb_string_name(Node)), "only Node has a prelude call");
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
@@ -1853,7 +1853,7 @@ Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeO
 	}
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
@@ -1912,7 +1912,7 @@ Variant Environment::call_function(void *p_pointer, ObjectCacheID p_func_id, con
 	}
 
 	v8::Isolate *isolate = get_isolate();
-	v8::Isolate::Scope isolate_scope(isolate);
+	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
