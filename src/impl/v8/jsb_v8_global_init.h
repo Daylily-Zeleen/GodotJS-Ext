@@ -4,61 +4,22 @@
 namespace jsb::impl {
 struct GlobalInitialize {
 #if JSB_V8_CPPGC
-	std::unique_ptr<cppgc::DefaultPlatform> platform = std::make_unique<cppgc::DefaultPlatform>();
+	static inline std::unique_ptr<cppgc::DefaultPlatform> platform{};
 #else
-	std::unique_ptr<v8::Platform> platform = v8::platform::NewDefaultPlatform();
+	static inline std::unique_ptr<v8::Platform> platform{};
 #endif
-
-	GlobalInitialize() {
-#if JSB_EXPOSE_GC_FOR_TESTING
-		constexpr char exposeGcArgs[] = "--expose-gc";
-		v8::V8::SetFlagsFromString(exposeGcArgs, std::size(exposeGcArgs) - 1);
-#endif
-
-#if JSB_V8_JITLESS
-		constexpr char jitlessArgs[] = "--jitless";
-		v8::V8::SetFlagsFromString(jitlessArgs, std::size(jitlessArgs) - 1);
-#endif
-
-#if JSB_V8_CPPGC
-		v8::V8::InitializePlatform(platform->GetV8Platform());
-		cppgc::InitializeProcess(platform->GetPageAllocator());
-#else
-		v8::V8::InitializePlatform(platform.get());
-#endif
-
-		v8::V8::Initialize();
-	}
-
-	//NOTE never called in the current implementation
-	~GlobalInitialize() {
-#if JSB_V8_CPPGC
-		cppgc::ShutdownProcess();
-#endif
-	}
-
-private:
-	static inline GlobalInitialize *global_initialize{ nullptr };
 
 public:
 	static v8::Platform *get_platform() {
 #if JSB_V8_CPPGC
-		return global_initialize->platform->GetV8Platform();
+		return platform->GetV8Platform();
 #else
-		return global_initialize->platform.get();
+		return platform.get();
 #endif
 	}
 
-	static void init() {
-		jsb_check(global_initialize == nullptr);
-		global_initialize = memnew(GlobalInitialize);
-		jsb_ensure(get_platform());
-	}
-
-	static void shutdown() {
-		jsb_check(global_initialize);
-		memdelete(global_initialize);
-	}
+	static void init();
+	static void shutdown();
 };
 
 } //namespace jsb::impl

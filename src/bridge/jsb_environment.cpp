@@ -245,8 +245,12 @@ Environment::Environment(const CreateParams &p_params)
 		: thread_id_(p_params.thread_id)
 		, object_db_(p_params.initial_object_slots) {
 	JSB_BENCHMARK_SCOPE(JSEnvironment, Construct);
+
+#if !JSB_WITH_NODE
 	v8::Isolate::CreateParams create_params;
 	create_params.array_buffer_allocator = &allocator_;
+#endif // !JSB_WITH_NODE
+
 #if JSB_V8_CPPGC
 	// old version:
 	v8::Platform *platform = impl::GlobalInitialize::get_platform();
@@ -261,23 +265,32 @@ Environment::Environment(const CreateParams &p_params)
 	if (p_params.type == Type::Worker) flags_ |= EF_Worker;
 	else if (p_params.type == Type::Shadow) flags_ |= EF_Shadow;
 
-	isolate_ = v8::Isolate::New(create_params);
-	isolate_->SetData(kIsolateEmbedderData, this);
-	isolate_->SetPromiseRejectCallback(PromiseRejectCallback_);
+#if JSB_WITH_NODE
+	node_runtime_ = memnew(jsb::impl::NodeRuntime);
+	// in node mode the isolate is created by the node runtime
+	// (node::NewIsolate with the per-isolate uv loop)
+	v8::Isolate *__isolate__ = get_isolate();
+#else
+	__isolate__ = v8::Isolate::New(create_params);
+#endif
+
+	__isolate__->SetData(kIsolateEmbedderData, this);
+	__isolate__->SetPromiseRejectCallback(PromiseRejectCallback_);
 #if JSB_PRINT_GC_TIME
-	isolate_->AddGCPrologueCallback(&OnPreGCCallback);
-	isolate_->AddGCEpilogueCallback(&OnPostGCCallback);
+	__isolate__->AddGCPrologueCallback(&OnPreGCCallback);
+	__isolate__->AddGCEpilogueCallback(&OnPostGCCallback);
 #endif
 
 	{
-		JSB_ISOLATE_SCOPE(isolate_);
+		v8::Isolate *isolate = get_isolate();
+		JSB_ISOLATE_SCOPE(isolate);
 
 		// create context
 		{
-			v8::HandleScope handle_scope(isolate_);
+			v8::HandleScope handle_scope(isolate);
 
 			for (int index = 0; index < Symbols::kNum; ++index) {
-				symbols_[index].Reset(isolate_, v8::Symbol::New(isolate_));
+				symbols_[index].Reset(isolate, v8::Symbol::New(isolate));
 			}
 
 			native_classes_.reserve(p_params.initial_class_slots);
@@ -289,22 +302,26 @@ Environment::Environment(const CreateParams &p_params)
 
 			JSB_BENCHMARK_SCOPE(JSRealm, Construct);
 
-			const v8::Local<v8::Context> context = v8::Context::New(isolate_);
+#if JSB_WITH_NODE
+			const v8::Local<v8::Context> context = get_context();
+#else
+			const v8::Local<v8::Context> context = v8::Context::New(isolate);
+			__context__.Reset(isolate, context);
+#endif
 			const v8::Context::Scope context_scope(context);
 			const v8::Local<v8::Object> global = context->Global();
 
 			context->SetAlignedPointerInEmbedderData(kContextEmbedderData, this);
-			context_.Reset(isolate_, context);
 
 			// init module cache, and register the global 'require' function
 			{
-				const v8::Local<v8::Object> cache_obj = v8::Object::New(isolate_);
+				const v8::Local<v8::Object> cache_obj = v8::Object::New(isolate);
 				const v8::Local<v8::Function> require_func = JSB_NEW_FUNCTION(context, Builtins::_require, {});
 				require_func->Set(context, jsb_name(this, cache), cache_obj).Check();
-				require_func->Set(context, impl::Helper::new_string_ascii(isolate_, "moduleId"), v8::String::Empty(isolate_)).Check();
-				global->Set(context, impl::Helper::new_string_ascii(isolate_, "require"), require_func).Check();
-				global->Set(context, impl::Helper::new_string_ascii(isolate_, "define"), JSB_NEW_FUNCTION(context, Builtins::_define, {})).Check();
-				module_cache_.init(isolate_, cache_obj);
+				require_func->Set(context, impl::Helper::new_string_ascii(isolate, "moduleId"), v8::String::Empty(isolate)).Check();
+				global->Set(context, impl::Helper::new_string_ascii(isolate, "require"), require_func).Check();
+				global->Set(context, impl::Helper::new_string_ascii(isolate, "define"), JSB_NEW_FUNCTION(context, Builtins::_define, {})).Check();
+				module_cache_.init(isolate, cache_obj);
 			}
 
 			internal::StringNames &names = internal::StringNames::get_singleton();
@@ -409,12 +426,18 @@ Environment::~Environment() {
 	// cleanup all class templates (must do after objects cleaned up)
 	native_classes_.clear();
 
-	isolate_->Dispose();
-	isolate_ = nullptr;
+#if JSB_WITH_NODE
+	memdelete(node_runtime_); //.shutdown();
+#else // !JSB_WITH_NODE
+	__isolate__->Dispose();
+	__isolate__ = nullptr;
+#endif
 
 	variant_allocator_.drain();
 
 	ref_.reset();
+
+	JSB_LOG(Verbose, "~Environment classes=%d godot_index=%d", native_classes_.size(), godot_classes_index_.size());
 }
 
 void Environment::init() {
@@ -447,10 +470,10 @@ void Environment::dispose() {
 	flags_ |= EF_PreDispose;
 	// destroy context
 	{
-		v8::Isolate *isolate = this->isolate_;
+		v8::Isolate *isolate = get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
-		v8::Local<v8::Context> context = context_.Get(get_isolate());
+		v8::Local<v8::Context> context = get_context();
 
 		function_refs_.clear();
 		while (!function_bank_.is_empty()) function_bank_.remove_last();
@@ -463,7 +486,10 @@ void Environment::dispose() {
 		context->SetAlignedPointerInEmbedderData(kContextEmbedderData, nullptr);
 
 		module_cache_.deinit();
-		context_.Reset();
+
+#if !JSB_WITH_NODE
+		__context__.Reset();
+#endif // !JSB_WITH_NODE
 	}
 
 	while (!script_classes_.is_empty()) {
@@ -491,18 +517,25 @@ void Environment::dispose() {
 }
 
 void Environment::update(uint64_t p_delta_msecs) {
-#if JSB_WITH_ESSENTIALS
+	v8::Isolate *isolate = get_isolate();
+#if JSB_WITH_NODE
+	// in node mode timers, IO and microtasks are driven by node's uv loop.
+	// pump it once per engine frame (like gode's spin_loop).
+	node_runtime_->PumpEventLoop();
+#else
+#	if JSB_WITH_ESSENTIALS
 	const bool timers_ready = timer_manager_.tick(p_delta_msecs);
 	if (timers_ready) {
-		v8::Isolate::Scope isolate_scope(isolate_);
-		v8::HandleScope handle_scope(isolate_);
+		JSB_ISOLATE_SCOPE(isolate);
+		v8::HandleScope handle_scope(isolate);
 
 		//TODO be able to handle the uncaught exceptions in env (instead of being swallowed in the timer invocation).
 		//     we need to forward it to onerror (if the current env is the master of a worker)
-		if (timer_manager_.invoke_timers(isolate_)) {
+		if (timer_manager_.invoke_timers(isolate)) {
 			notify_microtasks_run();
 		}
 	}
+#	endif
 #endif
 
 	// handle messages from workers
@@ -512,13 +545,13 @@ void Environment::update(uint64_t p_delta_msecs) {
 	{
 		std::vector<Message> &messages = inbox_.swap();
 		if (!messages.empty()) {
-			JSB_ISOLATE_SCOPE(isolate_);
-			v8::HandleScope handle_scope(isolate_);
-			const v8::Local<v8::Context> context = context_.Get(isolate_);
+			JSB_ISOLATE_SCOPE(isolate);
+			v8::HandleScope handle_scope(isolate);
+			const v8::Local<v8::Context> context = get_context();
 			v8::Context::Scope context_scope(context);
 
 			for (const Message &message : messages) {
-				v8::HandleScope message_handle_scope(isolate_);
+				v8::HandleScope message_handle_scope(isolate);
 				_on_worker_message(context, message);
 			}
 			messages.clear();
@@ -528,21 +561,18 @@ void Environment::update(uint64_t p_delta_msecs) {
 
 	exec_async_calls();
 
+#if !JSB_WITH_NODE
 	// quickjs delayed the free op after all HandleScope left, we need to swap the free op list manually explicitly.
 	// otherwise, object may leak until next evacuation of HandleScope.
-#if JSB_WITH_QUICKJS || JSB_WITH_JAVASCRIPTCORE
-	isolate_->PerformMicrotaskCheckpoint();
-#else
+#	if JSB_WITH_QUICKJS || JSB_WITH_JAVASCRIPTCORE
+	__isolate__->PerformMicrotaskCheckpoint();
+#	else
 	if (flags_ & EF_MicrotaskCheckpoint) {
 		flags_ &= ~EF_MicrotaskCheckpoint;
-		isolate_->PerformMicrotaskCheckpoint();
+		__isolate__->PerformMicrotaskCheckpoint();
 	}
-#endif
-
-#if JSB_WITH_DEBUGGER
-	debugger_.update();
-#endif
-	variant_allocator_.drain();
+#	endif
+#endif // !JSB_WITH_NODE
 
 	// Update shadow environments.
 	internal::Index32 shadow_env_id = shadow_env_list_.get_first_index();
@@ -563,15 +593,22 @@ void Environment::update(uint64_t p_delta_msecs) {
 
 		shadow_env_id = next_id;
 	}
+
+#if JSB_WITH_DEBUGGER
+	debugger_.update();
+#endif
+
+	variant_allocator_.drain();
 }
 
 void Environment::handle_message(Message &&p_message) {
-	JSB_ISOLATE_SCOPE(isolate_);
-	v8::HandleScope handle_scope(isolate_);
-	const v8::Local<v8::Context> context = context_.Get(isolate_);
+	v8::Isolate *isolate{ get_isolate() };
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
 	v8::Context::Scope context_scope(context);
 
-	v8::HandleScope message_handle_scope(isolate_);
+	v8::HandleScope message_handle_scope(isolate);
 	_on_worker_message(context, p_message);
 }
 
@@ -603,9 +640,10 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
 			//TODO need a better way to control lifetime of TransferData?
 			TransferData *transfer_data = (TransferData *)p_binding;
 			{
-				JSB_ISOLATE_SCOPE(isolate_);
-				v8::HandleScope handle_scope(isolate_);
-				const v8::Local<v8::Context> context = context_.Get(isolate_);
+				v8::Isolate *isolate{ get_isolate() };
+				JSB_ISOLATE_SCOPE(isolate);
+				v8::HandleScope handle_scope(isolate);
+				const v8::Local<v8::Context> context = get_context();
 				const v8::Context::Scope context_scope(context);
 				_on_worker_transfer(context, transfer_data);
 			}
@@ -649,13 +687,14 @@ void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, c
 
 	// call 'ontransfer'
 	{
+		v8::Isolate *isolate{ get_isolate() };
 		ObjectHandleConstPtr handle = object_db_.try_get_object(p_data->source_worker_id);
-		const v8::Local<v8::Object> worker = handle->ref_.Get(isolate_).As<v8::Object>();
+		const v8::Local<v8::Object> worker = handle->ref_.Get(isolate).As<v8::Object>();
 		jsb_check(!worker.IsEmpty());
 		handle = nullptr;
 
 		v8::Local<v8::Value> transferred_obj;
-		if (!TypeConvert::gd_var_to_js(isolate_, p_context, p_data->variant, transferred_obj) || transferred_obj.IsEmpty()) {
+		if (!TypeConvert::gd_var_to_js(isolate, p_context, p_data->variant, transferred_obj) || transferred_obj.IsEmpty()) {
 			JSB_LOG(Error, "failed to convert object to JS");
 			return;
 		}
@@ -666,9 +705,9 @@ void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, c
 			return;
 		}
 
-		const impl::TryCatch try_catch(isolate_);
+		const impl::TryCatch try_catch(isolate);
 		const v8::Local<v8::Function> call = callback.As<v8::Function>();
-		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate_), 1, &transferred_obj);
+		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &transferred_obj);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
 			JSB_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
@@ -737,7 +776,8 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 		JSB_LOG(Error, "invalid worker");
 		return;
 	}
-	const v8::Local<v8::Object> obj = handle->ref_.Get(isolate_).As<v8::Object>();
+	v8::Isolate *isolate{ get_isolate() };
+	const v8::Local<v8::Object> obj = handle->ref_.Get(isolate).As<v8::Object>();
 	jsb_check(!obj.IsEmpty());
 	handle = nullptr;
 
@@ -848,7 +888,7 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 #endif
 
 	jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
-	handle->ref_.Reset(isolate_, p_object);
+	handle->ref_.Reset(get_isolate(), p_object);
 
 	if (p_fore_weak || handle->is_js_owned()) {
 		handle->ref_.SetWeak(p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
@@ -964,7 +1004,7 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	//     //NOTE if we clear the internal field here,
 	//     //     only null check is required when reading this value later
 	//     //     (like the usage in '_godot_object_method')
-	//     clear_internal_field(isolate_, obj_ref);
+	//     clear_internal_field(get_isolate(), obj_ref);
 	// }
 
 	obj_ref.Reset();
@@ -991,10 +1031,11 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 
 void Environment::start_debugger(uint16_t p_port) {
 #if JSB_WITH_DEBUGGER
-	JSB_HANDLE_SCOPE(isolate_);
+	v8::Isolate *isolate{ get_isolate() };
+	JSB_HANDLE_SCOPE(isolate);
 
-	debugger_.init(isolate_, p_port);
-	debugger_.on_context_created(context_.Get(isolate_));
+	debugger_.init(isolate, p_port);
+	debugger_.on_context_created(get_context());
 #endif
 }
 
@@ -1007,7 +1048,7 @@ bool Environment::is_debugger_started() const {
 
 void Environment::get_statistics(Statistics &r_stats) const {
 	check_internal_state();
-	impl::Helper::get_statistics(isolate_, r_stats.custom_fields);
+	impl::Helper::get_statistics(get_isolate(), r_stats.custom_fields);
 
 	r_stats.objects = object_db_.size();
 	r_stats.native_classes = native_classes_.size();
@@ -1018,7 +1059,7 @@ void Environment::get_statistics(Statistics &r_stats) const {
 }
 
 ObjectCacheID Environment::get_cached_function(const v8::Local<v8::Function> &p_func) {
-	v8::Isolate *isolate = get_isolate();
+	v8::Isolate *isolate{ get_isolate() };
 	const auto &it = function_refs_.find(TWeakRef(isolate, p_func));
 	if (it != function_refs_.end()) {
 		const ObjectCacheID callback_id = it->second;
@@ -1061,7 +1102,11 @@ ModuleReloadResult::Type Environment::mark_as_reloading(const StringName &p_name
 	return ModuleReloadResult::NoSuchModule;
 }
 
+#if JSB_WITH_NODE
+JavaScriptModule *Environment::_load_module(const String &p_parent_id, const String &p_module_id, const v8::Local<v8::String> &p_module_id_js) {
+#else // !JSB_WITH_NODE
 JavaScriptModule *Environment::_load_module(const String &p_parent_id, const String &p_module_id) {
+#endif // JSB_WITH_NODE
 	JSB_BENCHMARK_SCOPE(JSRealm, _load_module);
 
 	JavaScriptModule *resolved_module = module_cache_.find(p_module_id);
@@ -1069,10 +1114,10 @@ JavaScriptModule *Environment::_load_module(const String &p_parent_id, const Str
 		return resolved_module;
 	}
 
-	v8::Isolate *isolate = this->isolate_;
-	v8::Local<v8::Context> context = context_.Get(isolate);
+	v8::Isolate *isolate{ get_isolate() };
+	v8::Local<v8::Context> context{ get_context() };
 
-	jsb_check(isolate->GetCurrentContext().IsEmpty() || context == context_.Get(isolate));
+	jsb_check(isolate->GetCurrentContext().IsEmpty() || context == get_context());
 	// find loader with the module id
 	if (IModuleLoader *loader = this->find_module_loader(p_module_id)) {
 		jsb_checkf(!resolved_module, "module loader does not support reloading");
@@ -1221,16 +1266,48 @@ JavaScriptModule *Environment::_load_module(const String &p_parent_id, const Str
 		return resolved_module;
 	}
 
+#if JSB_WITH_NODE
+	// in node mode, fall back to node's own module system so that builtins
+	// ('fs', 'path', ...) and node-style modules keep working.
+	v8::Global<v8::Value> may_exports = node_runtime_->NodeRequire(p_module_id_js);
+	if (!may_exports.IsEmpty()) {
+		JSB_LOG(Verbose, "instantiating module %s from node", p_module_id);
+		JavaScriptModule &module = module_cache_.insert(isolate, context, p_module_id, false, false);
+
+		source_info.source_filepath = p_module_id;
+
+		// init the new module obj
+		v8::Local<v8::Object> module_obj;
+		module_obj = module.module.Get(isolate);
+		module_obj->Set(context, jsb_name(this, children), v8::Array::New(isolate)).Check();
+		module_obj->Set(context, jsb_name(this, exports), may_exports.Get(isolate)).Check();
+		module.source_info = source_info;
+		module.exports.Reset(isolate, may_exports);
+
+		//NOTE the resolver should throw error if failed
+		//NOTE module.filename should be set in `resolve.load`
+		if (!resolver->load(this, source_info.source_filepath, module)) {
+			return nullptr;
+		}
+		module.on_load(isolate, context);
+
+		may_exports.Reset();
+
+		resolved_module = &module;
+		return resolved_module;
+	}
+#endif // JSB_WITH_NODE
+
 	jsb_throw(isolate, jsb_format("unknown module: %s", normalized_id));
 	return nullptr;
 }
 
 NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, const Variant **p_args, int p_argcount) {
 	this->check_internal_state();
-	v8::Isolate *isolate = get_isolate();
+	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
-	v8::Local<v8::Context> context = context_.Get(isolate);
+	v8::Local<v8::Context> context{ get_context() };
 	v8::Context::Scope context_scope(context);
 
 	// Can occur at runtime if object.set_script(...) is used, or in the editor due to hot-reloading etc.
@@ -1275,7 +1352,7 @@ NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, 
 	const impl::TryCatch try_catch_run(isolate);
 
 	v8::Local<v8::Value> class_prototype = class_obj->Get(context, jsb_name(this, prototype)).ToLocalChecked();
-	v8::Local<v8::Function> new_target = impl::Helper::new_noop_constructor(isolate_, context);
+	v8::Local<v8::Function> new_target = impl::Helper::new_noop_constructor(isolate, context);
 	new_target->Set(context, jsb_name(this, prototype), class_prototype).Check();
 	new_target->Set(context, jsb_symbol(this, ConstructorBindObject), v8::External::New(isolate, p_this)).Check();
 
@@ -1318,7 +1395,7 @@ void Environment::rebind(Object *p_this, ScriptClassID p_class_id) {
 	this->check_internal_state();
 	v8::Isolate *isolate = get_isolate();
 	v8::HandleScope handle_scope(isolate);
-	v8::Local<v8::Context> context = context_.Get(isolate);
+	v8::Local<v8::Context> context = get_context();
 	v8::Context::Scope context_scope(context);
 
 	_rebind(isolate, context, p_this, p_class_id);
@@ -1351,12 +1428,12 @@ void Environment::_execute_class_post_bind(const StringName &p_class_name, const
 	const JavaScriptModule &typeloader = *this->get_module_cache().find(jsb_string_name(godot_typeloader));
 	const v8::Local<v8::Value> typeloader_exports = typeloader.exports.Get(this->get_isolate());
 	jsb_check(!typeloader_exports.IsEmpty() && typeloader_exports->IsObject());
-	const v8::Local<v8::Context> context = context_.Get(isolate_);
+	const v8::Local<v8::Context> context = get_context();
 	const v8::Local<v8::Value> post_bind_val = typeloader_exports.As<v8::Object>()->Get(context, jsb_name(this, godot_postbind)).ToLocalChecked();
 	jsb_check(!post_bind_val.IsEmpty() && post_bind_val->IsFunction());
 	const v8::Local<v8::Function> post_bind = post_bind_val.As<v8::Function>();
 	v8::Local<v8::Value> argv[] = { this->get_string_value(p_class_name), p_class };
-	v8::MaybeLocal<v8::Value> rval = post_bind->Call(context, v8::Undefined(isolate_), std::size(argv), argv);
+	v8::MaybeLocal<v8::Value> rval = post_bind->Call(context, v8::Undefined(get_isolate()), std::size(argv), argv);
 	jsb_unused(rval);
 	jsb_check(rval.ToLocalChecked()->IsUndefined());
 }
@@ -1376,18 +1453,19 @@ void Environment::_execute_deferred() {
 }
 
 v8::Local<v8::Function> Environment::_new_require_func(const String &p_module_id, bool p_expose_main) {
-	const v8::Local<v8::Context> context = context_.Get(isolate_);
-	const v8::Local<v8::String> module_id = impl::Helper::new_string(isolate_, p_module_id);
+	v8::Isolate *isolate{ get_isolate() };
+	const v8::Local<v8::Context> context = get_context();
+	const v8::Local<v8::String> module_id = impl::Helper::new_string(isolate, p_module_id);
 	const v8::Local<v8::Function> require = JSB_NEW_FUNCTION(context, Builtins::_require, /* magic: module_id */ module_id);
 	if (p_expose_main) {
 		if (v8::Local<v8::Object> main_module; _get_main_module(&main_module)) {
 			require->Set(context, jsb_name(this, main), main_module).Check();
 		} else {
 			JSB_LOG(Log, "%s: require.main is not set due to main module not available", p_module_id);
-			require->Set(context, jsb_name(this, main), v8::Undefined(isolate_)).Check();
+			require->Set(context, jsb_name(this, main), v8::Undefined(isolate)).Check();
 		}
 	}
-	require->Set(context, jsb_name(this, cache), module_cache_.get_cache(isolate_)).Check();
+	require->Set(context, jsb_name(this, cache), module_cache_.get_cache(isolate)).Check();
 	return require;
 }
 
@@ -1416,7 +1494,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
-	v8::Local<v8::Context> context = context_.Get(isolate);
+	v8::Local<v8::Context> context = get_context();
 	v8::Context::Scope context_scope(context);
 
 	const impl::TryCatch try_catch_run(isolate);
@@ -1453,10 +1531,10 @@ NativeClassInfoPtr Environment::expose_class(const StringName &p_type_name, Nati
 		const ClassRegister register_{
 			this,
 			p_type_name,
-			this->isolate_,
-			this->context_.Get(this->isolate_),
+			get_isolate(),
+			get_context(),
 		};
-		const v8::Local<v8::Function> class_ = class_register->register_func(register_, &class_register->id)->clazz.Get(this->isolate_);
+		const v8::Local<v8::Function> class_ = class_register->register_func(register_, &class_register->id)->clazz.Get(get_isolate());
 		jsb_check(class_register->id);
 		JSB_LOG(VeryVerbose, "register class %s (%d)", (String)p_type_name, class_register->id);
 		if (r_class_id) *r_class_id = class_register->id;
@@ -1484,7 +1562,7 @@ NativeClassInfoPtr Environment::expose_godot_object_class(const godot::StringNam
 	}
 
 	NativeClassID class_id;
-	const v8::Local<v8::Function> class_ = ObjectReflectBindingUtil::reflect_bind(this, p_class_name, &class_id)->clazz.Get(isolate_);
+	const v8::Local<v8::Function> class_ = ObjectReflectBindingUtil::reflect_bind(this, p_class_name, &class_id)->clazz.Get(get_isolate());
 	jsb_check(class_id);
 	if (r_class_id) *r_class_id = class_id;
 	on_class_post_bind(class_name, class_);
@@ -1503,12 +1581,13 @@ void Environment::on_class_post_bind(const StringName &p_class_name, const v8::L
 
 JSValueMove Environment::eval_source(const char *p_source, int p_length, const String &p_filename, Error &r_err) {
 	JSB_BENCHMARK_SCOPE(JSRealm, eval_source);
-	JSB_ISOLATE_SCOPE(isolate_);
-	v8::HandleScope handle_scope(isolate_);
-	const v8::Local<v8::Context> context = context_.Get(isolate_);
+	v8::Isolate *isolate{ get_isolate() };
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context{ get_context() };
 	v8::Context::Scope context_scope(context);
 
-	const impl::TryCatch try_catch_run(isolate_);
+	const impl::TryCatch try_catch_run(isolate);
 	const v8::MaybeLocal<v8::Value> maybe = impl::Helper::eval(context, p_source, p_length, p_filename);
 	if (try_catch_run.has_caught()) {
 		r_err = ERR_COMPILATION_FAILED;
@@ -1544,7 +1623,7 @@ bool Environment::release_function(ObjectCacheID p_func_id) {
 	if (function_bank_.is_valid_index(p_func_id)) {
 		TStrongRef<v8::Function> &strong_ref = function_bank_.get_value(p_func_id);
 		if (strong_ref.unref()) {
-			v8::Isolate *isolate = get_isolate();
+			v8::Isolate *isolate{ get_isolate() };
 			JSB_ISOLATE_SCOPE(isolate);
 			v8::HandleScope handle_scope(isolate);
 			if (jsb_likely(!strong_ref.object_.IsEmpty())) {
@@ -1592,13 +1671,16 @@ Variant Environment::_call(v8::Isolate *isolate, const v8::Local<v8::Context> &c
 		return {};
 	}
 
+	// TODO if a function returns a Promise for godot script callbacks (such as _ready), it's safe to return as nothing without error?
+	if (rval_checked->IsPromise()) {
+		r_error.error = GDEXTENSION_CALL_OK;
+		return {};
+	}
+
 	Variant rvar;
 	if (!TypeConvert::js_to_gd_var(isolate, context, rval_checked, rvar)) {
-		//TODO if a function returns a Promise for godot script callbacks (such as _ready), it's safe to return as nothing without error?
-		if (!rval_checked->IsPromise()) {
-			JSB_LOG(Error, "failed to translate returned value");
-			r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
-		}
+		JSB_LOG(Error, "failed to translate returned value");
+		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return {};
 	}
 	r_error.error = GDEXTENSION_CALL_OK;
@@ -1852,10 +1934,10 @@ Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeO
 		return {};
 	}
 
-	v8::Isolate *isolate = get_isolate();
+	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
-	const v8::Local<v8::Context> context = this->get_context();
+	const v8::Local<v8::Context> context{ this->get_context() };
 	v8::Context::Scope context_scope(context);
 
 	v8::Local<v8::Function> method_func;
@@ -1876,7 +1958,7 @@ Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeO
 
 			if (prototype.As<v8::Object>()->Get(context, this->get_string_value(exposed_name)).ToLocal(&method) && method->IsFunction()) {
 				method_func = method.As<v8::Function>();
-				script_class_info->method_cache[p_method] = v8::Global<v8::Function>(isolate_, method_func);
+				script_class_info->method_cache[p_method] = v8::Global<v8::Function>(get_isolate(), method_func);
 			} else {
 				script_class_info->method_cache[p_method] = v8::Global<v8::Function>();
 				JSB_LOG(Verbose, "method not found %s.%s (%s)", script_class_info->js_class_name, exposed_name, script_class_info->module_id);
@@ -1911,10 +1993,10 @@ Variant Environment::call_function(void *p_pointer, ObjectCacheID p_func_id, con
 		return {};
 	}
 
-	v8::Isolate *isolate = get_isolate();
+	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
-	const v8::Local<v8::Context> context = this->get_context();
+	const v8::Local<v8::Context> context{ this->get_context() };
 	v8::Context::Scope context_scope(context);
 
 	if (p_pointer) {
@@ -2021,7 +2103,7 @@ void Environment::transfer_in_bind(const v8::Local<v8::Context> &p_context, cons
 
 	if (!object_db_.has_object(instance)) {
 		v8::Local<v8::Object> obj;
-		jsb_check(TypeConvert::gd_obj_to_js(isolate_, p_context, instance, obj));
+		jsb_check(TypeConvert::gd_obj_to_js(get_isolate(), p_context, instance, obj));
 	}
 
 	/**
@@ -2099,9 +2181,9 @@ void Environment::_on_gc_request() {
 	}
 
 #if JSB_EXPOSE_GC_FOR_TESTING
-	isolate_->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
+	get_isolate()->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
 #else
-	isolate_->LowMemoryNotification();
+	get_isolate()->LowMemoryNotification();
 #endif
 }
 

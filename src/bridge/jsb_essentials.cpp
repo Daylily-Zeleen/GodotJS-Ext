@@ -1,9 +1,11 @@
 #include "jsb_essentials.h"
-#include "jsb_bridge_helper.h"
-#include "jsb_environment.h"
-#include "jsb_timer_action.h"
+#if JSB_WITH_ESSENTIALS
+#	include "jsb_bridge_helper.h"
+#	include "jsb_environment.h"
+#	include "jsb_timer_action.h"
 
-#include <string_builder.h>
+#	include <string_builder.h>
+#endif // JSB_WITH_ESSENTIALS
 
 namespace jsb {
 #if !JSB_WITH_ESSENTIALS
