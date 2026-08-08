@@ -12,6 +12,7 @@
 # Ignore prebuilt third-party libraries (downloaded by SConstruct)
 /third/v8/
 /third/lws/
+/third/node/
 
 # Ignore custom.py
 custom.py

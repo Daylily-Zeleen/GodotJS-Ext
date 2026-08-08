@@ -10,7 +10,9 @@
 #	endif
 #endif
 
-#define JSB_WITH_ESSENTIALS !JSB_WITH_WEB
+// Essentials provides self-hosted console/timers for runtimes without a host environment.
+// Web builds use the browser's native console/timers; node builds use node's native ones.
+#define JSB_WITH_ESSENTIALS !(JSB_WITH_WEB || JSB_WITH_NODE) // TODO: 排除特定文件
 
 // Enable the debugger bridge.
 // For v8, use Chrome devtools with the following link by default:
@@ -165,8 +167,13 @@
 /** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */
 #define JSB_SHADOW_REALM_ENABLED 1
 
+/**
+ * EXPERIMENTAL: 是否在使用 JSB_ISOLATE_SCOPE 时使用 v8::Locker 加锁。
+ * 	正常情况下不需要，所有设计已确保只在创建它的线程进行访问。
+ */
+#define JSB_USE_V8_LOCKER_PER_ISOLATE_SCOPE 0
+
 // A helper version tag for the jsb.*.bundle.js scripts (which is embedded in .cpp source).
 // It could ensure your engine built with the expected version of the jsb bundle scripts.
 // If static_assert in `jsb_project_preset.gen.cpp` fails, please run your `scons` command again to update all bundle scripts.
 #define JSB_BUNDLE_VERSION 11
-

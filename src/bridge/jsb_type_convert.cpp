@@ -489,6 +489,14 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 
 		switch (self->InternalFieldCount()) {
 			case IF_VariantFieldCount: {
+#if JSB_WITH_NODE
+				/** HACK: Node 的 Promise 会有一个内嵌字段。*/
+				/** TODO: 用更优雅的方式处理 */
+				if (self->IsPromise()) {
+					JSB_LOG(Error, "js_to_gd_var: unhandled type: Promise");
+					return false;
+				}
+#endif // JSB_WITH_NODE
 				r_cvar = *(Variant *)self->GetAlignedPointerFromInternalField(IF_Pointer);
 				return true;
 			}

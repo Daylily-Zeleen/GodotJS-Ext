@@ -14,10 +14,12 @@
 #include "jsb_object_handle.h"
 #include "jsb_statistics.h"
 #include "jsb_string_name_cache.h"
-#include "jsb_timer_action.h"
-#include "jsb_timer_tags.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
+#if JSB_WITH_ESSENTIALS
+#	include "jsb_timer_action.h"
+#	include "jsb_timer_tags.h"
+#endif // JSB_WITH_ESSENTIALS
 
 #if JSB_WITH_DEBUGGER
 #	include <future>
@@ -151,10 +153,15 @@ private:
 	/*volatile*/
 	ThreadEx::ID thread_id_;
 
-	v8::Isolate *isolate_;
-	v8::Global<v8::Context> context_;
-
+#if JSB_WITH_NODE
+	// the embedded node.js runtime (per-isolate uv loop + node::Environment)
+	jsb::impl::NodeRuntime *node_runtime_;
+	std::unique_ptr<v8::Locker> locker_;
+#else // !JSB_WITH_NODE
+	v8::Isolate *__isolate__;
+	v8::Global<v8::Context> __context__;
 	ArrayBufferAllocator allocator_;
+#endif
 
 #if !JSB_WITH_WEB
 	internal::DoubleBuffered<Message> inbox_;
@@ -305,9 +312,18 @@ public:
 		return env;
 	}
 
-	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return isolate_; }
-	_FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return context_.Get(isolate_); }
-	_FORCE_INLINE_ EnvironmentID id() const { return (EnvironmentID)this; }
+#if JSB_WITH_NODE
+	_FORCE_INLINE_ const jsb::impl::NodeRuntime &get_node_runtime() const { return *node_runtime_; }
+	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return node_runtime_->get_isolate(); }
+	_FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return node_runtime_->get_node_context(); }
+#else
+	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return __isolate__; }
+	_FORCE_INLINE_ v8::Local<v8::Context> get_context() const { return __context__.Get(__isolate__); }
+#endif
+
+	_FORCE_INLINE_ EnvironmentID id() const {
+		return (EnvironmentID)this;
+	}
 
 	_FORCE_INLINE_ internal::VariantInfoCollection &get_variant_info_collection() { return variant_info_collection_; }
 
@@ -415,7 +431,11 @@ public:
 
 	// return false if something wrong with an exception thrown
 	// caller should handle the exception if it's not called from js
+#if JSB_WITH_NODE
+	JavaScriptModule *_load_module(const String &p_parent_id, const String &p_module_id, const v8::Local<v8::String> &p_module_id_js = {});
+#else // !JSB_WITH_NODE
 	JavaScriptModule *_load_module(const String &p_parent_id, const String &p_module_id);
+#endif // JSB_WITH_NODE
 
 	// manually scan changes of modules,
 	// will reload IMMEDIATELY
@@ -457,10 +477,10 @@ public:
 #endif
 
 	_FORCE_INLINE_ StringNameCache &get_string_name_cache() { return string_name_cache_; }
-	_FORCE_INLINE_ v8::Local<v8::String> get_string_value(const StringName &p_name) { return string_name_cache_.get_string_value(isolate_, p_name); }
-	_FORCE_INLINE_ StringName get_string_name(const v8::Local<v8::String> &p_value) { return string_name_cache_.get_string_name(isolate_, p_value); }
+	_FORCE_INLINE_ v8::Local<v8::String> get_string_value(const StringName &p_name) { return string_name_cache_.get_string_value(get_isolate(), p_name); }
+	_FORCE_INLINE_ StringName get_string_name(const v8::Local<v8::String> &p_value) { return string_name_cache_.get_string_name(get_isolate(), p_value); }
 
-	_FORCE_INLINE_ v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(isolate_); }
+	_FORCE_INLINE_ v8::Local<v8::Symbol> get_symbol(Symbols::Type p_type) const { return symbols_[p_type].Get(get_isolate()); }
 
 private:
 	// [low level binding] bind a C++ `p_pointer` with a JS `p_object`
@@ -494,7 +514,7 @@ public:
 			if (jsb_unlikely(ptr->ref_.IsEmpty())) {
 				return false;
 			}
-			r_unwrap = ptr->ref_.Get(isolate_);
+			r_unwrap = ptr->ref_.Get(get_isolate());
 			return !r_unwrap.IsEmpty();
 		}
 		return false;
@@ -504,7 +524,7 @@ public:
 	_FORCE_INLINE_ v8::Local<v8::Object> get_object(const NativeObjectID &p_object_id) const {
 		const ObjectHandleConstPtr ptr = object_db_.get_object(p_object_id);
 		jsb_check(native_classes_.get_value(ptr->class_id).type != NativeClassType::GodotPrimitive);
-		return ptr->ref_.Get(isolate_);
+		return ptr->ref_.Get(get_isolate());
 	}
 
 	_FORCE_INLINE_ const NativeClassInfo *find_object_class(void *p_pointer) const {
@@ -527,7 +547,7 @@ public:
 
 	// request a full garbage collection
 	static void gc();
-	void set_battery_save_mode(bool p_enabled) { isolate_->SetBatterySaverMode(p_enabled); }
+	void set_battery_save_mode(bool p_enabled) { get_isolate()->SetBatterySaverMode(p_enabled); }
 
 	void update(uint64_t p_delta_msecs);
 
@@ -906,4 +926,3 @@ public:
 #endif
 
 } //namespace jsb
-
