@@ -1269,7 +1269,7 @@ JavaScriptModule *Environment::_load_module(const String &p_parent_id, const Str
 #if JSB_WITH_NODE
 	// in node mode, fall back to node's own module system so that builtins
 	// ('fs', 'path', ...) and node-style modules keep working.
-	v8::Global<v8::Value> may_exports = node_runtime_->NodeRequire(p_module_id_js);
+	v8::Global<v8::Value> may_exports = node_runtime_->NodeRequire(p_module_id_js.IsEmpty() ? impl::Helper::new_string(isolate, p_module_id) : p_module_id_js);
 	if (!may_exports.IsEmpty()) {
 		JSB_LOG(Verbose, "instantiating module %s from node", p_module_id);
 		JavaScriptModule &module = module_cache_.insert(isolate, context, p_module_id, false, false);

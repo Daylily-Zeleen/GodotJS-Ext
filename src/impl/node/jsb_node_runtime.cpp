@@ -262,12 +262,48 @@ process.dlopen = function(mod, filename, flags) {
 };
 
 // --- child_process.fork: embedded node reports the host executable as
-// process.execPath, so forking a probe would spawn Godot itself. mock
-// native-addon probes, reject everything else explicitly ---
+// process.execPath, so forking a probe would spawn Godot itself. Redirect
+// fork() to the bundled godotjs-ext helper executable (which runs a real
+// node process for native addon probing); keep a mock fallback for internal
+// probes when no helper is installed ---
 (function() {
   try {
     const cp = require('child_process');
     const { EventEmitter } = require('events');
+    const _originalFork = cp.fork;
+    if (typeof _originalFork !== 'function') return;
+    let _cachedForkExecPath;
+    const _isFile = (value) => {
+      try { return typeof value === 'string' && fs.existsSync(value) && fs.statSync(value).isFile(); } catch (_) { return false; }
+    };
+    const _makeExecutable = (value) => {
+      if (process.platform === 'win32') return;
+      try { fs.chmodSync(value, 0o755); } catch (_) {}
+    };
+    const _normalizeForkModulePath = (value) => {
+      if (typeof value !== 'string') return value;
+      let p = value;
+      if (p.startsWith('file://')) { try { p = require('url').fileURLToPath(p); } catch (_) {} }
+      if (isGodotPath(p)) p = toOsPath(p);
+      if (p.startsWith('\\\\?\\')) p = p.slice(4);
+      return p;
+    };
+    const _bundledForkExecPath = () => {
+      if (_cachedForkExecPath !== undefined) return _cachedForkExecPath;
+      _cachedForkExecPath = null;
+      const candidates = [];
+      try { if (typeof godotModule.native_probe_executable === 'function') candidates.push(godotModule.native_probe_executable()); } catch (_) {}
+      const platformDir = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : process.platform;
+      const archDir = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
+      const exeName = process.platform === 'win32' ? 'godotjs-ext.exe' : 'godotjs-ext';
+      candidates.push(path.join(path.dirname(process.execPath), 'addons', 'godotjs-ext.daylily-zeleen', 'bin', platformDir, archDir, exeName));
+      for (const candidate of candidates) {
+        if (typeof candidate !== 'string' || candidate.length === 0) continue;
+        const normalized = _normalizeForkModulePath(candidate);
+        if (_isFile(normalized)) { _makeExecutable(normalized); _cachedForkExecPath = normalized; break; }
+      }
+      return _cachedForkExecPath;
+    };
     const _isNativeAddonProbe = (modulePath) =>
       typeof modulePath === 'string' && path.basename(modulePath).startsWith('testBindingBinary');
     const _fallbackProbe = () => {
@@ -293,10 +329,19 @@ process.dlopen = function(mod, filename, flags) {
       return mock;
     };
     cp.fork = function(modulePath, args, options) {
+      const forkArgs = Array.isArray(args) ? args : [];
+      const optionSource = Array.isArray(args) ? options : (args === undefined ? options : args);
+      const forkOptions = { ...(optionSource || {}) };
+      const execPath = _bundledForkExecPath();
+      if (typeof execPath === 'string') {
+        const normalizedModulePath = _normalizeForkModulePath(modulePath);
+        if (forkOptions.execPath === undefined) forkOptions.execPath = execPath;
+        return _originalFork.call(this, normalizedModulePath, forkArgs, forkOptions);
+      }
       if (_isNativeAddonProbe(modulePath)) {
         return _fallbackProbe();
       }
-      throw new Error('[godotjs-ext] child_process.fork is not supported in the embedded runtime because Godot is not a standalone Node executable. Use child_process.spawn with an explicit executable or run the work in-process.');
+      throw new Error('[godotjs-ext] child_process.fork requires the bundled godotjs-ext helper executable, but it was not found next to the godotjs-ext module. Rebuild with use_node=yes (which produces bin/<platform>/godotjs-ext) or reinstall the addon.');
     };
   } catch (e) {}
 })();
