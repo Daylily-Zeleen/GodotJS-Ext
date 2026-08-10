@@ -34,7 +34,13 @@ private:
 	void export_raw_files(const PackedStringArray &p_paths, bool p_permit_typescript);
 	void get_script_resources(const String &p_dir, PackedStringArray &r_list, bool p_is_node_module = false);
 
+#if JSB_WITH_NODE
+	// package the standalone node native-probe helper executable (used as the execPath of `child_process.fork`)
+	bool add_node_runtime_helpers(const PackedStringArray &p_features);
+	bool add_node_runtime_helper_shared_object(const String &p_res_path, const PackedStringArray &p_features);
+	bool stage_macos_helper_framework(const String &p_res_path);
+#endif // JSB_WITH_NODE
+
 	HashSet<String> exported_paths_;
 	std::shared_ptr<jsb::Environment> env_;
 };
-

@@ -28,6 +28,7 @@ opts = Variables(customs, ARGUMENTS)
 opts.Add(BoolVariable("use_quickjs", "Prefer to use QuickJS rather than the default VM", False))
 opts.Add(BoolVariable("use_quickjs_ng", "Prefer to use QuickJS-NG rather than the default VM", False))
 opts.Add(BoolVariable("use_jsc", "Prefer to use JavaScriptCore (macos/ios only)", False))
+opts.Add(BoolVariable("use_node", "Build with Node.js (libnode) support. libnode embeds V8, implies use_v8 and disables v8_monolith linking", False))
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
@@ -110,6 +111,18 @@ v8_prebuilt_libs = LibraryDescriptor("v8", [
     LibraryDetails("android", "x86_64", "libv8_monolith.a", "."),
     LibraryDetails("android", "arm64", "libv8_monolith.a", "."),
 ])
+# libnode: Node.js as a static library (embeds V8). Prebuilt archives must be placed at
+# third/node/<platform>_<arch>_release/libnode.{lib,a} with headers at third/node/include.
+node_prebuilt_libs = LibraryDescriptor("node", [
+    LibraryDetails("windows", "x86_64", "libnode.lib", "_"),
+    LibraryDetails("linux", "x86_64", "libnode.a", "."),
+    LibraryDetails("linux", "arm64", "libnode.a", "."),
+    LibraryDetails("macos", "x86_64", "libnode.a", "."),
+    LibraryDetails("macos", "arm64", "libnode.a", "."),
+    LibraryDetails("ios", "arm64", "libnode.a", "."),
+    LibraryDetails("android", "x86_64", "libnode.a", "."),
+    LibraryDetails("android", "arm64", "libnode.a", "."),
+])
 lws_prebuilt_libs = LibraryDescriptor("lws", [
     LibraryDetails("windows", "x86_64", "websockets_static.lib", "_"),
     LibraryDetails("linux", "x86_64", "libwebsockets.a", "_"),
@@ -188,26 +201,44 @@ def download_dependency(name, version, target_dir):
     except Exception as e:
         check(False, f"Failed to download or extract {name}: {str(e)}")
 
-use_quickjs = f"{third_folder_name}/quickjs" if env.get("use_quickjs", False) else (f"{third_folder_name}/quickjs-ng" if env.get("use_quickjs_ng", False) else None)
-jsc_support = "jsc" if env.get("use_jsc", False) and use_quickjs is None else None
+# Node.js (libnode) support. When enabled, libnode provides the embedded V8,
+# so quickjs/jsc are disabled and the standalone v8_monolith is NOT linked.
+node_support = None
+if env.get("use_node", False):
+    if not is_library_supported(node_prebuilt_libs):
+        check(False, "libnode prebuilt is not supported for this platform/arch. See plan (Phase 1) for supported targets.")
+    # TODO(Node): publish a prebuilt libnode release and set deps_node_version to enable auto download.
+    # download_dependency("node", deps_node_version, f"{third_folder_name}/node")
+    node_support = validate_library_support(node_prebuilt_libs)
+    check(node_support is not None, f"libnode prebuilt not found at 'third/node/'. Place libnode.{{lib,a}} under 'third/node/{jsb_platform}_{jsb_arch}_release/' and headers at 'third/node/include/' (see plan).")
+
+use_quickjs = None if node_support is not None else (f"{third_folder_name}/quickjs" if env.get("use_quickjs", False) else (f"{third_folder_name}/quickjs-ng" if env.get("use_quickjs_ng", False) else None))
+jsc_support = None if node_support is not None else ("jsc" if env.get("use_jsc", False) and use_quickjs is None else None)
 quickjs_support = get_thirdparty_support(quickjs_src_descs, use_quickjs)
 
-if quickjs_support is None and jsc_support is None and is_library_supported(v8_prebuilt_libs):
+if node_support is None and quickjs_support is None and jsc_support is None and is_library_supported(v8_prebuilt_libs):
     download_dependency("v8", deps_v8_version, f"{third_folder_name}/v8")
     # TEMPORARY (see TODO.md): linux prebuilt lws is not PIC and cannot be linked into a
     # shared library. Disable lws on linux until a PIC build is available.
     if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
         download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
 
-v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
+if node_support is not None:
+    # libnode embeds V8: keep JSB_WITH_V8=1 so the bridge code compiles against the V8 API,
+    # but v8_monolith is NOT linked (its symbols come from libnode).
+    v8_support = v8_prebuilt_libs if is_library_supported(v8_prebuilt_libs) else None
+else:
+    v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
 # TEMPORARY (see TODO.md): disable lws on linux (prebuilt lib is not PIC).
-lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and jsb_platform != "linux" else None
+# In node mode lws is disabled too (avoids cross-linking v8 symbols against libnode).
+lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and node_support is None and jsb_platform != "linux" else None
 
 jsb_defines = [
     CompileDefines("JSB_USE_TYPESCRIPT", 1 if env.get("use_typescript", True) else 0),
     CompileDefines("JSB_WITH_QUICKJS", 1 if quickjs_support is not None else 0),
     CompileDefines("JSB_PREFER_QUICKJS_NG", 1 if quickjs_support is not None and quickjs_support[1].path == f"{third_folder_name}/quickjs-ng" else 0),
     CompileDefines("JSB_WITH_V8", 1 if v8_support is not None else 0),
+    CompileDefines("JSB_WITH_NODE", 1 if node_support is not None else 0),
     CompileDefines("JSB_WITH_WEB", 1 if jsb_platform == "web" and quickjs_support is None else 0),
     CompileDefines("JSB_WITH_JAVASCRIPTCORE", 1 if jsc_support is not None else 0),
     CompileDefines("JSB_WITH_EDITOR_UTILITY_FUNCS", 1 if jsb_platform != "web" and env["target"] in ["editor", "template_debug"] else 0),
@@ -225,7 +256,7 @@ zero_terminated = is_defined("JSB_WITH_QUICKJS") or is_defined("JSB_WITH_WEB") o
 module_name = libname.replace("-", "_")
 
 print(f"compiling: {module_name}")
-print(f"javascript engine: {'v8' if is_defined('JSB_WITH_V8') else 'web' if is_defined('JSB_WITH_WEB') else use_quickjs if is_defined('JSB_WITH_QUICKJS') else 'JavaScriptCore' if is_defined('JSB_WITH_JAVASCRIPTCORE') else 'none'}")
+print(f"javascript engine: {'node' if is_defined('JSB_WITH_NODE') else 'v8' if is_defined('JSB_WITH_V8') else 'web' if is_defined('JSB_WITH_WEB') else use_quickjs if is_defined('JSB_WITH_QUICKJS') else 'JavaScriptCore' if is_defined('JSB_WITH_JAVASCRIPTCORE') else 'none'}")
 print(f"websocket lib: {'lws' if is_defined('JSB_WITH_LWS') and is_defined('JSB_WITH_V8') else 'none'}")
 print(f"platform: {jsb_platform}")
 print(f"arch: {jsb_arch}")
@@ -508,7 +539,8 @@ env.Append(CPPPATH=[
 ])
 
 # Add v8 include/library path
-if v8_support is not None:
+# (skipped in node mode: libnode bundles the v8 headers and provides the v8 symbols)
+if v8_support is not None and node_support is None:
     v8_basename = v8_support[1].platform_base()
     env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "v8", "include")])
     if jsb_platform == "windows":
@@ -519,6 +551,38 @@ if v8_support is not None:
     elif jsb_platform == "macos":
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
     env.Append(CPPDEFINES=["V8_COMPRESS_POINTERS"])
+
+# Add node (libnode) include/library path
+# libnode is a static archive which must be fully linked (--whole-archive / -force_load / WHOLEARCHIVE)
+# so that the N-API symbols it defines are preserved and exported by the main DLL.
+if node_support is not None:
+    node_basename = node_support[1].platform_base()
+    node_lib_path = os.path.join(root_dir, third_dir, "node", node_basename, "libnode.lib" if jsb_platform == "windows" else "libnode.a")
+    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "node", "include")])
+    # NOTE: do NOT define V8_COMPRESS_POINTERS here. The moluopro/libnode prebuilt
+    # (Node 24.x) is built WITHOUT pointer compression, and V8::Initialize() aborts
+    # with "Embedder-vs-V8 build configuration mismatch" when the embedder side
+    # compiles with V8_COMPRESS_POINTERS defined but the V8 library has it disabled.
+    if jsb_platform == "windows":
+        env.Append(LIBS=[File(node_lib_path)])
+        env.Append(LINKFLAGS=[f"/WHOLEARCHIVE:{os.path.abspath(node_lib_path)}"])
+        env.Append(LINKFLAGS=["Dbghelp.lib", "Psapi.lib", "Winmm.lib", "Ws2_32.lib", "Advapi32.lib", "Crypt32.lib", "Ole32.lib", "Iphlpapi.lib", "Shell32.lib", "User32.lib", "Userenv.lib", "Uuid.lib"])
+    elif jsb_platform == "linux":
+        env.Append(LIBS=[File(node_lib_path)])
+        env.Append(LINKFLAGS=["-Wl,--whole-archive", os.path.abspath(node_lib_path), "-Wl,--no-whole-archive"])
+        env.Append(LIBS=["dl", "pthread", "rt"])
+    elif jsb_platform == "macos":
+        env.Append(LIBS=[File(node_lib_path)])
+        env.Append(LINKFLAGS=["-Wl,-force_load", os.path.abspath(node_lib_path)])
+        env.Append(LINKFLAGS=["-framework", "CoreFoundation", "-framework", "Security"])
+    elif jsb_platform == "android":
+        env.Append(LIBS=[File(node_lib_path)])
+        env.Append(LINKFLAGS=["-Wl,--whole-archive", os.path.abspath(node_lib_path), "-Wl,--no-whole-archive"])
+        env.Append(LIBS=["log", "dl"])
+    elif jsb_platform == "ios":
+        env.Append(LIBS=[File(node_lib_path)])
+        env.Append(LINKFLAGS=["-Wl,-force_load", os.path.abspath(node_lib_path)])
+        env.Append(LINKFLAGS=["-framework", "Foundation"])
 
 # Add lws include/library path
 if lws_support is not None:
@@ -549,7 +613,11 @@ if env["target"] in ["editor", "template_debug"]:
     godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
 
 # Add engine-specific impl sources
-if is_defined("JSB_WITH_V8"):
+# NOTE: node mode implies JSB_WITH_V8 (libnode embeds V8), so the node branch MUST be
+# checked before the v8 branch to pick src/impl/node/ instead of src/impl/v8/.
+if is_defined("JSB_WITH_NODE"):
+    godotjs_sources += Glob(os.path.join(src_dir, "impl", "node", "*.cpp"))
+elif is_defined("JSB_WITH_V8"):
     godotjs_sources += Glob(os.path.join(src_dir, "impl", "v8", "*.cpp"))
 elif is_defined("JSB_WITH_QUICKJS"):
     godotjs_sources += Glob(os.path.join(src_dir, "impl", "quickjs", "*.cpp"))
@@ -598,4 +666,85 @@ library = env.SharedLibrary(
 copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 
 default_args = [library, copy]
+
+# Windows: generate a node.dll Node-API forwarder so native .node addons can resolve
+# napi_* symbols (they import them from a module literally named 'node.dll').
+# The forwarder forwards every napi_*/node_api_*/node_module_register export to the
+# main DLL, which exports them because libnode's object files carry dllexport marks.
+if node_support is not None and jsb_platform == "windows":
+    node_dll_path = os.path.join(root_dir, "bin", jsb_platform, "node.dll")
+    node_def_path = os.path.join(root_dir, "bin", jsb_platform, "node.def")
+    node_shim_script = os.path.join(root_dir, "misc", "build", "generate_node_shim.py")
+    node_include_dir = os.path.join(root_dir, third_dir, "node", "include")
+    shim_arch = "ARM64" if jsb_arch == "arm64" else "X64"
+
+    def _build_node_shim(target, source, env):
+        # 1) extract N-API symbols from libnode headers and write node.def
+        subprocess.check_call([
+            sys.executable, node_shim_script,
+            node_include_dir, node_def_path, lib_filename])
+        # 2) link the forwarding node.dll (no implementation, just exports).
+        # Resolve `link` through the SCons-configured toolchain PATH: calling the
+        # bare name via CreateProcess can fail with ERROR_FILE_NOT_FOUND even when
+        # the directory is on PATH, so we locate the exe explicitly first.
+        link_env = os.environ.copy()
+        link_env["PATH"] = str(env["ENV"]["PATH"])
+        link_cmd = str(env.subst("$LINK"))
+        link_exe = shutil.which(link_cmd, path=link_env["PATH"])
+        if not link_exe:
+            raise RuntimeError(f"[node-shim] cannot locate '{link_cmd}' in the MSVC toolchain PATH")
+        subprocess.check_call([
+            link_exe, "/nologo", "/dll", "/noentry", "/ignore:4001",
+            f"/machine:{shim_arch}", f"/def:{node_def_path}",
+            f"/out:{node_dll_path}"], env=link_env)
+        return None
+
+    node_shim = env.Command(node_dll_path, library, _build_node_shim)
+    node_shim_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), node_shim)
+    default_args += [node_shim, node_shim_copy]
+
+# Build the standalone node helper executable used as the execPath for
+# child_process.fork() probes (native addon host detection). The embedded
+# runtime reports Godot as process.execPath, so forking a probe must start
+# this helper instead. The helper forwards to `godotjs_node_probe_main`
+# exported by the main DLL (which statically links libnode), so it only
+# links against the main DLL and keeps its own size tiny.
+if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
+    helper_main = os.path.join(src_dir, "node_helper", "jsb_node_host_main.cpp")
+    helper_name = "godotjs-ext" + (".exe" if jsb_platform == "windows" else "")
+    helper_dir = os.path.join("bin", env["platform"])
+    # windows: link the main DLL's import library; posix: link the shared
+    # library directly (the helper resolves it at runtime through rpath).
+    helper_link_target = lib_filename if jsb_platform != "windows" else os.path.splitext(lib_filename)[0] + ".lib"
+    helper_env = env.Clone()
+    # The helper must NOT inherit the main environment's static libs and link
+    # flags: it would statically link the whole libnode (via /WHOLEARCHIVE) and
+    # produce a ~116MB exe instead of a tiny dynamic forwarder. Reset LIBS to
+    # only the main DLL's import library, and strip whole-archive/force_load.
+    helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
+    helper_env['LINKFLAGS'] = [
+        flag for flag in helper_env['LINKFLAGS']
+        if '/WHOLEARCHIVE' not in str(flag).upper()
+        and '--whole-archive' not in str(flag)
+        and '-Wl,--whole-archive' not in str(flag)
+        and '-force_load' not in str(flag)
+        and '-Wl,-force_load' not in str(flag)
+    ]
+    if jsb_platform == "linux":
+        # $ORIGIN must be escaped for scons ($ -> $$). --no-as-needed keeps the
+        # dependency recorded even though the helper only calls one symbol.
+        helper_env.Append(LINKFLAGS=["-Wl,-rpath,$$ORIGIN", "-Wl,--no-as-needed"])
+    elif jsb_platform == "macos":
+        helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
+    helper = helper_env.Program(os.path.join(helper_dir, helper_name), [helper_main])
+    helper_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), helper)
+    if jsb_platform in ("linux", "macos"):
+        def _make_helper_executable(target, source, env):
+            import stat as _stat
+            for t in target:
+                os.chmod(str(t), os.stat(str(t)).st_mode | _stat.S_IXUSR | _stat.S_IXGRP | _stat.S_IXOTH)
+            return None
+        env.AddPostAction(helper_copy, _make_helper_executable)
+    default_args += [helper, helper_copy]
+
 Default(*default_args)

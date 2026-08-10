@@ -2,6 +2,17 @@
 namespace jsb::internal {
 StringNames *StringNames::singleton_ = nullptr;
 
+void StringNames::create() {
+	jsb_check(singleton_ == nullptr);
+	singleton_ = memnew(StringNames);
+}
+
+void StringNames::free() {
+	jsb_check(singleton_);
+	memdelete(singleton_);
+	singleton_ = nullptr;
+}
+
 StringNames::StringNames() {
 #pragma push_macro("DEF")
 #undef DEF

@@ -3,10 +3,35 @@
 #include "../weaver/jsb_script.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#if JSB_WITH_NODE
+#	include <godot_cpp/classes/os.hpp>
+#	include <godot_cpp/classes/project_settings.hpp>
+#endif // JSB_WITH_NODE
 
 #include <compat/misc.h>
 
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
+
+#if JSB_WITH_NODE
+namespace {
+constexpr const char *kNodeRuntimeBinDir = "res://addons/godotjs-ext.daylily-zeleen/bin";
+constexpr const char *kNodeRuntimeHelperName = "godotjs-ext";
+
+String node_runtime_helper_res_path(const String &p_platform) {
+	const String exe_name = String(kNodeRuntimeHelperName) + (p_platform == "windows" ? ".exe" : "");
+	return String(kNodeRuntimeBinDir).path_join(p_platform).path_join(exe_name);
+}
+
+bool is_node_runtime_helper_path(const String &p_path) {
+	const String prefix = String(kNodeRuntimeBinDir) + "/";
+	if (!p_path.begins_with(prefix)) {
+		return false;
+	}
+	const String file_name = p_path.get_file();
+	return file_name == kNodeRuntimeHelperName || file_name == String(kNodeRuntimeHelperName) + ".exe";
+}
+} //namespace
+#endif // JSB_WITH_NODE
 
 const HashSet<String> &GodotJSExportPlugin::get_ignored_paths() {
 	static const HashSet<String> ignored_paths{
@@ -97,6 +122,13 @@ void GodotJSExportPlugin::_export_begin(const PackedStringArray &p_features, boo
 	for (const String &file_path : api_tool::get_api_data_files(true, false)) {
 		export_raw_file(file_path, false);
 	}
+
+#if JSB_WITH_NODE
+	// package the native-probe helper executable (used as the execPath of `child_process.fork`).
+	// the node runtime library itself (e.g. node.dll) is referenced by the .gdextension
+	// `[dependencies]` table and is packed automatically by Godot.
+	add_node_runtime_helpers(p_features);
+#endif
 }
 
 bool GodotJSExportPlugin::export_raw_file(const String &p_path, bool p_remap) {
@@ -205,6 +237,16 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 void GodotJSExportPlugin::_export_file(const String &p_path, const String &p_type, const PackedStringArray &p_features) {
 	//TODO when exporting for web.impl, need to reorganize all scripts into a monolithic script (like webpack)? and preload it before everything get run.
 
+#if JSB_WITH_NODE
+	// the native-probe helper is packaged explicitly in `_export_begin` (add_shared_object /
+	// add_macos_plugin_file), skip it here so it isn't duplicated into the export.
+	if (is_node_runtime_helper_path(p_path)) {
+		skip();
+		JSB_EXPORTER_LOG(Verbose, "node runtime: skip helper binary: %s", p_path);
+		return;
+	}
+#endif
+
 	if (p_path.ends_with("." JSB_TYPESCRIPT_EXT)) {
 		const String compiled_script_path = jsb::internal::PathUtil::convert_typescript_path(p_path);
 		export_compiled_script(compiled_script_path, true);
@@ -236,3 +278,106 @@ bool GodotJSExportPlugin::_supports_platform(const Ref<EditorExportPlatform> &p_
 }
 
 void GodotJSExportPlugin::_bind_methods() {}
+
+#if JSB_WITH_NODE
+bool GodotJSExportPlugin::add_node_runtime_helpers(const PackedStringArray &p_features) {
+	// resolve the target platform from the export features
+	String platform;
+	for (const String &feature : p_features) {
+		if (feature == "windows" || feature == "linux" || feature == "macos" || feature == "ios" || feature == "android") {
+			platform = feature;
+			break;
+		}
+	}
+	if (platform.is_empty()) {
+		JSB_EXPORTER_LOG(Warning, "node runtime: unrecognized export features, skip packaging the native probe helper.");
+		return false;
+	}
+
+	if (platform == "android" || platform == "ios") {
+		// node runs in-process on mobile platforms: no standalone helper executable is required.
+		return true;
+	}
+
+	const String helper_path = node_runtime_helper_res_path(platform);
+	if (!FileAccess::file_exists(helper_path)) {
+		JSB_EXPORTER_LOG(Error, "node runtime: the bundled native probe helper '%s' was not found. Rebuild with use_node=yes (which produces bin/%s/godotjs-ext) or reinstall the addon.", helper_path, platform);
+		return false;
+	}
+
+	if (platform == "macos") {
+		return stage_macos_helper_framework(helper_path);
+	}
+	return add_node_runtime_helper_shared_object(helper_path, p_features);
+}
+
+bool GodotJSExportPlugin::add_node_runtime_helper_shared_object(const String &p_res_path, const PackedStringArray &p_features) {
+	const String globalized_path = ProjectSettings::get_singleton()->globalize_path(p_res_path);
+	const String target = p_res_path.get_base_dir().trim_prefix("res://");
+	add_shared_object(globalized_path, p_features, target);
+	JSB_EXPORTER_LOG(Verbose, "node runtime: add_shared_object( %s ) target: %s", globalized_path, target);
+	return true;
+}
+
+bool GodotJSExportPlugin::stage_macos_helper_framework(const String &p_res_path) {
+	const String framework_dir = ProjectSettings::get_singleton()->globalize_path("user://.godotjs-ext/export/godotjs-ext.framework");
+	const String resources_dir = framework_dir.path_join("Resources");
+	const String staged_helper = framework_dir.path_join(kNodeRuntimeHelperName);
+
+	if (DirAccess::make_dir_recursive_absolute(resources_dir) != OK) {
+		JSB_EXPORTER_LOG(Error, "node runtime: failed to create macOS framework staging directory: %s", resources_dir);
+		return false;
+	}
+
+	// copy the helper executable into the framework root
+	const PackedByteArray helper_bytes = FileAccess::get_file_as_bytes(p_res_path);
+	if (FileAccess::get_open_error()) {
+		JSB_EXPORTER_LOG(Error, "node runtime: failed to read the native probe helper '%s'.", p_res_path);
+		return false;
+	}
+	{
+		Ref<FileAccess> file = FileAccess::open(staged_helper, FileAccess::WRITE);
+		if (file.is_null()) {
+			JSB_EXPORTER_LOG(Error, "node runtime: failed to write the staged helper executable: %s", staged_helper);
+			return false;
+		}
+		file->store_buffer(helper_bytes);
+	}
+
+	// write the framework Info.plist
+	{
+		Ref<FileAccess> file = FileAccess::open(resources_dir.path_join("Info.plist"), FileAccess::WRITE);
+		if (file.is_null()) {
+			JSB_EXPORTER_LOG(Error, "node runtime: failed to write the framework Info.plist: %s", resources_dir.path_join("Info.plist"));
+			return false;
+		}
+		String plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+		plist += "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n";
+		plist += "<plist version=\"1.0\">\n";
+		plist += "<dict>\n";
+		plist += "\t<key>CFBundleDevelopmentRegion</key>\n\t<string>en</string>\n";
+		plist += "\t<key>CFBundleExecutable</key>\n\t<string>";
+		plist += kNodeRuntimeHelperName;
+		plist += "</string>\n";
+		plist += "\t<key>CFBundleIdentifier</key>\n\t<string>com.godotjs.ext.node</string>\n";
+		plist += "\t<key>CFBundleInfoDictionaryVersion</key>\n\t<string>6.0</string>\n";
+		plist += "\t<key>CFBundleName</key>\n\t<string>";
+		plist += kNodeRuntimeHelperName;
+		plist += "</string>\n";
+		plist += "\t<key>CFBundlePackageType</key>\n\t<string>FMWK</string>\n";
+		plist += "\t<key>CFBundleShortVersionString</key>\n\t<string>1.0</string>\n";
+		plist += "\t<key>CFBundleVersion</key>\n\t<string>1</string>\n";
+		plist += "\t<key>LSMinimumSystemVersion</key>\n\t<string>10.15</string>\n";
+		plist += "</dict>\n";
+		plist += "</plist>\n";
+		file->store_string(plist);
+	}
+
+	// make the helper executable (the framework binary must be executable inside the .app bundle)
+	OS::get_singleton()->execute("chmod", PackedStringArray{ "755", staged_helper });
+
+	add_macos_plugin_file(framework_dir);
+	JSB_EXPORTER_LOG(Verbose, "node runtime: registered macOS plugin framework: %s", framework_dir);
+	return true;
+}
+#endif // JSB_WITH_NODE

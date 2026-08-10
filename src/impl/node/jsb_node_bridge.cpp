@@ -5,42 +5,64 @@
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
-#include <string>
-
 #ifdef WINDOWS_ENABLED
 #	include <windows.h>
 #elif defined(LINUX_ENABLED) || defined(MACOS_ENABLED) || defined(ANDROID_ENABLED)
 #	include <dlfcn.h>
+#	include <sys/stat.h>
+#	include <unistd.h>
 #endif
 
 /**
  * TODO: 参考 Gode
- *  1. windows 中 node.dll 作为依赖，以及手动加载。
- * 	2. 单独的可执行文件用作 child_process.fork() 子进程启动
- * 	3. 通过ExportPlugin确保额外的二进制文件被打包
- * 	4. 添加 node 相关的测试
- * 	5. 添加 CI 验证文件货配置完整性
+ *  3. 通过ExportPlugin确保额外的二进制文件被打包
+ *  4. 添加 node 相关的测试
+ *  5. 添加 CI 验证文件货配置完整性
  */
 
 namespace jsb::impl {
 namespace {
 // [windows] get the absolute path of the module that owns the given handle.
 #ifdef WINDOWS_ENABLED
-std::wstring get_module_file_name(HMODULE module) {
-	std::wstring path(MAX_PATH, L'\0');
+String get_module_file_name(HMODULE module) {
+	CharWideString path;
+	path.resize_uninitialized(MAX_PATH);
 	for (;;) {
-		DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+		const DWORD length = GetModuleFileNameW(module, path.ptrw(), static_cast<DWORD>(path.size()));
 		if (length == 0) {
 			return {};
 		}
-		if (length < path.size()) {
-			path.resize(length);
-			return path;
+		if (length < static_cast<DWORD>(path.size())) {
+			return String(path.get_data());
 		}
-		path.resize(path.size() * 2);
+		path.resize_uninitialized(path.size() * 2);
 	}
 }
 #elif defined(LINUX_ENABLED) || defined(MACOS_ENABLED) || defined(ANDROID_ENABLED)
+// [posix] get the absolute path of the module that owns the given symbol.
+String get_module_file_name(void *symbol) {
+	Dl_info info = {};
+	if (dladdr(symbol, &info) == 0 || !info.dli_fname) {
+		return {};
+	}
+	return String::utf8(info.dli_fname);
+}
+
+// [posix] true when the path points to an existing regular file.
+bool native_file_exists(const String &path) {
+	struct stat st = {};
+	return stat(path.utf8().get_data(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+// [posix] ensure the file has the executable bits set.
+void make_native_executable(const String &path) {
+	struct stat st = {};
+	const CharString path_utf8 = path.utf8();
+	if (stat(path_utf8.get_data(), &st) == 0) {
+		chmod(path_utf8.get_data(), st.st_mode | S_IXUSR | S_IXGRP | S_IXOTH);
+	}
+}
+
 // libnode is statically linked into this module, so its N-API symbols are not
 // globally visible by default. re-open the current module with RTLD_GLOBAL so
 // that dynamically loaded .node addons can resolve napi_*.
@@ -57,6 +79,7 @@ void promote_current_module_symbols(void *symbol) {
 	(void)dlopen(info.dli_fname, RTLD_NOW | RTLD_GLOBAL);
 }
 #endif
+
 // [v8 api] read a whole file through Godot's FileAccess.
 // supports res:// paths and .pck packages. returns a Uint8Array, or null when
 // the file does not exist.
@@ -126,35 +149,95 @@ void preload_dlls(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if (info.Length() < 1 || !info[0]->IsString()) {
 		return;
 	}
-	const String dir_utf8 = Helper::to_string(isolate, info[0]);
-	const CharString dir_char = dir_utf8.utf8();
+	const String dir = Helper::to_string(isolate, info[0]);
 
 	// append the directory to PATH
 	{
 		char path_buf[32768];
 		const DWORD path_len = GetEnvironmentVariableA("PATH", path_buf, sizeof(path_buf));
 		if (path_len > 0 && path_len < sizeof(path_buf)) {
-			std::string new_path = std::string(dir_char.ptr()) + ";" + path_buf;
-			SetEnvironmentVariableA("PATH", new_path.c_str());
+			const String new_path = dir + String(";") + path_buf;
+			SetEnvironmentVariableA("PATH", new_path.utf8().get_data());
 		}
 	}
 
 	// preload every dll in the directory
-	const Char16String dir_wide = dir_utf8.utf16();
-	const std::wstring wdir(reinterpret_cast<const wchar_t *>(dir_wide.get_data()), dir_wide.length());
-	SetDllDirectoryW(wdir.c_str());
+	SetDllDirectoryW(dir.wide_string().get_data());
 
-	const std::wstring pattern = wdir + L"\\*.dll";
+	const String pattern = dir.path_join("*.dll");
 	WIN32_FIND_DATAW fd;
-	const HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+	const HANDLE h = FindFirstFileW(pattern.wide_string().get_data(), &fd);
 	if (h != INVALID_HANDLE_VALUE) {
 		do {
-			const std::wstring dll_path = wdir + L"\\" + fd.cFileName;
-			LoadLibraryExW(dll_path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+			const String dll_path = dir.path_join(String(fd.cFileName));
+			LoadLibraryExW(dll_path.wide_string().get_data(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 		} while (FindNextFileW(h, &fd));
 		FindClose(h);
 	}
 #endif
+}
+
+// [internal] return the absolute path of the standalone node helper executable
+// used as the execPath for child_process.fork() probes (godotjs-ext.exe /
+// godotjs-ext), or an empty string when the platform ships no helper
+// (android/ios).
+String get_native_probe_executable_path() {
+#ifdef WINDOWS_ENABLED
+	// the helper is shipped next to this module (bin/<platform>/godotjs-ext.exe).
+	HMODULE current_module = nullptr;
+	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(reinterpret_cast<void *>(&NodeBridge::PrepareNativeAddonHost)), &current_module)) {
+		return {};
+	}
+	const String module_path = get_module_file_name(current_module);
+	if (module_path.is_empty()) {
+		return {};
+	}
+	const String dir = module_path.get_base_dir();
+	if (dir.is_empty()) {
+		return {};
+	}
+	return dir.path_join("godotjs-ext.exe");
+#elif defined(LINUX_ENABLED) || defined(MACOS_ENABLED)
+	// resolve the module directory through dladdr and look for the helper next
+	// to it; on macOS also check the packaged .framework layout used by exports.
+	const String module_path = get_module_file_name(reinterpret_cast<void *>(&NodeBridge::PrepareNativeAddonHost));
+	if (module_path.is_empty()) {
+		return {};
+	}
+	const String dir = module_path.get_base_dir();
+	if (dir.is_empty()) {
+		return {};
+	}
+	const String helper = dir.path_join("godotjs-ext");
+	if (native_file_exists(helper)) {
+		make_native_executable(helper);
+		return helper;
+	}
+#	if defined(MACOS_ENABLED)
+	const String plugin_helper = dir.path_join("../PlugIns/godotjs-ext.framework/godotjs-ext");
+	if (native_file_exists(plugin_helper)) {
+		make_native_executable(plugin_helper);
+		return plugin_helper;
+	}
+#	endif
+	return {};
+#else
+	// android/ios ship no helper (no fork / no dynamic .node loading).
+	return {};
+#endif
+}
+
+// [v8 api] return the absolute path of the standalone node helper executable
+// used as the execPath for child_process.fork() probes, or null when the
+// platform ships no helper.
+void native_probe_executable(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	const String path = get_native_probe_executable_path();
+	if (path.is_empty()) {
+		info.GetReturnValue().SetNull();
+		return;
+	}
+	info.GetReturnValue().Set(Helper::new_string(isolate, path));
 }
 
 // context-aware registration of the 'godot' linked binding.
@@ -164,6 +247,7 @@ void RegisterGodotBinding(v8::Local<v8::Object> exports, v8::Local<v8::Value> mo
 	exports->Set(context, Helper::new_string_ascii(isolate, "fs_readFile"), Helper::NewFunction(context, "fs_readFile", fs_read_file, v8::Local<v8::Value>())).Check();
 	exports->Set(context, Helper::new_string_ascii(isolate, "fs_stat"), Helper::NewFunction(context, "fs_stat", fs_stat, v8::Local<v8::Value>())).Check();
 	exports->Set(context, Helper::new_string_ascii(isolate, "preload_dlls"), Helper::NewFunction(context, "preload_dlls", preload_dlls, v8::Local<v8::Value>())).Check();
+	exports->Set(context, Helper::new_string_ascii(isolate, "native_probe_executable"), Helper::NewFunction(context, "native_probe_executable", native_probe_executable, v8::Local<v8::Value>())).Check();
 }
 } //namespace
 
@@ -176,17 +260,15 @@ void NodeBridge::PrepareNativeAddonHost() {
 	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(reinterpret_cast<void *>(&NodeBridge::PrepareNativeAddonHost)), &current_module)) {
 		return;
 	}
-	std::wstring node_dll_path = get_module_file_name(current_module);
-	if (node_dll_path.empty()) {
+	const String module_path = get_module_file_name(current_module);
+	if (module_path.is_empty()) {
 		return;
 	}
-	const size_t sep = node_dll_path.find_last_of(L"\\/");
-	if (sep == std::wstring::npos) {
+	const String dir = module_path.get_base_dir();
+	if (dir.is_empty()) {
 		return;
 	}
-	node_dll_path.resize(sep + 1);
-	node_dll_path += L"node.dll";
-	LoadLibraryW(node_dll_path.c_str());
+	LoadLibraryW(dir.path_join("node.dll").wide_string().get_data());
 #elif defined(LINUX_ENABLED) || defined(MACOS_ENABLED) || defined(ANDROID_ENABLED)
 	// promote the N-API symbols of the host module (which statically links
 	// libnode) to global visibility so that .node addons can resolve them.

@@ -75,7 +75,11 @@ void Builtins::_require(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	jsb_check(!info.Data()->IsNullOrUndefined() || parent_id.is_empty());
 	jsb_check(!arg0->IsNullOrUndefined() || module_id.is_empty());
 
+#if JSB_WITH_NODE
+	if (const JavaScriptModule *module = env->_load_module(parent_id, module_id, arg0.As<v8::String>())) {
+#else // !JSB_WITH_NODE
 	if (const JavaScriptModule *module = env->_load_module(parent_id, module_id)) {
+#endif // !JSB_WITH_NODE
 		info.GetReturnValue().Set(module->exports);
 		return;
 	}
