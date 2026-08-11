@@ -7,11 +7,7 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
-GodotJSScript::GodotJSScript() : script_list_(this)
-#ifdef TOOLS_ENABLED
-							   , class_category_{ Variant::NIL, StringName(), PROPERTY_HINT_NONE, "", PROPERTY_USAGE_CATEGORY }
-#endif // TOOLS_ENABLED
-{
+GodotJSScript::GodotJSScript() : script_list_(this) {
 	{
 		JSB_BENCHMARK_SCOPE(GodotJSScript, Construct);
 		std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
@@ -284,7 +280,7 @@ String GodotJSScript::_get_class_icon_path() const {
 	return script_class_info_.icon;
 }
 
-const jsb::ScriptPropertyInfo &GodotJSScript::get_class_category() const {
+PropertyInfo GodotJSScript::get_class_category() const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
@@ -305,9 +301,7 @@ const jsb::ScriptPropertyInfo &GodotJSScript::get_class_category() const {
 		}
 	}
 
-	const_cast<GodotJSScript *>(this)->class_category_.name = scr_name;
-	const_cast<GodotJSScript *>(this)->class_category_.hint_string = path;
-	return class_category_;
+	return { Variant::NIL, scr_name, PROPERTY_HINT_NONE, path, PROPERTY_USAGE_CATEGORY };
 }
 #endif
 
@@ -671,9 +665,6 @@ void GodotJSScript::_update_exports_values(TypedArray<Dictionary> &r_props, Dict
 		r_values[E.key] = E.value;
 	}
 
-#	ifdef TOOLS_ENABLED
-	r_props.push_back(get_class_category().operator Dictionary());
-#	endif
 	for (const PropertyInfo &E : members_cache) {
 		r_props.push_back(E.operator Dictionary());
 	}

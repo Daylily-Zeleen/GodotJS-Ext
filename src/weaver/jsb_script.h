@@ -58,12 +58,11 @@ private:
 
 #ifdef DEBUG_ENABLED
 	HashMap<ObjectInstanceID, ScriptInstancePropertyState> pending_reload_state_;
-	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
 #endif
 
 #ifdef TOOLS_ENABLED
-	jsb::ScriptPropertyInfo class_category_;
-#endif // TOOLS_ENABLED
+	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
+#endif
 
 	// 允许 GodotJSScriptLanguage::reload_scripts_internal 访问 instances_, pending_reload_state_, placeholders
 	friend void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool p_soft_reload);
@@ -131,7 +130,7 @@ public:
 	virtual Error _reload(bool p_keep_state) override;
 
 #ifdef TOOLS_ENABLED
-	const jsb::ScriptPropertyInfo &get_class_category() const;
+	PropertyInfo get_class_category() const;
 	virtual StringName _get_doc_class_name() const override;
 	virtual TypedArray<Dictionary> _get_documentation() const override;
 	virtual String _get_class_icon_path() const override;
@@ -198,9 +197,6 @@ public:
 		ensure_module_loaded();
 		jsb_check(loaded_);
 
-#ifdef TOOLS_ENABLED
-		r_list.push_back(ConvertFn(get_class_category()));
-#endif
 		for (const auto &it : script_class_info_.properties) {
 			r_list.push_back(ConvertFn(it.value));
 		}
@@ -239,4 +235,3 @@ public:
 		}
 	}
 };
-
