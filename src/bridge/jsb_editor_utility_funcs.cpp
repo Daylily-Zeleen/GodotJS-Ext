@@ -1,6 +1,5 @@
 #include "jsb_editor_utility_funcs.h"
-#include "../api_tool/api_tool.h"
-#include "../api_tool/api_tool_types.h"
+#include "../api_tool/editor/api_tool_editor.h"
 #include "jsb_environment.h"
 #include "jsb_type_convert.h"
 #if JSB_WITH_EDITOR_UTILITY_FUNCS

@@ -12,6 +12,7 @@
 #ifdef TOOLS_ENABLED
 #	include "weaver-editor/jsb_weaver_editor.h"
 #	include <godot_cpp/variant/callable_method_pointer.hpp>
+#	include "api_tool/editor/api_tool_editor.h"
 #endif // TOOLS_ENABLED
 
 #ifdef JSB_TESTS_ENABLED
@@ -68,12 +69,10 @@ void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
 		} break;
 		case MODULE_INITIALIZATION_LEVEL_SCENE: {
 			jsb_check(resource_loader_js.is_valid());
-			jsb_check(resource_loader_js->_owner);
 			ResourceLoader::get_singleton()->remove_resource_format_loader(resource_loader_js);
 			resource_loader_js.unref();
 
 			jsb_check(resource_saver_js.is_valid());
-			jsb_check(resource_saver_js->_owner);
 			ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_js);
 			resource_saver_js.unref();
 		} break;

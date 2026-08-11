@@ -1,4 +1,3 @@
-#include "godot_cpp/classes/scene_tree.hpp"
 #include "weaver-editor/jsb_editor_progress.h"
 
 // editor/api_tool_generator.cpp

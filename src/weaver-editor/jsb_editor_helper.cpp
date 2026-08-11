@@ -5,7 +5,7 @@
 #include "../bridge/jsb_type_convert.h"
 #include "../weaver/jsb_script.h"
 #include "../weaver/jsb_script_instance.h"
-#include "api_tool/api_tool.h"
+#include "api_tool/editor/api_tool_editor.h"
 
 #include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/animation_mixer.hpp>
