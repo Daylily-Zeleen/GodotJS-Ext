@@ -4,7 +4,6 @@
 #include "jsb_type_convert.h"
 
 #include "api_tool/api_tool.h"
-#include "api_tool/api_tool_types.h"
 
 namespace jsb {
 namespace internal {

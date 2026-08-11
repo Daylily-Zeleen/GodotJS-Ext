@@ -5,6 +5,7 @@
 // Serializes API data structures to disk files.
 
 #include "../api_tool_types.h"
+#include "api_tool_doc_types.h"
 #include <godot_cpp/variant/string.hpp>
 
 namespace api_tool::internal {
@@ -19,11 +20,13 @@ public:
 	static godot::Error write_global_constant(const godot::String &p_path, const ApiConstantInfo &p_data);
 	static godot::Error write_singletons(const godot::String &p_path, const godot::LocalVector<ApiSingleton> &p_data);
 	static godot::Error write_native_structures(const godot::String &p_path, const godot::LocalVector<ApiNativeStructure> &p_data);
+
+	static godot::Error write_compatibility_hashes(const godot::String &p_path, const ApiCompatibilityHashData &p_data);
+
 	static godot::Error write_document(const godot::String &p_path, const ApiClassDocument &p_data);
 	static godot::Error write_utility_function_document(const godot::String &p_path, const ApiUtilityFunctionDocument &p_data);
 	static godot::Error write_global_enum_document(const godot::String &p_path, const ApiGlobalEnumDocument &p_data);
 	static godot::Error write_global_constant_document(const godot::String &p_path, const ApiGlobalConstantDocument &p_data);
-	static godot::Error write_compatibility_hashes(const godot::String &p_path, const ApiCompatibilityHashData &p_data);
 };
 
 } //namespace api_tool::internal

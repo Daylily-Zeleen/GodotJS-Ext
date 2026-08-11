@@ -8,6 +8,7 @@
 #	include <godot_cpp/classes/project_settings.hpp>
 #endif // JSB_WITH_NODE
 
+#include <api_tool/editor/api_tool_editor.h>
 #include <compat/misc.h>
 
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)

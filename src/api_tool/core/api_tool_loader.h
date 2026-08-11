@@ -42,15 +42,6 @@ public:
 	const ApiSingleton *get_singleton(const godot::StringName &p_name);
 	const ApiNativeStructure *get_native_structure(const godot::StringName &p_name);
 
-#ifdef TOOLS_ENABLED
-	// ---- Document queries (no cache, direct file read, TOOLS_ENABLED only) ----
-	// Returns std::unique_ptr<T> (caller owns). Returns nullptr if file missing/corrupted.
-	std::unique_ptr<ApiClassDocument> find_document(const godot::StringName &p_name);
-	std::unique_ptr<ApiUtilityFunctionDocument> find_utility_function_document(const godot::StringName &p_name);
-	std::unique_ptr<ApiGlobalEnumDocument> find_global_enum_document(const godot::StringName &p_name);
-	std::unique_ptr<ApiGlobalConstantDocument> find_global_constant_document(const godot::StringName &p_name);
-#endif // TOOLS_ENABLED
-
 	// ---- Compatibility hash queries (cached, thread-safe) ----
 	const godot::LocalVector<MethodHash> *get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName &p_method_name);
 	const godot::LocalVector<MethodHash> *get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_method_name);

@@ -138,6 +138,8 @@ TEST_CASE("[jsb] BindingObjectDB remove while handle alive") {
 	CHECK(!object_db.has_object(object_id));
 }
 
+// TODO: Build with Node has different path to create isolate and context.
+#if !JSB_WITH_NODE
 TEST_CASE("[jsb] raw isolate essential tests") {
 	ArrayBufferAllocator allocator;
 	v8::Isolate::CreateParams create_params;
@@ -266,6 +268,7 @@ return 1+1;
 	context_v.Reset();
 	isolate->Dispose();
 }
+#endif // !JSB_WITH_NODE
 
 TEST_CASE("[jsb] GodotJSScriptLanguage Init/Finish") {
 	GodotJSScriptLanguageIniter initer;
@@ -525,4 +528,3 @@ file = undefined;
 	CHECK(weak_ref->get_ref().get_validated_object() == nullptr);
 }
 } //namespace jsb::tests
-
