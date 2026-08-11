@@ -142,16 +142,15 @@ struct InstanceBindingCallbacks {
 	InstanceBindingCallbacks()
 			: callbacks_{ create_callback, free_callback, reference_callback } {}
 
-	_FORCE_INLINE_ static void prepare_binding(Object *p_object) {
-		jsb_check(p_object);
-		binding_object = p_object;
-		object_owner = p_object->_owner;
+	/**
+	 * @brief 解除 Godot 对象上的 jsb instance binding 槽。
+	 */
+	static void free_instance_bindings(Environment *p_env, Object *p_binding_object) {
+		jsb_ensure(p_binding_object && p_binding_object->_owner);
+		::godot::gdextension_interface::object_free_instance_binding(p_binding_object->_owner, p_env);
 	}
 
 private:
-	static inline Object *binding_object{ nullptr };
-	static inline GodotObject *object_owner{ nullptr };
-
 	/**
 	 * @brief 绑定的创建回调
 	 *
@@ -160,7 +159,10 @@ private:
 	 * @return void* [godot::Object *] 即 godot-cpp 侧的 Object*, 其 _owner 即为 godot 侧的 Object *
 	 */
 	static void *create_callback(void *p_token, void *p_instance) {
-		jsb_check(p_instance == object_owner);
+		Environment *env = (Environment *)p_token;
+		jsb_check(env->pending_binding_object_ && env->pending_binding_object_->_owner == p_instance);
+		void *binding_object = env->pending_binding_object_;
+		env->pending_binding_object_ = nullptr;
 		return binding_object;
 	}
 
@@ -173,9 +175,6 @@ private:
 	 */
 	static void free_callback(void *p_token, void *p_instance, void *p_binding) {
 		if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token)) {
-			// p_binding must equal to the return value of `create_callback`
-			jsb_check(p_instance == ((Object *)p_binding)->_owner);
-
 			// must check before async, InstanceBindingCallback need to know whether the object should die or not if it's a ref-counted object.
 			if (env->verify_object(p_binding)) {
 				// Note: Our pointer to the native Godot object is about to become invalid. We must IMMEDIATELY
@@ -861,7 +860,8 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 	const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void *)p_pointer, p_object, binding_flags, force_weak);
 
 	// 绑定
-	InstanceBindingCallbacks::prepare_binding(p_pointer);
+	jsb_check(pending_binding_object_ == nullptr);
+	pending_binding_object_ = p_pointer;
 
 	::godot::gdextension_interface::object_get_instance_binding(p_pointer->_owner, this, gd_instance_binding_callbacks);
 	return object_id;
@@ -2053,7 +2053,8 @@ void Environment::finalize_transfer_out(const TransferData &p_transfer_data) {
 	if (variant.get_type() == Variant::OBJECT) {
 		Object *obj = variant;
 		ScriptInstance::set_script_instance(obj, nullptr);
-		free_object(obj, FinalizationType::None);
+		// 直接移除 Environment 绑定，让该环境不再持有相关信息，绑定释放的时候会通过 free_callback 调用 free_object(obj, FinalizationType::None);
+		InstanceBindingCallbacks::free_instance_bindings(this, obj);
 	}
 
 	// For now, we don't do anything special with variants since Godot's variant types are thread safe and use

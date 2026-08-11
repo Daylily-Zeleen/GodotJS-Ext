@@ -87,6 +87,7 @@ NodeRuntime::NodeRuntime() {
 }
 
 NodeRuntime::~NodeRuntime() {
+	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
 	// Node Environment.
 	{
 		jsb_check(node_env_);
@@ -101,7 +102,10 @@ NodeRuntime::~NodeRuntime() {
 	node::Stop(node_env_);
 	node::FreeEnvironment(node_env_);
 
-	node::FreeIsolateData(isolate_data_);
+	{
+		v8::Isolate::Scope isolate_scope(isolate_);
+		node::FreeIsolateData(isolate_data_);
+	}
 
 	// Context
 	node_context_.Reset();
@@ -112,14 +116,32 @@ NodeRuntime::~NodeRuntime() {
 		jsb_check(isolate_);
 		// the Locker must be released before the isolate is disposed.
 		locker_.reset();
-		isolate_->Dispose();
 		jsb_ensure(GlobalInitialize::get_platform());
-		GlobalInitialize::get_platform()->UnregisterIsolate(isolate_);
+		bool platform_finished = false;
+		GlobalInitialize::get_platform()->AddIsolateFinishedCallback(isolate_, [](void *data) {
+			*static_cast<bool *>(data) = true;
+		}, &platform_finished);
+
+		GlobalInitialize::get_platform()->DisposeIsolate(isolate_);
+		while (!platform_finished) {
+			uv_run(loop_, UV_RUN_ONCE);
+		}
 	}
 
 	// uv loop
 	{
-		uv_loop_close(loop_);
+		uv_stop(loop_);
+		uv_walk(loop_, [](uv_handle_t *handle, void *arg) {
+			if (!uv_is_closing(handle)) {
+				uv_close(handle, nullptr);
+			}
+		}, nullptr);
+		uv_run(loop_, UV_RUN_DEFAULT);
+		jsb_check(uv_loop_alive(loop_) == 0);
+		int err = uv_loop_close(loop_);
+		if (err != 0) {
+			WARN_PRINT("uv_loop_close: " + String(uv_strerror(err)));
+		}
 		memdelete(loop_);
 	}
 
