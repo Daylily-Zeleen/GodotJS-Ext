@@ -32,7 +32,7 @@ jobs:
         with:
           name: scripts-out
           path: ${{github.workspace}}/scripts/out
-          retention-days: 10
+          retention-days: 1
 
   build:
     name: Build (${{ matrix.platform }}, ${{ matrix.engine }})
@@ -115,7 +115,7 @@ jobs:
         with:
           name: ${{ matrix.platform }}-editor-${{ matrix.engine }}
           path: artifact/
-          retention-days: 10
+          retention-days: 1
 
   test:
     name: Test (${{ matrix.runtime }})
@@ -244,3 +244,43 @@ jobs:
     with:
       version: ${{ github.event.release.tag_name }}
     secrets: inherit
+
+  # SCons cache keys embed a hashFiles(...) fingerprint, so every source change
+  # creates a NEW cache entry and stale ones accumulate until they exhaust the
+  # Actions cache quota (10 GB). Keep only the most recent cache per
+  # (OS, platform, engine) combo on the current branch.
+  cleanup-caches:
+    name: Cleanup Old Caches
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete stale SCons caches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ref="${{ github.head_ref || github.ref_name }}"
+          ids=$(gh cache list --ref "$ref" --key scons- --limit 100 \
+            --json id,key,createdAt -q '
+              sort_by(.key)
+              | group_by(.key | split("-")[0:4] | join("-"))
+              | .[]
+              | sort_by(.createdAt)
+              | reverse
+              | .[1:]
+              | .[].id
+            ')
+          if [ -z "$ids" ]; then
+            echo "No stale SCons caches to delete (ref=$ref)."
+            exit 0
+          fi
+          for id in $ids; do
+            echo "Deleting cache $id"
+            gh cache delete "$id"
+          done
+          echo "Done."

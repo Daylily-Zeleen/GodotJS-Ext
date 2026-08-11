@@ -223,7 +223,14 @@ void full_generate_and_reboot() {
 		script_path = project_dir.path_join(".godot/.reboot_chain.bat");
 		Ref<FileAccess> f = FileAccess::open(script_path, FileAccess::WRITE);
 		ERR_FAIL_NULL_MSG(f, "[API Tool] Failed to create reboot script");
+		// Write a UTF-8 BOM so cmd.exe recognizes the script as UTF-8 (Windows 10+).
+		f->store_string(String::chr(0xFEFF));
 		f->store_string("@echo off\r\n");
+		// Switch cmd to the UTF-8 code page before any non-ASCII (e.g. Chinese)
+		// project path appears in the dump/reboot commands below. Without this,
+		// cmd decodes the UTF-8 bytes with the system ANSI/OEM code page (e.g. GBK)
+		// and the commands receive a mojibake path ("Invalid project path specified").
+		f->store_string("chcp 65001 >nul\r\n");
 		f->store_string("echo Waiting for editor to exit...\r\n");
 		f->store_string(vformat(":wait\r\n"));
 		f->store_string(vformat("tasklist /fi \"PID eq %d\" 2>nul | findstr /i \"%d\" >nul\r\n", my_pid, my_pid));
@@ -240,13 +247,18 @@ void full_generate_and_reboot() {
 		script_path = project_dir.path_join(".godot/.reboot_chain.sh");
 		Ref<FileAccess> f = FileAccess::open(script_path, FileAccess::WRITE);
 		ERR_FAIL_NULL_MSG(f, "[API Tool] Failed to create reboot script");
+		// POSIX sh (unlike cmd.exe) does not re-decode the script text with a
+		// system code page: UTF-8 bytes are passed through to execve() unchanged,
+		// which is how Godot stores file paths on Unix, so no BOM/chcp needed.
 		f->store_string("#!/bin/sh\n");
 		f->store_string("echo 'Waiting for editor to exit...'\n");
 		f->store_string(vformat("while kill -0 %d 2>/dev/null; do sleep 1; done\n", my_pid));
 		f->store_string("echo 'Editor exited. Starting dump and reboot...'\n");
 		f->store_string(chain + String("\n"));
 		f->store_string("echo 'Reboot chain completed. Press Enter to exit...'\n");
-		f->store_string("read -p ''\n");
+		// `read _ || true` is POSIX-compatible (no `-p`, which dash rejects) and
+		// tolerates stdin being closed/EOF in non-interactive launches.
+		f->store_string("read _ || true\n");
 		f->close();
 		shell_program = "/bin/sh";
 		shell_args.push_back(script_path);
