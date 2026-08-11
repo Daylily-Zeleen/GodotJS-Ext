@@ -541,9 +541,6 @@ LocalVector<PropertyInfo> *GodotJSScriptInstance::make_temporary_property_list()
 			}
 		}
 
-#ifdef TOOLS_ENABLED
-		temporary_script_property_list_cache->push_back(sptr->get_class_category());
-#endif
 		for (const auto &it : sptr->script_class_info_.properties) {
 			ERR_CONTINUE_MSG(properties.has(it.value.name), vformat("Duplicate property \"%s\" in script: %s", it.value.name, script_->get_path()));
 			PropertyInfo pinfo = (PropertyInfo)it.value;
