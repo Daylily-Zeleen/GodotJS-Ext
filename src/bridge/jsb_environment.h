@@ -244,6 +244,8 @@ private:
 
 	EnvironmentRef ref_{ this };
 
+	Object *pending_binding_object_{ nullptr };
+
 public:
 	enum class Type : uint8_t {
 		Default,

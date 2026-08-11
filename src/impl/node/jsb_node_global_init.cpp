@@ -1,9 +1,17 @@
 #include "jsb_node_global_init.h"
 
+#include <uv.h>
+
 namespace jsb::impl {
 
 void GlobalInitialize::init() {
 	jsb_check(GlobalInitialize::platform == nullptr);
+
+	uv_replace_allocator(
+			[](size_t size) { return memalloc(size); },
+			[](void *ptr, size_t size) { return memrealloc(ptr, size); },
+			[](size_t count, size_t size) { return memalloc(count * size); },
+			[](void *ptr) { memfree(ptr); });
 
 	// Process-wide Node.js initialization. We skip the parts that would conflict
 	// with the host engine (Godot):
@@ -35,6 +43,7 @@ void GlobalInitialize::init() {
 
 void GlobalInitialize::shutdown() {
 	jsb_check(GlobalInitialize::platform);
+	uv_library_shutdown();
 
 	v8::V8::Dispose();
 	v8::V8::DisposePlatform();
