@@ -145,14 +145,6 @@ void jsb_startup() {
 			// runs last on every platform.
 			context.setOption("order-by", "none");
 			int exit_code = context.run();
-			// After doctest finishes, initer test destructors may have destroyed
-			// the JS environment (environment_ = null). The main loop will call
-			// _frame() → environment_->update() on the first iteration after
-			// quit(), causing a null-pointer SIGSEGV. Force-rebuild the environment
-			// here so _frame() is safe. _init() is idempotent (guarded by
-			// once_initialized_), but after the last initer's _finish() the flag
-			// is false, so this will actually rebuild.
-			GodotJSScriptLanguage::get_singleton()->_init();
 			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
 				scene_tree->quit(exit_code);
 			} else {
