@@ -838,8 +838,8 @@ static void _get_global_constants(const v8::FunctionCallbackInfo<v8::Value> &inf
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
 	// Get list of global constant names from api_tool
-	const auto constant_names = api_tool::list_global_constants();
-	const auto enum_names = api_tool::list_global_enums();
+	const auto &constant_names = api_tool::list_global_constants();
+	const auto &enum_names = api_tool::list_global_enums();
 
 	// Estimate array size: constants + enums
 	v8::Local<v8::Array> array = v8::Array::New(isolate, constant_names.size() + enum_names.size());

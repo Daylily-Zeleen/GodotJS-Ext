@@ -57,7 +57,9 @@ if not (os.path.isdir("third/godot-cpp") and os.listdir("third/godot-cpp")):
 third_folder_name = "third"
 third_dir = third_folder_name
 
-env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs})
+# godot-cpp >= PR #2034 (require-api-version) mandates an explicit api_version.
+# The bindings are generated from gdextension/extension_api-4.7.json.
+env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": "4.7"})
 
 # godot-cpp sets SHLIBPREFIX="" only on Windows; on Linux/macOS the default is
 # "lib" which produces libgodotjs-ext.*.so — but our .gdextension file expects
