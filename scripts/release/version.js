@@ -1,4 +1,6 @@
-import { writeFileSync } from "fs";
+import { writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { execSync } from "child_process";
 
 function updateVersion() {
@@ -14,7 +16,8 @@ function updateVersion() {
 #define JSB_PATCH_VERSION ${patch}
 
 #endif`;
-  writeFileSync("jsb_version.h", newContent, "utf8");
+  const versionHeaderPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../src/jsb_version.h");
+  writeFileSync(versionHeaderPath, newContent, "utf8");
 }
 
 updateVersion();

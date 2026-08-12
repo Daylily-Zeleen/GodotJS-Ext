@@ -115,6 +115,58 @@ npx tsc --noCheck
 
 The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).
 
+## Release
+
+This repository uses the `scripts` directory as the pnpm workspace root for versioning and release management. Changesets updates the workspace version and changelog, while GitHub Actions creates the GitHub Release and uploads the platform binaries.
+
+### Create a Changeset
+
+When a change should be included in the next release, run the following commands from the repository root:
+
+```bash
+cd scripts
+pnpm install
+pnpm changeset
+```
+
+Select `@godot-js/editor` and choose the version increment:
+
+- `patch`: bug fixes and small maintenance changes;
+- `minor`: backward-compatible features;
+- `major`: breaking changes.
+
+The command creates a Markdown file under `scripts/.changeset/`. Commit that file with your code and open a pull request. Changesets runs only for pushes to `main`, so feature branches and pull requests run the normal build and test jobs without creating releases.
+
+You can check the pending release plan locally with:
+
+```bash
+cd scripts
+pnpm changeset status
+```
+
+### Release Flow
+
+After a pull request containing a Changeset is merged into `main`:
+
+1. The **Changesets** job creates or updates the `changeset-release/main` version pull request.
+2. Merging that version pull request updates `scripts/package.json`, `scripts/CHANGELOG.md`, and `src/jsb_version.h`.
+3. The next `main` workflow detects the generated changelog entry and the **Release** job creates a GitHub Release for the new version.
+4. Publishing the GitHub Release starts a second workflow run through the `release: published` event.
+5. That run rebuilds the supported platforms and the **Upload Assets** job attaches the V8 and QuickJS-NG packages to the release.
+
+The release workflow does not publish an npm package. The versioned package is private and is used to coordinate the extension version and release notes for the Godot binaries.
+
+### Repository Permissions
+
+The repository must allow GitHub Actions to write repository contents and pull requests. In GitHub repository settings, enable the workflow permission that allows Actions to create and approve pull requests; otherwise the Changesets action cannot create or update the version pull request.
+
+### Troubleshooting
+
+- **`Some packages have been changed but no changesets were found`**: create a Changeset with `pnpm changeset`, or use an empty Changeset only for changes that do not require a release.
+- **`Release` is skipped**: confirm that the Version PR was merged into `main` and that `scripts/CHANGELOG.md` contains the new version heading.
+- **`Upload Assets` is skipped**: check the workflow triggered by the GitHub `release: published` event, not only the original push workflow.
+- **Release notes are missing**: verify that `scripts/CHANGELOG.md` contains a `## <version>` heading and that the release job runs from the `scripts` workspace.
+
 ## Project Structure
 
 ```

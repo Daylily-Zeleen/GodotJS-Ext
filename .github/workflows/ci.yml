@@ -215,7 +215,7 @@ jobs:
           node scripts/test/run-runtime-matrix.mts --runtimes ${{ matrix.runtime }} --skip-builds
 
   changesets:
-    if: false
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
       pull-requests: write
@@ -235,7 +235,7 @@ jobs:
 
   upload-assets:
     name: Upload Assets
-    needs: [build, release]
+    needs: [build]
     if: github.event_name == 'release'
     permissions:
       contents: write
