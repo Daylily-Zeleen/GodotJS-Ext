@@ -268,9 +268,11 @@ function detectBrowserExecutable() {
 }
 
 function runHostProject(label: string, binaryPath: string) {
-    runCommand(`${label} generate-types`, binaryPath, ["--headless", "--editor", "--generate-types", "--path", projectPath], {
-        cwd: projectPath,
-    });
+    if (!skipBuilds) {
+        runCommand(`${label} generate-types`, binaryPath, ["--headless", "--editor", "--generate-types", "--path", projectPath], {
+            cwd: projectPath,
+        });
+    }
 
     const output = runCommand(
         `${label} run`,
