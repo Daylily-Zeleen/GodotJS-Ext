@@ -5,8 +5,13 @@ on:
       version:
         required: true
         type: string
+      run_id:
+        description: "CI run containing the build artifacts"
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -37,6 +42,8 @@ jobs:
         with:
           path: artifacts-v8
           pattern: "*-v8"
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package V8 addon
         shell: bash
@@ -67,7 +74,7 @@ jobs:
             const { repo, owner } = context.repo;
             const releaseId = ${{ steps.lookup.outputs.result }};
             const zipName = 'godotjs-ext-v8-windows-linux-macos.zip';
-            const zipPath = `${github.workspace}/${zipName}`;
+            const zipPath = `${process.env.GITHUB_WORKSPACE}/${zipName}`;
             return await github.rest.repos.uploadReleaseAsset({
               owner,
               repo,
@@ -103,6 +110,8 @@ jobs:
         with:
           path: artifacts-qjs-ng
           pattern: "*-qjs-ng"
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package QJS-NG addon
         shell: bash
@@ -133,7 +142,7 @@ jobs:
             const { repo, owner } = context.repo;
             const releaseId = ${{ steps.lookup.outputs.result }};
             const zipName = 'godotjs-ext-qjs-ng-windows-linux-macos.zip';
-            const zipPath = `${github.workspace}/${zipName}`;
+            const zipPath = `${process.env.GITHUB_WORKSPACE}/${zipName}`;
             return await github.rest.repos.uploadReleaseAsset({
               owner,
               repo,

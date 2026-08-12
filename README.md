@@ -150,9 +150,10 @@ After a pull request containing a Changeset is merged into `main`:
 
 1. The **Changesets** job creates or updates the `changeset-release/main` version pull request.
 2. Merging that version pull request updates `scripts/package.json`, `scripts/CHANGELOG.md`, and `src/jsb_version.h`.
-3. The next `main` workflow detects the generated changelog entry and the **Release** job creates a GitHub Release for the new version.
-4. Publishing the GitHub Release starts a second workflow run through the `release: published` event.
-5. That run rebuilds the supported platforms and the **Upload Assets** job attaches the V8 and QuickJS-NG packages to the release.
+3. The next `main` CI workflow completes the build and test jobs. A separate `workflow_run` workflow then detects the generated changelog entry and creates the GitHub Release.
+4. After the Release is created, the same workflow downloads artifacts from the successful source CI run and attaches the V8 and QuickJS-NG packages.
+
+The build and publish stages are intentionally separate. If a matrix build, especially Windows V8 dependency download, needs to be rerun, the successful CI run can finish without relying on downstream jobs that were already skipped in the original run. The upload workflow uses the source run ID directly because Releases created with the Actions `GITHUB_TOKEN` do not trigger another workflow through `release: published`.
 
 The release workflow does not publish an npm package. The versioned package is private and is used to coordinate the extension version and release notes for the Godot binaries.
 
@@ -164,7 +165,8 @@ The repository must allow GitHub Actions to write repository contents and pull r
 
 - **`Some packages have been changed but no changesets were found`**: create a Changeset with `pnpm changeset`, or use an empty Changeset only for changes that do not require a release.
 - **`Release` is skipped**: confirm that the Version PR was merged into `main` and that `scripts/CHANGELOG.md` contains the new version heading.
-- **`Upload Assets` is skipped**: check the workflow triggered by the GitHub `release: published` event, not only the original push workflow.
+- **`Upload Assets` is skipped**: inspect the `Publish Release` workflow, which creates the Release and uploads assets from the source CI run. For an existing Release, use the `Upload Release Assets` manual workflow with the Release tag and a successful CI run ID.
+- **Windows V8 download fails**: the CI caches `third/v8`, and SCons retries interrupted V8 downloads automatically. If the first run still fails before the cache is populated, rerun the failed Windows V8 job and inspect the download/retry messages.
 - **Release notes are missing**: verify that `scripts/CHANGELOG.md` contains a `## <version>` heading and that the release job runs from the `scripts` workspace.
 
 ## Project Structure

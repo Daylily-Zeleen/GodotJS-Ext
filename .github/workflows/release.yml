@@ -1,0 +1,87 @@
+name: Publish Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  should-publish:
+    name: Check release condition
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.should_publish.outputs.publish }}
+      version: ${{ steps.should_publish.outputs.version }}
+    steps:
+      - name: Checkout source commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup pnpm
+        uses: ./.github/actions/pnpm-install
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: scripts
+
+      - name: Check whether to publish
+        id: should_publish
+        shell: bash
+        working-directory: scripts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          source_run_id="${{ github.event.workflow_run.id }}"
+          test_count="$(gh run view "${source_run_id}" --json jobs -q '[.jobs[] | select(.name | startswith("Test ("))] | length')"
+          failed_test_count="$(gh run view "${source_run_id}" --json jobs -q '[.jobs[] | select(.name | startswith("Test (")) | select(.conclusion != "success")] | length')"
+          should_publish="$(pnpm run ci:should-publish | tail -n 1)"
+          version="$(node release/get-version.js)"
+          echo "ci:should-publish=${should_publish}"
+          echo "version=${version}"
+          echo "tests=${test_count}, failed_tests=${failed_test_count}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [ "${test_count}" -ne 2 ] || [ "${failed_test_count}" -ne 0 ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Source CI did not complete both test jobs successfully; release blocked."
+          elif [ "${should_publish}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Create GitHub Release
+    needs: should-publish
+    if: needs.should-publish.outputs.publish == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/misc_release.yml
+    with:
+      versions: '4.6'
+      ref: ${{ github.event.workflow_run.head_sha }}
+    secrets: inherit
+
+  upload:
+    name: Upload Release Assets
+    needs: [should-publish, publish]
+    if: >-
+      needs.should-publish.outputs.publish == 'true' &&
+      needs.publish.result == 'success'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/misc_upload_assets.yml
+    with:
+      version: ${{ needs.should-publish.outputs.version }}
+      run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit

@@ -1,0 +1,26 @@
+name: Upload Release Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, for example v1.0.1"
+        required: true
+        type: string
+      run_id:
+        description: "Successful CI run ID containing the build artifacts"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  upload:
+    name: Upload Release Assets
+    uses: ./.github/workflows/misc_upload_assets.yml
+    with:
+      version: ${{ inputs.version }}
+      run_id: ${{ inputs.run_id }}
+    secrets: inherit

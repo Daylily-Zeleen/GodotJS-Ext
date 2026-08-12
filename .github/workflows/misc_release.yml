@@ -5,6 +5,11 @@ on:
       versions:
         required: true
         type: string
+      ref:
+        description: "Commit to release"
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
@@ -17,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup pnpm
         uses: ./.github/actions/pnpm-install
