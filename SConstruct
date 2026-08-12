@@ -180,27 +180,93 @@ def read_macro_value(name, def_val=None):
         return def_val
     raise ValueError(f"no {name} defined in jsb.config.h")
 
+def dependency_is_ready(name, target_dir):
+    if not os.path.isdir(target_dir):
+        return False
+    if name == "v8":
+        return os.path.isfile(os.path.join(target_dir, "include", "v8.h"))
+    if name == "lws":
+        return any(
+            os.path.isdir(os.path.join(root, "include"))
+            for root, _, _ in os.walk(target_dir)
+        )
+    return bool(os.listdir(target_dir))
+
+def remove_dependency_path(path):
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+    elif os.path.exists(path):
+        os.remove(path)
+
 def download_dependency(name, version, target_dir):
-    if os.path.exists(target_dir):
+    if dependency_is_ready(name, target_dir):
         return
+    if os.path.exists(target_dir):
+        remove_dependency_path(target_dir)
     filename = f"{name}_{version}.zip"
+    temporary_filename = f"{filename}.part"
     url = f"{deps_url}/download/{deps_release_tag}/{filename}"
     print(f"Dependency '{name}' not found at '{target_dir}'.")
     print(f"Downloading {filename} from {url} ...")
     try:
-        urllib.request.urlretrieve(url, filename)
+        download_attempts = 4
+        for attempt in range(1, download_attempts + 1):
+            try:
+                if os.path.exists(temporary_filename):
+                    os.remove(temporary_filename)
+                request = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "GodotJS-Ext-SCons"},
+                )
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    with open(temporary_filename, "wb") as output:
+                        shutil.copyfileobj(response, output)
+                # Validate the archive before making it visible as the final file.
+                with zipfile.ZipFile(temporary_filename, "r") as zip_ref:
+                    bad_file = zip_ref.testzip()
+                    if bad_file is not None:
+                        raise RuntimeError(f"corrupt archive entry: {bad_file}")
+                os.replace(temporary_filename, filename)
+                break
+            except Exception as download_error:
+                if os.path.exists(temporary_filename):
+                    os.remove(temporary_filename)
+                if attempt == download_attempts:
+                    raise
+                delay = 2 ** (attempt - 1)
+                print(
+                    f"Download attempt {attempt}/{download_attempts} failed: "
+                    f"{download_error}. Retrying in {delay}s ..."
+                )
+                time.sleep(delay)
+
         print(f"Extracting {filename} ...")
+        parent_dir = os.path.dirname(target_dir)
+        temporary_target_dir = f"{target_dir}.part"
+        if os.path.exists(temporary_target_dir):
+            shutil.rmtree(temporary_target_dir)
+        os.makedirs(temporary_target_dir, exist_ok=True)
         with zipfile.ZipFile(filename, 'r') as zip_ref:
             # The archive contains a top-level directory named after the dependency
-            # (e.g. "v8"), so extract into the parent of target_dir (e.g. "third/").
-            os.makedirs(os.path.dirname(target_dir), exist_ok=True)
-            zip_ref.extractall(os.path.dirname(target_dir))
+            # (e.g. "v8"), so extract into a temporary parent before installing it.
+            zip_ref.extractall(temporary_target_dir)
+        extracted_target_dir = os.path.join(temporary_target_dir, os.path.basename(target_dir))
+        if not os.path.exists(extracted_target_dir):
+            raise RuntimeError(f"Extraction failed: Directory '{target_dir}' was not created.")
+        os.makedirs(parent_dir, exist_ok=True)
+        os.replace(extracted_target_dir, target_dir)
+        shutil.rmtree(temporary_target_dir, ignore_errors=True)
         if os.path.exists(filename):
             os.remove(filename)
-        if not os.path.exists(target_dir):
-            check(False, f"Extraction failed: Directory '{target_dir}' was not created.")
         print(f"Successfully installed {name}.")
     except Exception as e:
+        if os.path.exists(temporary_filename):
+            os.remove(temporary_filename)
+        if os.path.exists(filename):
+            os.remove(filename)
+        temporary_target_dir = f"{target_dir}.part"
+        if os.path.exists(temporary_target_dir):
+            shutil.rmtree(temporary_target_dir, ignore_errors=True)
         check(False, f"Failed to download or extract {name}: {str(e)}")
 
 # Node.js (libnode) support. When enabled, libnode provides the embedded V8,

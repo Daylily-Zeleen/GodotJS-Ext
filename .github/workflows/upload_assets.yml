@@ -1,0 +1,51 @@
+name: Upload Release Assets
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  resolve-release:
+    name: Resolve release metadata
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Download release metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: release-metadata
+          path: release-metadata
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat release-metadata/release-tag.txt)"
+          test -n "${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Release version: ${version}"
+
+  upload:
+    name: Upload Release Assets
+    needs: resolve-release
+    if: needs.resolve-release.result == 'success'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/misc_upload_assets.yml
+    with:
+      version: ${{ needs.resolve-release.outputs.version }}
+      run_id: ${{ github.event.workflow_run.id }}
+    secrets: inherit

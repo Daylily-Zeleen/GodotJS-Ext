@@ -34,6 +34,19 @@ jobs:
           path: ${{github.workspace}}/scripts/out
           retention-days: 1
 
+      - name: Prepare release metadata
+        if: github.event_name == 'release'
+        shell: bash
+        run: printf '%s\n' '${{ github.event.release.tag_name }}' > release-tag.txt
+
+      - name: Upload release metadata
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release-tag.txt
+          retention-days: 1
+
   build:
     name: Build (${{ matrix.platform }}, ${{ matrix.engine }})
     needs: environment
@@ -83,6 +96,13 @@ jobs:
       # emits a shared vc140.pdb that is not part of the cached .obj files, so
       # cache hits produce LNK4099 warnings which fail the build due to /WX.
       # GCC/Clang embed debug info per object file, so their caches are safe.
+      - name: Restore V8 dependency cache
+        if: matrix.engine == 'v8'
+        uses: actions/cache@v4
+        with:
+          path: third/v8
+          key: v8-dependency-${{ runner.os }}-${{ hashFiles('SConstruct') }}
+
       - name: Restore SCons cache
         if: matrix.platform != 'windows'
         uses: actions/cache@v4
@@ -222,28 +242,10 @@ jobs:
     name: Changesets
     uses: ./.github/workflows/misc_changesets.yml
 
-  release:
-    name: Release
-    needs: [build, changesets]
-    if: needs.changesets.outputs.publish == 'true'
-    permissions:
-      contents: write
-    with:
-      versions: '4.6'
-    uses: ./.github/workflows/misc_release.yml
-    secrets: inherit
-
-  upload-assets:
-    name: Upload Assets
-    needs: [build]
-    if: github.event_name == 'release'
-    permissions:
-      contents: write
-    uses: ./.github/workflows/misc_upload_assets.yml
-    with:
-      version: ${{ github.event.release.tag_name }}
-    secrets: inherit
-
+  # Publishing and asset upload run in separate workflow_run workflows after
+  # this CI workflow completes. Keeping them out of this dependency graph means
+  # manually rerunning a failed matrix job can complete CI without leaving
+  # release jobs permanently skipped in the original run.
   # SCons cache keys embed a hashFiles(...) fingerprint, so every source change
   # creates a NEW cache entry and stale ones accumulate until they exhaust the
   # Actions cache quota (10 GB). Keep only the most recent cache per
