@@ -213,7 +213,6 @@ jobs:
         shell: bash
         run: |
           node scripts/test/run-runtime-matrix.mts --runtimes ${{ matrix.runtime }} --skip-builds
-        continue-on-error: true
 
   changesets:
     if: false
