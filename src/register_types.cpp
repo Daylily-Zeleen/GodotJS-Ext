@@ -131,19 +131,6 @@ void jsb_startup() {
 		}
 		if (run_tests) {
 			doctest::Context context;
-			// doctest defaults to order-by=file (sorted by __FILE__), which causes
-			// cross-platform execution-order differences: on GCC/Linux the .cpp
-			// file sorts before the .h files, so "[jsb] Finalize tests" (registered
-			// in jsb_test_main.cpp) runs FIRST and its _init() early-returns without
-			// rebuilding the environment. Subsequent initer tests destroy the
-			// environment, and when the main loop runs its first _frame() after
-			// quit(), environment_ is null → SIGSEGV. On MSVC/Windows the __FILE__
-			// path form differs, reversing the sort order so Finalize runs LAST
-			// and rebuilds the environment — which is why it works locally but
-			// crashes on CI. Setting order-by=none makes doctest use registration
-			// order (include order in jsb_test_main.cpp), guaranteeing Finalize
-			// runs last on every platform.
-			context.setOption("order-by", "none");
 			int exit_code = context.run();
 			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
 				scene_tree->quit(exit_code);

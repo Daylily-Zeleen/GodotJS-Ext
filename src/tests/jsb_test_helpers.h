@@ -88,7 +88,10 @@ public:
 	}
 
 	~GodotJSScriptLanguageIniter() {
+		// 清除
 		GodotJSScriptLanguage::get_singleton()->_finish();
+		// 确保每个测试结束后环境恢复
+		GodotJSScriptLanguage::get_singleton()->_init(); 
 	}
 
 private:
