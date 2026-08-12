@@ -258,6 +258,9 @@ jobs:
       actions: write
       contents: read
     steps:
+      # gh cache list --ref resolves the ref via git, so a checkout is required.
+      - uses: actions/checkout@v6
+
       - name: Delete stale SCons caches
         shell: bash
         env:
