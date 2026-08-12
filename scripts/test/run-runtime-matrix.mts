@@ -962,7 +962,14 @@ async function main(): Promise<void> {
         throw new Error("host-jsc runtime is only available on macOS");
     }
 
-    runCommand("build project TS", "pnpm", ["-C", projectPath, "build"], { cwd: moduleRoot });
+    if (skipBuilds) {
+        const projectOutputPath = join(projectPath, ".godot/godotjs_ext/test_01.js");
+        if (!existsSync(projectOutputPath)) {
+            throw new Error(`--skip-builds requires prebuilt TypeScript output: ${projectOutputPath}`);
+        }
+    } else {
+        runCommand("build project TS", "pnpm", ["-C", projectPath, "build"], { cwd: moduleRoot });
+    }
 
     const hostV8Binary = needsHostV8 ? buildHostRuntime("v8") : null;
     const hostQjsBinary = needsHostQjs ? buildHostRuntime("qjs") : null;
