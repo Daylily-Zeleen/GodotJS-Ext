@@ -260,6 +260,28 @@ const ApiClass *ApiLoader::ensure_class(const StringName &p_name) {
 	Error err = ApiStoreReader::read_class(path, data);
 	ERR_FAIL_COND_V_MSG(err, nullptr, vformat("[API Tool] load class %s failed: %s", p_name, UtilityFunctions::error_string(err)));
 
+	if (p_name == Object::get_class_static()) {
+		// 补充 GDExtension 未暴露的 FLAG_OBJECT_CORE 虚函数。
+		const auto is_exists = [&](const StringName &p_name) {
+			for (const auto &m : data.methods) {
+				if (m.method.name == p_name) return true; // Found
+			}
+			return false;
+		};
+
+		for (const Dictionary &mdict : ClassDB::class_get_method_list(Object::get_class_static())) {
+			uint32_t flags = mdict.get("flags", 0);
+			if ((flags & METHOD_FLAG_VIRTUAL) && (flags & METHOD_FLAG_OBJECT_CORE)) {
+				if (is_exists(mdict["name"])) continue;
+
+				MethodInfo minfo = MethodInfo::from_dict(mdict);
+				ApiClassMethod method_data;
+				method_data.method = minfo;
+				data.methods.push_back(method_data);
+			}
+		}
+	}
+
 	class_cache_.insert(p_name, data);
 	return class_cache_.find(p_name);
 }

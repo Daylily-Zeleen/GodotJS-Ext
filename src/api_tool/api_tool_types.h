@@ -650,7 +650,7 @@ public:
 // ============================================================================
 
 struct ApiClass {
-	godot::LocalVector<ApiClassMethod> methods;
+	godot::LocalVector<ApiClassMethod> methods; // TODO: 拆分出虚函数（纯定义，没有hash）
 	godot::LocalVector<ApiSignalInfo> signals;
 	godot::LocalVector<ApiPropertyInfo> properties;
 	godot::LocalVector<ApiEnumInfo> enums;
