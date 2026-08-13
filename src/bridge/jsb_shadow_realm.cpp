@@ -21,9 +21,7 @@ enum class FinalizationType : uint8_t;
 using ShadowRealmID = internal::Index32;
 using ShadowRealmLock = std::recursive_mutex;
 class Environment;
-class TransferableShadowRealm;
 
-class TransferableShadowRealm;
 struct ShadowRealmCreateParams;
 
 void _placeholder(const v8::FunctionCallbackInfo<v8::Value> &info) {}
@@ -1356,11 +1354,10 @@ public:
 	}
 
 public:
-	static NativeClassInfoPtr register_class(Environment *p_env, v8::Isolate *p_isolate) {
+	static void register_class(Environment *p_env, v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_exports) {
 		const StringName &class_name = jsb_string_name(ShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
-		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
-				p_isolate, class_name, &constructor<ShadowRealmImpl>, *class_id);
+		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(p_isolate, class_name, &ShadowRealmImpl::constructor<ShadowRealmImpl>, *class_id);
 
 		class_builder.Instance().Method("evaluate", &ShadowRealmImpl::evaluate);
 		class_builder.Instance().Method("addAllowedModuleSearchPath", &ShadowRealmImpl::addAllowedModuleSearchPath);
@@ -1373,7 +1370,7 @@ public:
 		class_info->clazz = class_builder.Build();
 		jsb_check(!class_info->clazz.IsEmpty());
 		jsb_check(class_info->name == class_name);
-		return class_info;
+		p_exports->Set(p_context, p_env->get_string_value(class_name), class_info->clazz.Get(p_isolate)).Check();
 	}
 };
 
@@ -1746,24 +1743,24 @@ public:
 		}
 	}
 
-	static NativeClassInfoPtr register_class(Environment *p_env, v8::Isolate *p_isolate, const NativeClassInfoPtr p_base_class_info) {
+	static void register_class(Environment *p_env, v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_exports) {
 		const StringName &class_name = jsb_string_name(TransferableShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
-		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(
-				p_isolate, class_name, &constructor<TransferableShadowRealmImpl>, *class_id);
+		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(p_isolate, class_name, &ShadowRealmImpl::constructor<TransferableShadowRealmImpl>, *class_id);
+		const NativeClassInfoPtr base_class_info = p_env->find_native_class(jsb_string_name(ShadowRealm));
 
 		class_builder.Instance().Method("postMessage", &TransferableShadowRealmImpl::post_message);
 		class_builder.Instance().Method("onerror", &_placeholder);
 		class_builder.Instance().Method("onmessage", &_placeholder);
 
-		class_builder.Inherit(p_base_class_info->clazz);
+		class_builder.Inherit(base_class_info->clazz);
 
 		const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
-		class_info->finalizer = &ShadowRealmImpl::finalizer;
+		class_info->finalizer = &TransferableShadowRealmImpl::finalizer;
 		class_info->clazz = class_builder.Build();
 		jsb_check(!class_info->clazz.IsEmpty());
 		jsb_check(class_info->name == class_name);
-		return class_info;
+		p_exports->Set(p_context, p_env->get_string_value(class_name), class_info->clazz.Get(p_isolate)).Check();
 	}
 };
 #pragma endregion TransferableShadowRealm
@@ -1786,11 +1783,8 @@ public:
 
 		//	Can not load `ShadowRealm` and `TransferableShadowRealm`in shadown environment.
 		if (!p_env->is_shadow()) {
-			const NativeClassInfoPtr shadow_realm_class_info = ShadowRealmImpl::register_class(p_env, isolate);
-			exports->Set(context, jsb_name(p_env, ShadowRealm), shadow_realm_class_info->clazz.Get(isolate)).Check();
-
-			const NativeClassInfoPtr transferable_shadow_realm_class_info = TransferableShadowRealmImpl::register_class(p_env, isolate, shadow_realm_class_info);
-			exports->Set(context, jsb_name(p_env, TransferableShadowRealm), transferable_shadow_realm_class_info->clazz.Get(isolate)).Check();
+			ShadowRealmImpl::register_class(p_env, isolate, context, exports);
+			TransferableShadowRealmImpl::register_class(p_env, isolate, context, exports);
 		}
 		return true;
 	}

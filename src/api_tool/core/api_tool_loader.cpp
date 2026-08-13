@@ -41,6 +41,7 @@ PackedStringArray ApiLoader::list_files_in_dir(const String &p_subdir) {
 ApiLoader *ApiLoader::singleton = nullptr;
 
 ApiLoader::ApiLoader() {
+	CRASH_COND(singleton);
 	singleton = this;
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	CRASH_COND(project_settings == nullptr);
