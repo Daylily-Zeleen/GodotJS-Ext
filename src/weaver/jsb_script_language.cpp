@@ -107,7 +107,7 @@ void GodotJSScriptLanguage::_init() {
 
 	if (const String entry_script_path = jsb::internal::Settings::get_entry_script_path();
 			!entry_script_path.is_empty()) {
-		environment_->load(entry_script_path);
+		environment_->load(jsb::internal::PathUtil::convert_typescript_path(entry_script_path));
 	}
 
 #if JSB_DEBUG
