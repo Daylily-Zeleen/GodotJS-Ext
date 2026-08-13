@@ -17,7 +17,10 @@ namespace api_tool {
 using namespace internal;
 
 static ApiLoader *get_loader() {
-	static auto _dummy = [] { return memnew(ApiLoader)->initialize(); }();
+	static auto _dummy = [] {
+		if (ApiLoader::get_singleton() == nullptr) return memnew(ApiLoader)->initialize();
+		return ApiLoader::get_singleton()->initialize();
+	}();
 	return ApiLoader::get_singleton();
 }
 
