@@ -63,12 +63,12 @@ private:
 
 	static const GDExtensionMethodInfo *get_method_list_func(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {
 		GodotJSScriptInstanceBase *script_instance = (GodotJSScriptInstanceBase *)p_instance;
-		const LocalVector<MethodInfo> &temporary_method_list = *script_instance->make_temporary_method_list();
+		LocalVector<MethodInfo> &temporary_method_list = *script_instance->make_temporary_method_list();
 
 		const uint32_t count = temporary_method_list.size();
 		GDExtensionMethodInfo *arr = memnew_arr(GDExtensionMethodInfo, count);
 		for (uint32_t idx = 0; idx < count; idx++) {
-			MethodInfo minfo = temporary_method_list[idx];
+			MethodInfo &minfo = temporary_method_list[idx];
 
 			uint32_t argument_count = minfo.arguments.size();
 			GDExtensionPropertyInfo *arguments{ nullptr };
