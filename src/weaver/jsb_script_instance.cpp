@@ -4,60 +4,6 @@
 
 static HashMap<const GDExtensionMethodInfo *, List<Variant>> default_value_cache_map;
 
-static GDExtensionMethodInfo method_info_to_gdextension(const MethodInfo &p_minfo, List<Variant> &r_default_value_caches) {
-	/* Arguments: `default_arguments` is an array of size `argument_count`. */
-	uint32_t argument_count = p_minfo.arguments.size();
-	GDExtensionPropertyInfo *arguments{ nullptr };
-	/* Default arguments: `default_arguments` is an array of size `default_argument_count`. */
-	uint32_t default_argument_count = p_minfo.default_arguments.size();
-	GDExtensionVariantPtr *default_arguments{ nullptr };
-
-	if (argument_count) {
-		arguments = memnew_arr(GDExtensionPropertyInfo, argument_count);
-		for (uint32_t i = 0; i < argument_count; ++i) {
-			arguments[i] = p_minfo.arguments[i]._to_gdextension();
-		}
-	}
-	if (default_argument_count) {
-		default_arguments = memnew_arr(GDExtensionVariantPtr, default_argument_count);
-		for (uint32_t i = 0; i < default_argument_count; ++i) {
-			r_default_value_caches.push_back(p_minfo.default_arguments[i]);
-			default_arguments[i] = &r_default_value_caches.back()->get();
-		}
-	}
-
-	GDExtensionMethodInfo ret{
-		.name = p_minfo.name._native_ptr(),
-		.return_value{ p_minfo.return_val._to_gdextension() },
-		.flags = p_minfo.flags,
-		.id = p_minfo.id,
-		.argument_count = argument_count,
-		.arguments = arguments,
-		.default_argument_count = default_argument_count,
-		.default_arguments = default_arguments,
-	};
-	return ret;
-}
-
-// static MethodInfo method_info_from_gdextension(const GDExtensionMethodInfo &pinfo) {
-// 	MethodInfo ret(
-// 			PropertyInfo(&pinfo.return_value),
-// 			*reinterpret_cast<StringName *>(pinfo.name));
-// 	ret.flags = pinfo.flags;
-// 	ret.id = pinfo.id;
-
-// 	for (uint32_t i = 0; i < pinfo.argument_count; i++) {
-// 		ret.arguments.push_back(PropertyInfo(&pinfo.arguments[i]));
-// 	}
-// 	const Variant *def_values = (const Variant *)pinfo.default_arguments;
-// 	for (uint32_t j = 0; j < pinfo.default_argument_count; j++) {
-// 		ret.default_arguments.push_back(def_values[j]);
-// 	}
-// 	return ret;
-// }
-
-// 只有 GodotJSScriptInstanceBase 才用的上, PlaceholderScriptInstance 的 C 接口本身不携带 GDExtensionScriptInstanceInfo3。
-// TODO: 如果有必要的话考虑不使用 godot::gdextension_interface::placeholder_script_instance_create() 来确保接口一致性
 struct ScriptInstanceInfo {
 public:
 	_FORCE_INLINE_ GDExtensionScriptInstanceInfo3 *operator&() { return &script_instance_info_; }
@@ -97,13 +43,6 @@ private:
 		script_instance->free_temporary_property_list();
 	}
 
-#ifdef TOOLS_ENABLED
-	static GDExtensionBool get_class_category_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionPropertyInfo *p_class_category) {
-		const ScriptInstance *script_instance = (ScriptInstance *)p_instance;
-		*p_class_category = script_instance->get_script()->get_class_category()._to_gdextension();
-		return (GDExtensionBool) true;
-	}
-#endif // TOOLS_ENABLED
 	static GDExtensionBool property_can_revert_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name) {
 		const GodotJSScriptInstanceBase *script_instance = (GodotJSScriptInstanceBase *)p_instance;
 		const StringName &name = *reinterpret_cast<const StringName *>(p_name);
@@ -245,11 +184,7 @@ private:
 		.get_func = &ScriptInstanceInfo::get_func,
 		.get_property_list_func = &ScriptInstanceInfo::get_property_list_func,
 		.free_property_list_func = &ScriptInstanceInfo::free_property_list_func,
-#ifdef TOOLS_ENABLED
-		.get_class_category_func = &ScriptInstanceInfo::get_class_category_func,
-#else // TOOLS_ENABLED
 		.get_class_category_func = nullptr,
-#endif // TOOLS_ENABLED
 		.property_can_revert_func = &ScriptInstanceInfo::property_can_revert_func,
 		.property_get_revert_func = &ScriptInstanceInfo::property_get_revert_func,
 		.get_owner_func = &ScriptInstanceInfo::get_owner_func,

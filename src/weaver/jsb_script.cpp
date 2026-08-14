@@ -280,29 +280,6 @@ String GodotJSScript::_get_class_icon_path() const {
 	return script_class_info_.icon;
 }
 
-PropertyInfo GodotJSScript::get_class_category() const {
-	ensure_module_loaded();
-	jsb_check(loaded_);
-
-	String path = get_path();
-	String scr_name;
-
-	if (is_built_in()) {
-		if (get_name().is_empty()) {
-			scr_name = TTR("Built-in script");
-		} else {
-			scr_name = vformat("%s (%s)", get_name(), TTR("Built-in"));
-		}
-	} else {
-		if (get_name().is_empty()) {
-			scr_name = path.get_file();
-		} else {
-			scr_name = get_name();
-		}
-	}
-
-	return { Variant::NIL, scr_name, PROPERTY_HINT_NONE, path, PROPERTY_USAGE_CATEGORY };
-}
 #endif
 
 bool GodotJSScript::_has_method(const StringName &p_method) const {

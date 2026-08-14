@@ -130,7 +130,6 @@ public:
 	virtual Error _reload(bool p_keep_state) override;
 
 #ifdef TOOLS_ENABLED
-	PropertyInfo get_class_category() const;
 	virtual StringName _get_doc_class_name() const override;
 	virtual TypedArray<Dictionary> _get_documentation() const override;
 	virtual String _get_class_icon_path() const override;
