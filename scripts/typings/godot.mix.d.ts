@@ -138,12 +138,12 @@ declare module "godot" {
                 : never
             : never;
 
-    interface GodotUserRPCEntries {}
+    interface GodotUserRPCEntries { }
 
     type GodotNativeRPCMap<T> = "__godotRPCMap" extends keyof T ? T["__godotRPCMap"] : {};
     type GodotUserRPCEntry = GodotUserRPCEntries[keyof GodotUserRPCEntries];
     type GodotUserRPCType = GodotUserRPCEntry extends { type: infer Type } ? Type : never;
-    type GodotUserRPCMap<T> =[T] extends [GodotUserRPCType]
+    type GodotUserRPCMap<T> = [T] extends [GodotUserRPCType]
         ? Extract<GodotUserRPCEntry, { type: T }> extends { procedures: infer Procedures; }
             ? Procedures
             : {}
@@ -181,7 +181,7 @@ declare module "godot" {
      * This namespace and the values within do not exist at runtime. They're declared here, for internal use only, as a
      * work-around for limitations of TypeScript's type system.
      */
-    namespace __PathMappableDummyKeys {}
+    namespace __PathMappableDummyKeys { }
 
     type PathMappable<DummyKey extends symbol, Map extends PathMap = PathMap> = {
         [K in DummyKey]: Map;
@@ -431,19 +431,23 @@ declare module "godot" {
     }
 
     interface MethodInfo {
-		name: string;
-		args: GArray<GDictionary<PropertyInfo>>;
-		default_args: GArray<GAny>;
-		flags: MethodFlags;
-		id: int64;
-		return: GDictionary<PropertyInfo>;
+        name: string;
+        args: GArray<GDictionary<PropertyInfo>>;
+        default_args: GArray<GAny>;
+        flags: MethodFlags;
+        id: int64;
+        return: GDictionary<PropertyInfo>;
     }
 
     interface SignalConnection {
-		signal: Signal;
-		callable: Callable;
-		flag: Object.ConnectFlags;
+        signal: Signal;
+        callable: Callable;
+        flag: Object.ConnectFlags;
     }
+
+    type SignalSignature<T> = T extends Signal<infer A> ? A : never;
+
+    type SignalParameters<T extends Signal> = Parameters<SignalSignature<T>> extends [] ? void : Parameters<SignalSignature<T>> extends [infer R] ? R : Parameters<SignalSignature<T>>
 
     type BindRight<F extends Function, B extends any[]> = F extends (
         this: infer T,
@@ -451,4 +455,10 @@ declare module "godot" {
     ) => infer R
         ? (this: T, ...args: A) => R
         : never;
+
+    interface SceneNodes {
+	}
+
+	interface ResourceTypes {
+	}
 }
