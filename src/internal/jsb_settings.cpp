@@ -77,6 +77,7 @@ bool init_editor_settings() {
 				AutogenSceneDTSSettings.type = Variant::INT;
 				AutogenSceneDTSSettings.name = kEdAutogenSceneDTSSettings;
 				AutogenSceneDTSSettings.hint = PROPERTY_HINT_FLAGS;
+				AutogenSceneDTSSettings.usage = PROPERTY_USAGE_NONE;
 
 				// NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
 				const Pair<String, AutoGenSettingFlags> options[]{
@@ -100,6 +101,7 @@ bool init_editor_settings() {
 				AutogenResourceDTSSettings.type = Variant::INT;
 				AutogenResourceDTSSettings.name = kEdAutogenSceneDTSSettings;
 				AutogenResourceDTSSettings.hint = PROPERTY_HINT_FLAGS;
+				AutogenResourceDTSSettings.usage = PROPERTY_USAGE_NONE;
 
 				// NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
 				const Pair<String, AutoGenSettingFlags> options[]{
