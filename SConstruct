@@ -535,6 +535,7 @@ generate_code([
     PresetDefine("scripts/typings/godot.mix.d.ts", ""),
     PresetDefine("scripts/typings/godot.worker.d.ts", ""),
     PresetDefine("scripts/typings/godot.shadowRealm.d.ts", ""),
+    PresetDefine("scripts/typings/type.extension.d.ts", ""),
     PresetDefine("scripts/out/jsb.runtime.bundle.d.ts", ""),
     PresetDefine("scripts/out/jsb.runtime.bundle.js.map", ""),
     PresetDefine("scripts/out/jsb.editor.bundle.d.ts", ""),
@@ -618,6 +619,7 @@ env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir, "internal"),
     os.path.join(root_dir, src_dir, "weaver"),
     os.path.join(root_dir, src_dir, "bridge"),
+    os.path.join(root_dir, src_dir, "js_type_extension"),
     os.path.join(root_dir, third_dir),
 ])
 
@@ -687,6 +689,7 @@ godotjs_sources += Glob(os.path.join(src_dir, "compat", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "internal", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "bridge", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "weaver", "*.cpp"))
+godotjs_sources += Glob(os.path.join(src_dir, "js_type_extension", "*.cpp"))
 # api_tool module: core (runtime)
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))

@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
-#include <unordered_map>
 
 #include "../jsb.config.h"
 #include "../jsb.gen.h"
@@ -24,6 +22,7 @@
 #else
 #	error unknown javascript runtime
 #endif
+
 #include "../impl/shared/jsb_isolate_scope.h"
 #include "../internal/jsb_internal.h"
 

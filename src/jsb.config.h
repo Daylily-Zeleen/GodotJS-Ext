@@ -173,6 +173,12 @@
  */
 #define JSB_USE_V8_LOCKER_PER_ISOLATE_SCOPE 0
 
+/**
+ * EXPERIMENTAL: 是否对 JS 类型进行扩展
+ * 1. string 会增加部分类似 String 的函数
+ */
+#define JSB_USE_JS_TYPE_EXTENSION 1
+
 // A helper version tag for the jsb.*.bundle.js scripts (which is embedded in .cpp source).
 // It could ensure your engine built with the expected version of the jsb bundle scripts.
 // If static_assert in `jsb_project_preset.gen.cpp` fails, please run your `scons` command again to update all bundle scripts.
