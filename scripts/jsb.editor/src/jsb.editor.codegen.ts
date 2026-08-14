@@ -1576,7 +1576,7 @@ const annotation_types = {
                                             { name: "step", type: { type: DescriptorType.Godot, name: "number" } },
                                             {
                                                 name: "...extra_hints",
-                                                type: { type: DescriptorType.Godot, name: "string[]" },
+                                                type: { type: DescriptorType.Godot, name: "ExportRangeExtraHint[]" },
                                             },
                                         ],
                                         returns: { type: DescriptorType.Godot, name: "ClassMemberDecorator" },
@@ -1589,7 +1589,7 @@ const annotation_types = {
                                             { name: "step", type: { type: DescriptorType.Godot, name: "number" } },
                                             {
                                                 name: "...extra_hints",
-                                                type: { type: DescriptorType.Godot, name: "string[]" },
+                                                type: { type: DescriptorType.Godot, name: "ExportRangeExtraHint[]" },
                                             },
                                         ],
                                         returns: { type: DescriptorType.Godot, name: "ClassMemberDecorator" },

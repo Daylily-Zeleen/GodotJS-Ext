@@ -3,6 +3,8 @@ import type * as GodotJsb from "godot-jsb";
 
 const { jsb } = require("godot.lib.api");
 
+type ExportRangeExtraHint = "or_greater" | "or_less" | "exp" | "prefer_slider" | "hide_control" | "radians_as_degree" | "degree" | `suffix:${string}`;
+
 // [WARNING] ALL IMPLEMENTATIONS BELOW ARE FOR BACKWARD COMPATIBILITY ONLY.
 // [WARNING] THEY EXIST TO TEMPORARILY SUPPORT OLD CODES THAT USE THESE FUNCTIONS.
 // [WARNING] FOLLOW THE CHANGES IN `https://github.com/godotjs/GodotJS/tree/main/docs/breaking_changes.md` TO UPDATE YOUR CODES.
@@ -80,7 +82,7 @@ function __export_range(
     min: number,
     max: number,
     step: number = 1,
-    ...extra_hints: string[]
+    ...extra_hints: ExportRangeExtraHint[]
 ) {
     const { PropertyHint } = require("godot.lib.api");
     let hint_string = `${min},${max},${step}`;
@@ -94,7 +96,7 @@ function __export_range(
  * FOR BACKWARD COMPATIBILITY ONLY
  * @deprecated [WARNING] This function is deprecated. Use the same function from `godot.annotations` instead.
  */
-exports.export_range = function (min: number, max: number, step: number = 1, ...extra_hints: string[]) {
+exports.export_range = function (min: number, max: number, step: number = 1, ...extra_hints: ExportRangeExtraHint[]) {
     const { Variant } = require("godot.lib.api");
     return __export_range(Variant.Type.TYPE_FLOAT, min, max, step, ...extra_hints);
 };
@@ -103,7 +105,7 @@ exports.export_range = function (min: number, max: number, step: number = 1, ...
  * FOR BACKWARD COMPATIBILITY ONLY
  * @deprecated [WARNING] This function is deprecated. Use the same function from `godot.annotations` instead.
  */
-exports.export_range_i = function (min: number, max: number, step: number = 1, ...extra_hints: string[]) {
+exports.export_range_i = function (min: number, max: number, step: number = 1, ...extra_hints: ExportRangeExtraHint[]) {
     const { Variant } = require("godot.lib.api");
     return __export_range(Variant.Type.TYPE_INT, min, max, step, ...extra_hints);
 };

@@ -11,6 +11,7 @@ type VariantConstructor = abstract new (...args: any[]) => NonNullable<Godot.GAn
 type GObjectConstructor = abstract new (...args: any[]) => Godot.Object;
 
 type ClassSpecifier = VariantConstructor | Symbol | EnumPlaceholder | TypePairPlaceholder;
+type ExportRangeExtraHint = "or_greater" | "or_less" | "exp" | "prefer_slider" | "hide_control" | "radians_as_degree" | "degree" | `suffix:${string}`;
 
 function legacy_decorators_check(context: undefined | string | DecoratorContext) {
     if (typeof context === "object") {
@@ -123,7 +124,7 @@ function __export_range(
     min: number,
     max: number,
     step: number = 1,
-    ...extra_hints: string[]
+    ...extra_hints: ExportRangeExtraHint[]
 ) {
     let hint_string = `${min},${max},${step}`;
     if (typeof extra_hints !== "undefined") {
@@ -133,7 +134,7 @@ function __export_range(
 }
 
 /** @deprecated Use createClassBinder() instead. */
-export function export_range(min: number, max: number, step: number = 1, ...extra_hints: string[]) {
+export function export_range(min: number, max: number, step: number = 1, ...extra_hints: ExportRangeExtraHint[]) {
     return __export_range(Variant.Type.TYPE_FLOAT, min, max, step, ...extra_hints);
 }
 
@@ -141,7 +142,7 @@ export function export_range(min: number, max: number, step: number = 1, ...extr
 export const ExportRange = export_range;
 
 /** @deprecated Use createClassBinder() instead. */
-export function export_range_i(min: number, max: number, step: number = 1, ...extra_hints: string[]) {
+export function export_range_i(min: number, max: number, step: number = 1, ...extra_hints: ExportRangeExtraHint[]) {
     return __export_range(Variant.Type.TYPE_INT, min, max, step, ...extra_hints);
 }
 
@@ -856,7 +857,7 @@ export function createClassBinder(): ClassBinder {
         min: number,
         max: number,
         step: number = 1,
-        ...extra_hints: string[]
+        ...extra_hints: ExportRangeExtraHint[]
     ) {
         return bind_export(type, {
             hint: PropertyHint.PROPERTY_HINT_RANGE,
@@ -885,11 +886,11 @@ export function createClassBinder(): ClassBinder {
                 multiline(): ClassMemberDecorator {
                     return bind_export(Variant.Type.TYPE_STRING, { hint: PropertyHint.PROPERTY_HINT_MULTILINE_TEXT });
                 },
-                range(min: number, max: number, step: number, ...extra_hints: string[]): ClassMemberDecorator {
+                range(min: number, max: number, step: number, ...extra_hints: ExportRangeExtraHint[]): ClassMemberDecorator {
                     return bind_range(Variant.Type.TYPE_FLOAT, min, max, step, ...extra_hints);
                 },
                 /** String as a path to a file, custom filter provided as hint. */
-                range_int(min: number, max: number, step: number, ...extra_hints: string[]): ClassMemberDecorator {
+                range_int(min: number, max: number, step: number, ...extra_hints: ExportRangeExtraHint[]): ClassMemberDecorator {
                     return bind_range(Variant.Type.TYPE_INT, min, max, step, ...extra_hints);
                 },
                 file(filter: string): ClassMemberDecorator {

@@ -1205,13 +1205,15 @@ declare module "jsb.editor.codegen" {
 }
 
 declare module "godot.annotations" {
+    type ExportRangeExtraHint = "or_greater" | "or_less" | "exp" | "prefer_slider" | "hide_control" | "radians_as_degree" | "degree" | `suffix:${string}`;
+
     type ClassBinder = (() => (target: GObjectConstructor, context: ClassDecoratorContext) => void) & {
         tool: () => (target: GObjectConstructor, _context: ClassDecoratorContext) => void;
         icon: (path: string) => (target: GObjectConstructor, _context: ClassDecoratorContext) => void;
         export: ((type: Godot.Variant.Type, options?: ExportOptions) => ClassMemberDecorator) & {
             multiline: () => ClassMemberDecorator;
-            range: (min: number, max: number, step: number, ...extra_hints: string[]) => ClassMemberDecorator;
-            range_int: (min: number, max: number, step: number, ...extra_hints: string[]) => ClassMemberDecorator;
+            range: (min: number, max: number, step: number, ...extra_hints: ExportRangeExtraHint[]) => ClassMemberDecorator;
+            range_int: (min: number, max: number, step: number, ...extra_hints: ExportRangeExtraHint[]) => ClassMemberDecorator;
             file: (filter: string) => ClassMemberDecorator;
             dir: (filter: string) => ClassMemberDecorator;
             global_file: (filter: string) => ClassMemberDecorator;
