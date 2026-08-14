@@ -26,8 +26,8 @@ String _describe_export_name(
 }
 
 // construct a callable object
-// [js] function callable(fn: Function): godot.Callable;
-// [js] function callable(thiz: godot.Object, fn: Function): godot.Callable;
+// [js] function Callable.create<F extend Function>(fn: F): godot.Callable<F>;
+// [js] function Callable.callable<S extends godot.Object, F extends (this: S, ...args: any[]) => any>(self: S, fn: F): godot.Callable<F>;
 void _new_callable(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -486,7 +486,7 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::Settings::get_camel_case_bindings_enabled())).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "version"), impl::Helper::new_string(isolate, JSB_STRINGIFY(JSB_MAJOR_VERSION) "." JSB_STRINGIFY(JSB_MINOR_VERSION) "." JSB_STRINGIFY(JSB_PATCH_VERSION))).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "impl"), impl::Helper::new_string(isolate, JSB_IMPL_VERSION_STRING)).Check();
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "callable"), JSB_NEW_FUNCTION(context, _new_callable, {})).Check();
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "_new_callable"), JSB_NEW_FUNCTION(context, _new_callable, {})).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "set_async_module_loader"), JSB_NEW_FUNCTION(context, AsyncModuleManager::_set_async_module_loader, {})).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "$import"), JSB_NEW_FUNCTION(context, AsyncModuleManager::_import, {})).Check();
 

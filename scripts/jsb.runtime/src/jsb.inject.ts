@@ -326,7 +326,7 @@ require("godot.typeloader").on_type_loaded("GDictionary", function (type: any) {
 
 require("godot.typeloader").on_type_loaded("Callable", function (type: any) {
     const original_cc = type.create;
-    const custom_cc = require("godot-jsb").callable;
+    const custom_cc = require("godot-jsb")._new_callable;
 
     type.create = function () {
         const argc = arguments.length;
@@ -334,13 +334,13 @@ require("godot.typeloader").on_type_loaded("Callable", function (type: any) {
             if (typeof arguments[0] !== "function") {
                 throw new Error("not a function");
             }
-            return custom_cc(arguments[0]);
+            return custom_cc(arguments[0]); // (Function)
         }
         if (argc == 2) {
             if (typeof arguments[1] !== "function") {
-                return original_cc(arguments[0], arguments[1]);
+                return original_cc(arguments[0], arguments[1]); // (godot.object, string)
             }
-            return custom_cc(arguments[0], arguments[1]);
+            return custom_cc(arguments[0], arguments[1]); // (godot.Object, Function)
         }
         throw new Error("invalid arguments");
     };

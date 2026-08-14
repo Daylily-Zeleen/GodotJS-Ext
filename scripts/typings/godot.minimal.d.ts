@@ -25,18 +25,6 @@ declare module "godot-jsb" {
     /** impl currently used */
     const impl: string;
 
-    /**
-     * Create godot Callable without a bound object.
-     * @deprecated [WARNING] avoid using this function directly, use `Callable.create` instead.
-     */
-    function callable<F extends Function>(fn: F): Callable<F>;
-
-    /**
-     * Create godot Callable with a bound object `self`.
-     * @deprecated [WARNING] avoid using this function directly, use `Callable.create` instead.
-     */
-    function callable<S extends GObject, F extends (this: S, ...args: any[]) => any>(self: S, fn: F): Callable<F>;
-
     type AsyncModuleSourceLoaderResolveFunc = (source: string) => void;
     type AsyncModuleSourceLoaderRejectFunc = (error: string) => void;
 
