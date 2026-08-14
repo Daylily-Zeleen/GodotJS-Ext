@@ -23,9 +23,6 @@ StringNames::StringNames() {
 	sn_godot_postbind = StringName("_post_bind_");
 
 	ignored_.insert(sn_name);
-
-	add_replacement("Dictionary", "GDictionary");
-	add_replacement("Array", "GArray");
 }
 
 } //namespace jsb::internal

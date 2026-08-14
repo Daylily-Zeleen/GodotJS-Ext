@@ -327,54 +327,8 @@ Environment::Environment(const CreateParams &p_params)
 				module_cache_.init(isolate, cache_obj);
 			}
 
-			internal::StringNames &names = internal::StringNames::get_singleton();
+			populate_string_names_replacements();
 
-			// Populate StringNames replacement list so that classes can be lazily loaded by their exposed class name.
-			if (internal::Settings::get_camel_case_bindings_enabled()) {
-				List<StringName> exposed_class_list = internal::NamingUtil::get_exposed_original_class_list();
-
-				for (auto it = exposed_class_list.begin(); it != exposed_class_list.end(); ++it) {
-					String exposed_name = internal::NamingUtil::get_class_name(*it);
-
-					if (exposed_name != *it) {
-						names.add_replacement(*it, exposed_name);
-					}
-				}
-
-				PackedStringArray singleton_list = Engine::get_singleton()->get_singleton_list();
-				for (const StringName &singleton_name : singleton_list) {
-					String exposed_name = internal::NamingUtil::get_class_name(singleton_name);
-					if (exposed_name != singleton_name) {
-						names.add_replacement(singleton_name, exposed_name);
-					}
-				}
-
-				PackedStringArray reserved_words = GodotJSScriptLanguage::get_singleton()->_get_reserved_words();
-
-				for (const StringName &func_name : api_tool::list_utility_functions()) {
-					StringName exposed_name = func_name;
-
-					if (reserved_words.find(exposed_name) >= 0) {
-						exposed_name = internal::NamingUtil::get_member_name("godot_" + exposed_name);
-					}
-
-					if (exposed_name != func_name) {
-						names.add_replacement(func_name, exposed_name);
-					}
-				}
-
-				for (const StringName &constant_name : api_tool::list_global_constants()) {
-					String exposed_name = internal::NamingUtil::get_class_name(constant_name);
-
-					if (reserved_words.find(exposed_name) >= 0) {
-						exposed_name = internal::NamingUtil::get_member_name("godot_" + exposed_name);
-					}
-
-					if (exposed_name != constant_name) {
-						names.add_replacement(constant_name, exposed_name);
-					}
-				}
-			}
 #if JSB_SHADOW_REALM_ENABLED
 			ShadowRealm::register_(context, global);
 #endif // JSB_SHADOW_REALM_ENABLED
@@ -2211,6 +2165,56 @@ AsyncModuleManager &Environment::get_async_module_manager() {
 		async_module_manager_ = memnew(AsyncModuleManager);
 	}
 	return *async_module_manager_;
+}
+
+void Environment::populate_string_names_replacements() {
+	// Populate StringNames replacement list so that classes can be lazily loaded by their exposed class name.
+	internal::StringNames &names = internal::StringNames::get_singleton();
+
+	LocalVector<StringName> exposed_class_list;
+	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list);
+
+	for (const StringName &class_name : exposed_class_list) {
+		StringName exposed_name = internal::NamingUtil::get_class_name(class_name);
+
+		if (class_name != exposed_name) {
+			names.add_replacement(class_name, exposed_name);
+		}
+	}
+
+	PackedStringArray singleton_list = Engine::get_singleton()->get_singleton_list();
+	for (const StringName &singleton_name : singleton_list) {
+		StringName exposed_name = internal::NamingUtil::get_class_name(singleton_name);
+		if (exposed_name != singleton_name) {
+			names.add_replacement(singleton_name, exposed_name);
+		}
+	}
+
+	PackedStringArray reserved_words = GodotJSScriptLanguage::get_singleton()->_get_reserved_words();
+
+	for (const StringName &func_name : api_tool::list_utility_functions()) {
+		StringName exposed_name = func_name;
+
+		if (reserved_words.has(exposed_name)) {
+			exposed_name = internal::NamingUtil::get_member_name("godot_" + exposed_name);
+		}
+
+		if (exposed_name != func_name) {
+			names.add_replacement(func_name, exposed_name);
+		}
+	}
+
+	for (const StringName &constant_name : api_tool::list_global_constants()) {
+		StringName exposed_name = internal::NamingUtil::get_class_name(constant_name);
+
+		if (reserved_words.has(exposed_name)) {
+			exposed_name = internal::NamingUtil::get_member_name("godot_" + exposed_name);
+		}
+
+		if (exposed_name != constant_name) {
+			names.add_replacement(constant_name, exposed_name);
+		}
+	}
 }
 
 } //namespace jsb

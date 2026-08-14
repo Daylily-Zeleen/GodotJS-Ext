@@ -9,7 +9,7 @@ _FORCE_INLINE_ char32_t _find_lower(char32_t p_char) { return (char32_t)std::tol
 
 // Logic is largely derived from mono/utils/naming_utils.cpp so that our naming conventions remain similar to .NET.
 namespace jsb::internal {
-static const HashMap<String, String> &_get_pascal_case_name_overrides() {
+_FORCE_INLINE_ static const HashMap<String, String> &_get_pascal_case_name_overrides() {
 	static const HashMap<String, String> table = {
 		{ "BitMap", "Bitmap" },
 		{ "JSONRPC", "JsonRpc" },
@@ -28,7 +28,7 @@ static const HashMap<String, String> &_get_pascal_case_name_overrides() {
 }
 
 // Hardcoded collection of PascalCase part conversions.
-static const HashMap<String, String> &_get_pascal_case_part_overrides() {
+_FORCE_INLINE_ static const HashMap<String, String> &_get_pascal_case_part_overrides() {
 	static const HashMap<String, String> table = {
 		{ "AA", "AA" }, // Anti Aliasing
 		{ "AO", "AO" }, // Ambient Occlusion
@@ -61,8 +61,8 @@ static const HashMap<String, String> &_get_pascal_case_part_overrides() {
 	return table;
 }
 
-static const HashSet<String> &_get_omitted_original_classes() {
-	static const HashSet<String> table = {
+static const HashSet<StringName> &_get_omitted_original_classes() {
+	static const HashSet<StringName> table = {
 		"IPUnix",
 		"ScriptEditorDebugger",
 		"Thread",
@@ -296,7 +296,7 @@ String NamingUtil::snake_to_camel_case(const String &p_identifier, bool p_input_
 	return ret;
 }
 
-List<StringName> NamingUtil::get_exposed_original_class_list() {
+void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list) {
 #ifdef TOOLS_ENABLED
 	HashSet<String> ignored_classes_set;
 
@@ -313,9 +313,10 @@ List<StringName> NamingUtil::get_exposed_original_class_list() {
 
 	PackedStringArray all_class_names = ClassDB::get_class_list();
 
-	List<StringName> exposed_class_names;
+	r_list.clear();
+	r_list.reserve(all_class_names.size());
 
-	const HashSet<String> &omitted_original_classes = _get_omitted_original_classes();
+	const HashSet<StringName> &omitted_original_classes = _get_omitted_original_classes();
 
 	for (int i = 0; i < all_class_names.size(); i++) {
 		StringName class_name = all_class_names[i];
@@ -339,7 +340,7 @@ List<StringName> NamingUtil::get_exposed_original_class_list() {
 			continue;
 		}
 
-		// GDExtension 获取到的 CLass 只能是 exposed
+		// GDExtension 获取到的 Class 只能是 exposed
 		if (!api_tool::has_class(class_name)) {
 			JSB_LOG(Verbose, "Ignoring class '%s' because it's not exposed", class_name);
 			continue;
@@ -350,14 +351,12 @@ List<StringName> NamingUtil::get_exposed_original_class_list() {
 			continue;
 		}
 
-		exposed_class_names.push_back(class_name);
+		r_list.push_back(class_name);
 	}
-
-	return exposed_class_names;
 }
 
-bool NamingUtil::is_original_class_exposed(const String &p_original_name) {
-	const HashSet<String> &omitted_original_classes = _get_omitted_original_classes();
+bool NamingUtil::is_original_class_exposed(const StringName &p_original_name) {
+	const HashSet<StringName> &omitted_original_classes = _get_omitted_original_classes();
 
 	if (omitted_original_classes.has(p_original_name)) {
 		return false;
@@ -380,7 +379,7 @@ bool NamingUtil::is_original_class_exposed(const String &p_original_name) {
 	}
 
 #ifdef TOOLS_ENABLED
-	if (internal::Settings::get_ignored_classes().find(p_original_name) >= 0) {
+	if (internal::Settings::get_ignored_classes().has(p_original_name)) {
 		return false;
 	}
 #endif

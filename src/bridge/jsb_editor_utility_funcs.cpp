@@ -805,7 +805,9 @@ static void _get_classes(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	Environment *environment = Environment::wrap(isolate);
 
-	List<StringName> exposed_class_list = internal::NamingUtil::get_exposed_original_class_list();
+	LocalVector<StringName> exposed_class_list;
+	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list);
+
 	HashMap<StringName, HashSet<StringName>> rpc_method_map;
 
 	for (auto &script_class_info : environment->get_script_classes()) {
@@ -824,7 +826,7 @@ static void _get_classes(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Local<v8::Array> array = v8::Array::New(isolate, exposed_class_list.size());
 	int index = 0;
 
-	for (auto &class_name : exposed_class_list) {
+	for (const StringName &class_name : exposed_class_list) {
 		JSB_HANDLE_SCOPE(isolate);
 		array->Set(context, index++, build_class_info(isolate, context, class_name, rpc_method_map.getptr(class_name))).Check();
 	}

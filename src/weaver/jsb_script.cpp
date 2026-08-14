@@ -286,7 +286,7 @@ bool GodotJSScript::_has_method(const StringName &p_method) const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
-	String exposed_name = p_method;
+	StringName exposed_name = p_method;
 
 	if (exposed_name.begins_with("_")) {
 		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);

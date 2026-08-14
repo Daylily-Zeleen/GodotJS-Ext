@@ -783,6 +783,9 @@ public:
 		p_js_obj->SetAlignedPointerInInternalField(IF_Pointer, nullptr);
 	}
 
+	// TODO: 不应该每次创建 Environment 都调用呀。考虑放到更合适的位置，且根据 api_tool 的重新生成进行清除再生成。
+	static void populate_string_names_replacements();
+
 private:
 	internal::SArray<std::weak_ptr<Environment>, internal::Index32> shadow_env_list_;
 
