@@ -44,6 +44,7 @@
 		"SceneTree",
 		"PopupMenu",
 		"ConfirmationDialog",
+		"FileDialog",
 		"EditorFileSystemDirectory",
 		"Label",
 		"ProgressBar",

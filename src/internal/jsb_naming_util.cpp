@@ -61,29 +61,6 @@ _FORCE_INLINE_ static const HashMap<String, String> &_get_pascal_case_part_overr
 	return table;
 }
 
-static const HashSet<StringName> &_get_omitted_original_classes() {
-	static const HashSet<StringName> table = {
-		"IPUnix",
-		"ScriptEditorDebugger",
-		"Thread",
-		"Semaphore",
-
-		// GodotJS related clases
-		"GodotJSEditorPlugin",
-		"GodotJSExportPlugin",
-		"GodotJSREPL",
-		"GodotJSScript",
-		"GodotJSEditorHelper",
-
-		// GDScript related classes
-		"GDScript",
-		"GDScriptEditorTranslationParserPlugin",
-		"GDScriptNativeClass",
-		"GDScriptSyntaxHighlighter",
-	};
-	return table;
-}
-
 String _get_pascal_case_part_override(String p_part, bool p_input_is_upper = true) {
 	if (!p_input_is_upper) {
 		for (int i = 0; i < p_part.length(); i++) {
@@ -296,6 +273,29 @@ String NamingUtil::snake_to_camel_case(const String &p_identifier, bool p_input_
 	return ret;
 }
 
+const HashSet<StringName> &NamingUtil::get_omitted_original_classes() {
+	static const HashSet<StringName> table = {
+		"IPUnix",
+		"ScriptEditorDebugger",
+		"Thread",
+		"Semaphore",
+
+		// GodotJS related clases
+		"GodotJSEditorPlugin",
+		"GodotJSExportPlugin",
+		"GodotJSREPL",
+		"GodotJSScript",
+		"GodotJSEditorHelper",
+
+		// GDScript related classes
+		"GDScript",
+		"GDScriptEditorTranslationParserPlugin",
+		"GDScriptNativeClass",
+		"GDScriptSyntaxHighlighter",
+	};
+	return table;
+}
+
 void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes) {
 	const PackedStringArray ignored_classes = p_exclude_ignored_classes ? Settings::get_ignored_classes() : PackedStringArray{};
 	const PackedStringArray all_class_names = ClassDB::get_class_list();
@@ -303,7 +303,7 @@ void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list
 	r_list.clear();
 	r_list.reserve(all_class_names.size());
 
-	const HashSet<StringName> &omitted_original_classes = _get_omitted_original_classes();
+	const HashSet<StringName> &omitted_original_classes = get_omitted_original_classes();
 
 	for (int i = 0; i < all_class_names.size(); i++) {
 		StringName class_name = all_class_names[i];
@@ -341,7 +341,7 @@ void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list
 }
 
 bool NamingUtil::is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes) {
-	const HashSet<StringName> &omitted_original_classes = _get_omitted_original_classes();
+	const HashSet<StringName> &omitted_original_classes = get_omitted_original_classes();
 
 	if (omitted_original_classes.has(p_original_name)) {
 		return false;

@@ -1,5 +1,6 @@
 ﻿#include "jsb_editor_plugin.h"
 #include "api_tool/api_tool.h"
+#include "jsb_config_classes_dialog.h"
 #include "jsb_docked_panel.h"
 #include "jsb_editor_helper.h"
 #include "jsb_editor_progress.h"
@@ -28,6 +29,7 @@ enum {
 	MENU_ID_GENERATE_API_DATA,
 	MENU_ID_INSTALL_PROJECT_FILES,
 	MENU_ID_GENERATE_TYPES,
+	MENU_ID_CONFIG_ENABLED_TS_CLASSES,
 	MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES,
 	MENU_ID_GENERATE_ALL_RESOURCE_TYPES,
 	MENU_ID_CLEANUP_INVALID_FILES,
@@ -174,6 +176,10 @@ void GodotJSEditorPlugin::_on_menu_pressed(int p_what) {
 		case MENU_ID_GENERATE_TYPES:
 			generate_types();
 			break;
+		case MENU_ID_CONFIG_ENABLED_TS_CLASSES:
+			config_classes_dialog_->refresh();
+			config_classes_dialog_->popup_centered_ratio(0.5f);
+			break;
 		case MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES:
 			generate_all_scene_nodes_types();
 			break;
@@ -258,6 +264,8 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	menu->add_separator();
 	menu->add_item(TTR("Install Project Files"), MENU_ID_INSTALL_PROJECT_FILES);
 	menu->add_item(TTR("Generate Types"), MENU_ID_GENERATE_TYPES);
+	menu->add_item(TTR("Config Enabled TS Classes"), MENU_ID_CONFIG_ENABLED_TS_CLASSES);
+	menu->set_item_tooltip(menu->get_item_index(MENU_ID_CONFIG_ENABLED_TS_CLASSES), TTR("Choose which native classes get JavaScript bindings generated. Unchecked classes (and their subclasses) are skipped."));
 	if (!api_tool::has_generated_data()) {
 		menu->set_item_disabled(menu->get_item_index(MENU_ID_INSTALL_PROJECT_FILES), true);
 		menu->set_item_disabled(menu->get_item_index(MENU_ID_GENERATE_TYPES), true);
@@ -272,6 +280,9 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	confirm_dialog_->set_autowrap(true);
 	add_child(confirm_dialog_);
 	confirm_dialog_->connect("confirmed", callable_mp(this, &GodotJSEditorPlugin::_on_confirm_overwrite));
+
+	config_classes_dialog_ = memnew(GodotJSConfigClassesDialog);
+	add_child(config_classes_dialog_);
 
 	add_dock(memnew(GodotJSDockedPanel));
 

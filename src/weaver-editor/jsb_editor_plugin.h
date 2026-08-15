@@ -54,6 +54,7 @@ private:
 	Ref<class GodotJSExportPlugin> export_plugin_;
 	Vector<jsb::weaver::InstallFileInfo> install_files_;
 	InstallGodotJSPresetConfirmationDialog *confirm_dialog_;
+	class GodotJSConfigClassesDialog *config_classes_dialog_;
 
 	std::shared_ptr<jsb::internal::Process> tsc_;
 

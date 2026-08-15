@@ -2,6 +2,7 @@
 
 #include "jsb_settings.h"
 #include <godot_cpp/templates/local_vector.hpp>
+#include <godot_cpp/templates/hash_set.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 namespace jsb::internal {
@@ -18,6 +19,9 @@ public:
 	static bool is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes = {});
 
 	static StringName find_exposed_base_class(const StringName &p_unexposed_original_class);
+
+	// Classes hardcoded as not usable from JavaScript regardless of ignored-classes settings.
+	static const HashSet<StringName> &get_omitted_original_classes();
 
 	static String get_class_name(const String &p_original_name) {
 		if (Settings::get_camel_case_bindings_enabled()) {
