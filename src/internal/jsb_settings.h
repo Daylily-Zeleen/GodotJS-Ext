@@ -29,7 +29,7 @@ public:
 	static bool get_sourcemap_enabled();
 
 	/**
-	 * get the project relative path for `outDir` (it refers to `.godot/GodotJS` by default)
+	 * get the project relative path for `outDir` (it refers to `.godot/godotjs_ext` by default)
 	 */
 	static String get_jsb_out_dir_name();
 
@@ -61,6 +61,9 @@ public:
 
 	static bool is_packaging_referenced_node_modules();
 
+	static void set_ignored_classes(const PackedStringArray &p_ignored_classes);
+	static PackedStringArray get_ignored_classes();
+
 	static PackedStringArray get_resource_dts_include_path_wildcards();
 	static PackedStringArray get_resource_dts_exclude_path_wildcards();
 	static PackedStringArray get_scene_dts_include_path_wildcards();
@@ -73,7 +76,6 @@ public:
 #ifdef TOOLS_ENABLED
 	// [EDITOR ONLY]
 	static bool editor_settings_available();
-	static PackedStringArray get_ignored_classes();
 	static String get_autogen_path();
 
 	static BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
@@ -83,4 +85,3 @@ public:
 #endif
 };
 } //namespace jsb::internal
-

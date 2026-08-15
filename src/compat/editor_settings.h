@@ -8,7 +8,7 @@
 #include <godot_cpp/classes/editor_settings.hpp>
 
 namespace godot {
-EditorSettings *get_editor_settings();
+Ref<EditorSettings> get_editor_settings();
 
 #ifndef EDSCALE
 #	define EDSCALE EditorInterface::get_singleton()->get_editor_scale()

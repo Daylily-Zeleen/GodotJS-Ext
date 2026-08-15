@@ -21,7 +21,6 @@
 namespace jsb::internal {
 #ifdef TOOLS_ENABLED
 static constexpr char kEdDebuggerPort[] = JSB_MODULE_NAME_STRING "/debugger/editor_port";
-static constexpr char kEdIgnoredClasses[] = JSB_MODULE_NAME_STRING "/codegen/ignored_classes";
 static constexpr char kEdAutogenPath[] = JSB_MODULE_NAME_STRING "/codegen/autogen_path";
 static constexpr char kEdAutogenSceneDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_scene_dts_settings";
 static constexpr char kEdAutogenResourceDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_resource_dts_settings";
@@ -45,6 +44,10 @@ static constexpr char kRtPackagingIncludeFiles[] = JSB_MODULE_NAME_STRING "/edit
 static constexpr char kRtPackagingIncludeDirectories[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_directories";
 static constexpr char kRtPackagingReferencedNodeModules[] = JSB_MODULE_NAME_STRING "/editor/packaging/referenced_node_modules";
 
+// TODO: 考虑修改更合适的名称，ignored classes 是不生成对应的 .d.ts 声明代码，.d.ts 本身不被打包发布，但是哪些类应该生成那些类不该被生成也是项目特定的，不应该作为编辑器设置。
+// 	语义改为ignored classes 的子类也会被忽略
+static constexpr char kRtIgnoredClasses[] = JSB_MODULE_NAME_STRING "/codegen/ignored_classes";
+
 static constexpr char kRtResourceDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/resource_dts/include_path_wildcards";
 static constexpr char kRtResourceDTSExcludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/resource_dts/exclude_path_wildcards";
 static constexpr char kRtSceneDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/include_path_wildcards";
@@ -58,7 +61,7 @@ static constexpr char kScriptInlineResourceUID[] = JSB_MODULE_NAME_STRING "/edit
 bool init_editor_settings() {
 	static bool inited = false;
 	if (!inited) {
-		if (!get_editor_settings()) {
+		if (get_editor_settings().is_null()) {
 			if (Engine::get_singleton()->is_editor_hint()) {
 				CRASH_COND_MSG(get_editor_settings() == nullptr, "EditorSettings is unavailable.");
 			} else {
@@ -67,10 +70,9 @@ bool init_editor_settings() {
 		}
 
 		// check before read to avoid redundant warnings
-		if (EditorSettings *editor_settings = get_editor_settings()) {
+		if (Ref<EditorSettings> editor_settings = get_editor_settings(); editor_settings.is_valid()) {
 			inited = true;
 			_EDITOR_DEF(kEdDebuggerPort, 9230, true);
-			_EDITOR_DEF(kEdIgnoredClasses, PackedStringArray(), false);
 			_EDITOR_DEF(kEdAutogenPath, "gen/godot", false);
 			{
 				PropertyInfo AutogenSceneDTSSettings;
@@ -175,6 +177,7 @@ void init_settings() {
 		_GLOBAL_DEF(kRtPackagingReferencedNodeModules, true, false);
 		_GLOBAL_DEF(kRtBridgeLoggingEnabled, false, false);
 
+		_GLOBAL_DEF(kRtIgnoredClasses, PackedStringArray(), false);
 		{
 			PropertyInfo ResourceDTSIncludePathWildcards;
 			ResourceDTSIncludePathWildcards.type = Variant::PACKED_STRING_ARRAY;
@@ -240,12 +243,7 @@ void init_settings() {
 
 #ifdef TOOLS_ENABLED
 bool Settings::editor_settings_available() {
-	return get_editor_settings() || Engine::get_singleton()->is_editor_hint();
-}
-
-PackedStringArray Settings::get_ignored_classes() {
-	init_editor_settings();
-	return EDITOR_GET(kEdIgnoredClasses);
+	return get_editor_settings().is_valid(); // || Engine::get_singleton()->is_editor_hint();
 }
 
 String Settings::get_autogen_path() {
@@ -346,13 +344,11 @@ uint16_t Settings::get_debugger_port() {
 
 	if (debugger_port_override != 0) return debugger_port_override;
 #ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint()) {
-		if (get_editor_settings()) {
-			init_editor_settings();
-			return EDITOR_GET(kEdDebuggerPort);
-		} else {
-			return 0; // 确保使用 0 无法启动调试功能
-		}
+	if (editor_settings_available()) {
+		init_editor_settings();
+		return EDITOR_GET(kEdDebuggerPort);
+	} else {
+		return 0; // 确保使用 0 无法启动调试功能
 	}
 #endif
 	init_settings();
@@ -405,6 +401,16 @@ String Settings::get_entry_script_path() {
 bool Settings::get_camel_case_bindings_enabled() {
 	init_settings();
 	return GLOBAL_GET(kRtCamelCaseBindingsEnabled);
+}
+
+void Settings::set_ignored_classes(const PackedStringArray &p_ignored_classes) {
+	init_settings();
+	ProjectSettings::get_singleton()->set_setting(kRtIgnoredClasses, p_ignored_classes);
+}
+
+PackedStringArray Settings::get_ignored_classes() {
+	init_settings();
+	return GLOBAL_GET(kRtIgnoredClasses);
 }
 
 String Settings::get_indentation() {
