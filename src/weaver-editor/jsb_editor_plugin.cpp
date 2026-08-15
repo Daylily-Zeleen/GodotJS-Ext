@@ -683,11 +683,11 @@ void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArra
 		Vector<String> paths;
 		if (gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY)) {
 			for (const String &path : p_resources) {
-				if (_is_file_changed(paths[0])) paths.push_back(path);
+				if (_is_file_changed(path)) paths.push_back(path);
 			}
 		} else {
 			for (const String &path : p_resources) {
-				if (_is_file_changed(paths[0])) paths.push_back(path);
+				if (_is_file_changed(path)) paths.push_back(path);
 			}
 		}
 		generate_resource_types({}, paths);
