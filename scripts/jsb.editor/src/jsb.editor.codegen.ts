@@ -327,6 +327,8 @@ const TypeMutations: Record<string, TypeMutation> = {
             "",
             `${names.get_member("set_indexed")}<I extends int64>(index: I, value: GArrayElement<T, I>): void`,
             `${names.get_member("get_indexed")}<I extends int64>(index: I): GArrayElement<T, I>`,
+            "/** [jsb utility method] Converts a GArray to a JavaScript T[]. */",
+            `${names.get_member("to_array")}(): T[]`,
         ],
         property_overrides: {
             set: [`set<I extends int64>(index: I, value: GArrayElement<T, I>): void`],
@@ -545,6 +547,62 @@ const TypeMutations: Record<string, TypeMutation> = {
         intro: [
             "/** [jsb utility method] Converts a PackedByteArray to a JavaScript ArrayBuffer. */",
             `${names.get_member("to_array_buffer")}(): ArrayBuffer`,
+            "/** [jsb utility method] Converts a PackedByteArray to a JavaScript int8[]. */",
+            `${names.get_member("to_array")}(): int8[]`,
+        ],
+    },
+    PackedInt32Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedInt32Array to a JavaScript int32[]. */",
+            `${names.get_member("to_array")}(): int32[]`,
+        ],
+    },
+    PackedInt64Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedInt64Array to a JavaScript int64[]. */",
+            `${names.get_member("to_array")}(): int64[]`,
+        ],
+    },
+    PackedFloat32Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedFloat32Array to a JavaScript float32[]. */",
+            `${names.get_member("to_array")}(): float32[]`,
+        ],
+    },
+    PackedFloat64Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedFloat64Array to a JavaScript float64[]. */",
+            `${names.get_member("to_array")}(): float64[]`,
+        ],
+    },
+    PackedStringArray: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedStringArray to a JavaScript string[]. */",
+            `${names.get_member("to_array")}(): string[]`,
+        ],
+    },
+    PackedVector2Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedVector2Array to a JavaScript godot.Vector2[]. */",
+            `${names.get_member("to_array")}(): Vector2[]`,
+        ],
+    },
+    PackedVector3Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedVector3Array to a JavaScript godot.Vector3[]. */",
+            `${names.get_member("to_array")}(): Vector3[]`,
+        ],
+    },
+    PackedColorArray: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedColorArray to a JavaScript godot.Color[]. */",
+            `${names.get_member("to_array")}(): Color[]`,
+        ],
+    },
+    PackedVector4Array: {
+        intro: [
+            "/** [jsb utility method] Converts a PackedVector4Array to a JavaScript godot.Vector4[]. */",
+            `${names.get_member("to_array")}(): Vector4[]`,
         ],
     },
     PackedScene: {

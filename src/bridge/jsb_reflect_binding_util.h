@@ -1,7 +1,8 @@
 #pragma once
+#include <godot_cpp/core/builtin_ptrcall.hpp>
+#include <godot_cpp/variant/variant_internal.hpp>
+
 #include "api_tool/api_tool_types.h"
-#include "godot_cpp/core/builtin_ptrcall.hpp"
-#include "godot_cpp/variant/variant_internal.hpp"
 #include "jsb_environment.h"
 #include "jsb_object_handle.h"
 #include "jsb_static_binding_util.h"
@@ -40,22 +41,72 @@ struct ReflectAdditionalMethodRegister {
 	static void register_(impl::ClassBuilder &class_builder) {}
 };
 
-template <>
-struct ReflectAdditionalMethodRegister<PackedByteArray> {
+template <typename T>
+concept GDArrayType =
+		::godot::GetTypeInfo<T>::VARIANT_TYPE >= ::GDExtensionVariantType::GDEXTENSION_VARIANT_TYPE_ARRAY
+		&& ::godot::GetTypeInfo<T>::VARIANT_TYPE <= ::GDExtensionVariantType::GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR4_ARRAY;
+template <GDArrayType ForType>
+struct ReflectAdditionalMethodRegister<ForType> {
 	static void register_(impl::ClassBuilder &class_builder) {
-		class_builder.Instance().Method(internal::NamingUtil::get_member_name("to_array_buffer"), &_to_array_buffer);
+		if constexpr (std::is_same_v<ForType, PackedByteArray>) {
+			class_builder.Instance().Method(internal::NamingUtil::get_member_name("to_array_buffer"), [](const v8::FunctionCallbackInfo<v8::Value> &info) {
+				v8::Isolate *isolate = info.GetIsolate();
+				const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+				const v8::Local<v8::Object> self = info.This();
+				Variant var;
+				if (!TypeConvert::js_to_gd_var(isolate, context, self, Variant::PACKED_BYTE_ARRAY, var)) {
+					jsb_throw(isolate, "this is not PackedByteArray");
+					return;
+				}
+				info.GetReturnValue().Set(impl::Helper::to_array_buffer<PackedByteArray>(isolate, var));
+			});
+		}
+
+		class_builder.Instance().Method(internal::NamingUtil::get_member_name("to_array"), &_to_array);
 	}
 
-	static void _to_array_buffer(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	static void _to_array(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+		JSB_ISOLATE_SCOPE(isolate);
+		v8::HandleScope handle_scope(isolate);
+		v8::Context::Scope context_scope(context);
+
 		const v8::Local<v8::Object> self = info.This();
+
 		Variant var;
-		if (!TypeConvert::js_to_gd_var(isolate, context, self, Variant::PACKED_BYTE_ARRAY, var)) {
-			jsb_throw(isolate, "this is not PackedByteArray");
+		constexpr ::godot::Variant::Type gd_type = static_cast<Variant::Type>(::godot::GetTypeInfo<ForType>::VARIANT_TYPE);
+		if (!TypeConvert::js_to_gd_var(isolate, context, self, gd_type, var)) {
+			jsb_throw(isolate, vformat("this is not %s", ::godot::Variant::get_type_name(gd_type)));
 			return;
 		}
-		info.GetReturnValue().Set(impl::Helper::to_array_buffer<PackedByteArray>(isolate, var));
+
+		ForType gd_array = var;
+		using ElemType = std::decay_t<decltype(gd_array[0])>;
+		v8::Local<v8::Array> js_arr = v8::Array::New(isolate, gd_array.size());
+		auto size = gd_array.size();
+		for (decltype(size) i = 0; i < size; ++i) {
+			v8::Local<v8::Value> elem;
+
+			if constexpr (std::is_same_v<ElemType, bool>) {
+				elem = v8::Boolean::New(isolate, gd_array[i]);
+			} else if constexpr (std::is_floating_point_v<ElemType>) {
+				elem = v8::Number::New(isolate, gd_array[i]);
+			} else if constexpr (std::is_integral_v<ElemType>) {
+				elem = impl::Helper::new_integer(isolate, gd_array[i]);
+			} else if constexpr (std::is_same_v<ElemType, String>) {
+				elem = impl::Helper::new_string(isolate, gd_array[i]);
+			} else {
+				if (!TypeConvert::gd_var_to_js(isolate, context, gd_array[i], elem)) {
+					jsb_throw(isolate, vformat("ToArray failed: can't convert %s to js value, at idx %s", ::godot::Variant::get_type_name(Variant(gd_array[i]).get_type()), i));
+					return;
+				}
+			}
+
+			js_arr->Set(context, i, elem);
+		}
+
+		info.GetReturnValue().Set(js_arr);
 	}
 };
 
