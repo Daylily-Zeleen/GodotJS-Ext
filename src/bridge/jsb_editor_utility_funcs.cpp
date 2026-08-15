@@ -1114,6 +1114,36 @@ static void _cleanup_invalid_files(const v8::FunctionCallbackInfo<v8::Value> &in
 	info.GetReturnValue().Set(resolver->GetPromise());
 }
 
+static void _is_original_class_exposed(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	auto context = isolate->GetCurrentContext();
+
+	v8::Local<v8::Value> arg = info[0];
+	if (arg.IsEmpty() || !arg->IsString()) {
+		jsb_throw(isolate, "bad argument 1");
+		return;
+	}
+
+	StringName class_name = impl::Helper::to_string(isolate, arg.As<v8::String>());
+	info.GetReturnValue().Set(v8::Boolean::New(isolate, internal::NamingUtil::is_original_class_exposed(class_name)));
+}
+
+static void _find_exposed_base_class(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	auto context = isolate->GetCurrentContext();
+
+	v8::Local<v8::Value> arg = info[0];
+	if (arg.IsEmpty() || !arg->IsString()) {
+		jsb_throw(isolate, "bad argument 1");
+		return;
+	}
+
+	StringName unexposed_class_name = impl::Helper::to_string(isolate, arg.As<v8::String>());
+	info.GetReturnValue().Set(impl::Helper::new_string(isolate, internal::NamingUtil::find_exposed_base_class(unexposed_class_name)));
+}
+
 void EditorUtilityFuncs::expose(v8::Isolate *isolate, v8::Local<v8::Context> context, v8::Local<v8::Object> jsb_obj) {
 	v8::Local<v8::Object> editor_obj = v8::Object::New(isolate);
 
@@ -1130,6 +1160,8 @@ void EditorUtilityFuncs::expose(v8::Isolate *isolate, v8::Local<v8::Context> con
 	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "install_static_types"), JSB_NEW_FUNCTION(context, _install_static_types, {})).Check();
 	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "generate_types"), JSB_NEW_FUNCTION(context, _generate_types, {})).Check();
 	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "cleanup_invalid_files"), JSB_NEW_FUNCTION(context, _cleanup_invalid_files, {})).Check();
+	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "is_original_class_exposed"), JSB_NEW_FUNCTION(context, _is_original_class_exposed, {})).Check();
+	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "find_exposed_base_class"), JSB_NEW_FUNCTION(context, _find_exposed_base_class, {})).Check();
 	editor_obj->Set(context, impl::Helper::new_string_ascii(isolate, "VERSION_DOCS_URL"), impl::Helper::new_string(isolate, "https://docs.godotengine.org/en/latest")).Check(); // TODO: 版本链接拼接
 }
 } //namespace jsb

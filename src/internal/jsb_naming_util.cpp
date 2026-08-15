@@ -313,7 +313,7 @@ void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list
 			continue;
 		}
 
-		if (p_exclude_ignored_classes && ignored_classes.has(get_class_name(class_name))) {
+		if (p_exclude_ignored_classes && !is_original_class_exposed(class_name, ignored_classes)) {
 			JSB_LOG(Verbose, "Ignoring class '%s' because it's in the ignored classes list", class_name);
 			continue;
 		}
@@ -340,7 +340,7 @@ void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list
 	}
 }
 
-bool NamingUtil::is_original_class_exposed(const StringName &p_original_name) {
+bool NamingUtil::is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes) {
 	const HashSet<StringName> &omitted_original_classes = _get_omitted_original_classes();
 
 	if (omitted_original_classes.has(p_original_name)) {
@@ -363,10 +363,22 @@ bool NamingUtil::is_original_class_exposed(const StringName &p_original_name) {
 		return false;
 	}
 
-	if (internal::Settings::get_ignored_classes().has(p_original_name)) {
-		return false;
+	// ignored classs 可以指定父类，连同子类一起禁用
+	for (const String &ignored_class : (p_ignored_classes.is_empty() ? jsb::internal::Settings::get_ignored_classes() : p_ignored_classes)) {
+		if (ignored_class == p_original_name || ClassDB::is_parent_class(p_original_name, ignored_class))
+			return false;
 	}
 
 	return true;
 }
+
+StringName NamingUtil::find_exposed_base_class(const StringName &p_unexposed_original_class) {
+	const PackedStringArray ignored_classes = jsb::internal::Settings::get_ignored_classes();
+	StringName base = ClassDB::get_parent_class(p_unexposed_original_class);
+	while (!base.is_empty() && !is_original_class_exposed(base, ignored_classes)) {
+		base = ClassDB::get_parent_class(base);
+	}
+	return base;
+}
+
 } //namespace jsb::internal

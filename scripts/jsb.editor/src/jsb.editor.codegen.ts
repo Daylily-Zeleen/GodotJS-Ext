@@ -3179,6 +3179,9 @@ export class TypeDB {
     // `class_doc` is loaded lazily once used, and be cached in `class_docs`
     class_docs: { [name: string]: GodotJsb.editor.ClassDoc | false } = {};
 
+    ignored_classes = new Map<string, string>();
+    ignored_class_enums = new Set<string>();
+
     constructor() {
         const classes = jsb.editor.get_classes();
         const primitive_types = jsb.editor.get_primitive_types();
@@ -3285,6 +3288,34 @@ export class TypeDB {
         if (class_name in types.globals) {
             return class_name;
         }
+
+        // Ignored classes or enums.
+
+        const layers = class_name.split(".");
+        if (layers.length === 2) {
+            if (this.ignored_class_enums.has(class_name)) {
+                return `IgnoredEnums[${class_name}]`;
+            }
+
+            const owned_class = layers[0];
+            if (!jsb.editor.is_original_class_exposed(owned_class) ) {
+                this.ignored_class_enums.add(`${class_name}`);
+                return `IgnoredEnums[${class_name}]`;
+            }
+        }
+
+        if (this.ignored_classes.has(class_name)) {
+            return `IgnoredClasses["${class_name}"]`;
+        }
+
+        if (!jsb.editor.is_original_class_exposed(class_name)) {
+            const exposed_base_class = jsb.editor.find_exposed_base_class(class_name);
+            if (exposed_base_class.length > 0) {
+                this.ignored_classes.set(class_name, exposed_base_class);
+                return `IgnoredClasses["${class_name}"]`;
+            }
+        }
+
         console.warn("undefined class", class_name);
         return `any /*${class_name}*/`;
     }
@@ -3613,6 +3644,30 @@ export class TSDCodeGen {
             });
         }
 
+        // ignored classes
+        tasks.add_task("Generating ignored classes", () => {
+            const cg = this.split();
+            cg.line(``);
+            cg.line_comment_(`IgnoredClasses: ignored classes that are configured by "Project->Tools->GodotJS->Config Enabled TS Classes" and used by other APIs.`);
+            const writer = new InterfaceWriter(cg, "IgnoredClasses");
+            for (const [class_name, exposed_base_class] of this._types.ignored_classes) {
+                writer.property_(class_name, exposed_base_class);
+            }
+            writer.finish();
+        });
+
+        // ignored class enums
+        tasks.add_task("Generating ignored class enums", () => {
+            const cg = this.split();
+            cg.line(``);
+            cg.line_comment_(`IgnoredClassEnums: its owner class is ignored, but the enum type is used by other APIs.`);
+            const writer = new InterfaceWriter(cg, "IgnoredClassEnums");
+            for (const enum_name of this._types.ignored_class_enums) {
+                writer.property_(enum_name, "number");
+            }
+            writer.finish();
+        });
+
         tasks.add_task("Generating jsb.runtime", () => {
             const path = "/jsb.runtime.gen.d.ts";
             const dir_path = this._out_dir + path;
@@ -3783,6 +3838,8 @@ export class TSDCodeGen {
 
     private emit_godot_class(cg: CodeWriter, cls: GodotJsb.editor.ClassInfo, singleton_mode: boolean) {
         try {
+            if (!jsb.editor.is_original_class_exposed(cls.name)) return; // 跳过被忽略类型的生成
+
             const class_doc = this._types.find_doc(cls.name);
             const ignored_consts: Set<string> = new Set();
             const class_ns_cg = cg.namespace_(cls.name, class_doc);

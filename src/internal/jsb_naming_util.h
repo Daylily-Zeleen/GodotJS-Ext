@@ -15,7 +15,9 @@ public:
 
 	static void get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes = true);
 
-	static bool is_original_class_exposed(const StringName &p_original_name);
+	static bool is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes = {});
+
+	static StringName find_exposed_base_class(const StringName &p_unexposed_original_class);
 
 	static String get_class_name(const String &p_original_name) {
 		if (Settings::get_camel_case_bindings_enabled()) {

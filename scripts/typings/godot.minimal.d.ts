@@ -320,6 +320,10 @@ declare module "godot-jsb" {
 
         function cleanup_invalid_files(): Promise<void>;
 
+        function find_exposed_base_class(class_name: string): string;
+
+        function is_original_class_exposed(class_name: string): bool;
+
         const VERSION_DOCS_URL: string;
     }
 }
