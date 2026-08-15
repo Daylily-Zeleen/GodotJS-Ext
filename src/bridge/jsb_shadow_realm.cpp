@@ -1268,7 +1268,7 @@ public:
 		String err_msg;
 		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		if (result.IsEmpty()) {
-			jsb_throw(isolate, err_msg); // TODO 崩溃
+			jsb_throw(isolate, err_msg);
 			resolver->Reject(context, impl::Helper::new_string(isolate, err_msg)).Check();
 		} else {
 			resolver->Resolve(context, result).Check();
