@@ -94,6 +94,15 @@ void GodotJSScriptLanguage::_init() {
 	JSB_LOG(Verbose, "Runtime: %s", JSB_IMPL_VERSION_STRING);
 	JSB_LOG(VeryVerbose, "jsb lang init");
 
+	/*
+		不能放在 register_type 的 register_startup_callback 回调的原因是时序问题
+		- ScriptLanguage::init 在 Main::setup2() 中的所有 initialize_module/initialize_extension 步骤结束之后调用
+		- 而 register_startup_callback 添加的回调在 Main::start() 中调用
+		- 也就变成在执行启动脚本之后才填充名称替换映射了，如果不巧用户在启动脚本中用到了需要进行名称替换的标识符就寄了
+		- 放在此处是个比较合适的折中，虽然运行c++测试时会重复执行填充，但是幂等无副作用，正式运行时只会被执行一次。
+	*/
+	jsb::Environment::populate_string_names_replacements();
+
 	jsb::Environment::CreateParams params;
 	params.initial_class_slots = (int)ClassDBSingleton::get_singleton()->get_class_list().size() + JSB_MASTER_INITIAL_CLASS_EXTRA_SLOTS;
 	params.initial_object_slots = JSB_MASTER_INITIAL_OBJECT_SLOTS;

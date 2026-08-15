@@ -296,22 +296,9 @@ String NamingUtil::snake_to_camel_case(const String &p_identifier, bool p_input_
 	return ret;
 }
 
-void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list) {
-#ifdef TOOLS_ENABLED
-	HashSet<String> ignored_classes_set;
-
-	if (internal::Settings::editor_settings_available()) {
-		const PackedStringArray ignored_classes = internal::Settings::get_ignored_classes();
-		const int ignored_classes_num = (int)ignored_classes.size();
-		ignored_classes_set.reserve(ignored_classes_num);
-
-		for (int i = 0; i < ignored_classes_num; ++i) {
-			ignored_classes_set.insert(ignored_classes[i]);
-		}
-	}
-#endif
-
-	PackedStringArray all_class_names = ClassDB::get_class_list();
+void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes) {
+	const PackedStringArray ignored_classes = p_exclude_ignored_classes ? Settings::get_ignored_classes() : PackedStringArray{};
+	const PackedStringArray all_class_names = ClassDB::get_class_list();
 
 	r_list.clear();
 	r_list.reserve(all_class_names.size());
@@ -326,12 +313,10 @@ void NamingUtil::get_exposed_original_class_list(LocalVector<StringName> &r_list
 			continue;
 		}
 
-#ifdef TOOLS_ENABLED
-		if (ignored_classes_set.has(get_class_name(class_name))) {
+		if (p_exclude_ignored_classes && ignored_classes.has(get_class_name(class_name))) {
 			JSB_LOG(Verbose, "Ignoring class '%s' because it's in the ignored classes list", class_name);
 			continue;
 		}
-#endif
 
 		ClassDB::APIType api_type = ClassDB::class_get_api_type(class_name);
 
@@ -378,11 +363,9 @@ bool NamingUtil::is_original_class_exposed(const StringName &p_original_name) {
 		return false;
 	}
 
-#ifdef TOOLS_ENABLED
 	if (internal::Settings::get_ignored_classes().has(p_original_name)) {
 		return false;
 	}
-#endif
 
 	return true;
 }

@@ -327,8 +327,6 @@ Environment::Environment(const CreateParams &p_params)
 				module_cache_.init(isolate, cache_obj);
 			}
 
-			populate_string_names_replacements();
-
 #if JSB_SHADOW_REALM_ENABLED
 			ShadowRealm::register_(context, global);
 #endif // JSB_SHADOW_REALM_ENABLED
@@ -402,7 +400,7 @@ Environment::~Environment() {
 
 void Environment::init() {
 	jsb::DefaultModuleResolver &resolver = this->add_module_resolver<jsb::DefaultModuleResolver>();
-	resolver.add_search_path(jsb::internal::Settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/GodotJS' by default)
+	resolver.add_search_path(jsb::internal::Settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/godotjs_ext' by default)
 	resolver.add_search_path("res://"); // use the root directory as custom lib path by default
 	resolver.add_search_path("res://node_modules"); // so far, it's the only supported path for node_modules in GodotJS
 
@@ -2172,7 +2170,8 @@ void Environment::populate_string_names_replacements() {
 	internal::StringNames &names = internal::StringNames::get_singleton();
 
 	LocalVector<StringName> exposed_class_list;
-	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list);
+	// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
+	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list, false); 
 
 	for (const StringName &class_name : exposed_class_list) {
 		StringName exposed_name = internal::NamingUtil::get_class_name(class_name);

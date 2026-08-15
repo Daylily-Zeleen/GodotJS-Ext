@@ -250,4 +250,3 @@ private:
 protected:
 	static void _bind_methods();
 };
-

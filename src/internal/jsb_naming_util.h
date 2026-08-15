@@ -13,7 +13,7 @@ public:
 
 	static String snake_to_camel_case(const String &p_identifier, bool p_input_is_upper = false);
 
-	static void get_exposed_original_class_list(LocalVector<StringName> &r_list);
+	static void get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes = true);
 
 	static bool is_original_class_exposed(const StringName &p_original_name);
 
