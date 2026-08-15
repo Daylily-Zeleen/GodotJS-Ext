@@ -170,12 +170,14 @@ public:
 
 			String source_map_base_url = jsb::internal::Settings::get_debugger_source_map_base_url();
 
-			v8::Local<v8::Value> filename_value = v8::String::NewFromUtf8(isolate, filename.utf8().ptr(), v8::NewStringType::kNormal, filename.length()).ToLocalChecked();
+			const CharString filename_utf8 = filename.utf8();
+			v8::Local<v8::Value> filename_value = v8::String::NewFromUtf8(isolate, filename_utf8.get_data(), v8::NewStringType::kNormal, filename_utf8.length()).ToLocalChecked();
 			v8::Local<v8::Value> source_map_url_value;
 
 			if (source_map_base_url.length() > 0) {
 				String source_map_url = source_map_base_url + (source_map_base_url.ends_with("/") ? filename : '/' + filename) + ".map";
-				source_map_url_value = v8::String::NewFromUtf8(isolate, source_map_url.utf8().ptr(), v8::NewStringType::kNormal, source_map_url.length()).ToLocalChecked();
+				const CharString source_map_url_utf8 = source_map_url.utf8();
+				source_map_url_value = v8::String::NewFromUtf8(isolate, source_map_url_utf8.get_data(), v8::NewStringType::kNormal, source_map_url_utf8.length()).ToLocalChecked();
 			}
 
 #if V8_VERSION_NEWER_THAN(12, 1, 139)
