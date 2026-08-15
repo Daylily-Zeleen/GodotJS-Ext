@@ -44,8 +44,8 @@ static constexpr char kRtPackagingIncludeFiles[] = JSB_MODULE_NAME_STRING "/edit
 static constexpr char kRtPackagingIncludeDirectories[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_directories";
 static constexpr char kRtPackagingReferencedNodeModules[] = JSB_MODULE_NAME_STRING "/editor/packaging/referenced_node_modules";
 
-// TODO: 考虑修改更合适的名称，ignored classes 是不生成对应的 .d.ts 声明代码，.d.ts 本身不被打包发布，但是哪些类应该生成那些类不该被生成也是项目特定的，不应该作为编辑器设置。
-// 	语义改为ignored classes 的子类也会被忽略
+// ignored classes 是不生成对应的 .d.ts 声明代码，.d.ts 本身不被打包发布，但是哪些类应该生成那些类不该被生成也是项目特定的，不应该作为编辑器设置。
+// 语义改为ignored classes 的子类也会被忽略
 static constexpr char kRtIgnoredClasses[] = JSB_MODULE_NAME_STRING "/codegen/ignored_classes";
 
 static constexpr char kRtResourceDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/resource_dts/include_path_wildcards";
@@ -406,6 +406,7 @@ bool Settings::get_camel_case_bindings_enabled() {
 void Settings::set_ignored_classes(const PackedStringArray &p_ignored_classes) {
 	init_settings();
 	ProjectSettings::get_singleton()->set_setting(kRtIgnoredClasses, p_ignored_classes);
+	ProjectSettings::get_singleton()->save();
 }
 
 PackedStringArray Settings::get_ignored_classes() {
