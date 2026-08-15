@@ -579,6 +579,8 @@ private:
 	_FORCE_INLINE_ static v8::Local<v8::Name> transfer_key(v8::Isolate *p_from_isolate, const v8::Local<v8::Name> &p_from_key, v8::Isolate *p_to_isolate) {
 		if (p_from_key->IsSymbol()) {
 			if (SymbolCrossUtils::is_normal_symbol(p_from_isolate, p_from_key.As<v8::Symbol>())) {
+				JSB_ISOLATE_SCOPE(p_from_isolate);
+				v8::HandleScope handle_scope(p_from_isolate);
 				jsb_throw(p_from_isolate, "Can't access regular symbol property from another realm.");
 				return v8::Local<v8::Name>();
 			} else {
@@ -903,9 +905,10 @@ protected:
 	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		Environment *env = Environment::wrap(isolate);
-		const v8::HandleScope handle_scope(isolate);
 		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
+
 		const v8::Context::Scope context_scope(context);
 
 		const v8::Local<v8::Object> self = info.This();
@@ -977,7 +980,11 @@ public:
 		if (!p_create_params.startup_script.is_empty()) {
 			if (env_->load(p_create_params.startup_script) != OK) {
 				finish();
-				jsb_throw(p_master->get_isolate(), "Create ShadowRealm failed: failed to load startup script.");
+				v8::Isolate *isolate = p_master->get_isolate();
+				JSB_ISOLATE_SCOPE(isolate);
+				v8::HandleScope handle_scope(isolate);
+
+				jsb_throw(isolate, "Create ShadowRealm failed: failed to load startup script.");
 				return false;
 			}
 		}
@@ -1123,6 +1130,8 @@ public:
 
 	static void addAllowedModuleSearchPath(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
@@ -1135,9 +1144,6 @@ public:
 			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
-
-		const v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
 
 		if (info.Length() <= 0 || !info[0]->IsString()) {
 			jsb_throw(isolate, "bad argument: require a string.");
@@ -1159,22 +1165,23 @@ public:
 
 	static void evaluate(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
-		v8::Isolate *isolate = info.GetIsolate();
+		v8::Isolate *host_isolate = info.GetIsolate();
+		const v8::HandleScope handle_scope(host_isolate);
+		JSB_ISOLATE_SCOPE(host_isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
-			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
+			jsb_throw(host_isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
 			return;
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (realm == nullptr) {
-			jsb_throw(isolate, "Call on an invalid shadow realm");
+			jsb_throw(host_isolate, "Call on an invalid shadow realm");
 			return;
 		}
 
 		String wrapped_source;
-		v8::Isolate *host_isolate = info.GetIsolate();
 		{
 			if (info.Length() <= 0 || !info[0]->IsString()) {
 				jsb_throw(host_isolate, "bad argument: require a string.");
@@ -1188,8 +1195,8 @@ public:
 
 		{
 			v8::Isolate *guest_isolate = realm->env_->get_isolate();
-			const v8::HandleScope handle_scope1(guest_isolate);
 			JSB_ISOLATE_SCOPE(guest_isolate);
+			const v8::HandleScope handle_scope1(guest_isolate);
 
 			const v8::Local<v8::Context> guest_context = realm->env_->get_context();
 			const v8::Context::Scope context_scope(guest_context);
@@ -1217,6 +1224,8 @@ public:
 	static void importValue(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
 		v8::Isolate *isolate = info.GetIsolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
@@ -1233,8 +1242,6 @@ public:
 		Environment *env = Environment::wrap(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
 
-		const v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Context::Scope context_scope(context);
 
 		// 创建 Promise resolver
@@ -1261,8 +1268,7 @@ public:
 		String err_msg;
 		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		if (result.IsEmpty()) {
-			v8::Isolate *guest_isolate = realm->env_->get_isolate();
-			jsb_throw(guest_isolate, err_msg);
+			jsb_throw(isolate, err_msg); // TODO 崩溃
 			resolver->Reject(context, impl::Helper::new_string(isolate, err_msg)).Check();
 		} else {
 			resolver->Resolve(context, result).Check();
@@ -1272,6 +1278,8 @@ public:
 	static void importValueSync(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
 		v8::Isolate *isolate = info.GetIsolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
@@ -1288,8 +1296,6 @@ public:
 		Environment *env = Environment::wrap(isolate);
 		const v8::Local<v8::Context> context = env->get_context();
 
-		const v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
 		const v8::Context::Scope context_scope(context);
 
 		if (info.Length() <= 0 || !info[0]->IsString() || info[0].As<v8::String>()->Length() <= 0) {
@@ -1309,8 +1315,7 @@ public:
 		String err_msg;
 		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		if (result.IsEmpty()) {
-			v8::Isolate *guest_isolate = realm->env_->get_isolate();
-			jsb_throw(guest_isolate, err_msg);
+			jsb_throw(isolate, err_msg);
 		} else {
 			info.GetReturnValue().Set(result);
 		}
@@ -1320,12 +1325,16 @@ public:
 		v8::Isolate *isolate = info.GetIsolate();
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
+			JSB_ISOLATE_SCOPE(isolate);
+			const v8::HandleScope handle_scope(isolate);
 			jsb_throw(isolate, "bad this: postMessage must be called on a TransferableShadowRealm instance");
 			return;
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (realm == nullptr) {
+			JSB_ISOLATE_SCOPE(isolate);
+			const v8::HandleScope handle_scope(isolate);
 			jsb_throw(isolate, "Can not terminate an invalid shadow realm");
 			return;
 		}
@@ -1669,8 +1678,8 @@ private:
 	// transferableShadowRealm -> master (run in shadowRealm env)
 	static void post_message_to_host(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
-		const v8::HandleScope handle_scope(isolate);
 		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
 
@@ -1707,6 +1716,8 @@ public:
 	// master.postMessage
 	static void post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
 
 		const v8::Local<v8::Object> self = info.This();
 		if (!TypeConvert::is_object(self, NativeClassType::Shadow)) {
@@ -1716,7 +1727,7 @@ public:
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (realm == nullptr) {
-			jsb_throw(info.GetIsolate(), "Call on an invalid shadow realm");
+			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
 
@@ -1724,9 +1735,6 @@ public:
 			jsb_throw(isolate, "TransferableShadowRealm is not running");
 			return;
 		}
-
-		const v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
 
 		internal::ReferentialVariantMap<TransferData> transfer_map;
 		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
