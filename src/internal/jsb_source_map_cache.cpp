@@ -10,7 +10,7 @@
 namespace jsb::internal {
 #if JSB_WITH_SOURCEMAP
 bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
-#	if JSB_WITH_QUICKJS
+#	if JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
 	if (source_map_match1_.is_null()) source_map_match1_ = RegEx::create_from_string(R"(\s+at\s(.+)\s\((.+\.js):(\d+)\))"); // e.g. at xxx (file.js:1)
 	const Ref<RegEx> &regex = source_map_match1_;
 	const Ref<RegExMatch> match = regex->search(p_line);
@@ -26,7 +26,7 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 	r_result.line = one_based_stack_line - 1;
 	r_result.col = 0; // quickjs has not stack column.
 	return true;
-#	else
+#	else // ! JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
 	if (source_map_match1_.is_null()) source_map_match1_ = RegEx::create_from_string(R"(\s+at\s(.+)\s\((.+\.js):(\d+):(\d+)\))"); // e.g. at xxx (file.js:1:2)
 	if (source_map_match2_.is_null()) source_map_match2_ = RegEx::create_from_string(R"(\s+at\s(.+\.js):(\d+):(\d+))"); // e.g. at file.js:1:2
 	const Ref<RegEx> &regex = p_line.contains("(") && p_line.contains(")")

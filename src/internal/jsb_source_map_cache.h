@@ -20,7 +20,7 @@ private:
 		String filename;
 		int line = 0; // zero-based
 
-		// not available in quickjs.impl
+		// not available in quickjs.impl (but quickjs-ng has column info)
 		int col = 0; // zero-based
 	};
 
