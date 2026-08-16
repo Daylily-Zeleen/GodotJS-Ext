@@ -21,6 +21,7 @@ export default class Start extends Node {
 				"res://tests/papaparse/Papaparse.tscn",
 				"res://tests/os-executor/OSExecutor.tscn",
 				"res://tests/worker/Worker.tscn",
+				"res://tests/中文路径/SourceMapTest.tscn",
 			];
 
 			for (const scene of scenes) {
@@ -52,11 +53,11 @@ export default class Start extends Node {
 				await new Promise((resolve) => setTimeout(resolve, ASYNC_TEST_DRAIN_POLL_MS));
 			}
 
-            reportTestCompleted();
-        } catch (error) {
-            reportTestFailure("start", error);
-        } finally {
-            this.get_tree().quit();
-        }
-    }
+			reportTestCompleted();
+		} catch (error) {
+			reportTestFailure("start", error);
+		} finally {
+			this.get_tree().quit();
+		}
+	}
 }

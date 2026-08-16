@@ -13,7 +13,6 @@ struct SourceMapCache {
 
 	void clear();
 
-private:
 #if JSB_WITH_SOURCEMAP
 	struct MatchResult {
 		String function;
@@ -24,8 +23,11 @@ private:
 		int col = 0; // zero-based
 	};
 
-	SourceMap *find_source_map(const String &p_filename);
+	// match a single stacktrace line (e.g. `at xxx (file.js:1:2)`) and extract the frame info.
 	bool match(const String &p_line, MatchResult &r_result);
+
+private:
+	SourceMap *find_source_map(const String &p_filename);
 
 	Ref<RegEx> source_map_match1_;
 	Ref<RegEx> source_map_match2_;
@@ -33,4 +35,3 @@ private:
 #endif
 };
 } //namespace jsb::internal
-
