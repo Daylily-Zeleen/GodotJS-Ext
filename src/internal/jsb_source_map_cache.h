@@ -18,10 +18,10 @@ private:
 	struct MatchResult {
 		String function;
 		String filename;
-		int line = 0;
+		int line = 0; // zero-based
 
 		// not available in quickjs.impl
-		int col = 0;
+		int col = 0; // zero-based
 	};
 
 	SourceMap *find_source_map(const String &p_filename);

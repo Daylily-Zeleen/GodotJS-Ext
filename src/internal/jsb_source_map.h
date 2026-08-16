@@ -8,7 +8,9 @@
 namespace jsb::internal {
 struct IndexedSourcePosition {
 	int index = 0;
+	/** zero-based */
 	int line = 0;
+	/** zero-based */
 	int column = 0;
 };
 
@@ -53,7 +55,7 @@ public:
 
 	// input: js source position [line, column]
 	// output: ts source position
-	//NOTE line & column are both zero-based
+	//NOTE line & column are both zero-based （Source Map 规范）
 	bool find(int p_line, int p_column, IndexedSourcePosition &r_pos) const;
 
 	const String &get_source_root() const;
