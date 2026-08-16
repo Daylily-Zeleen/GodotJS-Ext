@@ -169,6 +169,11 @@ bool SourceMap::find(int p_line, int p_column, IndexedSourcePosition &r_pos) con
 		if (line.result_line > p_line) {
 			continue;
 		}
+		// a mapping only applies to the generated line it is defined on;
+		// do not fall back to mappings on earlier lines (e.g. a position past the end of the mapped range)
+		if (line.result_line < p_line) {
+			break;
+		}
 
 		int xdist = INT_MAX;
 		int xindex = 0;
