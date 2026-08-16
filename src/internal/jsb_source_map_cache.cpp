@@ -55,7 +55,9 @@ String SourceMapCache::process_source_position(const String &p_stacktrace, Sourc
 		if (!map->find(result.line, result.col, position)) continue;
 		const String &source = map->get_source(position.index);
 		const String &source_root = map->get_source_root();
-		const String original_path = PathUtil::to_platform_specific_path(PathUtil::combine("res://", source_root, source));
+		// Supports external maps beside the generated JS when sources resolve to local paths.
+		// URI sources such as webpack:///, inline/eval maps, and sourcesContent are unsupported.
+		const String original_path = PathUtil::to_platform_specific_path(PathUtil::combine(PathUtil::dirname(result.filename), source_root, source));
 
 		if (result.function.is_empty()) st_line = jsb_format("    at %s:%d:%d", original_path, position.line, position.column);
 		else st_line = jsb_format("    at %s (%s:%d:%d)", result.function, original_path, position.line, position.column);

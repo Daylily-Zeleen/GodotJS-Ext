@@ -489,7 +489,6 @@ Error GodotJSEditorPlugin::apply_file(const jsb::weaver::InstallFileInfo &p_file
 		String parsed = String::utf8(data, (int)size);
 		parsed = parsed.replacen("__OUT_DIR__", jsb::internal::Settings::get_jsb_out_dir_name());
 		parsed = parsed.replacen("__BUILD_INFO_FILE__", jsb::internal::Settings::get_tsbuildinfo_path());
-		parsed = parsed.replacen("__SRC_DIR__", "../../../"); // locate typescripts at the project root path for better dev experience
 		parsed = parsed.replacen("__NEW_LINE__", "crlf");
 		parsed = parsed.replacen("__MODULE__", "node16"); // CommonJS with sane ESM default import handling
 		parsed = parsed.replacen("__TYPE_ROOTS__", String(",").join({ R"("./node_modules/@types")", "\"./" JSB_TYPE_ROOT "\"" }));
