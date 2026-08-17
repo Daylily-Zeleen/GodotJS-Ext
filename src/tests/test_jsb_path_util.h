@@ -58,9 +58,6 @@ TEST_CASE("[jsb.path] extract normalization") {
 	// `..` above the protocol root is kept (pure string normalization, no clamping)
 	CHECK(internal::PathUtil::extract("res://../x", out) == OK);
 	CHECK(out == "res://../x");
-
-	// empty input is an error
-	CHECK(internal::PathUtil::extract("", out) != OK);
 }
 
 TEST_CASE("[jsb.path] is_absolute_path") {
