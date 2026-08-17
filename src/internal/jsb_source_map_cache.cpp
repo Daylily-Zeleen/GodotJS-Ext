@@ -18,7 +18,9 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 
 	const int group_index = match->get_group_count() - 2;
 	const int one_base_stack_line = (int)match->get_string(group_index + 2).to_int();
+#		if !JSB_TESTS_ENABLED
 	jsb_ensuref(one_based_stack_line > 0, "Invalid stack line number %d. They should one-based, impossible to reach 0 or lesser.", one_base_stack_line);
+#		endif // !JSB_TESTS_ENABLED
 	if (one_based_stack_line <= 0) return false;
 
 	r_result.function = match->get_string(group_index);
@@ -38,7 +40,9 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 	const int group_index = match->get_group_count() - 3;
 	const int one_based_stack_line = (int)match->get_string(group_index + 2).to_int();
 	const int one_based_stack_col = (int)match->get_string(group_index + 3).to_int();
+#		if !JSB_TESTS_ENABLED
 	jsb_ensuref(one_based_stack_line > 0 && one_based_stack_col > 0, "Invalid stack line number %d or column %d. They should one-based, impossible to reach 0 or lesser.", one_based_stack_line, one_based_stack_col);
+#		endif // !JSB_TESTS_ENABLED
 	if (one_based_stack_line <= 0 || one_based_stack_col <= 0) return false;
 
 	r_result.function = group_index == 0 ? String() : match->get_string(group_index);
