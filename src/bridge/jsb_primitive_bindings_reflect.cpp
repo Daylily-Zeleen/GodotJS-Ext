@@ -211,7 +211,7 @@ struct VariantConstructor {
 	}
 };
 
-template <typename T>
+template <typename T, typename _PlaceHoler = void> // 添加占位模板参数保持使用时偏特化，避免实例化无用的成员
 struct VariantBind {
 private:
 	_FORCE_INLINE_ static const api_tool::ApiBuiltinClass *get_api_info() {
@@ -786,6 +786,8 @@ public:
 	}
 
 	// Expose primitive instance methods as static utility functions for variant types not exposed to JS e.g. String
+	// TODO: 你妈的代码生成没有相应的为原为非静态函数添加thisArg作为首个参数呀，
+	// 		考虑实现为 reflect_bind， 作为部分类型的特化（String, 同时增加接口(静态常量表达式)判定是否被处理为工具类，让 editor helper 能够对返回的接口数据进行特化处理）
 	static NativeClassInfoPtr reflect_bind_utilities(const ClassRegister &p_env, NativeClassID *r_class_id = nullptr) {
 		const StringName &class_name = internal::NamingUtil::get_class_name(p_env.type_name);
 
