@@ -597,7 +597,7 @@ static v8::Local<v8::Value> generate_primitive_type_utilities(v8::Isolate *isola
 			method_info.return_val.type = ori_method_info.return_val.type;
 			method_info.return_val.usage = ori_method_info.return_val.usage;
 
-			if (ori_method_info.flags & METHOD_FLAG_STATIC) {
+			if ((ori_method_info.flags & METHOD_FLAG_STATIC) == 0) {
 				PropertyInfo prop_info;
 				prop_info.name = "target";
 				prop_info.type = TYPE;
