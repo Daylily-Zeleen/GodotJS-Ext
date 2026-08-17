@@ -359,7 +359,7 @@ bool DefaultModuleResolver::check_package_file_path(const String &p_package_path
 	const String exported_path = internal::PathUtil::combine(p_package_path, relative_exported_path);
 	String extracted_path;
 	Error error = internal::PathUtil::extract(exported_path, extracted_path);
-	if (error != OK) {
+	if (unlikely(error != OK)) {
 		JSB_LOG(Error, "unrecognized exports path [%s] in %s", relative_exported_path, p_package_path);
 		return false;
 	}
@@ -443,6 +443,7 @@ bool DefaultModuleResolver::check_search_path(const String &p_search_path, const
 }
 
 DefaultModuleResolver &DefaultModuleResolver::add_search_path(const String &p_path) {
+	jsb_check(!p_path.is_empty());
 	String normalized;
 	const Error err = internal::PathUtil::extract(p_path, normalized);
 	jsb_unused(err);

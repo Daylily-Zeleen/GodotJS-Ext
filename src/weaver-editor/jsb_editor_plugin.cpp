@@ -334,13 +334,10 @@ void GodotJSEditorPlugin::add_install_file(jsb::weaver::InstallFileInfo &&p_inst
 }
 
 bool GodotJSEditorPlugin::delete_file(const String &p_file) {
-	Ref<FileAccess> fa = FileAccess::open(p_file, FileAccess::READ);
-	if (fa.is_null()) return false;
-	const String &path = fa->get_path_absolute();
-	fa.unref();
+	if (!FileAccess::file_exists(p_file)) return false;
 
-	JSB_LOG(Verbose, "delete file %s", path);
-	return jsb::internal::PathUtil::delete_file(path);
+	JSB_LOG(Verbose, "delete file %s", p_file);
+	return jsb::internal::PathUtil::delete_file(p_file);
 }
 
 String GodotJSEditorPlugin::mutate_types(const String &p_content) {
