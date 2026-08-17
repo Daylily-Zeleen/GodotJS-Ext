@@ -1,11 +1,13 @@
 /**
  * 跨 Realm 访问对象的 symbol 键时，如果不是全局或内置的 symbol 将无法正常访问
+ * 
+ * @NOTE: 当前不支持在 ShadowRealm 中创建 Godot 对象
  */
 declare module "godot.shadowRealm" {
-    import { GAny, GArray, Object as GObject } from "godot";
+    import { GAny, GArray } from "godot";
 
-    type PrimitiveValueOrCallable = number | string | boolean | null | undefined | symbol | object | any;
-    class ShadowRealm {
+    type PrimitiveValueOrCallable = number | string | boolean | null | undefined | symbol | Function | object;
+    class JSShadowRealm {
         constructor(params?: {
             startupScript?: string,
             allowImportAnyModule?: boolean,
@@ -18,7 +20,7 @@ declare module "godot.shadowRealm" {
         terminate(): void;
     }
 
-    class TransferableShadowRealm extends ShadowRealm {
+    class TransferableJSShadowRealm extends JSShadowRealm {
         constructor(params?: {
             startupScript?: string,
             allowImportAnyModule?: boolean,

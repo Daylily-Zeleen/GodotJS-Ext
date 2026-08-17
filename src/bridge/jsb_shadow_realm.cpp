@@ -1364,7 +1364,7 @@ public:
 
 public:
 	static void register_class(Environment *p_env, v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_exports) {
-		const StringName &class_name = jsb_string_name(ShadowRealm);
+		const StringName &class_name = jsb_string_name(JSShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
 		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(p_isolate, class_name, &ShadowRealmImpl::constructor<ShadowRealmImpl>, *class_id);
 
@@ -1752,10 +1752,10 @@ public:
 	}
 
 	static void register_class(Environment *p_env, v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_exports) {
-		const StringName &class_name = jsb_string_name(TransferableShadowRealm);
+		const StringName &class_name = jsb_string_name(TransferableJSShadowRealm);
 		const NativeClassID class_id = p_env->add_native_class(NativeClassType::Shadow, class_name);
 		impl::ClassBuilder class_builder = impl::ClassBuilder::New<IF_ObjectFieldCount>(p_isolate, class_name, &ShadowRealmImpl::constructor<TransferableShadowRealmImpl>, *class_id);
-		const NativeClassInfoPtr base_class_info = p_env->find_native_class(jsb_string_name(ShadowRealm));
+		const NativeClassInfoPtr base_class_info = p_env->find_native_class(jsb_string_name(JSShadowRealm));
 
 		class_builder.Instance().Method("postMessage", &TransferableShadowRealmImpl::post_message);
 		class_builder.Instance().Method("onerror", &_placeholder);
