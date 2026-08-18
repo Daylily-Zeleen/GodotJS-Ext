@@ -138,8 +138,18 @@ class Isolate {
 public:
 	class Scope {
 	public:
-		Scope(Isolate *isolate) {}
+		// quickjs 没有与 v8::Isolate::TryGetCurrent() 等价的 API，
+		// 这里用 thread-local 记录"当前线程正在执行的 isolate"（入栈/出栈），
+		// 供 EnvironmentStore::access() 在 JS 执行期间精确解析所属 Environment。
+		Scope(Isolate *isolate) : previous_(TryGetCurrent()) { tls_current_isolate() = isolate; }
+		~Scope() { tls_current_isolate() = previous_; }
+
+	private:
+		Isolate *previous_;
 	};
+
+	// 返回当前线程正在执行的 isolate；无 JS 在执行时返回 nullptr。
+	static Isolate *TryGetCurrent() { return tls_current_isolate(); }
 
 	struct CreateParams {
 		ArrayBuffer::Allocator *array_buffer_allocator = nullptr;
@@ -428,6 +438,11 @@ private:
 	void *context_embedder_data_ = nullptr;
 
 	SafeFlag interrupted_ = SafeFlag(false);
+
+	static Isolate *&tls_current_isolate() {
+		static thread_local Isolate *current = nullptr;
+		return current;
+	}
 };
 } //namespace v8
 
