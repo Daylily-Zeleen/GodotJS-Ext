@@ -124,6 +124,13 @@ Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
 	return Local<String>(Data(isolate, stack_pos));
 }
 
+Local<BigInt> BigInt::NewFromUnsigned(Isolate *isolate, uint64_t value) {
+	const JSValueRef val = JSBigIntCreateWithUInt64(isolate->ctx(), value, nullptr);
+	jsb_check(val);
+	const uint16_t stack_pos = isolate->push_copy(val);
+	return Local<String>(Data(isolate, stack_pos));
+}
+
 Local<Value> Exception::Error(Local<String> message) {
 	Isolate *isolate = message->isolate_;
 	jsb_check(isolate);
