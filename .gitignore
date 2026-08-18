@@ -1,6 +1,7 @@
-# Godot auto generated files
+__pycache__
+
+# generated files
 *.gen.*
-.godot/
 
 # Ignore library files but not the gdextension file
 /bin/**
@@ -51,13 +52,22 @@ compile_commands.json
 # TypeScript build info
 *.tsbuildinfo
 
+# TypeScript build out
+scripts/out/
+src/impl/web/js/jsbb.impl.js
+
+# Node modules
+node_modules/
+
 # VSCode
 .vscode/*
-!.vscode/extensions.json
-.DS_Store
 
 # Jetbrains
 .idea/
+
+# macOS
+.DS_Store
+__MACOSX
 
 # Cmake
 cmake-build*
@@ -65,10 +75,13 @@ CMakeUserPresets.json
 
 .cache/
 .agent_tmp/
-
 .scons_cache/
 
-scripts/out/
-node_modules/
+
+# pnpm store
+.pnpm-store
+
 
 *.bak/
+
+TASK_STATUS.md

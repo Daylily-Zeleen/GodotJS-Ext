@@ -3,7 +3,6 @@
 #if JSB_USE_JS_TYPE_EXTENSION
 
 #	include "jsb_type_convert.h"
-#	include "v8-platform.h"
 
 namespace jsb::type_extension {
 namespace string_ext {
