@@ -62,6 +62,7 @@ public:
 	int64_t Int64Value(bool *lossless = nullptr) const;
 
 	static Local<BigInt> New(Isolate *isolate, int64_t value);
+	static Local<BigInt> NewFromUnsigned(Isolate *isolate, uint64_t value);
 };
 
 class Integer : public Number {

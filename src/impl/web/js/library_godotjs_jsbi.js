@@ -56,6 +56,7 @@ const GodotJSBrowserInterface = {
     "jsbi_NewUint32": function (engine_id, value) { return _jsbb_.GetEngine(engine_id).NewUint32(value); },
     "jsbi_NewNumber": function (engine_id, value) { return _jsbb_.GetEngine(engine_id).NewNumber(value); },
     "jsbi_NewBigInt64": function (engine_id, val_ptr) { return _jsbb_.GetEngine(engine_id).NewBigInt64(val_ptr); },
+    "jsbi_NewBigUint64": function (engine_id, val_ptr) { return _jsbb_.GetEngine(engine_id).NewBigUint64(val_ptr); },
     "jsbi_NewObject": function (engine_id) { return _jsbb_.GetEngine(engine_id).NewObject(); },
     "jsbi_NewPromiseResolver": function (engine_id) { return _jsbb_.GetEngine(engine_id).PromiseResolverNew(); },
     "jsbi_NewClass": function (engine_id, cb_ptr, data_sp, field_count, class_name_ptr) { return _jsbb_.GetEngine(engine_id).NewClass(cb_ptr, data_sp, field_count, class_name_ptr); },
@@ -93,6 +94,7 @@ const GodotJSBrowserInterface = {
     "jsbi_Int32Value": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).Int32Value(stack_pos); },
     "jsbi_Uint32Value": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).Uint32Value(stack_pos); },
     "jsbi_Int64Value": function (engine_id, stack_pos, o_value_ptr) { return _jsbb_.GetEngine(engine_id).Int64Value(stack_pos, o_value_ptr); },
+    "jsbi_Uint64Value": function (engine_id, stack_pos, o_value_ptr) { return _jsbb_.GetEngine(engine_id).Uint64Value(stack_pos, o_value_ptr); },
 
     "jsbi_hash": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).GetIdentityHash(stack_pos); },
     "jsbi_stack_eq": function (engine_id, stack_pos1, stack_pos2) {

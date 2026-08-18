@@ -624,7 +624,13 @@ class jsbb_Engine {
 
     Int64Value(stack_pos: StackPosition, o_value_ptr: Pointer): boolean {
         const val = this._stack.GetValue(stack_pos);
-        _jsbb_.i64[o_value_ptr >> 3] = val;
+        _jsbb_.i64[o_value_ptr >> 3] = BigInt(val);
+        return true;
+    }
+
+    Uint64Value(stack_pos: StackPosition, o_value_ptr: Pointer): boolean {
+        const val = this._stack.GetValue(stack_pos);
+        _jsbb_.u64[o_value_ptr >> 3] = BigInt(val);
         return true;
     }
 
@@ -690,6 +696,11 @@ class jsbb_Engine {
 
     NewBigInt64(val_ptr: Pointer): StackPosition {
         const val = _jsbb_.i64[val_ptr >> 3];
+        return this._stack.Push(val);
+    }
+
+    NewBigUint64(val_ptr: Pointer): StackPosition {
+        const val = _jsbb_.u64[val_ptr >> 3];
         return this._stack.Push(val);
     }
 
@@ -1439,6 +1450,7 @@ class _jsbb_ {
     static wasmop: WasmProtocol;
     static engine: jsbb_Engine | undefined;
     private static _i64: BigInt64Array;
+    private static _u64: BigUint64Array;
     private static _pending_worker_messages: Array<QueuedWorkerMessage> = [];
     private static _worker_owner_cache_by_pthread = new Map<number, JSWorkerLike>();
 
@@ -1466,6 +1478,15 @@ class _jsbb_ {
             this._i64 = new BigInt64Array(wasmMemory.buffer);
         }
         return this._i64;
+    }
+
+    //TODO may not be supported?
+    static get u64(): BigUint64Array {
+        if (wasmMemory.buffer != HEAP8.buffer) {
+            updateMemoryViews();
+            this._u64 = new BigUint64Array(wasmMemory.buffer);
+        }
+        return this._u64;
     }
 
     static init(interop: InitOptions) {

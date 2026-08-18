@@ -93,6 +93,7 @@ JSBROWSER_API jsb::impl::StackPosition jsbi_NewInt32(jsb::impl::JSRuntime engine
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewUint32(jsb::impl::JSRuntime engine_id, uint32_t val);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewNumber(jsb::impl::JSRuntime engine_id, double val);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewBigInt64(jsb::impl::JSRuntime engine_id, int64_t *val_ptr);
+JSBROWSER_API jsb::impl::StackPosition jsbi_NewBigUint64(jsb::impl::JSRuntime engine_id, uint64_t *val_ptr);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewObject(jsb::impl::JSRuntime engine_id);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewPromiseResolver(jsb::impl::JSRuntime engine_id);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewClass(jsb::impl::JSRuntime engine_id, jsb::impl::FunctionPointer cb_ptr, jsb::impl::StackPosition data_sp, int field_count, const char *class_name_ptr);
@@ -134,6 +135,7 @@ JSBROWSER_API bool jsbi_BooleanValue(jsb::impl::JSRuntime engine_id, jsb::impl::
 JSBROWSER_API int32_t jsbi_Int32Value(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);
 JSBROWSER_API uint32_t jsbi_Uint32Value(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);
 JSBROWSER_API bool jsbi_Int64Value(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos, int64_t *o_value);
+JSBROWSER_API bool jsbi_Uint64Value(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos, uint64_t *o_value);
 
 JSBROWSER_API int jsbi_hash(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);
 JSBROWSER_API bool jsbi_stack_eq(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos1, jsb::impl::StackPosition stack_pos2);

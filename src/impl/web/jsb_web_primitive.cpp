@@ -98,4 +98,8 @@ Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
 	return Local<String>(Data(isolate, jsbi_NewBigInt64(isolate->rt(), &value)));
 }
 
+Local<BigInt> BigInt::NewFromUnsigned(Isolate *isolate, uint64_t value) {
+	return Local<String>(Data(isolate, jsbi_NewBigUint64(isolate->rt(), &value)));
+}
+
 } //namespace v8
