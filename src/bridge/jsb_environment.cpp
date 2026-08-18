@@ -87,16 +87,38 @@ struct EnvironmentStore {
 		return rval;
 	}
 
-	// return existing Environment on the caller thread
+	// 同一线程可能存在多个 Environment（例如 ShadowRealm 会在宿主线程上创建新的 Environment），
+	// 仅凭线程无法确定"当前环境的 Environment"，必须按调用来源解析：
+	//  1. 当前正在执行 JS 的 isolate -> 它所属的 Environment（Fix 1）。
+	//     覆盖 ShadowRealm guest JS 重入 Godot（instance_create 等）以及 worker 线程中创建脚本对象的场景。
+	//  2. 无 JS 执行（纯 Godot 冷调用）时回退到线程扫描（Fix 2），排除 ShadowRealm 临时环境，
+	//     并优先返回主（Type::Default）环境以保证结果确定。
 	std::shared_ptr<Environment> access() {
 		std::shared_ptr<Environment> rval;
 		std::lock_guard lock(mutex_);
+
+		// 真实 v8 的 TryGetCurrent() 自动跟踪所有 Isolate::Scope / Context::Scope 嵌套
+		// （含 NodeRuntime 常驻 Locker 的主线程）；quickjs/jsc/web 由各自的
+		// Isolate::Scope 维护 thread-local 的"当前 isolate"，行为一致。
+		if (v8::Isolate *current_isolate = v8::Isolate::TryGetCurrent()) {
+			if (Environment *env = Environment::wrap(current_isolate); env && all_runtimes_.has(env)) {
+				return env->shared_from_this();
+			}
+		}
+
 		for (void *ptr : all_runtimes_) {
 			//TODO check if it's not removed from `all_runtimes_` but being destructed already (consider remove it from the list immediately on destructor called)
 			Environment *env = (Environment *)ptr;
+			if (env->is_shadow_realm()) {
+				// ShadowRealm 环境是寄生于宿主线程的临时环境，永远不应成为"当前线程环境"的答案。
+				continue;
+			}
 			if (env->thread_id_ != ThreadEx::UNASSIGNED_ID && env->is_caller_thread()) {
 				rval = env->shared_from_this();
-				break;
+				if ((env->flags_ & (Environment::EF_Worker | Environment::EF_ShadowRealm)) == 0) {
+					// 命中主（Type::Default）环境，结果确定，无需继续扫描。
+					break;
+				}
 			}
 		}
 		return rval;
@@ -267,6 +289,7 @@ Environment::Environment(const CreateParams &p_params)
 
 	if (p_params.type == Type::Worker) flags_ |= EF_Worker;
 	else if (p_params.type == Type::Shadow) flags_ |= EF_Shadow;
+	else if (p_params.type == Type::ShadowRealm) flags_ |= EF_ShadowRealm;
 
 #if JSB_WITH_NODE
 	node_runtime_ = memnew(jsb::impl::NodeRuntime);
@@ -798,7 +821,7 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 			jsb_check(new_id);
 			return new_id;
 		} else if (Environment *owned_env = !script_instance->is_placeholder() ? static_cast<GodotJSScriptInstance *>(script_instance)->get_env() : nullptr;
-				owned_env && owned_env != this && (owned_env->flags_ & EF_Worker) != 0) {
+				owned_env && owned_env != this && (owned_env->flags_ & (EF_Worker | EF_ShadowRealm)) != 0) {
 			JSB_LOG(Warning, "Bind godot object \"%s\" duplicate, which is not transfer out from Worker or ShadowRealm. It may lead to to unexpected behaviors.", p_pointer->to_string());
 		}
 	}
@@ -2167,7 +2190,7 @@ void Environment::populate_string_names_replacements() {
 
 	LocalVector<StringName> exposed_class_list;
 	// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
-	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list, false); 
+	internal::NamingUtil::get_exposed_original_class_list(exposed_class_list, false);
 
 	for (const StringName &class_name : exposed_class_list) {
 		StringName exposed_name = internal::NamingUtil::get_class_name(class_name);

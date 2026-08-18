@@ -137,6 +137,7 @@ private:
 		EF_PostDispose = 1 << 2,
 		EF_Worker = 1 << 3,
 		EF_Shadow = 1 << 4,
+		EF_ShadowRealm = 1 << 5,
 	};
 
 	friend class Builtins;
@@ -250,11 +251,13 @@ public:
 	enum class Type : uint8_t {
 		Default,
 
-		// [reserved] for future use
 		Worker,
 
-		// [reserved] for future use
 		Shadow,
+
+		// 由 ShadowRealm 创建、寄生在宿主线程上的临时环境。
+		// 它不是"当前线程的常驻环境"，EnvironmentStore::access() 的线程扫描会排除它。
+		ShadowRealm,
 	};
 
 	struct CreateParams {
@@ -465,6 +468,7 @@ public:
 	_FORCE_INLINE_ void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
 	_FORCE_INLINE_ bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
 	_FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
+	_FORCE_INLINE_ bool is_shadow_realm() const { return (flags_ & EF_ShadowRealm) != 0; }
 
 	_FORCE_INLINE_ Variant *alloc_variant(const Variant &p_templet) {
 		jsb_check(p_templet.get_type() != Variant::OBJECT);

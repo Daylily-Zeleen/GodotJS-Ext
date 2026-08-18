@@ -961,7 +961,7 @@ public:
 		params.initial_object_slots = JSB_SHADOW_REALM_INITIAL_OBJECT_SLOTS;
 		params.initial_script_slots = JSB_SHADOW_REALM_INITIAL_SCRIPT_SLOTS;
 		params.thread_id = ThreadEx::get_caller_id();
-		params.type = Environment::Type::Worker; // HACK, TODO: 专属标志？
+		params.type = Environment::Type::ShadowRealm;
 
 		env_ = std::make_shared<Environment>(params);
 		if (p_create_params.allow_import_any_module) {
@@ -1354,10 +1354,13 @@ public:
 			jsb_check(get_shadow_realm_list().is_valid_index(id));
 			jsb_check(!get_shadow_realm_list().is_empty());
 			ShadowRealmImpl *impl;
-			get_shadow_realm_list().try_get_value(id, impl);
-
-			if (impl) {
+			if (get_shadow_realm_list().try_get_value(id, impl) && impl) {
 				impl->finish();
+
+				// finish() 不会把 realm 从列表中移除（移除动作由 _terminate 负责），
+				// 这里必须手动移除，否则 get_first_index() 永远返回同一个 id 导致死循环。
+				get_shadow_realm_list().remove_at(id);
+				jsb_check(!get_shadow_realm_list().is_valid_index(id));
 			}
 		}
 	}
