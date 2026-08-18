@@ -493,7 +493,10 @@ MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source)
 MaybeLocal<Value> Script::Run(Local<Context> context) {
 	JSContext *ctx = isolate_->ctx();
 	const JSValue func_obj = (JSValue) * this;
-	jsb_check(JS_IsFunction(ctx, func_obj));
+	// Script::Compile 使用 JS_EVAL_FLAG_COMPILE_ONLY，quickjs（含 quickjs-ng）返回的是
+	// JS_TAG_FUNCTION_BYTECODE（惰性字节码）而非实例化后的函数对象，JS_IsFunction 只对后者返回 true；
+	// JS_EvalFunction 会在内部完成字节码的实例化（js_closure）并执行。
+	jsb_check(JS_IsFunction(ctx, func_obj) || JS_VALUE_GET_TAG(func_obj) == JS_TAG_FUNCTION_BYTECODE);
 
 	const JSValue result = JS_EvalFunction(ctx, JS_DupValue(ctx, func_obj));
 	if (JS_IsException(result)) {

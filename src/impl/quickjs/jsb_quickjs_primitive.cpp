@@ -20,11 +20,11 @@ Maybe<bool> Name::Equals(Local<Context> context, Local<Name> other) const {
 MaybeLocal<Value> Value::ToPrimitive(Local<Context> context) const {
 	JSContext *ctx = isolate_->ctx();
 	const JSValue self = (JSValue) * this;
-	if (JS_VALUE_GET_TAG(self) < 0) // TAG >= 0 时是 Primitive 类型
-	{
+	// quickjs 未公开 JS_ToPrimitive API，这里对对象返回空，由调用方按非 primitive 处理。
+	if (JS_IsObject(self)) {
 		return MaybeLocal<Value>();
 	}
-	const uint16_t stack_pos = isolate_->push_steal(self);
+	const uint16_t stack_pos = isolate_->push_steal(JS_DupValue(ctx, self));
 	return MaybeLocal<Value>(Data(isolate_, stack_pos));
 }
 
