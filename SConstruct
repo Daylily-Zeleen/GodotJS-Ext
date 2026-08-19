@@ -12,6 +12,7 @@ import zipfile
 import zlib
 
 from misc.methods import print_error, print_warning
+from misc.copyright import read_copyright_text, generate_copyright_header_cpp
 
 os.system("chcp 65001")
 
@@ -382,6 +383,8 @@ def write_file(filename, ostream):
 def generate_jsb_gen_header():
     output = io.StringIO()
     output.write("// AUTO-GENERATED\n")
+    output.write("\n")
+    output.write(generate_copyright_header_cpp("jsb.gen.h", read_copyright_text()))
     output.write("#pragma once\n")
     output.write("\n")
     output.write(f"#define JSB_MODULE_NAME {module_name}\n")
@@ -509,6 +512,8 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     outfile = "jsb_project_preset.gen.cpp"  # generated into src_dir via write_file
 
     output.write("// AUTO-GENERATED\n")
+    output.write("\n")
+    output.write(generate_copyright_header_cpp("jsb_project_preset.gen.cpp", read_copyright_text()))
     output.write("\n")
     output.write("#include \"jsb_project_preset.h\"\n")
     output.write("#include \"jsb.config.h\"\n")

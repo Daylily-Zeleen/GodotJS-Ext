@@ -11,6 +11,10 @@ import sys
 import re
 from pathlib import Path
 
+# Allow importing misc/copyright.py from this sub-directory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from copyright import read_copyright_text, generate_copyright_header_cpp
+
 
 def escape_c_string(content: str) -> str:
     """Escape a string for C++ string literal."""
@@ -69,9 +73,13 @@ def generate_templates_header(templates_dir: Path, output_file: Path):
 
     print(f"Found {len(template_files)} template files")
 
+    copyright_header = generate_copyright_header_cpp(output_file.name, read_copyright_text())
+
     # Generate the C++ header
     output_lines = [
         "// AUTO-GENERATED",
+        "",
+        copyright_header,
         "",
         "#include <godot_cpp/templates/local_vector.hpp>",
         "#include <godot_cpp/variant/variant.hpp>",
