@@ -247,6 +247,8 @@ private:
 
 	void reload_scripts_internal(const Array &p_scripts, bool p_soft_reload);
 
+	static void populate_string_names_replacements();
+
 protected:
 	static void _bind_methods();
 };
