@@ -85,6 +85,23 @@ jobs:
             arch: x86_64
             target: editor
             engine: qjs-ng
+          # Linux arm64 builds
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: editor
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: editor
+            engine: qjs-ng
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: editor
+            engine: node
+          # macOS builds
           - platform: macos
             os: macos-latest
             arch: arm64
@@ -95,6 +112,23 @@ jobs:
             arch: arm64
             target: editor
             engine: qjs-ng
+          # macOS x86_64 builds
+          - platform: macos
+            os: macos-13  # macOS 13 provides x86_64 runners
+            arch: x86_64
+            target: editor
+            engine: v8
+          - platform: macos
+            os: macos-13
+            arch: x86_64
+            target: editor
+            engine: qjs-ng
+          - platform: macos
+            os: macos-13
+            arch: x86_64
+            target: editor
+            engine: node
+          # iOS builds (device + simulator -> xcframework)
           - platform: ios
             os: macos-latest
             arch: arm64
@@ -105,6 +139,11 @@ jobs:
             arch: arm64
             target: template_release
             engine: qjs-ng
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: jsc
           # Android platform (arm64, x86_64)
           - platform: android
             os: ubuntu-22.04
@@ -126,17 +165,32 @@ jobs:
             arch: x86_64
             target: template_release
             engine: qjs-ng
-          # Web platform (wasm32)
+          # Web platform (wasm32) - with threads
           - platform: web
             os: ubuntu-22.04
             arch: wasm32
             target: template_release
             engine: v8
+            threads: true
           - platform: web
             os: ubuntu-22.04
             arch: wasm32
             target: template_release
             engine: qjs-ng
+            threads: true
+          # Web platform (wasm32) - without threads
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: v8
+            threads: false
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: qjs-ng
+            threads: false
           # Node engine (Windows, Linux, macOS)
           - platform: windows
             os: windows-latest
@@ -158,11 +212,6 @@ jobs:
             os: macos-latest
             arch: arm64
             target: editor
-            engine: jsc
-          - platform: ios
-            os: macos-latest
-            arch: arm64
-            target: template_release
             engine: jsc
     runs-on: ${{ matrix.os }}
     steps:
@@ -207,9 +256,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .scons-cache
-          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
+          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}${{ matrix.platform == 'web' && format('-threads-{0}', matrix.threads) || '' }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
           restore-keys: |
-            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}${{ matrix.platform == 'web' && format('-threads-{0}', matrix.threads) || '' }}-
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-
 
@@ -258,11 +307,30 @@ jobs:
             engine_flag=""
           fi
           
+          # Set threads flag for web platform
+          if [ "${{ matrix.platform }}" == "web" ]; then
+            if [ "${{ matrix.threads }}" == "false" ]; then
+              threads_flag="threads=no"
+            else
+              threads_flag="threads=yes"
+            fi
+          else
+            threads_flag=""
+          fi
+          
           # iOS, Android, and Web don't support tests or dev_build
           if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag -j$(nproc || sysctl -n hw.ncpu)
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag $threads_flag -j$(nproc || sysctl -n hw.ncpu)
           else
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag -j$(nproc || sysctl -n hw.ncpu)
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $threads_flag -j$(nproc || sysctl -n hw.ncpu)
+          fi
+          
+          # iOS: Build simulator version and generate xcframework
+          if [ "${{ matrix.platform }}" == "ios" ]; then
+            echo "Building iOS simulator version..."
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag ios_simulator=yes -j$(nproc || sysctl -n hw.ncpu)
+            echo "Generating xcframework..."
+            # The xcframework is automatically generated by SConstruct when both builds are present
           fi
 
       - name: Prepare artifact
@@ -280,7 +348,7 @@ jobs:
       - name: Upload GDExtension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.engine }}
+          name: ${{ matrix.platform }}-${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.engine }}${{ matrix.platform == 'web' && matrix.threads == false && '-nothreads' || '' }}
           path: artifact/
           retention-days: 1
 
