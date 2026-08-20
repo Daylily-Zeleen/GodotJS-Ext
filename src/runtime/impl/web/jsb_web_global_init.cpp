@@ -206,7 +206,7 @@ void GlobalInitialize::init() {
 				JSNI_FUNC(on_worker_message),
 				JSNI_FUNC(on_worker_message_from_pthread),
 				JSNI_FUNC(worker_get_or_add_native_transfer),
-				CoreBind::OS::get_singleton()->is_debug_build(),
+				(bool)JSB_DEBUG,
 				internal::Settings::is_bridge_logging_enabled());
 	}
 }
