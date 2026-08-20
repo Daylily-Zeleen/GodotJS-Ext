@@ -213,6 +213,13 @@ jobs:
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-
 
+      - name: Setup JDK 17 for Android
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Setup Android SDK
         if: matrix.platform == 'android'
         uses: android-actions/setup-android@v3
