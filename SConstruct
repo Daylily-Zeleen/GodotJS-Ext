@@ -227,7 +227,7 @@ def remove_dependency_path(path):
     elif os.path.exists(path):
         os.remove(path)
 
-def download_dependency(name, version, target_dir, url_override=None):
+def download_dependency(name, version, target_dir, url_override=None, archive_root=None):
     if dependency_is_ready(name, target_dir):
         return
     if os.path.exists(target_dir):
@@ -283,9 +283,11 @@ def download_dependency(name, version, target_dir, url_override=None):
             # The archive contains a top-level directory named after the dependency
             # (e.g. "v8"), so extract into a temporary parent before installing it.
             zip_ref.extractall(temporary_target_dir)
-        extracted_target_dir = os.path.join(temporary_target_dir, os.path.basename(target_dir))
+        # Use archive_root if specified (for libnode which has "libnode/" instead of "node/")
+        expected_root = archive_root if archive_root else os.path.basename(target_dir)
+        extracted_target_dir = os.path.join(temporary_target_dir, expected_root)
         if not os.path.exists(extracted_target_dir):
-            raise RuntimeError(f"Extraction failed: Directory '{target_dir}' was not created.")
+            raise RuntimeError(f"Extraction failed: Directory '{expected_root}' was not found in archive.")
         os.makedirs(parent_dir, exist_ok=True)
         os.replace(extracted_target_dir, target_dir)
         shutil.rmtree(temporary_target_dir, ignore_errors=True)
@@ -311,7 +313,7 @@ if env.get("use_node", False):
     # Download libnode from moluopro/libnode (same source as gode)
     node_dir = f"{third_folder_name}/node"
     node_url = f"{deps_node_url}/{deps_node_version}/libnode.zip"
-    download_dependency("node", deps_node_version, node_dir, url_override=node_url)
+    download_dependency("node", deps_node_version, node_dir, url_override=node_url, archive_root="libnode")
     node_support = validate_library_support(node_prebuilt_libs)
     check(node_support is not None, f"libnode prebuilt not found at 'third/node/'. Place libnode.{{lib,a}} under 'third/node/{jsb_platform}_{jsb_arch}_release/' and headers at 'third/node/include/' (see plan).")
 
@@ -806,7 +808,8 @@ if jsb_platform == "ios":
     xcframework_path = os.path.join("bin", "ios", xcframework_name)
     
     # Define the device and simulator library paths
-    device_lib_name = "{}.ios.{}.dylib".format(libname, target)
+    # Note: device build generates .universal.dylib, simulator build generates .universal.simulator.dylib
+    device_lib_name = "{}.ios.{}.universal.dylib".format(libname, target)
     simulator_lib_name = "{}.ios.{}.universal.simulator.dylib".format(libname, target)
     device_lib_path = os.path.join("bin", "ios", device_lib_name)
     simulator_lib_path = os.path.join("bin", "ios", simulator_lib_name)

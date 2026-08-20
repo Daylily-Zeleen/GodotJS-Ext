@@ -388,7 +388,7 @@ std::unordered_map<v8::Isolate *, TStrongRef<v8::Function>> SymbolCrossUtils::ke
 
 struct WrapperIdentity {
 	uintptr_t guest_isolate;
-	int32_t guest_value;
+	int guest_value;
 
 	WrapperIdentity(v8::Isolate *p_guest_isolate, const v8::Local<v8::Object> &p_guest_value) {
 		guest_isolate = reinterpret_cast<uintptr_t>(p_guest_isolate);
