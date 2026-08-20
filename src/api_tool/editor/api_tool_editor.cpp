@@ -24,8 +24,8 @@
 /************************************************************************/
 
 #include "api_tool_editor.h"
-#include "../api_tool.h"
-#include "../core/api_tool_loader.h"
+#include "api_tool/api_tool.h"
+#include "api_tool/core/api_tool_loader.h"
 #include "api_tool/core/api_tool_payload.h"
 #include "api_tool_generator.h"
 

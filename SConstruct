@@ -69,6 +69,7 @@ env['SHLIBPREFIX'] = ''
 
 # Source root directory
 src_dir = "src"
+runtime_dir = os.path.join(src_dir, "runtime")
 
 jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
 jsb_arch = env["arch"]
@@ -171,7 +172,7 @@ def get_thirdparty_support(support, path):
     return None
 
 def read_macro_value(name, def_val=None):
-    with open(os.path.join(src_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
+    with open(os.path.join(runtime_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
         regex = rf"^#define\s+{name}\s+(\d+)$"
         for line in f:
             matches = re.finditer(regex, line)
@@ -400,7 +401,7 @@ def generate_jsb_gen_header():
                 output.write(f"// {t.help}\n")
         output.write(f"#define {t.name} {t.value}\n")
     output.write("\n")
-    write_file(os.path.join(src_dir, "jsb.gen.h"), output)
+    write_file(os.path.join(runtime_dir, "jsb.gen.h"), output)
 
 # =============================================================================
 # Generate jsb_project_preset.gen.cpp (embedded JS bundles)
@@ -506,10 +507,10 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     output = io.StringIO()
 
     # delete obsolete files
-    remove_file(os.path.join(src_dir, "weaver-editor", "jsb_project_preset.cpp"))
-    remove_file(os.path.join(src_dir, "jsb_project_preset.cpp"))
+    remove_file(os.path.join(runtime_dir, "weaver-editor", "jsb_project_preset.cpp"))
+    remove_file(os.path.join(runtime_dir, "jsb_project_preset.cpp"))
 
-    outfile = "jsb_project_preset.gen.cpp"  # generated into src_dir via write_file
+    outfile = "jsb_project_preset.gen.cpp"  # generated into runtime_dir via write_file
 
     output.write("// AUTO-GENERATED\n")
     output.write("\n")
@@ -530,7 +531,7 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     generate_method_code(output, "get_source_ed", indent, ed_preset_defines)
     output.write("#endif\n")
 
-    write_file(os.path.join(src_dir, outfile), output)
+    write_file(os.path.join(runtime_dir, outfile), output)
 
 generate_code([
     PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
@@ -556,9 +557,9 @@ generate_code([
 # =============================================================================
 
 templates_script = os.path.join("misc", "build", "generate_templates_header.py")
-templates_output = os.path.join(src_dir, "weaver-editor", "templates", "templates.gen.h")
+templates_output = os.path.join(src_dir, "editor", "weaver-editor", "templates", "templates.gen.h")
 if os.path.exists(templates_script):
-    subprocess.run([sys.executable, templates_script, os.path.join(src_dir, "weaver-editor", "templates"), templates_output], check=True)
+    subprocess.run([sys.executable, templates_script, os.path.join(src_dir, "editor", "weaver-editor", "templates"), templates_output], check=True)
 
 generate_jsb_gen_header()
 
@@ -597,8 +598,8 @@ env["CXXFLAGS"] = cxx_flags
 
 natvis_sources = [
     os.path.join(root_dir, "third", "godot-cpp", "natvis", "godot-cpp.natvis"),
-    os.path.join(root_dir, "src", "jsb.natvis"),
-    os.path.join(root_dir, "src", "impl", "quickjs", "jsb.quickjs.natvis"),
+    os.path.join(root_dir, "src", "runtime", "jsb.natvis"),
+    os.path.join(root_dir, "src", "runtime", "impl", "quickjs", "jsb.quickjs.natvis"),
 ]
 merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
 merged_natvis = os.path.join(root_dir, "godotjs-ext.natvis")
@@ -620,13 +621,19 @@ else:
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
-    os.path.join(root_dir, src_dir, "compat"),
-    os.path.join(root_dir, src_dir, "internal"),
-    os.path.join(root_dir, src_dir, "weaver"),
-    os.path.join(root_dir, src_dir, "bridge"),
-    os.path.join(root_dir, src_dir, "js_type_extension"),
+    os.path.join(root_dir, runtime_dir),
+    os.path.join(root_dir, runtime_dir, "compat"),
+    os.path.join(root_dir, runtime_dir, "internal"),
+    os.path.join(root_dir, runtime_dir, "weaver"),
+    os.path.join(root_dir, runtime_dir, "bridge"),
+    os.path.join(root_dir, runtime_dir, "js_type_extension"),
     os.path.join(root_dir, third_dir),
 ])
+
+# Add editor include path for editor target
+if env["target"] == "editor":
+    editor_dir = os.path.join(src_dir, "editor")
+    env.Append(CPPPATH=[os.path.join(root_dir, editor_dir)])
 
 # Add v8 include/library path
 # (skipped in node mode: libnode bundles the v8 headers and provides the v8 symbols)
@@ -687,40 +694,43 @@ if lws_support is not None:
     elif jsb_platform == "macos":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
-# Add all GodotJS source files (migrated to src/)
+# Add all GodotJS runtime source files
 godotjs_sources = []
-godotjs_sources += Glob(os.path.join(src_dir, "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "compat", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "internal", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "bridge", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "weaver", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "js_type_extension", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "compat", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "bridge", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "weaver", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "js_type_extension", "*.cpp"))
 # api_tool module: core (runtime)
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
-if env["target"] in ["editor", "template_debug"]:
-    godotjs_sources += Glob(os.path.join(src_dir, "weaver-editor", "*.cpp"))
-    # api_tool module: editor-only (parser, generator, export plugin)
+
+# Add editor source files (only for editor target)
+if env["target"] == "editor":
+    editor_dir = os.path.join(src_dir, "editor")
+    godotjs_sources += Glob(os.path.join(editor_dir, "*.cpp"))
+    godotjs_sources += Glob(os.path.join(editor_dir, "weaver-editor", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
 
 # Add engine-specific impl sources
 # NOTE: node mode implies JSB_WITH_V8 (libnode embeds V8), so the node branch MUST be
-# checked before the v8 branch to pick src/impl/node/ instead of src/impl/v8/.
+# checked before the v8 branch to pick src/runtime/impl/node/ instead of src/runtime/impl/v8/.
 if is_defined("JSB_WITH_NODE"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "node", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "node", "*.cpp"))
 elif is_defined("JSB_WITH_V8"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "v8", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "v8", "*.cpp"))
 elif is_defined("JSB_WITH_QUICKJS"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "quickjs", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "quickjs", "*.cpp"))
 elif is_defined("JSB_WITH_WEB"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "web", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "web", "*.cpp"))
 elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "jsc", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "jsc", "*.cpp"))
 
 # Add test sources if tests enabled
 if env.get("tests", False):
     env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
-    godotjs_sources += Glob(os.path.join(src_dir, "tests", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "tests", "*.cpp"))
 
 # Add quickjs/quickjs-ng source files (C files) with C11 flags
 quickjs_obj = []
@@ -801,7 +811,7 @@ if node_support is not None and jsb_platform == "windows":
 # exported by the main DLL (which statically links libnode), so it only
 # links against the main DLL and keeps its own size tiny.
 if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
-    helper_main = os.path.join(src_dir, "node_helper", "jsb_node_host_main.cpp")
+    helper_main = os.path.join(runtime_dir, "node_helper", "jsb_node_host_main.cpp")
     helper_name = "godotjs-ext" + (".exe" if jsb_platform == "windows" else "")
     helper_dir = os.path.join("bin", env["platform"])
     # windows: link the main DLL's import library; posix: link the shared

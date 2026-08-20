@@ -33,6 +33,7 @@
 // Supports cache invalidation callback for external notification.
 
 #include "../api_tool_types.h"
+#include <runtime/jsb.config.h>
 #include <deque>
 #include <godot_cpp/templates/hash_set.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -111,7 +112,7 @@ public:
 	static ApiLoader *get_singleton() { return singleton; }
 
 private:
-	static ApiLoader *singleton;
+	static JSB_RUNTIME_API ApiLoader *singleton;
 
 	// Stable-pointer cache: deque stores data, HashMap stores name->index.
 	// Pointers into deque are stable after push_back (deque block structure).

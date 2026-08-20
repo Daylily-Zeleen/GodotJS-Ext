@@ -30,7 +30,7 @@
 // Reads extension_api.json -> parses into types -> writes binary files.
 // Parser methods take const godot::Dictionary& (no void*).
 
-#include "../api_tool_types.h"
+#include "api_tool/api_tool_types.h"
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
