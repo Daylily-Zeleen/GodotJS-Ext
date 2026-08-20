@@ -67,6 +67,13 @@ void finalize() {
 	memdelete(ApiLoader::get_singleton());
 }
 
+void get_api_dumping_dir(godot::String *r_dir) {
+	if (ApiLoader *loader = get_loader()) {
+		*r_dir = loader->get_api_dumping_dir();
+	}
+	*r_dir = "";
+}
+
 bool is_loaded() {
 	CHECK_LOADER_V(false);
 	return ApiLoader::get_singleton()->is_loaded();

@@ -25,7 +25,6 @@
 
 #include "api_tool_editor.h"
 #include "api_tool/api_tool.h"
-#include "api_tool/core/api_tool_loader.h"
 #include "api_tool/core/api_tool_payload.h"
 #include "api_tool_generator.h"
 
@@ -41,19 +40,10 @@ using namespace godot;
 namespace api_tool {
 using namespace internal;
 
-static ApiLoader *get_loader() {
-	static auto _dummy = [] {
-		if (ApiLoader::get_singleton() == nullptr) return memnew(ApiLoader)->initialize();
-		return ApiLoader::get_singleton()->initialize();
-	}();
-	return ApiLoader::get_singleton();
-}
-
 static String get_api_dumping_dir() {
-	if (ApiLoader *loader = get_loader()) {
-		return loader->get_api_dumping_dir();
-	}
-	return "";
+	String ret;
+	get_api_dumping_dir(&ret);
+	return ret;
 }
 
 using PayloadReader = internal::ApiToolPayload<true>;
@@ -308,11 +298,8 @@ void full_generate_and_reboot() {
 
 Error generate_api_tool_data(const String &p_extension_api_json_path) {
 	initialize();
-	ApiLoader &loader = *get_loader();
-	String out_dir = loader.get_api_dumping_dir();
-
-	// Clear cache before generation (req 10)
-	loader.clear();
+	String out_dir = get_api_dumping_dir();
+	finalize();
 
 	// Use generator to launch subprocess and parse
 	Error err = ApiGenerator::generate(p_extension_api_json_path, out_dir);
@@ -330,13 +317,12 @@ Error generate_api_tool_data(const String &p_extension_api_json_path) {
 		DirAccess::rename_absolute(backup_path, p_extension_api_json_path);
 	}
 
-	return loader.initialize();
+	return initialize();
 }
 
 Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_types_only) {
 	initialize();
-	ApiLoader &loader = *get_loader();
-	const String base_dir = ProjectSettings::get_singleton()->localize_path(loader.get_api_dumping_dir());
+	const String base_dir = ProjectSettings::get_singleton()->localize_path(get_api_dumping_dir());
 
 	Vector<String> result;
 

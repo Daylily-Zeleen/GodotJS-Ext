@@ -34,7 +34,6 @@
 #include <godot_cpp/templates/hash_set.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
-
 // Include type definitions (including global-scope callback types)
 #include "api_tool_types.h"
 
@@ -43,12 +42,13 @@ namespace api_tool {
 // ============================================================================
 // Core interface (stable)
 // ============================================================================
-
+extern "C" {
 // Initialize the module with a data root directory. Called at module load.
 // Returns true on success.
-godot::Error initialize();
-
-void finalize();
+godot::Error GDE_EXPORT initialize();
+void GDE_EXPORT finalize();
+void GDE_EXPORT get_api_dumping_dir(godot::String *r_dir);
+}
 
 // Check if API data is loaded.
 bool is_loaded();
@@ -124,7 +124,6 @@ int32_t get_global_constant_count();
 
 const godot::LocalVector<MethodHash> *get_builtin_method_compatibility_hashes(godot::Variant::Type p_type, const godot::StringName &p_name);
 const godot::LocalVector<MethodHash> *get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_name);
-
 
 bool has_generated_data();
 
