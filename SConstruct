@@ -78,7 +78,9 @@ jsb_arch = env["arch"]
 deps_release_tag = "1.1"
 deps_v8_version = "12.4.254.21"
 deps_lws_version = "4.3"
+deps_node_version = "24.18.0"
 deps_url = "https://github.com/godotjs/GodotJS-Dependencies/releases"
+deps_node_url = "https://github.com/moluopro/libnode/releases/download"
 
 class LibraryDetails:
     def __init__(self, platform, arch, libname, delimiter):
@@ -195,6 +197,16 @@ def dependency_is_ready(name, target_dir):
                     )
                 )
         return False
+    if name == "node":
+        for details in node_prebuilt_libs.details:
+            if details.platform == jsb_platform and details.arch == jsb_arch:
+                return (
+                    os.path.isfile(os.path.join(target_dir, "include", "node.h"))
+                    and os.path.isfile(
+                        os.path.join(target_dir, details.platform_base(), details.libname)
+                    )
+                )
+        return False
     if name == "lws":
         for details in lws_prebuilt_libs.details:
             if details.platform == jsb_platform and details.arch == jsb_arch:
@@ -215,14 +227,18 @@ def remove_dependency_path(path):
     elif os.path.exists(path):
         os.remove(path)
 
-def download_dependency(name, version, target_dir):
+def download_dependency(name, version, target_dir, url_override=None):
     if dependency_is_ready(name, target_dir):
         return
     if os.path.exists(target_dir):
         remove_dependency_path(target_dir)
     filename = f"{name}_{version}.zip"
     temporary_filename = f"{filename}.part"
-    url = f"{deps_url}/download/{deps_release_tag}/{filename}"
+    # Use override URL for libnode (different source than other dependencies)
+    if url_override:
+        url = url_override
+    else:
+        url = f"{deps_url}/download/{deps_release_tag}/{filename}"
     print(f"Dependency '{name}' not found at '{target_dir}'.")
     print(f"Downloading {filename} from {url} ...")
     try:
@@ -292,8 +308,10 @@ node_support = None
 if env.get("use_node", False):
     if not is_library_supported(node_prebuilt_libs):
         check(False, "libnode prebuilt is not supported for this platform/arch. See plan (Phase 1) for supported targets.")
-    # TODO(Node): publish a prebuilt libnode release and set deps_node_version to enable auto download.
-    # download_dependency("node", deps_node_version, f"{third_folder_name}/node")
+    # Download libnode from moluopro/libnode (same source as gode)
+    node_dir = f"{third_folder_name}/node"
+    node_url = f"{deps_node_url}/{deps_node_version}/libnode.zip"
+    download_dependency("node", deps_node_version, node_dir, url_override=node_url)
     node_support = validate_library_support(node_prebuilt_libs)
     check(node_support is not None, f"libnode prebuilt not found at 'third/node/'. Place libnode.{{lib,a}} under 'third/node/{jsb_platform}_{jsb_arch}_release/' and headers at 'third/node/include/' (see plan).")
 
