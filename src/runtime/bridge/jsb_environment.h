@@ -591,7 +591,9 @@ public:
 	}
 #endif
 
+#if JSB_SHADOW_REALM_ENABLED
 	void handle_message(Message &&p_message);
+#endif //JSB_SHADOW_REALM_ENABLED
 
 	class IModuleLoader *find_module_loader(const StringName &p_module_id) const {
 		const HashMap<StringName, class IModuleLoader *>::ConstIterator it = module_loaders_.find(p_module_id);
@@ -714,7 +716,7 @@ private:
 	bool add_async_call(AsyncCall::Type p_type, void *p_binding);
 
 	void _on_worker_transfer(const v8::Local<v8::Context> &p_context, const struct TransferData *p_data);
-#if !JSB_WITH_WEB
+#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif
 

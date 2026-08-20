@@ -605,6 +605,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	variant_allocator_.drain();
 }
 
+#if JSB_SHADOW_REALM_ENABLED
 void Environment::handle_message(Message &&p_message) {
 	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
@@ -615,6 +616,7 @@ void Environment::handle_message(Message &&p_message) {
 	v8::HandleScope message_handle_scope(isolate);
 	_on_worker_message(context, p_message);
 }
+#endif // JSB_SHADOW_REALM_ENABLED
 
 // handle async calls (from InstanceBindingCallbacks)
 void Environment::exec_async_calls() {
@@ -772,7 +774,9 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 		JSB_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
 	}
 }
+#endif
 
+#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
 void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message) {
 	jsb_check(p_message.get_id());
 	ObjectHandleConstPtr handle = object_db_.try_get_object(p_message.get_id());
