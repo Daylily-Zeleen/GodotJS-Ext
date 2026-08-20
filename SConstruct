@@ -756,7 +756,17 @@ if quickjs_support is not None:
 all_sources = godotjs_sources + quickjs_obj
 
 # .dev doesn't inhibit compatibility
-suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
+# Preserve .universal suffix for macOS/iOS to distinguish architectures
+# Add .simulator suffix for iOS simulator builds
+if env['platform'] in ['macos', 'ios']:
+    # macOS/iOS: preserve .universal suffix
+    suffix = env['suffix'].replace(".dev", "")
+    # iOS simulator: add .simulator suffix
+    if env['platform'] == 'ios' and env.get('ios_simulator', False):
+        suffix = suffix.replace(".universal", ".universal.simulator")
+else:
+    # Other platforms: remove .universal suffix
+    suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
 lib_filename = "{}{}{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
 
 library = env.SharedLibrary(
@@ -767,6 +777,56 @@ library = env.SharedLibrary(
 copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 
 default_args = [library, copy]
+
+# iOS: generate xcframework from device and simulator builds
+if jsb_platform == "ios":
+    # Determine the target (template_debug, template_release, etc.)
+    target = env['target']
+    
+    # Define the xcframework output path
+    xcframework_name = "{}.ios.{}.xcframework".format(libname, target)
+    xcframework_path = os.path.join("bin", "ios", xcframework_name)
+    
+    # Define the device and simulator library paths
+    device_lib_name = "{}.ios.{}.dylib".format(libname, target)
+    simulator_lib_name = "{}.ios.{}.universal.simulator.dylib".format(libname, target)
+    device_lib_path = os.path.join("bin", "ios", device_lib_name)
+    simulator_lib_path = os.path.join("bin", "ios", simulator_lib_name)
+    
+    # Define the command to generate xcframework
+    def _generate_xcframework(target, source, env):
+        # Check if both device and simulator libraries exist
+        if not os.path.exists(device_lib_path):
+            print_error(f"Device library not found: {device_lib_path}")
+            print_error("Please build with 'ios_simulator=no' first")
+            return None
+        if not os.path.exists(simulator_lib_path):
+            print_error(f"Simulator library not found: {simulator_lib_path}")
+            print_error("Please build with 'ios_simulator=yes' first")
+            return None
+        
+        # Generate xcframework using xcodebuild
+        cmd = [
+            "xcodebuild", "-create-xcframework",
+            "-library", device_lib_path,
+            "-library", simulator_lib_path,
+            "-output", xcframework_path
+        ]
+        print("Generating xcframework:", " ".join(cmd))
+        subprocess.check_call(cmd)
+        return None
+    
+    # Create a command that depends on both device and simulator builds
+    # This will only run when both builds are complete
+    xcframework_cmd = env.Command(
+        xcframework_path,
+        [device_lib_path, simulator_lib_path],
+        _generate_xcframework
+    )
+    
+    # Copy xcframework to addon directory
+    xcframework_copy = env.Install("{}/bin/ios/".format(addon_dir), xcframework_cmd)
+    default_args += [xcframework_cmd, xcframework_copy]
 
 # Windows: generate a node.dll Node-API forwarder so native .node addons can resolve
 # napi_* symbols (they import them from a module literally named 'node.dll').

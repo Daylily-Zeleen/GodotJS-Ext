@@ -59,7 +59,7 @@ jobs:
 
 
   build:
-    name: Build (${{ matrix.platform }}, ${{ matrix.engine }})
+    name: Build (${{ matrix.platform }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.engine }})
     needs: environment
     strategy:
       fail-fast: false
@@ -67,22 +67,103 @@ jobs:
         include:
           - platform: windows
             os: windows-latest
+            arch: x86_64
+            target: editor
             engine: v8
           - platform: windows
             os: windows-latest
+            arch: x86_64
+            target: editor
             engine: qjs-ng
           - platform: linux
             os: ubuntu-22.04
+            arch: x86_64
+            target: editor
             engine: v8
           - platform: linux
             os: ubuntu-22.04
+            arch: x86_64
+            target: editor
             engine: qjs-ng
           - platform: macos
             os: macos-latest
+            arch: arm64
+            target: editor
             engine: v8
           - platform: macos
             os: macos-latest
+            arch: arm64
+            target: editor
             engine: qjs-ng
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: qjs-ng
+          # Android platform (arm64, x86_64)
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: qjs-ng
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: qjs-ng
+          # Web platform (wasm32)
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: v8
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: qjs-ng
+          # Node engine (Windows, Linux, macOS)
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: editor
+            engine: node
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: editor
+            engine: node
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: editor
+            engine: node
+          # JavaScriptCore engine (macOS, iOS only)
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: editor
+            engine: jsc
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: jsc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -112,17 +193,44 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third/v8
-          key: v8-dependency-${{ runner.os }}-${{ hashFiles('SConstruct') }}
+          key: v8-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
+
+      - name: Restore Node dependency cache
+        if: matrix.engine == 'node'
+        uses: actions/cache@v4
+        with:
+          path: third/node
+          key: node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
       - name: Restore SCons cache
         if: matrix.platform != 'windows'
         uses: actions/cache@v4
         with:
           path: .scons-cache
-          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.engine }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
+          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
           restore-keys: |
-            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.engine }}-
-            scons-${{ runner.os }}-${{ matrix.platform }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-
+
+      - name: Setup Android SDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        if: matrix.platform == 'android'
+        run: |
+          # Install NDK 28.1.13356709 (default version in godot-cpp)
+          sdkmanager "ndk;28.1.13356709"
+          # Set ANDROID_HOME environment variable
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+
+      - name: Setup Emscripten
+        if: matrix.platform == 'web'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.39
+          actions-cache-folder: 'emsdk-cache'
 
       - name: Build GDExtension
         shell: bash
@@ -131,9 +239,24 @@ jobs:
           if [ "${{ matrix.platform }}" != "windows" ]; then
             export SCONS_CACHE="$GITHUB_WORKSPACE/.scons-cache"
           fi
-          engine_flag="${{ matrix.engine == 'qjs-ng' && 'use_quickjs_ng=yes' || '' }}"
-          arch_flag="${{ matrix.platform == 'macos' && 'arch=arm64' || '' }}"
-          scons platform=${{ matrix.platform }} target=editor compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $arch_flag -j$(nproc || sysctl -n hw.ncpu)
+          
+          # Set engine flag based on matrix.engine
+          if [ "${{ matrix.engine }}" == "qjs-ng" ]; then
+            engine_flag="use_quickjs_ng=yes"
+          elif [ "${{ matrix.engine }}" == "node" ]; then
+            engine_flag="use_node=yes"
+          elif [ "${{ matrix.engine }}" == "jsc" ]; then
+            engine_flag="use_jsc=yes"
+          else
+            engine_flag=""
+          fi
+          
+          # iOS, Android, and Web don't support tests or dev_build
+          if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag -j$(nproc || sysctl -n hw.ncpu)
+          else
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag -j$(nproc || sysctl -n hw.ncpu)
+          fi
 
       - name: Prepare artifact
         shell: bash
@@ -141,10 +264,16 @@ jobs:
           mkdir -p artifact
           cp -r bin/* artifact/ 2>/dev/null || true
 
+      - name: Copy LICENSE to artifact
+        shell: bash
+        run: |
+          mkdir -p artifact/addons/godotjs-ext.daylily-zeleen
+          cp LICENSE artifact/addons/godotjs-ext.daylily-zeleen/
+
       - name: Upload GDExtension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-editor-${{ matrix.engine }}
+          name: ${{ matrix.platform }}-${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.engine }}
           path: artifact/
           retention-days: 1
 
@@ -154,7 +283,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [host-v8, host-qjs]
+        runtime: [host-v8, host-qjs, host-node]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -175,7 +304,7 @@ jobs:
       - name: Download GDExtension artifact
         uses: actions/download-artifact@v4
         with:
-          name: linux-editor-${{ matrix.runtime == 'host-v8' && 'v8' || 'qjs-ng' }}
+          name: linux-editor-${{ matrix.runtime == 'host-v8' && 'v8' || matrix.runtime == 'host-node' && 'node' || 'qjs-ng' }}
           path: runtime-artifacts
 
       - name: Download Godot (Linux)
@@ -194,6 +323,7 @@ jobs:
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
           cp "$GODOT_BIN" tests/bin/godot-host-v8
           cp "$GODOT_BIN" tests/bin/godot-host-qjs
+          cp "$GODOT_BIN" tests/bin/godot-host-node
           echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
