@@ -27,10 +27,10 @@
 
 #include "jsb_worker.h"
 
-#include "jsb.config.h"
 #include "../internal/jsb_double_buffered.h"
 #include "../internal/jsb_sarray.h"
 #include "../internal/jsb_thread_util.h"
+#include "jsb.config.h"
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
 #include "jsb_thread_safe_for_nodes_scope.h"
@@ -44,6 +44,8 @@
 // Use `uint64_t` there (equivalent to `uintptr_t` on the other supported platforms).
 #if defined(MACOS_ENABLED) || defined(IOS_ENABLED)
 using worker_thread_param_t = uint64_t;
+#elif defined(WEB_ENABLED)
+using worker_thread_param_t = uint32_t;
 #else
 using worker_thread_param_t = uintptr_t;
 #endif
