@@ -53,7 +53,7 @@
 
 // On macOS (LP64) `uintptr_t` is `unsigned long`, which godot-cpp has no GetTypeInfo specialization for.
 // Use `uint64_t` there (equivalent to `uintptr_t` on the other supported platforms).
-#if defined(MACOS_ENABLED)
+#if defined(MACOS_ENABLED) || defined(IOS_ENABLED)
 using process_thread_param_t = uint64_t;
 #else
 using process_thread_param_t = uintptr_t;
