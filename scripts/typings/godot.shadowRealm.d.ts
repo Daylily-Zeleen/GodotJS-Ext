@@ -26,7 +26,7 @@
 /**
  * 跨 Realm 访问对象的 symbol 键时，如果不是全局或内置的 symbol 将无法正常访问
  * 
- * NOTE: 在纯 web (不使用其他js引擎的 web 构建) 中不支持 `TransferableJSShadowRealm`.
+ * NOTE: 在纯 web (不使用其他js引擎的 web 构建) 中不支持 `JSShadowRealm` 与 `TransferableJSShadowRealm`.
  */
 declare module "godot.shadowRealm" {
     import { GAny, GArray } from "godot";
@@ -45,7 +45,6 @@ declare module "godot.shadowRealm" {
         terminate(): void;
     }
 
-    /** NOTE: 在纯 web (不使用其他js引擎的 web 构建) 中不支持 `TransferableJSShadowRealm`.*/
     class TransferableJSShadowRealm extends JSShadowRealm {
         constructor(params?: {
             startupScript?: string,

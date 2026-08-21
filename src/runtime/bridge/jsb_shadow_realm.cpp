@@ -23,22 +23,24 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
+#if JSB_SHADOW_REALM_ENABLED
+
 // TODO: 优化 mutex 的使用
-#include "jsb_shadow_realm.h"
+#	include "jsb_shadow_realm.h"
 
-#include "../internal/jsb_sarray.h"
-#include "jsb_buffer.h"
-#include "jsb_class_info.h"
-#include "jsb_environment.h"
-#include "jsb_object_handle.h"
-#include "jsb_ref.h"
-#include "jsb_type_convert.h"
+#	include "../internal/jsb_sarray.h"
+#	include "jsb_buffer.h"
+#	include "jsb_class_info.h"
+#	include "jsb_environment.h"
+#	include "jsb_object_handle.h"
+#	include "jsb_ref.h"
+#	include "jsb_type_convert.h"
 
-#define JSB_SHADOW_REALM_LOG(Severity, Format, ...) JSB_LOG_IMPL(ShadowRealm, Severity, Format, ##__VA_ARGS__)
-#define JSB_SHADOW_REALM_MODULE_NAME "godot.shadowRealm"
+#	define JSB_SHADOW_REALM_LOG(Severity, Format, ...) JSB_LOG_IMPL(ShadowRealm, Severity, Format, ##__VA_ARGS__)
+#	define JSB_SHADOW_REALM_MODULE_NAME "godot.shadowRealm"
 
-#include <mutex>
-#define MUTEX_LOCK_GUARD(lock) std::lock_guard _guard_##__LINE__(lock)
+#	include <mutex>
+#	define MUTEX_LOCK_GUARD(lock) std::lock_guard _guard_##__LINE__(lock)
 
 namespace jsb {
 enum class FinalizationType : uint8_t;
@@ -51,7 +53,7 @@ struct ShadowRealmCreateParams;
 
 void _placeholder(const v8::FunctionCallbackInfo<v8::Value> &info) {}
 
-#pragma region CrossWrapper
+#	pragma region CrossWrapper
 static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_isolate, const v8::Local<v8::Value> &p_function);
 
 /** NOTE: 将在 p_to_isolate 的作用域下创建返回值 */
@@ -901,9 +903,9 @@ struct ShadowRealmCreateParams {
 	String startup_script = "";
 	bool allow_import_any_module = false;
 };
-#pragma endregion CrossWrapper
+#	pragma endregion CrossWrapper
 
-#pragma region ShadownRealm
+#	pragma region ShadownRealm
 
 class ShadowRealmImpl {
 	ShadowRealmID id_{};
@@ -1416,9 +1418,9 @@ _FORCE_INLINE_ internal::SArray<ShadowRealmImpl *, ShadowRealmID> &ShadowRealmIm
 	return list;
 }
 std::recursive_mutex ShadowRealmImpl::lock_;
-#pragma endregion ShadownRealm
+#	pragma endregion ShadownRealm
 
-#pragma region ShadowRealmMessage
+#	pragma region ShadowRealmMessage
 // A message from the master envrionment to a shadow realm.
 // Contains the serialized V8 data and a side-channel list of Godot variants/objects being transferred.
 struct ShadowRealmMessage {
@@ -1441,9 +1443,8 @@ private:
 	Buffer data;
 	std::vector<TransferData> transfers;
 };
-#pragma endregion ShadowRealmMessage
+#	pragma endregion ShadowRealmMessage
 
-#if !JSB_WITH_WEB
 #	pragma region TransferableShadowRealm
 class TransferableShadowRealmImpl : public ShadowRealmImpl {
 	v8::Global<v8::Object> context_obj_handle_;
@@ -1801,9 +1802,8 @@ public:
 	}
 };
 #	pragma endregion TransferableShadowRealm
-#endif // !JSB_WITH_WEB
 
-#pragma region TransferableShadowRealm
+#	pragma region TransferableShadowRealm
 class ShadowRealmModuleLoader : public IModuleLoader {
 public:
 	virtual ~ShadowRealmModuleLoader() override = default;
@@ -1822,16 +1822,14 @@ public:
 		//	Can not load `ShadowRealm` and `TransferableShadowRealm`in shadown environment.
 		if (!p_env->is_shadow()) {
 			ShadowRealmImpl::register_class(p_env, isolate, context, exports);
-#if !JSB_WITH_WEB
 			TransferableShadowRealmImpl::register_class(p_env, isolate, context, exports);
-#endif //JSB_WITH_WEB
 		}
 		return true;
 	}
 };
-#pragma endregion TransferableShadowRealm
+#	pragma endregion TransferableShadowRealm
 
-#pragma region ShadowRealm
+#	pragma region ShadowRealm
 void ShadowRealm::finish_all() {
 	ShadowRealmImpl::finish_all();
 	SymbolCrossUtils::clean();
@@ -1846,6 +1844,8 @@ void ShadowRealm::register_(const v8::Local<v8::Context> &p_context, const v8::L
 	FunctionCrossWrapper::register_class(env);
 	ObjectCrossWrapper::register_class(env);
 }
-#pragma endregion ShadowRealm
+#	pragma endregion ShadowRealm
 
 } //namespace jsb
+
+#endif // JSB_SHADOW_REALM_ENABLED

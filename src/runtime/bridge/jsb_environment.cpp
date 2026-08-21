@@ -578,6 +578,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 #	endif
 #endif // !JSB_WITH_NODE
 
+#if JSB_SHADOW_REALM_ENABLED
 	// Update shadow environments.
 	internal::Index32 shadow_env_id = shadow_env_list_.get_first_index();
 	while (shadow_env_id) {
@@ -597,6 +598,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 
 		shadow_env_id = next_id;
 	}
+#endif // JSB_SHADOW_REALM_ENABLED
 
 #if JSB_WITH_DEBUGGER
 	debugger_.update();
@@ -605,7 +607,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	variant_allocator_.drain();
 }
 
-#if JSB_SHADOW_REALM_ENABLED && !JSB_WITH_WEB
+#if JSB_SHADOW_REALM_ENABLED
 void Environment::handle_message(Message &&p_message) {
 	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
@@ -616,7 +618,7 @@ void Environment::handle_message(Message &&p_message) {
 	v8::HandleScope message_handle_scope(isolate);
 	_on_worker_message(context, p_message);
 }
-#endif // JSB_SHADOW_REALM_ENABLED && !JSB_WITH_WEB
+#endif // JSB_SHADOW_REALM_ENABLED
 
 // handle async calls (from InstanceBindingCallbacks)
 void Environment::exec_async_calls() {

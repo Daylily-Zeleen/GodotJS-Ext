@@ -713,7 +713,7 @@ private:
 	bool add_async_call(AsyncCall::Type p_type, void *p_binding);
 
 	void _on_worker_transfer(const v8::Local<v8::Context> &p_context, const struct TransferData *p_data);
-#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
+#if !JSB_WITH_WEB
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif
 
@@ -812,6 +812,7 @@ public:
 		p_js_obj->SetAlignedPointerInInternalField(IF_Pointer, nullptr);
 	}
 
+#if JSB_SHADOW_REALM_ENABLED
 private:
 	internal::SArray<std::weak_ptr<Environment>, internal::Index32> shadow_env_list_;
 
@@ -819,6 +820,7 @@ public:
 	// Shadow environment will be updated together with the main environment.
 	const internal::Index32 add_shadow_env(const std::shared_ptr<Environment> &p_env) { return shadow_env_list_.add(p_env->weak_from_this()); }
 	void remove_shadow_env(internal::Index32 p_index) { shadow_env_list_.remove_at(p_index); }
+#endif // JSB_SHADOW_REALM_ENABLED
 };
 
 #if !JSB_WITH_WEB

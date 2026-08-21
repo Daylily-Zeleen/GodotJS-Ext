@@ -327,7 +327,9 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	// VSCode treats the directory containing the jsconfig.json file as the root of a javascript project, and reads type declarations from d.ts.
 	add_install_file({ "godot.minimal.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 	add_install_file({ "godot.mix.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
+#if JSB_SHADOW_REALM_ENABLED
 	add_install_file({ "godot.shadowRealm.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
+#endif // JSB_SHADOW_REALM_ENABLED
 #if JSB_USE_JS_TYPE_EXTENSION
 	add_install_file({ "type.extension.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 #endif // JSB_USE_JS_TYPE_EXTENSION

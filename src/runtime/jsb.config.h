@@ -211,7 +211,11 @@
 #define JSB_JSON_EXT "json"
 
 /** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */
-#define JSB_SHADOW_REALM_ENABLED 1
+#if !JSB_WITH_WEB
+#	define JSB_SHADOW_REALM_ENABLED 1
+#else // JSB_WITH_WEB
+#	define JSB_SHADOW_REALM_ENABLED 0
+#endif // JSB_WITH_WEB
 
 /**
  * EXPERIMENTAL: 是否在使用 JSB_ISOLATE_SCOPE 时使用 v8::Locker 加锁。
