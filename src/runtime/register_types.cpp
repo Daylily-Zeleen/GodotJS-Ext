@@ -34,15 +34,24 @@
 #include <godot_cpp/classes/resource_saver.hpp>
 
 #ifdef JSB_TESTS_ENABLED
-#include "doctest/doctest.h"
-#include <godot_cpp/classes/window.hpp>
-#include <godot_cpp/classes/scene_tree.hpp>
+#	include "doctest/doctest.h"
+#	include <godot_cpp/classes/scene_tree.hpp>
+#	include <godot_cpp/classes/window.hpp>
 #endif
+
+#ifdef TOOLS_ENABLED
+// TODO: 仅临时实现，后续需要拆分库 Editor 库
+#	include "editor/register_editor_types.h"
+#endif // TOOLS_ENABLED
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
+#ifdef TOOLS_ENABLED
+	_initialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
+#endif // TOOLS_ENABLED
+
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
 			GDREGISTER_CLASS(GodotJSScript);
@@ -68,6 +77,10 @@ void jsb_initialize_module(ModuleInitializationLevel p_level) {
 }
 
 void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
+#ifdef TOOLS_ENABLED
+	_uninitialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
+#endif // TOOLS_ENABLED
+
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
 			GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();

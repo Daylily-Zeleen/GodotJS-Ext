@@ -370,7 +370,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [host-v8, host-qjs, host-node]
+        runtime: [host-v8, host-qjs]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -391,7 +391,7 @@ jobs:
       - name: Download GDExtension artifact
         uses: actions/download-artifact@v4
         with:
-          name: linux-editor-${{ matrix.runtime == 'host-v8' && 'v8' || matrix.runtime == 'host-node' && 'node' || 'qjs-ng' }}
+          name: linux-editor-x86_64-${{ matrix.runtime == 'host-v8' && 'v8' || matrix.runtime == 'host-node' && 'node' || 'qjs-ng' }}
           path: runtime-artifacts
 
       - name: Download Godot (Linux)
@@ -410,7 +410,6 @@ jobs:
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
           cp "$GODOT_BIN" tests/bin/godot-host-v8
           cp "$GODOT_BIN" tests/bin/godot-host-qjs
-          cp "$GODOT_BIN" tests/bin/godot-host-node
           echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
