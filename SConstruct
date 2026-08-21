@@ -83,13 +83,17 @@ deps_url = "https://github.com/godotjs/GodotJS-Dependencies/releases"
 deps_node_url = "https://github.com/moluopro/libnode/releases/download"
 
 class LibraryDetails:
-    def __init__(self, platform, arch, libname, delimiter):
+    def __init__(self, platform, arch, libname, delimiter, custom_platform_base = None):
         self.platform = platform
         self.arch = arch
         self.libname = libname
         self.delimiter = delimiter
+        self.custom_platform_base = custom_platform_base
     def platform_base(self):
-        return self.platform + self.delimiter + self.arch + self.delimiter + "release"
+        if self.custom_platform_base is None:
+            return self.platform + self.delimiter + self.arch + self.delimiter + "release"
+        else:
+            return self.custom_platform_base(self)
 
 class LibraryDescriptor:
     def __init__(self, name, details):
@@ -118,16 +122,22 @@ v8_prebuilt_libs = LibraryDescriptor("v8", [
     LibraryDetails("android", "arm64", "libv8_monolith.a", "."),
 ])
 # libnode: Node.js as a static library (embeds V8). Prebuilt archives must be placed at
-# third/node/<platform>_<arch>_release/libnode.{lib,a} with headers at third/node/include.
-node_prebuilt_libs = LibraryDescriptor("node", [
-    LibraryDetails("windows", "x86_64", "libnode.lib", "_"),
-    LibraryDetails("linux", "x86_64", "libnode.a", "."),
-    LibraryDetails("linux", "arm64", "libnode.a", "."),
-    LibraryDetails("macos", "x86_64", "libnode.a", "."),
-    LibraryDetails("macos", "arm64", "libnode.a", "."),
-    LibraryDetails("ios", "arm64", "libnode.a", "."),
-    LibraryDetails("android", "x86_64", "libnode.a", "."),
-    LibraryDetails("android", "arm64", "libnode.a", "."),
+# third/libnode/<platform>_<arch>_release/libnode.{lib,a} with headers at third/libnode/include.
+def _libnode_platform_base(details: LibraryDetails):
+    arch_map :dict = {
+        "x86_64": "x64",
+        "arm64": "arm64",
+    }
+    return f"{details.platform}{details.delimiter}{arch_map[details.arch]}"
+node_prebuilt_libs = LibraryDescriptor("libnode", [
+    LibraryDetails("windows", "x86_64", "libnode.lib", "/", _libnode_platform_base),
+    LibraryDetails("linux", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("linux", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("macos", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("macos", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("ios", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("android", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("android", "arm64", "libnode.a", "/", _libnode_platform_base),
 ])
 lws_prebuilt_libs = LibraryDescriptor("lws", [
     LibraryDetails("windows", "x86_64", "websockets_static.lib", "_"),
@@ -310,12 +320,12 @@ node_support = None
 if env.get("use_node", False):
     if not is_library_supported(node_prebuilt_libs):
         check(False, "libnode prebuilt is not supported for this platform/arch. See plan (Phase 1) for supported targets.")
-    # Download libnode from moluopro/libnode (same source as gode)
-    node_dir = f"{third_folder_name}/node"
     node_url = f"{deps_node_url}/{deps_node_version}/libnode.zip"
-    download_dependency("node", deps_node_version, node_dir, url_override=node_url, archive_root="libnode")
+    download_dependency("node", deps_node_version, f"{third_folder_name}/libnode", url_override=node_url)
     node_support = validate_library_support(node_prebuilt_libs)
-    check(node_support is not None, f"libnode prebuilt not found at 'third/node/'. Place libnode.{{lib,a}} under 'third/node/{jsb_platform}_{jsb_arch}_release/' and headers at 'third/node/include/' (see plan).")
+    check(node_support is not None, "libnode prebuild lib is not found.")
+    if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
+        download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
 
 use_quickjs = None if node_support is not None else (f"{third_folder_name}/quickjs" if env.get("use_quickjs", False) else (f"{third_folder_name}/quickjs-ng" if env.get("use_quickjs_ng", False) else None))
 jsc_support = None if node_support is not None else ("jsc" if env.get("use_jsc", False) and use_quickjs is None else None)
@@ -674,8 +684,8 @@ if v8_support is not None and node_support is None:
 # so that the N-API symbols it defines are preserved and exported by the main DLL.
 if node_support is not None:
     node_basename = node_support[1].platform_base()
-    node_lib_path = os.path.join(root_dir, third_dir, "node", node_basename, "libnode.lib" if jsb_platform == "windows" else "libnode.a")
-    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "node", "include")])
+    node_lib_path = os.path.join(root_dir, third_dir, "libnode", node_basename, "libnode.lib" if jsb_platform == "windows" else "libnode.a")
+    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "libnode", "include")])
     # NOTE: do NOT define V8_COMPRESS_POINTERS here. The moluopro/libnode prebuilt
     # (Node 24.x) is built WITHOUT pointer compression, and V8::Initialize() aborts
     # with "Embedder-vs-V8 build configuration mismatch" when the embedder side
@@ -809,8 +819,10 @@ if jsb_platform == "ios":
     
     # Define the device and simulator library paths
     # Note: device build generates .universal.dylib, simulator build generates .universal.simulator.dylib
-    device_lib_name = "{}.ios.{}.universal.dylib".format(libname, target)
-    simulator_lib_name = "{}.ios.{}.universal.simulator.dylib".format(libname, target)
+    # The SHLIBPREFIX ("lib" on macOS/iOS) must be included to match the actual output filename.
+    shlibprefix = env.subst('$SHLIBPREFIX')
+    device_lib_name = "{}{}.ios.{}.universal.dylib".format(shlibprefix, libname, target)
+    simulator_lib_name = "{}{}.ios.{}.universal.simulator.dylib".format(shlibprefix, libname, target)
     device_lib_path = os.path.join("bin", "ios", device_lib_name)
     simulator_lib_path = os.path.join("bin", "ios", simulator_lib_name)
     
@@ -857,7 +869,7 @@ if node_support is not None and jsb_platform == "windows":
     node_dll_path = os.path.join(root_dir, "bin", jsb_platform, "node.dll")
     node_def_path = os.path.join(root_dir, "bin", jsb_platform, "node.def")
     node_shim_script = os.path.join(root_dir, "misc", "build", "generate_node_shim.py")
-    node_include_dir = os.path.join(root_dir, third_dir, "node", "include")
+    node_include_dir = os.path.join(root_dir, third_dir, "libnode", "include")
     shim_arch = "ARM64" if jsb_arch == "arm64" else "X64"
 
     def _build_node_shim(target, source, env):
