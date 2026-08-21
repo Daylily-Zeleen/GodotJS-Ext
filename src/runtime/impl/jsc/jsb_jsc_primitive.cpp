@@ -58,6 +58,16 @@ MaybeLocal<String> Value::ToDetailString(Local<Context> context) const {
 	return ToString(context);
 }
 
+MaybeLocal<Value> Value::ToPrimitive(Local<Context> context) const {
+	const JSValueRef self = (JSValueRef) * this;
+	// JavaScriptCore 没有公开的 ToPrimitive API，这里与 QuickJS shim 保持一致：
+	// 非对象值按原样返回，对象返回空，由调用方按非 primitive 处理。
+	if (JSValueIsObject(isolate_->ctx(), self)) {
+		return MaybeLocal<Value>();
+	}
+	return MaybeLocal<Value>(Data(isolate_, isolate_->push_copy(self)));
+}
+
 Maybe<int32_t> Value::Int32Value(Local<Context> context) const {
 	JSValueRef error = nullptr;
 	const int32_t rval = JSValueToInt32(isolate_->ctx(), (JSValueRef) * this, &error);

@@ -39,7 +39,8 @@ opts.Update(localEnv)
 Help(opts.GenerateHelpText(localEnv))
 
 env = localEnv.Clone()
-env["build_profile"] = "./build_profile.json"
+env["build_profile"] = "./build_profile.json";
+env.Replace(**{v: ARGUMENTS[v] for v in ("CC", "CXX") if v in ARGUMENTS})
 
 # # Enable SCons cache to speed up builds
 # scons_cache_path = os.path.join(os.getcwd(), ".scons_cache")
@@ -726,6 +727,10 @@ if node_support is not None:
         env.Append(LINKFLAGS=["-Wl,-force_load", os.path.abspath(node_lib_path)])
         env.Append(LINKFLAGS=["-framework", "Foundation"])
 
+# JavaScriptCore is a system framework on macOS and iOS; link it for JSC builds
+if jsc_support is not None and jsb_platform in ("macos", "ios"):
+    env.Append(LINKFLAGS=["-framework", "JavaScriptCore"])
+
 # Add lws include/library path
 if lws_support is not None:
     lws_basename = lws_support[1].platform_base()
@@ -841,11 +846,12 @@ if jsb_platform == "ios" and env.get('ios_simulator', False):
     xcframework_name = "{}.ios.{}.xcframework".format(libname, target)
     xcframework_path = os.path.join("bin", "ios", xcframework_name)
 
-    # Note: device build generates .universal.dylib, simulator build generates .universal.simulator.dylib
+    # Note: the dylib suffix embeds the arch part following godot-cpp's naming:
+    # ".universal" for arch=universal, ".{arch}" otherwise; simulator builds append ".simulator".
     # The SHLIBPREFIX ("lib" on macOS/iOS) must be included to match the actual output filename.
     shlibprefix = env.subst('$SHLIBPREFIX')
-    device_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.dylib".format(shlibprefix, libname, target))
-    simulator_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.simulator.dylib".format(shlibprefix, libname, target))
+    device_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}{}.dylib".format(shlibprefix, libname, target, ".universal" if env["arch"] == "universal" else "." + env["arch"]))
+    simulator_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}{}.simulator.dylib".format(shlibprefix, libname, target, ".universal" if env["arch"] == "universal" else "." + env["arch"]))
 
     # NOTE: SCons invokes the action with target=/source=/env= keyword
     # arguments, so the parameter names must match exactly.

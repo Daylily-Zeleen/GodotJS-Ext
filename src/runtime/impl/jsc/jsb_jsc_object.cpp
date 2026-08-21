@@ -387,4 +387,40 @@ Local<Object> Proxy::GetTarget() const {
 	}
 	return Local<Object>(Data(isolate_, isolate_->push_copy(target)));
 }
+
+MaybeLocal<Script> Script::Compile(Local<Context> context, Local<String> source) {
+	Isolate *isolate = context->isolate_;
+	const JSContextRef ctx = isolate->ctx();
+	const JSValueRef val = (JSValueRef)source;
+	// JavaScriptCore 没有公开的“仅编译不执行”API，这里把源码字符串原样放入
+	// 值栈，由 Run() 调用 JSEvaluateScript 完成真正的编译与执行（语法错误在
+	// Run 阶段抛出，与 V8 行为略有差异）。
+	if (!JSValueIsString(ctx, val)) {
+		return MaybeLocal<Script>();
+	}
+	return MaybeLocal<Script>(Data(isolate, isolate->push_copy(val)));
+}
+
+MaybeLocal<Value> Script::Run(Local<Context> context) {
+	Isolate *isolate = context->isolate_;
+	const JSContextRef ctx = isolate->ctx();
+	const JSValueRef source_val = (JSValueRef) * this;
+	jsb_check(JSValueIsString(ctx, source_val));
+
+	const JSStringRef source = JSValueToStringCopy(ctx, source_val, nullptr);
+	if (!source) {
+		return MaybeLocal<Value>();
+	}
+
+	JSValueRef error = nullptr;
+	const JSValueRef rval = JSEvaluateScript(ctx, source, nullptr, nullptr, 0, &error);
+	JSStringRelease(source);
+	if (jsb_unlikely(error) || !rval) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return MaybeLocal<Value>();
+	}
+	return MaybeLocal<Value>(Data(isolate, isolate->push_copy(rval)));
+}
 } //namespace v8

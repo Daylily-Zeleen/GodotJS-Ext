@@ -102,4 +102,13 @@ public:
 	Local<Object> GetTarget() const;
 };
 
+// Script - deferred evaluation wrapper (JavaScriptCore has no public
+// compile-only API; Compile() keeps the source string on the value stack and
+// Run() evaluates it via JSEvaluateScript).
+class Script : public Object {
+public:
+	static MaybeLocal<Script> Compile(Local<Context> context, Local<String> source);
+	MaybeLocal<Value> Run(Local<Context> context);
+};
+
 } //namespace v8

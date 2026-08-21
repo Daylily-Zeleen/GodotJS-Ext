@@ -16,7 +16,7 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
 /*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
@@ -40,6 +40,7 @@ class Maybe;
 
 class Value : public Data {
 public:
+	MaybeLocal<Value> ToPrimitive(Local<Context> context) const;
 	MaybeLocal<String> ToDetailString(Local<Context> context) const;
 	Maybe<double> NumberValue(Local<Context> context) const;
 	Maybe<int32_t> Int32Value(Local<Context> context) const;
