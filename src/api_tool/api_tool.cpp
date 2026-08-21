@@ -69,7 +69,10 @@ void finalize() {
 
 void get_api_dumping_dir(godot::String *r_dir) {
 	if (ApiLoader *loader = get_loader()) {
+		// NB: the loader may exist without a loaded store (e.g. first-time
+		// generation), but its base dir is already resolved by initialize().
 		*r_dir = loader->get_api_dumping_dir();
+		return;
 	}
 	*r_dir = "";
 }

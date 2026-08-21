@@ -304,6 +304,9 @@ Error generate_api_tool_data(const String &p_extension_api_json_path) {
 	// Use generator to launch subprocess and parse
 	Error err = ApiGenerator::generate(p_extension_api_json_path, out_dir);
 	if (err != OK) {
+		// Restore the loader so the editor shutdown path can call
+		// api_tool::finalize() again without hitting CRASH_COND.
+		initialize();
 		return err;
 	}
 
