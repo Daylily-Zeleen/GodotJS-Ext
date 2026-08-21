@@ -85,23 +85,23 @@ jobs:
             arch: x86_64
             target: editor
             engine: qjs-ng
-          # Linux arm64 builds (native arm64 runner)
+          # Linux arm64 builds (cross-compiled on x86_64 runner with
+          # gcc-aarch64-linux-gnu; native arm64 runners are too scarce)
           - platform: linux
-            os: ubuntu-22.04-arm64
+            os: ubuntu-22.04
             arch: arm64
             target: editor
             engine: v8
           - platform: linux
-            os: ubuntu-22.04-arm64
+            os: ubuntu-22.04
             arch: arm64
             target: editor
             engine: qjs-ng
-          - platform: linux
-            os: ubuntu-22.04-arm64
-            arch: arm64
-            target: editor
-            engine: node
-          # macOS builds
+          # macOS builds.
+          # - qjs-ng: universal (single build covers arm64 + x86_64, avoiding
+          #   the deprecated/slow macos-13 x86_64 runners)
+          # - v8: arm64 only (the v8 prebuilt has no universal variant, see
+          #   SConstruct's explicit rejection of macos+universal+v8)
           - platform: macos
             os: macos-latest
             arch: arm64
@@ -109,25 +109,9 @@ jobs:
             engine: v8
           - platform: macos
             os: macos-latest
-            arch: arm64
+            arch: universal
             target: editor
             engine: qjs-ng
-          # macOS x86_64 builds
-          - platform: macos
-            os: macos-13  # macOS 13 provides x86_64 runners
-            arch: x86_64
-            target: editor
-            engine: v8
-          - platform: macos
-            os: macos-13
-            arch: x86_64
-            target: editor
-            engine: qjs-ng
-          - platform: macos
-            os: macos-13
-            arch: x86_64
-            target: editor
-            engine: node
           # iOS builds (device + simulator -> xcframework)
           - platform: ios
             os: macos-latest
@@ -197,16 +181,19 @@ jobs:
             arch: x86_64
             target: editor
             engine: node
-          - platform: linux
-            os: ubuntu-22.04
-            arch: x86_64
-            target: editor
-            engine: node
-          - platform: macos
-            os: macos-latest
-            arch: arm64
-            target: editor
-            engine: node
+          # NOTE: node builds on macos/linux are temporarily disabled:
+          # libnode.a lacks the typeinfo symbols of v8::Value{Serializer,Deserializer}::Delegate,
+          # which our delegate subclasses reference (see 低优先级.md).
+          # - platform: linux
+          #   os: ubuntu-22.04
+          #   arch: x86_64
+          #   target: editor
+          #   engine: node
+          # - platform: macos
+          #   os: macos-latest
+          #   arch: arm64
+          #   target: editor
+          #   engine: node
           # JavaScriptCore engine (macOS, iOS only)
           - platform: macos
             os: macos-latest
@@ -327,19 +314,35 @@ jobs:
             NPROC=2
           fi
           
-          # iOS, Android, and Web don't support tests or dev_build
-          if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag $threads_flag -j$NPROC
-          else
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $threads_flag -j$NPROC
+          # Linux arm64: cross-compile with the aarch64 toolchain (the native
+          # arm64 runners are too scarce). godot-cpp's linux.py appends
+          # -march=armv8-a which only the aarch64 compiler understands.
+          cross_flags=""
+          if [ "${{ matrix.platform }}" == "linux" ] && [ "${{ matrix.arch }}" == "arm64" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            cross_flags="CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++"
           fi
           
-          # iOS: Build simulator version and generate xcframework
+          # iOS, Android, and Web don't support tests or dev_build
+          if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
+          else
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
+          fi
+          
+          # iOS: Build simulator version and generate xcframework.
+          # NOTE: v8 has no iOS-simulator prebuilt, so only quickjs-ng/jsc
+          # produce an xcframework; v8 produces the device dylib alone.
           if [ "${{ matrix.platform }}" == "ios" ]; then
-            echo "Building iOS simulator version..."
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag ios_simulator=yes -j$NPROC
-            echo "Generating xcframework..."
-            # The xcframework is automatically generated by SConstruct when both builds are present
+            if [ "${{ matrix.engine }}" != "v8" ]; then
+              echo "Building iOS simulator version..."
+              scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag ios_simulator=yes -j$NPROC
+              echo "Generating xcframework..."
+              # The xcframework is automatically generated by SConstruct when both builds are present
+            else
+              echo "Skipping iOS simulator build for v8 (no simulator prebuilt available)"
+            fi
           fi
 
       - name: Prepare artifact

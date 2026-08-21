@@ -56,7 +56,10 @@ public:
 };
 
 class Primitive : public Value {};
-class Name : public Primitive {};
+class Name : public Primitive {
+public:
+	Maybe<bool> Equals(Local<Context> context, Local<Name> other) const;
+};
 
 class String : public Name {
 public:

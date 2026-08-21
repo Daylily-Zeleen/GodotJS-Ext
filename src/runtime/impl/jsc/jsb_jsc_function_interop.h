@@ -62,6 +62,10 @@ public:
 		data_.isolate_->set_stack_copy(data_.stack_pos_, JSValueMakeNumber(data_.isolate_->ctx(), value));
 	}
 
+	void SetUndefined() const {
+		data_.isolate_->set_stack_copy(data_.stack_pos_, jsb::impl::StackPos::Undefined);
+	}
+
 private:
 	Data data_;
 };

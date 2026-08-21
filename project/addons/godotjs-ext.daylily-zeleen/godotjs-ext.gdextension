@@ -15,9 +15,13 @@ windows.debug.arm64 = "bin/windows/godotjs-ext.windows.template_debug.arm64.dll"
 windows.release.arm64 = "bin/windows/godotjs-ext.windows.template_release.arm64.dll"
 windows.debug.editor.arm64 = "bin/windows/godotjs-ext.windows.editor.arm64.dll"
 
-macos.debug = "bin/macos/godotjs-ext.macos.template_debug.framework"
-macos.release = "bin/macos/godotjs-ext.macos.template_release.framework"
-macos.debug.editor = "bin/macos/godotjs-ext.macos.editor.framework"
+# macOS: the universal dylib (qjs-ng build) covers both architectures; the
+# arm64-only dylib (v8 build) is listed for arm64 so it takes precedence there.
+# Godot resolves per-arch entries first, then falls back to the arch-less key.
+macos.debug = "bin/macos/godotjs-ext.macos.template_debug.universal.dylib"
+macos.release = "bin/macos/godotjs-ext.macos.template_release.universal.dylib"
+macos.debug.editor = "bin/macos/godotjs-ext.macos.editor.universal.dylib"
+macos.debug.editor.arm64 = "bin/macos/godotjs-ext.macos.editor.arm64.dylib"
 
 linux.debug.x86_32 = "bin/linux/godotjs-ext.linux.template_debug.x86_32.so"
 linux.release.x86_32 = "bin/linux/godotjs-ext.linux.template_release.x86_32.so"

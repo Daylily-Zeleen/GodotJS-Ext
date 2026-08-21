@@ -99,6 +99,7 @@ enum {
 	PromiseConstructor,
 	ArrayBufferConstructor,
 	SymbolConstructor,
+	ProxyConstructor,
 	Exception,
 
 	Num,
@@ -200,6 +201,9 @@ public:
 
 	// get the cached global Symbol constructor (jsb::impl::StackPos::SymbolConstructor)
 	JSValueRef _GetSymbolConstructor() const { return stack_val(jsb::impl::StackPos::SymbolConstructor); }
+
+	// get the cached global Proxy constructor (jsb::impl::StackPos::ProxyConstructor)
+	JSValueRef _GetProxyConstructor() const { return stack_val(jsb::impl::StackPos::ProxyConstructor); }
 
 	bool _DefineProperty(JSObjectRef obj, JSValueRef key, JSValueRef value);
 	bool _DefineProperty(JSObjectRef obj, JSValueRef key, JSObjectRef getter, JSObjectRef setter);

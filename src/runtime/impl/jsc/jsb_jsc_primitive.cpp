@@ -38,6 +38,21 @@ Local<Primitive> Null(Isolate *isolate) {
 	return Local<Primitive>(Data(isolate, jsb::impl::StackPos::Null));
 }
 
+Maybe<bool> Name::Equals(Local<Context> context, Local<Name> other) const {
+	const JSValueRef v1 = (JSValueRef) * this;
+	const JSValueRef v2 = (JSValueRef)other;
+	// JSValueIsEqual performs abstract equality (==), matching the semantics
+	// of v8::Name::Equals (SameValueZero for primitives is close enough here;
+	// names are strings/symbols which compare by identity anyway).
+	JSValueRef exception = nullptr;
+	const bool res = JSValueIsEqual(isolate_->ctx(), v1, v2, &exception);
+	if (jsb_unlikely(exception)) {
+		jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(isolate_->ctx(), exception);
+		return Maybe<bool>();
+	}
+	return Maybe<bool>(res);
+}
+
 MaybeLocal<String> Value::ToDetailString(Local<Context> context) const {
 	//TODO no equivalent implementation
 	return ToString(context);

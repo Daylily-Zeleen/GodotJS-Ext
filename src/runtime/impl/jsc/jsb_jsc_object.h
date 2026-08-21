@@ -94,4 +94,12 @@ public:
 	};
 };
 
+// Proxy - created via `new Proxy(target, handler)` using the cached global
+// Proxy constructor (see Isolate::_GetProxyConstructor).
+class Proxy : public Object {
+public:
+	static MaybeLocal<Proxy> New(Local<Context> context, Local<Object> target, Local<Object> handler);
+	Local<Object> GetTarget() const;
+};
+
 } //namespace v8

@@ -163,6 +163,7 @@ function(key, value, getter, setter) {
 	jsb_ensure(emplace_(_GetProperty(global, jsb::impl::JS_ATOM_Promise)) == jsb::impl::StackPos::PromiseConstructor);
 	jsb_ensure(emplace_(_GetProperty(global, jsb::impl::JS_ATOM_ArrayBuffer)) == jsb::impl::StackPos::ArrayBufferConstructor);
 	jsb_ensure(emplace_(_GetProperty(global, jsb::impl::JS_ATOM_Symbol)) == jsb::impl::StackPos::SymbolConstructor);
+	jsb_ensure(emplace_(_GetProperty(global, jsb::impl::JS_ATOM_Proxy)) == jsb::impl::StackPos::ProxyConstructor);
 	jsb_ensure(emplace_(JSValueMakeUndefined(ctx_)) == jsb::impl::StackPos::Exception);
 	jsb_check(stack_pos_ == jsb::impl::StackPos::Num);
 }

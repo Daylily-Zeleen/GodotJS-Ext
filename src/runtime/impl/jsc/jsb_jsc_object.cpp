@@ -345,4 +345,46 @@ Maybe<bool> Promise::Resolver::Resolve(Local<Context> context, Local<Value> valu
 Maybe<bool> Promise::Resolver::Reject(Local<Context> context, Local<Value> value) {
 	return InvokePromise<kHolderIndexReject>(context, this, value);
 }
+
+MaybeLocal<Proxy> Proxy::New(Local<Context> context, Local<Object> target, Local<Object> handler) {
+	Isolate *isolate = context->GetIsolate();
+	JSContextRef ctx = isolate->ctx();
+	const JSObjectRef proxy_ctor = jsb::impl::JavaScriptCore::AsObject(ctx, isolate->_GetProxyConstructor());
+	JSValueRef error = nullptr;
+	// new Proxy(target, handler)
+	JSValueRef args[] = { (JSValueRef)target, (JSValueRef)handler };
+	const JSValueRef val = JSObjectCallAsConstructor(ctx, proxy_ctor, 2, args, &error);
+	if (jsb_unlikely(error) || !val) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return MaybeLocal<Proxy>();
+	}
+	return MaybeLocal<Proxy>(Data(isolate, isolate->push_copy(val)));
+}
+
+Local<Object> Proxy::GetTarget() const {
+	// The JSC C API has no direct way to read a proxy's target, so evaluate
+	// a getter function instead.
+	JSContextRef ctx = isolate_->ctx();
+	const JSStringRef code = JSStringCreateWithUTF8CString("(function(p){ return p; })");
+	JSValueRef error = nullptr;
+	const JSValueRef getter = JSEvaluateScript(ctx, code, nullptr, nullptr, 1, &error);
+	JSStringRelease(code);
+	if (jsb_unlikely(error) || !getter) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<Object>();
+	}
+	JSValueRef self = (JSValueRef)*this;
+	const JSValueRef target = JSObjectCallAsFunction(ctx, (JSObjectRef)getter, nullptr, 1, &self, &error);
+	if (jsb_unlikely(error) || !target) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<Object>();
+	}
+	return Local<Object>(Data(isolate_, isolate_->push_copy(target)));
+}
 } //namespace v8

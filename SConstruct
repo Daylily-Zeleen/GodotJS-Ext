@@ -344,6 +344,23 @@ if node_support is not None:
     v8_support = v8_prebuilt_libs if is_library_supported(v8_prebuilt_libs) else None
 else:
     v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
+
+# The prebuilt v8_monolith for iOS is built against the iphoneos SDK only; the
+# simulator SDK refuses to link it ("object file built for 'iOS'"). Until a
+# simulator variant of the prebuilt is published, reject this combination
+# explicitly instead of failing with a cryptic linker error.
+if v8_support is not None and jsb_platform == "ios" and env.get('ios_simulator', False):
+    check(False, "v8 prebuilt does not support iOS Simulator (only device builds are available). "
+                 "Use 'ios_simulator=no', or pick quickjs-ng/jsc for simulator builds.")
+
+# Same class of problem on macOS: the v8 prebuilt ships per-architecture
+# archives only (macos.arm64.release / macos.x86_64.release), no universal
+# variant. A universal build would either silently fail to match any prebuilt
+# (v8_support becomes None -> build degrades to "no engine") or fail at link
+# time with missing symbols for the other architecture. Reject it explicitly.
+if v8_support is not None and jsb_platform == "macos" and jsb_arch == "universal":
+    check(False, "v8 prebuilt does not support macOS universal builds (only per-arch arm64/x86_64 are available). "
+                 "Use arch=arm64 or arch=x86_64, or pick quickjs-ng/jsc for universal builds.")
 # TEMPORARY (see TODO.md): disable lws on linux (prebuilt lib is not PIC).
 # In node mode lws is disabled too (avoids cross-linking v8 symbols against libnode).
 lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and node_support is None and jsb_platform != "linux" else None
@@ -830,7 +847,9 @@ if jsb_platform == "ios" and env.get('ios_simulator', False):
     device_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.dylib".format(shlibprefix, libname, target))
     simulator_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.simulator.dylib".format(shlibprefix, libname, target))
 
-    def _generate_xcframework(_target, _source, _env):
+    # NOTE: SCons invokes the action with target=/source=/env= keyword
+    # arguments, so the parameter names must match exactly.
+    def _generate_xcframework(target, source, env):
         if not os.path.exists(device_lib_path):
             print_warning(f"Skip generating xcframework: device library not found at '{device_lib_path}'. "
                           f"Run 'scons platform=ios ... ios_simulator=no' first.")
