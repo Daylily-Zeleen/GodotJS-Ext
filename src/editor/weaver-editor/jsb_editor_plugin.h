@@ -96,6 +96,7 @@ private:
 	void _on_resource_saved(const Ref<Resource> &p_resource);
 	void _generate_imported_resource_dts(const PackedStringArray &p_resources);
 	void _generate_types_from_cmdline();
+	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
 
 	static void _on_generate_completed(const v8::FunctionCallbackInfo<v8::Value> &info);
 

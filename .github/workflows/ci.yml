@@ -370,8 +370,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [host-v8, host-qjs]
-    runs-on: ubuntu-22.04
+        include:
+          # host-v8 / host-qjs run on Linux (artifacts built natively there)
+          - runtime: host-v8
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-v8
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          - runtime: host-qjs
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-qjs-ng
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          # host-node runs on Windows: libnode is only linked on Windows
+          # (linux/macos builds were dropped due to missing libnode symbols)
+          - runtime: host-node
+            os: windows-latest
+            artifact: windows-editor-x86_64-node
+            godot_asset: Godot_v4.7.1-stable_win64.exe.zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -386,12 +401,13 @@ jobs:
         working-directory: scripts
 
       - name: Install gdb
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gdb
 
       - name: Download GDExtension artifact
         uses: actions/download-artifact@v4
         with:
-          name: linux-editor-x86_64-${{ matrix.runtime == 'host-v8' && 'v8' || matrix.runtime == 'host-node' && 'node' || 'qjs-ng' }}
+          name: ${{ matrix.artifact }}
           path: runtime-artifacts
 
       - name: Download Godot (Linux)
@@ -399,17 +415,20 @@ jobs:
         with:
           repo: godotengine/godot
           version: tags/4.7.1-stable
-          file: Godot_v4.7.1-stable_linux.x86_64.zip
+          file: ${{ matrix.godot_asset }}
           target: godot/godot.zip
 
       - name: Extract Godot
         run: |
           mkdir -p tests/bin
-          unzip -o godot/godot.zip -d tests/bin/
-          chmod +x tests/bin/Godot*
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            tar -xf godot/godot.zip -C tests/bin/
+          else
+            unzip -o godot/godot.zip -d tests/bin/
+          fi
+          chmod +x tests/bin/Godot* 2>/dev/null || true
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          cp "$GODOT_BIN" tests/bin/godot-host-v8
-          cp "$GODOT_BIN" tests/bin/godot-host-qjs
+          cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}"
           echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
@@ -444,9 +463,9 @@ jobs:
         # unit test step below also depends on this data, so a genuinely
         # incomplete generation would fail there.
         run: |
-          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --dump-extension-api-with-docs || true
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
-          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit
           test -f project/.godot/.api_dumping/header.capi
 
       - name: Run C++ unit tests
@@ -454,7 +473,11 @@ jobs:
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
         run: |
-          timeout 120 tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --path project --jsb-run-tests
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            "$GODOT" --headless --path project --jsb-run-tests
+          else
+            timeout 120 "$GODOT" --headless --path project --jsb-run-tests
+          fi
 
       - name: Run TypeScript integration tests
         shell: bash

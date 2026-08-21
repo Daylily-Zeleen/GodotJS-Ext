@@ -27,6 +27,7 @@
 
 #include "jsb_editor_plugin.h"
 #include "api_tool/api_tool.h"
+#include "api_tool/editor/api_tool_editor.h"
 #include "jsb_config_classes_dialog.h"
 #include "jsb_docked_panel.h"
 #include "jsb_editor_helper.h"
@@ -167,6 +168,21 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 				callable_mp(this, &GodotJSEditorPlugin::_generate_types_from_cmdline).call_deferred();
 			}
 
+			// Handle `--godotjs-api-generate <extension_api.json>`: build the binary api_tool
+			// store from a pre-dumped extension_api.json, then quit when headless. This is
+			// the receiving end of the reboot chain spawned by full_generate_and_reboot(),
+			// and allows CI to bootstrap the store without a working JS runtime (the JS
+			// codegen module needs the very data that is being generated here).
+			const PackedStringArray &api_generate_args = OS::get_singleton()->get_cmdline_args();
+			for (int i = 0; i < api_generate_args.size(); ++i) {
+				if (api_generate_args[i] == "--godotjs-api-generate" && i + 1 < api_generate_args.size()) {
+					const String extension_api_json = api_generate_args[i + 1];
+					callable_mp(this, &GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline)
+							.bind(extension_api_json).call_deferred();
+					break;
+				}
+			}
+
 			break;
 		default:
 			break;
@@ -189,6 +205,21 @@ void GodotJSEditorPlugin::_generate_types_from_cmdline() {
 			}
 		}
 	});
+}
+
+void GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline(const String &p_extension_api_json) {
+	// Pure C++ pipeline: no JS runtime involved (see api_tool_generator.cpp).
+	const Error err = api_tool::generate_api_tool_data(p_extension_api_json);
+	if (err != OK) {
+		JSB_LOG(Error, "[API Tool] Failed to generate api data from '%s' (%s)", p_extension_api_json, UtilityFunctions::error_string(err));
+	} else {
+		JSB_LOG(Log, "[API Tool] Api data generated successfully.");
+	}
+	if (DisplayServer::get_singleton()->get_name() == "headless") {
+		if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
+			scene_tree->quit(err == OK ? EXIT_SUCCESS : EXIT_FAILURE);
+		}
+	}
 }
 
 void GodotJSEditorPlugin::_on_menu_pressed(int p_what) {
