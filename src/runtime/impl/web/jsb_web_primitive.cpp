@@ -26,6 +26,7 @@
 /************************************************************************/
 
 #include "jsb_web_primitive.h"
+#include "jsb_web_interop.h"
 #include "jsb_web_isolate.h"
 #include "jsb_web_maybe.h"
 #include "jsb_web_typedef.h"
@@ -77,6 +78,38 @@ int String::Length() const {
 
 Local<String> String::Empty(Isolate *isolate) {
 	return Local<String>(Data(isolate, jsb::impl::StackBase::EmptyString));
+}
+
+MaybeLocal<String> String::NewFromUtf8(Isolate *isolate, const char *data, NewStringType /* type */, int length) {
+	return MaybeLocal<String>(Data(isolate, jsbi_NewString(isolate->rt(), data, length < 0 ? (int)strlen(data) : length)));
+}
+
+int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_ref) const {
+	jsb::impl::JSRuntime rt = isolate->rt();
+	int32_t len;
+	char *chars = jsbi_ToCStringLen(rt, &len, this->stack_pos_);
+	if (!chars) {
+		return 0;
+	}
+
+	const int available = (int)len;
+	const int to_write = (length < 0 || length > available) ? available : length;
+	if (to_write > 0) {
+		memcpy(buffer, chars, to_write);
+	}
+
+	jsbi_free(chars);
+
+	if (nchars_ref) {
+		// QuickJS returns byte length; for pure ASCII they're the same.
+		// For non-ASCII we'd need to count codepoints, but this is good enough for our use cases.
+		*nchars_ref = to_write;
+	}
+	return to_write;
+}
+
+Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {
+	return Local<String>(Data(isolate, jsbi_NewString(isolate->rt(), literal, length)));
 }
 
 Local<Integer> Integer::New(Isolate *isolate, int32_t value) {

@@ -60,9 +60,33 @@ class Name : public Primitive {};
 
 class String : public Name {
 public:
+	static constexpr int kMaxLength = ((1 << 30) - 1);
+
 	int Length() const;
 
 	static Local<String> Empty(Isolate *isolate);
+
+	// V8 string creation APIs
+	static MaybeLocal<String> NewFromUtf8(Isolate *isolate, const char *data, NewStringType /* type */, int length);
+
+	// UTF-8 encoded characters.
+	int WriteUtf8(Isolate *isolate, char *buffer, int length = -1, int *nchars_ref = nullptr /*, int options = NO_OPTIONS*/) const;
+
+	// V8 compatibility macro for creating string from literal
+	template <int N>
+	static Local<String> NewFromUtf8Literal(
+			Isolate *isolate, const char (&literal)[N], NewStringType type = NewStringType::kNormal) {
+		static_assert(N <= kMaxLength, "String is too long");
+		if constexpr (N == 1) {
+			// Zero-length string specialization (templated string size includes terminator).
+			return String::Empty(isolate);
+		}
+		return NewFromUtf8Literal(isolate, literal, type, N - 1);
+	}
+
+private:
+	static Local<String> NewFromUtf8Literal(
+			Isolate *isolate, const char *literal, NewStringType type, int length);
 };
 
 class Symbol : public Name {

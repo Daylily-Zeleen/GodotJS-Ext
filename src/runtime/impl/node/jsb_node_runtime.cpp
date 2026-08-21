@@ -204,7 +204,7 @@ v8::Global<v8::Value> NodeRuntime::NodeRequire(const v8::Local<v8::String> &p_mo
 
 	v8::Global<v8::Value> ret;
 	// the bootstrap script installs a global helper that closes over node's require
-	const v8::Local<v8::String> fn_name = v8::String::NewFromUtf8Literal(isolate_, "__godotjs_node_require");
+	const v8::Local<v8::String> fn_name = v8::String::NewFromUtf8(isolate_, "__godotjs_node_require");
 	v8::Local<v8::Value> fn_val;
 	if (!context->Global()->Get(context, fn_name).ToLocal(&fn_val) || !fn_val->IsFunction()) {
 		return ret;

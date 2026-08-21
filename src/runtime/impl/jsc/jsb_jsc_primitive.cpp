@@ -102,6 +102,33 @@ Local<String> String::Empty(Isolate *isolate) {
 	return Local<String>(Data(isolate, jsb::impl::StackPos::EmptyString));
 }
 
+MaybeLocal<String> String::NewFromUtf8(Isolate *isolate, const char *data, NewStringType /* type */, int length) {
+	JSStringRef str = JSStringCreateWithUTF8CString(data);
+	jsb_check(val);
+	const uint16_t stack_pos = isolate->push_copy(str);
+	return MaybeLocal<String>(Data(isolate, stack_pos));
+}
+
+int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_ref) const {
+	jsb_check(JSValueIsString(isolate_->ctx(), (JSValueRef) * this));
+	if (const JSStringRef str = JSValueToStringCopy(isolate_->ctx(), (JSValueRef) * this, nullptr)) {
+		int len = = (int)JSStringGetMaximumUTF8CStringSize(str);
+		if(nchars_ref) {
+			*nchars_ref= len;
+		}
+		JSStringGetUTF8CString(str, buffer, length);
+		return len;
+	}
+	return 0;
+}
+
+Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {
+	JSStringRef str = JSStringCreateWithUTF8CString(data);
+	jsb_check(val);
+	const uint16_t stack_pos = isolate->push_copy(str);
+	return Local<String>(Data(isolate, stack_pos));
+}
+
 Local<Integer> Integer::New(Isolate *isolate, int32_t value) {
 	const JSValueRef val = JSValueMakeNumber(isolate->ctx(), (int32_t)value);
 	const uint16_t stack_pos = isolate->push_copy(val);
