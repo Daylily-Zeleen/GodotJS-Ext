@@ -1443,7 +1443,8 @@ private:
 };
 #pragma endregion ShadowRealmMessage
 
-#pragma region TransferableShadowRealm
+#if !JSB_WITH_WEB
+#	pragma region TransferableShadowRealm
 class TransferableShadowRealmImpl : public ShadowRealmImpl {
 	v8::Global<v8::Object> context_obj_handle_;
 
@@ -1582,13 +1583,13 @@ private:
 		Vector<TransferData> transferred;
 
 		// TODO: Transfer support non-V8.
-#if JSB_WITH_V8
+#	if JSB_WITH_V8
 		Serialization::VariantSerializerDelegate delegate(from_env, transfers);
 		v8::ValueSerializer serializer(isolate, &delegate);
 		delegate.SetSerializer(&serializer);
-#else
+#	else
 		v8::ValueSerializer serializer(isolate);
-#endif
+#	endif
 
 		serializer.WriteHeader();
 		v8::Maybe<bool> write_result = serializer.WriteValue(context, info[0]);
@@ -1640,13 +1641,13 @@ private:
 			}
 		}
 
-#if JSB_WITH_V8
+#	if JSB_WITH_V8
 		Serialization::VariantDeserializerDelegate delegate(env, p_message.get_transfers());
 		v8::ValueDeserializer deserializer(isolate, p_message.get_data().ptr(), p_message.get_data().size(), &delegate);
 		delegate.SetSerializer(&deserializer);
-#else
+#	else
 		v8::ValueDeserializer deserializer(isolate, p_message.get_data().ptr(), p_message.get_data().size());
-#endif
+#	endif
 
 		bool ok;
 		if (!deserializer.ReadHeader(context).To(&ok) || !ok) {
@@ -1799,7 +1800,8 @@ public:
 		p_exports->Set(p_context, p_env->get_string_value(class_name), class_info->clazz.Get(p_isolate)).Check();
 	}
 };
-#pragma endregion TransferableShadowRealm
+#	pragma endregion TransferableShadowRealm
+#endif // !JSB_WITH_WEB
 
 #pragma region TransferableShadowRealm
 class ShadowRealmModuleLoader : public IModuleLoader {
@@ -1820,7 +1822,9 @@ public:
 		//	Can not load `ShadowRealm` and `TransferableShadowRealm`in shadown environment.
 		if (!p_env->is_shadow()) {
 			ShadowRealmImpl::register_class(p_env, isolate, context, exports);
+#if !JSB_WITH_WEB
 			TransferableShadowRealmImpl::register_class(p_env, isolate, context, exports);
+#endif //JSB_WITH_WEB
 		}
 		return true;
 	}

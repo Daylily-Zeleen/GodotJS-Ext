@@ -605,7 +605,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	variant_allocator_.drain();
 }
 
-#if JSB_SHADOW_REALM_ENABLED
+#if JSB_SHADOW_REALM_ENABLED && !JSB_WITH_WEB
 void Environment::handle_message(Message &&p_message) {
 	v8::Isolate *isolate{ get_isolate() };
 	JSB_ISOLATE_SCOPE(isolate);
@@ -616,7 +616,7 @@ void Environment::handle_message(Message &&p_message) {
 	v8::HandleScope message_handle_scope(isolate);
 	_on_worker_message(context, p_message);
 }
-#endif // JSB_SHADOW_REALM_ENABLED
+#endif // JSB_SHADOW_REALM_ENABLED && !JSB_WITH_WEB
 
 // handle async calls (from InstanceBindingCallbacks)
 void Environment::exec_async_calls() {
@@ -721,7 +721,7 @@ void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, c
 	}
 }
 
-#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
+#if !JSB_WITH_WEB
 void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message) {
 	v8::Isolate *isolate = p_env->get_isolate();
 

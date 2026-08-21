@@ -13,7 +13,7 @@ __pycache__
 # Ignore prebuilt third-party libraries (downloaded by SConstruct)
 /third/v8/
 /third/lws/
-/third/node/
+/third/libnode/
 
 # Ignore custom.py
 custom.py

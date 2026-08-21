@@ -589,11 +589,8 @@ public:
 		JSB_LOG(VeryVerbose, "inbox message %d: %d", p_message.get_id(), p_message.get_buffer().size());
 		inbox_.add(std::move(p_message));
 	}
-#endif
-
-#if JSB_SHADOW_REALM_ENABLED
 	void handle_message(Message &&p_message);
-#endif //JSB_SHADOW_REALM_ENABLED
+#endif
 
 	class IModuleLoader *find_module_loader(const StringName &p_module_id) const {
 		const HashMap<StringName, class IModuleLoader *>::ConstIterator it = module_loaders_.find(p_module_id);
