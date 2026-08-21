@@ -106,6 +106,7 @@ const GodotJSBrowserInterface = {
     "jsbi_GetPrototypeOf": function (engine_id, obj_sp) { return _jsbb_.GetEngine(engine_id).GetPrototypeOf(obj_sp); },
     "jsbi_SetPrototypeOf": function (engine_id, obj_sp, proto_sp) { return _jsbb_.GetEngine(engine_id).SetPrototypeOf(obj_sp, proto_sp); },
     "jsbi_HasOwnProperty": function (engine_id, obj_sp, key_sp) { return _jsbb_.GetEngine(engine_id).HasOwnProperty(obj_sp, key_sp); },
+    "jsbi_Has": function (engine_id, obj_sp, key_sp) { return _jsbb_.GetEngine(engine_id).Has(obj_sp, key_sp); },
 
     "jsbi_GetByteLength": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).GetByteLength(stack_pos); },
     "jsbi_ReadArrayBufferData": function (engine_id, stack_pos, size, data_dst) { return _jsbb_.GetEngine(engine_id).ReadArrayBufferData(stack_pos, size, data_dst); },

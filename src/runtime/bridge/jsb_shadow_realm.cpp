@@ -826,7 +826,7 @@ static _FORCE_INLINE_ v8::Local<v8::Value> wrap_cross_env_value(Environment *p_h
 	if (p_guest_value->IsFunction()) {
 		const v8::Local<v8::Function> func = p_guest_value.As<v8::Function>();
 		const v8::Local<v8::Name> symbol = CrossWrapper::get_flag_symbol(p_guest_isolate).object_.Get(p_guest_isolate);
-		const v8::Maybe<bool> has_meta = func->HasRealNamedProperty(guest_context, symbol);
+		const v8::Maybe<bool> has_meta = func->HasOwnProperty(guest_context, symbol);
 		if (has_meta.IsJust() && has_meta.ToChecked()) {
 			const v8::Local<v8::Value> meta = func->Get(guest_context, symbol).ToLocalChecked();
 			jsb_check(meta->IsObject());

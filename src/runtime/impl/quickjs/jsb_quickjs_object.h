@@ -59,7 +59,6 @@ public:
 
 	MaybeLocal<Value> GetOwnPropertyDescriptor(Local<Context> context, Local<Name> key) const;
 	Maybe<bool> HasOwnProperty(Local<Context> context, Local<Name> key) const;
-	Maybe<bool> HasRealNamedProperty(Local<Context> context, Local<Name> key) const;
 
 	Maybe<bool> Has(Local<Context> context, Local<Value> key) const;
 

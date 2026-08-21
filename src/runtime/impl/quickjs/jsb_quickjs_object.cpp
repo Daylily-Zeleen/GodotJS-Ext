@@ -450,17 +450,6 @@ Maybe<bool> Promise::Resolver::Reject(Local<Context> context, Local<Value> value
 	return Maybe<bool>(true);
 }
 
-Maybe<bool> Object::HasRealNamedProperty(Local<Context> context, Local<Name> key) const {
-	JSContext *ctx = isolate_->ctx();
-	const jsb::impl::QuickJS::Atom prop(ctx, (JSValue)key);
-	const int res = JS_HasProperty(ctx, (JSValue) * this, prop);
-	if (res == -1) {
-		jsb::impl::QuickJS::MarkExceptionAsTrivial(ctx);
-		return Maybe<bool>();
-	}
-	return Maybe<bool>(!!res);
-}
-
 MaybeLocal<Proxy> Proxy::New(Local<Context> context, Local<Object> target, Local<Object> handler) {
 	Isolate *isolate = context->isolate_;
 	JSContext *ctx = isolate->ctx();

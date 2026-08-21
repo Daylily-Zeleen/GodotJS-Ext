@@ -59,6 +59,8 @@ public:
 	MaybeLocal<Value> GetOwnPropertyDescriptor(Local<Context> context, Local<Name> key) const;
 	Maybe<bool> HasOwnProperty(Local<Context> context, Local<Name> key) const;
 
+	Maybe<bool> Has(Local<Context> context, Local<Value> key) const;
+
 	MaybeLocal<Array> GetOwnPropertyNames(
 			Local<Context> context, PropertyFilter filter, KeyConversionMode key_conversion = KeyConversionMode::kKeepNumbers);
 

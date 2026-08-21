@@ -1252,6 +1252,21 @@ class jsbb_Engine {
         }
     }
 
+    Has(obj_sp: StackPosition, key_sp: StackPosition): ResultValue {
+        try {
+            const obj = this._stack.GetValue(obj_sp);
+            const key = this._stack.GetValue(key_sp);
+            if (!_jsbb_.is_object(obj)) {
+                this._throw_trivial(new TypeError(`invalid object.`));
+                return -1;
+            }
+            return (key in obj) ? 1 : 0;
+        } catch (err) {
+            this._throw_trivial(err);
+            return -1;
+        }
+    }
+
     /**
      * Rethrow the last error thrown in native context to javascript execution context.
      * WILL NEVER RETURN IF ERROR THROWN.

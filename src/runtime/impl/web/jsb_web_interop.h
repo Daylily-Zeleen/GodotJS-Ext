@@ -144,6 +144,7 @@ JSBROWSER_API jsb::impl::StackPosition jsbi_GetOwnPropertyDescriptor(jsb::impl::
 JSBROWSER_API jsb::impl::StackPosition jsbi_GetPrototypeOf(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp);
 JSBROWSER_API jsb::impl::ResultValue jsbi_SetPrototypeOf(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp, jsb::impl::StackPosition proto_sp);
 JSBROWSER_API jsb::impl::ResultValue jsbi_HasOwnProperty(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp, jsb::impl::StackPosition key_sp);
+JSBROWSER_API jsb::impl::ResultValue jsbi_Has(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp, jsb::impl::StackPosition key_sp);
 
 // return 0 if stackval is not ArrayBuffer
 JSBROWSER_API int jsbi_GetByteLength(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);

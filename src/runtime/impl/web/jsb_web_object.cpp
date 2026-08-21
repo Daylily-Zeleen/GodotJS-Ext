@@ -119,6 +119,14 @@ Maybe<bool> Object::HasOwnProperty(Local<Context> context, Local<Name> key) cons
 	return Maybe<bool>(!!res);
 }
 
+Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) const {
+	const jsb::impl::ResultValue res = jsbi_Has(isolate_->rt(), stack_pos_, key->stack_pos_);
+	if (res == -1) {
+		return Maybe<bool>();
+	}
+	return Maybe<bool>(!!res);
+}
+
 Maybe<bool> Object::SetPrototype(Local<Context> context, Local<Value> prototype) {
 	const jsb::impl::ResultValue res = jsbi_SetPrototypeOf(isolate_->rt(), stack_pos_, prototype->stack_pos_);
 	if (res == -1) {
