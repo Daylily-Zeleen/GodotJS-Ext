@@ -419,6 +419,7 @@ jobs:
           target: godot/godot.zip
 
       - name: Extract Godot
+        shell: bash
         run: |
           mkdir -p tests/bin
           if [ "$RUNNER_OS" == "Windows" ]; then
