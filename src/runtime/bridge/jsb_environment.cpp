@@ -721,7 +721,7 @@ void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, c
 	}
 }
 
-#if !JSB_WITH_WEB
+#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
 void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message) {
 	v8::Isolate *isolate = p_env->get_isolate();
 
@@ -774,9 +774,7 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 		JSB_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
 	}
 }
-#endif
 
-#if !JSB_WITH_WEB || JSB_SHADOW_REALM_ENABLED
 void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message) {
 	jsb_check(p_message.get_id());
 	ObjectHandleConstPtr handle = object_db_.try_get_object(p_message.get_id());
