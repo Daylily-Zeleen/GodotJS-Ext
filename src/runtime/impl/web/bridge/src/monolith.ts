@@ -736,6 +736,15 @@ class jsbb_Engine {
         return this._stack.Push(Symbol());
     }
 
+    NewSymbolWithDescription(desc_sp: StackPosition): StackPosition {
+        const desc = this._stack.GetValue(desc_sp);
+        if (typeof desc !== "string") {
+            this._throw(new TypeError("symbol description must be a string"));
+            return jsbb_StackPos.Error;
+        }
+        return this._stack.Push(Symbol(desc));
+    }
+
     NewMap(): StackPosition {
         return this._stack.Push(new Map());
     }

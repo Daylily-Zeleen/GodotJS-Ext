@@ -60,6 +60,7 @@ enum {
 	JS_ATOM_Set,
 	JS_ATOM_Promise,
 	JS_ATOM_ArrayBuffer,
+	JS_ATOM_Symbol,
 
 	// the following ATOMs may be unnecessary
 	JS_ATOM_get,

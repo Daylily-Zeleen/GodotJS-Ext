@@ -98,6 +98,7 @@ enum {
 	SetConstructor,
 	PromiseConstructor,
 	ArrayBufferConstructor,
+	SymbolConstructor,
 	Exception,
 
 	Num,
@@ -196,6 +197,9 @@ public:
 	JSValueRef _GetProperty(JSObjectRef obj, JSAtom atom);
 	bool _SetProperty(JSObjectRef obj, JSAtom atom, JSValueRef value);
 	JSObjectRef _NewExternal(void *data);
+
+	// get the cached global Symbol constructor (jsb::impl::StackPos::SymbolConstructor)
+	JSValueRef _GetSymbolConstructor() const { return stack_val(jsb::impl::StackPos::SymbolConstructor); }
 
 	bool _DefineProperty(JSObjectRef obj, JSValueRef key, JSValueRef value);
 	bool _DefineProperty(JSObjectRef obj, JSValueRef key, JSObjectRef getter, JSObjectRef setter);

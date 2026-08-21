@@ -88,6 +88,98 @@ Local<Symbol> Symbol::New(Isolate *isolate) {
 	return Local<Symbol>(Data(isolate, isolate->push_copy(val)));
 }
 
+Local<Symbol> Symbol::New(Isolate *isolate, Local<String> description) {
+	const JSStringRef desc = JSValueToStringCopy(isolate->ctx(), (JSValueRef)description, nullptr);
+	if (!desc) {
+		return Local<Symbol>();
+	}
+	const JSValueRef val = JSValueMakeSymbol(isolate->ctx(), desc);
+	JSStringRelease(desc);
+	jsb_check(val);
+	return Local<Symbol>(Data(isolate, isolate->push_copy(val)));
+}
+
+Local<Symbol> Symbol::_get_well_known(Isolate *isolate, const char *name) {
+	JSContextRef ctx = isolate->ctx();
+	const JSObjectRef symbol_ctor = jsb::impl::JavaScriptCore::AsObject(ctx, isolate->_GetSymbolConstructor());
+	const JSStringRef name_str = JSStringCreateWithUTF8CString(name);
+	JSValueRef error = nullptr;
+	const JSValueRef val = JSObjectGetProperty(ctx, symbol_ctor, name_str, &error);
+	JSStringRelease(name_str);
+	if (jsb_unlikely(error) || !val || !JSValueIsSymbol(ctx, val)) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<Symbol>();
+	}
+	return Local<Symbol>(Data(isolate, isolate->push_copy(val)));
+}
+
+Local<Symbol> Symbol::GetAsyncIterator(Isolate *isolate) { return _get_well_known(isolate, "asyncIterator"); }
+Local<Symbol> Symbol::GetHasInstance(Isolate *isolate) { return _get_well_known(isolate, "hasInstance"); }
+Local<Symbol> Symbol::GetIsConcatSpreadable(Isolate *isolate) { return _get_well_known(isolate, "isConcatSpreadable"); }
+Local<Symbol> Symbol::GetIterator(Isolate *isolate) { return _get_well_known(isolate, "iterator"); }
+Local<Symbol> Symbol::GetMatch(Isolate *isolate) { return _get_well_known(isolate, "match"); }
+Local<Symbol> Symbol::GetReplace(Isolate *isolate) { return _get_well_known(isolate, "replace"); }
+Local<Symbol> Symbol::GetSearch(Isolate *isolate) { return _get_well_known(isolate, "search"); }
+Local<Symbol> Symbol::GetSplit(Isolate *isolate) { return _get_well_known(isolate, "split"); }
+Local<Symbol> Symbol::GetToPrimitive(Isolate *isolate) { return _get_well_known(isolate, "toPrimitive"); }
+Local<Symbol> Symbol::GetToStringTag(Isolate *isolate) { return _get_well_known(isolate, "toStringTag"); }
+Local<Symbol> Symbol::GetUnscopables(Isolate *isolate) { return _get_well_known(isolate, "unscopables"); }
+
+Local<String> Symbol::Description(Isolate *isolate) const {
+	JSContextRef ctx = isolate_->ctx();
+	// The JSC C API has no direct way to read a symbol's description, so
+	// evaluate `Symbol.prototype.description.call(<symbol>)` instead.
+	const JSStringRef code = JSStringCreateWithUTF8CString(
+			"(function(s){ return s.description; })");
+	JSValueRef error = nullptr;
+	const JSValueRef getter = JSEvaluateScript(ctx, code, nullptr, nullptr, 1, &error);
+	JSStringRelease(code);
+	if (jsb_unlikely(error) || !getter) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<String>();
+	}
+	const JSValueRef self = (JSValueRef)*this;
+	const JSValueRef desc = JSObjectCallAsFunction(ctx, (JSObjectRef)getter, nullptr, 1, &self, &error);
+	if (jsb_unlikely(error) || !desc) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<String>();
+	}
+	if (JSValueIsUndefined(ctx, desc) || JSValueIsNull(ctx, desc)) {
+		return Local<String>();
+	}
+	return Local<String>(Data(isolate_, isolate_->push_copy(desc)));
+}
+
+Local<Symbol> Symbol::For(Isolate *isolate, Local<String> key) {
+	JSContextRef ctx = isolate->ctx();
+	const JSObjectRef symbol_ctor = jsb::impl::JavaScriptCore::AsObject(ctx, isolate->_GetSymbolConstructor());
+	const JSStringRef for_key = JSStringCreateWithUTF8CString("for");
+	JSValueRef error = nullptr;
+	const JSValueRef for_fn = JSObjectGetProperty(ctx, symbol_ctor, for_key, &error);
+	JSStringRelease(for_key);
+	if (jsb_unlikely(error) || !for_fn || !JSValueIsFunction(ctx, for_fn)) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<Symbol>();
+	}
+	const JSValueRef key_val = (JSValueRef)key;
+	const JSValueRef result = JSObjectCallAsFunction(ctx, for_fn, symbol_ctor, 1, &key_val, &error);
+	if (jsb_unlikely(error) || !result) {
+		if (error) {
+			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
+		}
+		return Local<Symbol>();
+	}
+	return Local<Symbol>(Data(isolate, isolate->push_copy(result)));
+}
+
 int String::Length() const {
 	jsb_check(JSValueIsString(isolate_->ctx(), (JSValueRef) * this));
 	if (const JSStringRef str = JSValueToStringCopy(isolate_->ctx(), (JSValueRef) * this, nullptr)) {
@@ -104,8 +196,10 @@ Local<String> String::Empty(Isolate *isolate) {
 
 MaybeLocal<String> String::NewFromUtf8(Isolate *isolate, const char *data, NewStringType /* type */, int length) {
 	JSStringRef str = JSStringCreateWithUTF8CString(data);
+	const const JSValueRef val = JSValueMakeString(str);
+	JSStringRelease(str);
 	jsb_check(val);
-	const uint16_t stack_pos = isolate->push_copy(str);
+	const uint16_t stack_pos = isolate->push_copy(val);
 	return MaybeLocal<String>(Data(isolate, stack_pos));
 }
 
@@ -124,8 +218,10 @@ int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_re
 
 Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {
 	JSStringRef str = JSStringCreateWithUTF8CString(data);
+	const const JSValueRef val = JSValueMakeString(str);
+	JSStringRelease(str);
 	jsb_check(val);
-	const uint16_t stack_pos = isolate->push_copy(str);
+	const uint16_t stack_pos = isolate->push_copy(val);
 	return Local<String>(Data(isolate, stack_pos));
 }
 

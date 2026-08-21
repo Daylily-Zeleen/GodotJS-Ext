@@ -809,36 +809,35 @@ copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 default_args = [library, copy]
 
 # iOS: generate xcframework from device and simulator builds
-if jsb_platform == "ios":
-    # Determine the target (template_debug, template_release, etc.)
+if jsb_platform == "ios" and env.get('ios_simulator', False):
+    # The xcframework is generated as a post-build step of the SIMULATOR build
+    # ('ios_simulator=yes'). At this point the simulator dylib is part of the
+    # current build graph, so it can be safely declared as a source. The device
+    # dylib however is produced by a SEPARATE scons invocation
+    # ('ios_simulator=no'), so it must NOT be declared as a source (SCons
+    # requires all sources to exist at parse time); the action checks for it at
+    # execution time instead.
+    #
+    # AlwaysBuild() forces regeneration on every 'ios_simulator=yes' run, so a
+    # freshly rebuilt device dylib is always picked up without manually
+    # deleting the xcframework.
     target = env['target']
-    
-    # Define the xcframework output path
+
     xcframework_name = "{}.ios.{}.xcframework".format(libname, target)
     xcframework_path = os.path.join("bin", "ios", xcframework_name)
-    
-    # Define the device and simulator library paths
+
     # Note: device build generates .universal.dylib, simulator build generates .universal.simulator.dylib
     # The SHLIBPREFIX ("lib" on macOS/iOS) must be included to match the actual output filename.
     shlibprefix = env.subst('$SHLIBPREFIX')
-    device_lib_name = "{}{}.ios.{}.universal.dylib".format(shlibprefix, libname, target)
-    simulator_lib_name = "{}{}.ios.{}.universal.simulator.dylib".format(shlibprefix, libname, target)
-    device_lib_path = os.path.join("bin", "ios", device_lib_name)
-    simulator_lib_path = os.path.join("bin", "ios", simulator_lib_name)
-    
-    # Define the command to generate xcframework
-    def _generate_xcframework(target, source, env):
-        # Check if both device and simulator libraries exist
+    device_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.dylib".format(shlibprefix, libname, target))
+    simulator_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}.universal.simulator.dylib".format(shlibprefix, libname, target))
+
+    def _generate_xcframework(_target, _source, _env):
         if not os.path.exists(device_lib_path):
-            print_error(f"Device library not found: {device_lib_path}")
-            print_error("Please build with 'ios_simulator=no' first")
+            print_warning(f"Skip generating xcframework: device library not found at '{device_lib_path}'. "
+                          f"Run 'scons platform=ios ... ios_simulator=no' first.")
             return None
-        if not os.path.exists(simulator_lib_path):
-            print_error(f"Simulator library not found: {simulator_lib_path}")
-            print_error("Please build with 'ios_simulator=yes' first")
-            return None
-        
-        # Generate xcframework using xcodebuild
+
         cmd = [
             "xcodebuild", "-create-xcframework",
             "-library", device_lib_path,
@@ -848,15 +847,17 @@ if jsb_platform == "ios":
         print("Generating xcframework:", " ".join(cmd))
         subprocess.check_call(cmd)
         return None
-    
-    # Create a command that depends on both device and simulator builds
-    # This will only run when both builds are complete
+
     xcframework_cmd = env.Command(
         xcframework_path,
-        [device_lib_path, simulator_lib_path],
+        # declare the simulator dylib node as source so SCons links it before
+        # running the xcframework action (the action itself uses the plain
+        # path strings above)
+        [library],
         _generate_xcframework
     )
-    
+    env.AlwaysBuild(xcframework_cmd)
+
     # Copy xcframework to addon directory
     xcframework_copy = env.Install("{}/bin/ios/".format(addon_dir), xcframework_cmd)
     default_args += [xcframework_cmd, xcframework_copy]

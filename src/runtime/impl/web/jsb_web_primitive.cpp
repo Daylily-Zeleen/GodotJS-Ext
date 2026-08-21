@@ -72,6 +72,73 @@ Local<Symbol> Symbol::New(Isolate *isolate) {
 	return Local<Symbol>(Data(isolate, jsbi_NewSymbol(isolate->rt())));
 }
 
+Local<Symbol> Symbol::New(Isolate *isolate, Local<String> description) {
+	jsb::impl::JSRuntime rt = isolate->rt();
+	const jsb::impl::StackPosition desc_sp = (jsb::impl::StackPosition)description;
+	const jsb::impl::StackPosition rval_sp = jsbi_NewSymbolWithDescription(rt, desc_sp);
+	if (rval_sp == jsb::impl::StackBase::Error) {
+		return Local<Symbol>();
+	}
+	return Local<Symbol>(Data(isolate, rval_sp));
+}
+
+Local<Symbol> Symbol::_get_well_known(Isolate *isolate, const char *name) {
+	jsb::impl::JSRuntime rt = isolate->rt();
+	const jsb::impl::StackPosition key_sp = jsbi_NewString(rt, name, (int)strlen(name));
+	if (key_sp == jsb::impl::StackBase::Error) {
+		return Local<Symbol>();
+	}
+	const jsb::impl::StackPosition val_sp = jsbi_GetProperty(rt, jsb::impl::StackBase::SymbolClass, key_sp);
+	if (val_sp == jsb::impl::StackBase::Error || !jsbi_IsSymbol(rt, val_sp)) {
+		return Local<Symbol>();
+	}
+	return Local<Symbol>(Data(isolate, val_sp));
+}
+
+Local<Symbol> Symbol::GetAsyncIterator(Isolate *isolate) { return _get_well_known(isolate, "asyncIterator"); }
+Local<Symbol> Symbol::GetHasInstance(Isolate *isolate) { return _get_well_known(isolate, "hasInstance"); }
+Local<Symbol> Symbol::GetIsConcatSpreadable(Isolate *isolate) { return _get_well_known(isolate, "isConcatSpreadable"); }
+Local<Symbol> Symbol::GetIterator(Isolate *isolate) { return _get_well_known(isolate, "iterator"); }
+Local<Symbol> Symbol::GetMatch(Isolate *isolate) { return _get_well_known(isolate, "match"); }
+Local<Symbol> Symbol::GetReplace(Isolate *isolate) { return _get_well_known(isolate, "replace"); }
+Local<Symbol> Symbol::GetSearch(Isolate *isolate) { return _get_well_known(isolate, "search"); }
+Local<Symbol> Symbol::GetSplit(Isolate *isolate) { return _get_well_known(isolate, "split"); }
+Local<Symbol> Symbol::GetToPrimitive(Isolate *isolate) { return _get_well_known(isolate, "toPrimitive"); }
+Local<Symbol> Symbol::GetToStringTag(Isolate *isolate) { return _get_well_known(isolate, "toStringTag"); }
+Local<Symbol> Symbol::GetUnscopables(Isolate *isolate) { return _get_well_known(isolate, "unscopables"); }
+
+Local<String> Symbol::Description(Isolate *isolate) const {
+	jsb::impl::JSRuntime rt = isolate_->rt();
+	const jsb::impl::StackPosition key_sp = jsbi_NewString(rt, "description", (int)strlen("description"));
+	if (key_sp == jsb::impl::StackBase::Error) {
+		return Local<String>();
+	}
+	const jsb::impl::StackPosition desc_sp = jsbi_GetProperty(rt, stack_pos_, key_sp);
+	if (desc_sp == jsb::impl::StackBase::Error || desc_sp == jsb::impl::StackBase::Undefined
+		|| desc_sp == jsb::impl::StackBase::Null || !jsbi_IsString(rt, desc_sp)) {
+		return Local<String>();
+	}
+	return Local<String>(Data(isolate_, desc_sp));
+}
+
+Local<Symbol> Symbol::For(Isolate *isolate, Local<String> key) {
+	jsb::impl::JSRuntime rt = isolate->rt();
+	const jsb::impl::StackPosition for_key_sp = jsbi_NewString(rt, "for", (int)strlen("for"));
+	if (for_key_sp == jsb::impl::StackBase::Error) {
+		return Local<Symbol>();
+	}
+	const jsb::impl::StackPosition for_fn_sp = jsbi_GetProperty(rt, jsb::impl::StackBase::SymbolClass, for_key_sp);
+	if (for_fn_sp == jsb::impl::StackBase::Error || !jsbi_IsFunction(rt, for_fn_sp)) {
+		return Local<Symbol>();
+	}
+	jsb::impl::StackPosition key_sp = (jsb::impl::StackPosition)key;
+	const jsb::impl::StackPosition result_sp = jsbi_Call(rt, jsb::impl::StackBase::SymbolClass, for_fn_sp, 1, &key_sp);
+	if (result_sp == jsb::impl::StackBase::Error || !jsbi_IsSymbol(rt, result_sp)) {
+		return Local<Symbol>();
+	}
+	return Local<Symbol>(Data(isolate, result_sp));
+}
+
 int String::Length() const {
 	return jsbi_GetStringLength(isolate_->rt(), stack_pos_);
 }

@@ -113,6 +113,7 @@ JSBROWSER_API void jsbi_StackSetInt32(jsb::impl::JSRuntime engine_id, jsb::impl:
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewCFunction(jsb::impl::JSRuntime engine_id, jsb::impl::FunctionPointer cb, jsb::impl::StackPosition data_sp, const char *func_name_ptr);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewNoopConstructor(jsb::impl::JSRuntime engine_id);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewSymbol(jsb::impl::JSRuntime engine_id);
+JSBROWSER_API jsb::impl::StackPosition jsbi_NewSymbolWithDescription(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition desc_sp);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewMap(jsb::impl::JSRuntime engine_id);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewArray(jsb::impl::JSRuntime engine_id);
 JSBROWSER_API jsb::impl::StackPosition jsbi_NewExternal(jsb::impl::JSRuntime engine_id, void *data);

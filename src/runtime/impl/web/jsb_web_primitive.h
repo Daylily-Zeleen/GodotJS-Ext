@@ -92,6 +92,29 @@ private:
 class Symbol : public Name {
 public:
 	static Local<Symbol> New(Isolate *isolate);
+	static Local<Symbol> New(Isolate *isolate, Local<String> description);
+
+	// Well-Known Symbols - retrieved from the global Symbol object
+	static Local<Symbol> GetAsyncIterator(Isolate *isolate);
+	static Local<Symbol> GetHasInstance(Isolate *isolate);
+	static Local<Symbol> GetIsConcatSpreadable(Isolate *isolate);
+	static Local<Symbol> GetIterator(Isolate *isolate);
+	static Local<Symbol> GetMatch(Isolate *isolate);
+	static Local<Symbol> GetReplace(Isolate *isolate);
+	static Local<Symbol> GetSearch(Isolate *isolate);
+	static Local<Symbol> GetSplit(Isolate *isolate);
+	static Local<Symbol> GetToPrimitive(Isolate *isolate);
+	static Local<Symbol> GetToStringTag(Isolate *isolate);
+	static Local<Symbol> GetUnscopables(Isolate *isolate);
+
+	// Get the description of this symbol
+	Local<String> Description(Isolate *isolate) const;
+
+	// Symbol.for(key) - get or create a global symbol
+	static Local<Symbol> For(Isolate *isolate, Local<String> key);
+
+private:
+	static Local<Symbol> _get_well_known(Isolate *isolate, const char *name);
 };
 
 class Boolean : public Primitive {

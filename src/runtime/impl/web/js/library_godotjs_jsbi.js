@@ -75,6 +75,7 @@ const GodotJSBrowserInterface = {
     "jsbi_NewCFunction": function (engine_id, cb, data, func_name_ptr) { return _jsbb_.GetEngine(engine_id).NewCFunction(cb, data, func_name_ptr); },
     "jsbi_NewNoopConstructor": function (engine_id) { return _jsbb_.GetEngine(engine_id).NewNoopConstructor(); },
     "jsbi_NewSymbol": function (engine_id) { return _jsbb_.GetEngine(engine_id).NewSymbol(); },
+    "jsbi_NewSymbolWithDescription": function (engine_id, desc_sp) { return _jsbb_.GetEngine(engine_id).NewSymbolWithDescription(desc_sp); },
     "jsbi_NewMap": function (engine_id) { return _jsbb_.GetEngine(engine_id).NewMap(); },
     "jsbi_NewArray": function (engine_id) { return _jsbb_.GetEngine(engine_id).NewArray(); },
     "jsbi_NewExternal": function (engine_id, data) { return _jsbb_.GetEngine(engine_id).NewExternal(data); },
