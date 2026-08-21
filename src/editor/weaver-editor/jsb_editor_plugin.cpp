@@ -173,13 +173,15 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 			// the receiving end of the reboot chain spawned by full_generate_and_reboot(),
 			// and allows CI to bootstrap the store without a working JS runtime (the JS
 			// codegen module needs the very data that is being generated here).
-			const PackedStringArray &api_generate_args = OS::get_singleton()->get_cmdline_args();
-			for (int i = 0; i < api_generate_args.size(); ++i) {
-				if (api_generate_args[i] == "--godotjs-api-generate" && i + 1 < api_generate_args.size()) {
-					const String extension_api_json = api_generate_args[i + 1];
-					callable_mp(this, &GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline)
-							.bind(extension_api_json).call_deferred();
-					break;
+			{
+				const PackedStringArray &api_generate_args = OS::get_singleton()->get_cmdline_args();
+				for (int i = 0; i < api_generate_args.size(); ++i) {
+					if (api_generate_args[i] == "--godotjs-api-generate" && i + 1 < api_generate_args.size()) {
+						const String extension_api_json = api_generate_args[i + 1];
+						callable_mp(this, &GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline)
+								.bind(extension_api_json).call_deferred();
+						break;
+					}
 				}
 			}
 
