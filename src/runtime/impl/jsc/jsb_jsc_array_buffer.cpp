@@ -27,8 +27,6 @@
 
 #include "jsb_jsc_array_buffer.h"
 #include "jsb_jsc_isolate.h"
-#include "thirdparty/glslang/glslang/MachineIndependent/preprocessor/PpContext.h"
-#include "thirdparty/graphite/src/inc/Error.h"
 
 namespace v8 {
 void *ArrayBuffer::Data() const {
