@@ -673,9 +673,7 @@ if v8_support is not None and node_support is None:
     if jsb_platform == "windows":
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "v8_monolith.lib"))])
         env.Append(LINKFLAGS=["winmm.lib", "Dbghelp.lib", "advapi32.lib"])
-    elif jsb_platform == "linux":
-        env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
-    elif jsb_platform == "macos":
+    elif jsb_platform in ("linux", "macos", "ios"):
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
     env.Append(CPPDEFINES=["V8_COMPRESS_POINTERS"])
 

@@ -23,6 +23,7 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
+#include "runtime/jsb.config.h"
 #if JSB_SHADOW_REALM_ENABLED
 
 // TODO: 优化 mutex 的使用

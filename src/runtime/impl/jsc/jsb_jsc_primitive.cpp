@@ -161,15 +161,17 @@ Local<Symbol> Symbol::For(Isolate *isolate, Local<String> key) {
 	const JSObjectRef symbol_ctor = jsb::impl::JavaScriptCore::AsObject(ctx, isolate->_GetSymbolConstructor());
 	const JSStringRef for_key = JSStringCreateWithUTF8CString("for");
 	JSValueRef error = nullptr;
-	const JSValueRef for_fn = JSObjectGetProperty(ctx, symbol_ctor, for_key, &error);
+	const JSValueRef for_fn_val = JSObjectGetProperty(ctx, symbol_ctor, for_key, &error);
 	JSStringRelease(for_key);
-	if (jsb_unlikely(error) || !for_fn || !JSValueIsFunction(ctx, for_fn)) {
+	const JSObjectRef for_fn = jsb::impl::JavaScriptCore::AsObject(ctx, for_fn_val);
+	if (jsb_unlikely(error) || !for_fn || !JSObjectIsFunction(ctx, for_fn)) {
 		if (error) {
 			jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(ctx, error);
 		}
 		return Local<Symbol>();
 	}
-	const JSValueRef key_val = (JSValueRef)key;
+	// JSObjectCallAsFunction takes a non-const JSValueRef array
+	JSValueRef key_val = (JSValueRef)key;
 	const JSValueRef result = JSObjectCallAsFunction(ctx, for_fn, symbol_ctor, 1, &key_val, &error);
 	if (jsb_unlikely(error) || !result) {
 		if (error) {
@@ -196,7 +198,7 @@ Local<String> String::Empty(Isolate *isolate) {
 
 MaybeLocal<String> String::NewFromUtf8(Isolate *isolate, const char *data, NewStringType /* type */, int length) {
 	JSStringRef str = JSStringCreateWithUTF8CString(data);
-	const const JSValueRef val = JSValueMakeString(str);
+	const JSValueRef val = JSValueMakeString(isolate->ctx(), str);
 	JSStringRelease(str);
 	jsb_check(val);
 	const uint16_t stack_pos = isolate->push_copy(val);
@@ -206,19 +208,24 @@ MaybeLocal<String> String::NewFromUtf8(Isolate *isolate, const char *data, NewSt
 int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_ref) const {
 	jsb_check(JSValueIsString(isolate_->ctx(), (JSValueRef) * this));
 	if (const JSStringRef str = JSValueToStringCopy(isolate_->ctx(), (JSValueRef) * this, nullptr)) {
-		int len = = (int)JSStringGetMaximumUTF8CStringSize(str);
-		if(nchars_ref) {
-			*nchars_ref= len;
+		const size_t len = JSStringGetLength(str);
+		jsb_check((size_t)(int)len == len);
+		if (nchars_ref) {
+			*nchars_ref = (int)len;
 		}
-		JSStringGetUTF8CString(str, buffer, length);
-		return len;
+		const int to_write = (length < 0 || length > (int)len) ? (int)len : length;
+		if (to_write > 0) {
+			JSStringGetUTF8CString(str, buffer, to_write + 1);
+		}
+		JSStringRelease(str);
+		return to_write;
 	}
 	return 0;
 }
 
 Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {
-	JSStringRef str = JSStringCreateWithUTF8CString(data);
-	const const JSValueRef val = JSValueMakeString(str);
+	JSStringRef str = JSStringCreateWithUTF8CString(literal);
+	const JSValueRef val = JSValueMakeString(isolate->ctx(), str);
 	JSStringRelease(str);
 	jsb_check(val);
 	const uint16_t stack_pos = isolate->push_copy(val);

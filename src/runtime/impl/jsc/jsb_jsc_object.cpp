@@ -117,10 +117,22 @@ MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) const {
 }
 
 Maybe<bool> Object::HasOwnProperty(Local<Context> context, Local<Name> key) const {
+	// The JSC C API has no direct "has own property" query, so reuse the
+	// GetOwnPropertyDescriptor bridge call: it returns undefined when the
+	// property does not exist on the object itself (prototype chain excluded).
+	const JSObjectRef self = jsb::impl::JavaScriptCore::AsObject(isolate_->ctx(), (JSValueRef) * this);
+	const JSValueRef descriptor = isolate_->_GetOwnPropertyDescriptor(self, (JSValueRef)key);
+	return Maybe<bool>(descriptor != nullptr && !JSValueIsUndefined(isolate_->ctx(), descriptor));
+}
+
+Maybe<bool> Object::Has(Local<Context> context, Local<Value> key) const {
 	const JSObjectRef self = jsb::impl::JavaScriptCore::AsObject(isolate_->ctx(), (JSValueRef) * this);
 	JSValueRef error = nullptr;
+	// JSObjectHasPropertyForKey checks the whole prototype chain, matching
+	// the semantics of v8::Object::Has.
 	const bool res = JSObjectHasPropertyForKey(isolate_->ctx(), self, (JSValueRef)key, &error);
 	if (jsb_unlikely(error)) {
+		jsb::impl::JavaScriptCore::MarkExceptionAsTrivial(isolate_->ctx(), error);
 		return Maybe<bool>();
 	}
 	return Maybe<bool>(res);

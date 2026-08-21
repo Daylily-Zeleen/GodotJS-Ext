@@ -61,6 +61,21 @@
 #	include "../impl/web/jsb_web_interop.h"
 #endif
 
+// The libnode prebuilt archive does not contain the typeinfo symbols of
+// v8::ValueSerializer::Delegate / v8::ValueDeserializer::Delegate, but our
+// delegate subclasses below reference them through their vtables. Referencing
+// the typeinfos via typeid() forces the compiler to emit (weak) definitions
+// in this translation unit, which satisfies the linker.
+#if JSB_WITH_NODE && (defined(MACOS_ENABLED) || defined(LINUX_ENABLED))
+#include <typeinfo>
+namespace {
+[[maybe_unused]] const volatile void *volatile _force_emit_v8_delegate_typeinfo[] = {
+	&typeid(v8::ValueSerializer::Delegate),
+	&typeid(v8::ValueDeserializer::Delegate),
+};
+}
+#endif
+
 #if !JSB_WITH_STATIC_BINDINGS
 #	include "jsb_primitive_bindings_reflect.h"
 #	define register_primitive_bindings(param) register_primitive_bindings_reflect(param)

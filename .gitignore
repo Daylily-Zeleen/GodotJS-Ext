@@ -54,7 +54,7 @@ compile_commands.json
 
 # TypeScript build out
 scripts/out/
-src/impl/web/js/jsbb.impl.js
+src/runtime/impl/web/js/jsbb.impl.js
 
 # Node modules
 node_modules/

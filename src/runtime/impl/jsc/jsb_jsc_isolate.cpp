@@ -31,6 +31,8 @@
 #include "jsb_jsc_context.h"
 #include "jsb_jsc_handle.h"
 
+#include <godot_cpp/core/math_funcs_binary.hpp>
+
 #define JSB_JSC_DEFINE_ATOM_BEGIN() int _atom_index_gen_ = 0
 #define JSB_JSC_DEFINE_ATOM(AtomName)                             \
 	jsb_check(jsb::impl::JS_ATOM_##AtomName == _atom_index_gen_); \
@@ -60,7 +62,7 @@ Isolate *Isolate::New(const CreateParams &params) {
 	return isolate;
 }
 
-Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), pending_delete_(nearest_shift(2048U)), stack_pos_(0) {
+Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), pending_delete_(::godot::Math::nearest_shift(2048U)), stack_pos_(0) {
 	rt_ = JSContextGroupCreate();
 	ctx_ = _CreateContext(rt_);
 

@@ -53,6 +53,8 @@ public:
 	MaybeLocal<Value> Get(Local<Context> context, Local<Value> key) const;
 	MaybeLocal<Value> Get(Local<Context> context, uint32_t index) const;
 
+	Maybe<bool> Has(Local<Context> context, Local<Value> key) const;
+
 	Maybe<bool> DefineOwnProperty(
 			Local<Context> context, Local<Name> key, Local<Value> value, PropertyAttribute attributes = None);
 
