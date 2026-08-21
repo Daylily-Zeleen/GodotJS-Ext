@@ -423,7 +423,7 @@ jobs:
         run: |
           mkdir -p tests/bin
           if [ "$RUNNER_OS" == "Windows" ]; then
-            tar -xf godot/godot.zip -C tests/bin/
+            powershell -NoProfile -Command "Expand-Archive -Path godot/godot.zip -DestinationPath tests/bin -Force"
           else
             unzip -o godot/godot.zip -d tests/bin/
           fi
