@@ -465,7 +465,10 @@ jobs:
         run: |
           "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
-          "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit
+          # NOTE: the editor may crash during its shutdown phase after the data has
+          # been written (Godot 4.7.1 + extension teardown - tracked separately);
+          # success is judged by the presence of the generated store below.
+          "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
           test -f project/.godot/.api_dumping/header.capi
 
       - name: Run C++ unit tests
