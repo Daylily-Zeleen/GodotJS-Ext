@@ -71,6 +71,13 @@ const godot::String &get_variant_operator_name(godot::Variant::Operator p_op) {
 		__VAR_OP_TO_TEXT(OP_MAX)
 		return ret;
 	}();
+	if (p_op < 0 || p_op >= Variant::OP_MAX) {
+		// Malformed/out-of-range operator codes must never crash the
+		// editor (std::array::operator[] is unchecked).
+		ERR_PRINT(vformat("[API Tool] invalid variant operator code: %d", (int)p_op));
+		static const String invalid;
+		return invalid;
+	}
 	return search[p_op];
 }
 

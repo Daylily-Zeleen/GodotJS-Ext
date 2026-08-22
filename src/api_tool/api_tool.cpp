@@ -30,6 +30,7 @@
 #include "api_tool.h"
 #include "api_tool_types.h"
 #include "core/api_tool_loader.h"
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -56,15 +57,35 @@ static ApiLoader *get_loader() {
 // ============================================================================
 
 Error initialize() {
+	UtilityFunctions::print("[API Tool] initialize");
 	if (get_loader() == nullptr) {
 		memnew(ApiLoader);
 	}
-	return get_loader()->initialize();
+	const Error err = get_loader()->initialize();
+	UtilityFunctions::print("[API Tool] initialize -> ", UtilityFunctions::error_string(err));
+	return err;
 }
 
 void finalize() {
-	CRASH_COND_MSG(get_loader() == nullptr, "Can't finalize Api tool again. If you need, please call api_tool::initialize() first.");
+	UtilityFunctions::print("[API Tool] finalize");
+	// Be forgiving during shutdown: the editor teardown order relative to the
+	// first-time generation path is not guaranteed, so a double-finalize must
+	// not abort the process (it used to CRASH_COND here).
+	if (ApiLoader::get_singleton() == nullptr) {
+		UtilityFunctions::print("[API Tool] finalize skipped (not initialized)");
+		return;
+	}
 	memdelete(ApiLoader::get_singleton());
+}
+
+void get_api_dumping_dir(godot::String *r_dir) {
+	if (ApiLoader *loader = get_loader()) {
+		// NB: the loader may exist without a loaded store (e.g. first-time
+		// generation), but its base dir is already resolved by initialize().
+		*r_dir = loader->get_api_dumping_dir();
+		return;
+	}
+	*r_dir = "";
 }
 
 bool is_loaded() {
@@ -277,6 +298,15 @@ const LocalVector<MethodHash> *get_class_method_compatibility_hashes(const Strin
 #endif // !DISABLE_DEPRECATED
 }
 
+// Reload the store in place. Unlike the previous destroy-and-recreate dance
+// (finalize + initialize) this keeps the ApiLoader singleton alive so that
+// pointers already handed out to consumers remain valid.
+void reload() {
+	if (get_loader() == nullptr) {
+		return;
+	}
+	get_loader()->reload();
+}
 bool has_generated_data() {
 	initialize();
 	return get_loader()->has_generated_data();

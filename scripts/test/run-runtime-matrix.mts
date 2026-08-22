@@ -77,7 +77,7 @@ const webBootstrapFailurePatterns = [
 ];
 
 const runtimeAliasMap = new Map<string, string[]>([
-    ["all", ["host-v8", "host-qjs", "host-jsc", "web-browser", "web-qjs"]],
+    ["all", ["host-v8", "host-qjs", "host-jsc", "host-node", "web-browser", "web-qjs"]],
     ["host", ["host-v8", "host-qjs", "host-jsc"]],
     ["web", ["web-browser", "web-qjs"]],
 ]);
@@ -985,6 +985,9 @@ async function main(): Promise<void> {
     const needsHostV8 = isRuntimeSelected("host-v8") || needsAnyWeb;
     const needsHostQjs = isRuntimeSelected("host-qjs");
     const needsHostJscRequested = isRuntimeSelected("host-jsc");
+    // host-node is only built on Windows CI (libnode is only linked there).
+    const needsHostNodeRequested = isRuntimeSelected("host-node");
+    const needsHostNode = needsHostNodeRequested && isWindows;
     const needsHostJsc = needsHostJscRequested && isMac;
 
     if (needsHostJscRequested && !isMac) {
@@ -1013,6 +1016,20 @@ async function main(): Promise<void> {
 
     if (isRuntimeSelected("host-jsc") && hostJscBinary) {
         hostRuns.push({ runtime: "host-jsc", binary: hostJscBinary });
+    }
+
+    if (needsHostNodeRequested && !isWindows) {
+        results.push({ runtime: "host-node", status: "FAIL", error: "host-node runtime is only available on Windows" });
+    } else if (needsHostNode) {
+        const nodePrefix = join(testsBinDir, "godot-host-node");
+        const candidates = existsSync(testsBinDir)
+            ? [nodePrefix, ...readdirSync(testsBinDir).filter((name) => name.startsWith("godot-host-node.")).map((name) => join(testsBinDir, name))]
+            : [];
+        const hostNodeBinary = candidates.find((p) => existsSync(p));
+        if (!hostNodeBinary) {
+            throw new Error("failed to locate copied host-node binary");
+        }
+        hostRuns.push({ runtime: "host-node", binary: hostNodeBinary });
     }
 
     for (const run of hostRuns) {

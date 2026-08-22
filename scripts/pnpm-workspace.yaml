@@ -1,4 +1,4 @@
 packages:
   - .
   - ./*
-  - ../src/impl/web/bridge
+  - ../src/runtime/impl/web/bridge

@@ -13,7 +13,7 @@ __pycache__
 # Ignore prebuilt third-party libraries (downloaded by SConstruct)
 /third/v8/
 /third/lws/
-/third/node/
+/third/libnode/
 
 # Ignore custom.py
 custom.py
@@ -54,7 +54,7 @@ compile_commands.json
 
 # TypeScript build out
 scripts/out/
-src/impl/web/js/jsbb.impl.js
+src/runtime/impl/web/js/jsbb.impl.js
 
 # Node modules
 node_modules/
@@ -85,3 +85,4 @@ CMakeUserPresets.json
 *.bak/
 
 TASK_STATUS.md
+.本地文档

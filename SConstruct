@@ -39,7 +39,8 @@ opts.Update(localEnv)
 Help(opts.GenerateHelpText(localEnv))
 
 env = localEnv.Clone()
-env["build_profile"] = "./build_profile.json"
+env["build_profile"] = "./build_profile.json";
+env.Replace(**{v: ARGUMENTS[v] for v in ("CC", "CXX") if v in ARGUMENTS})
 
 # # Enable SCons cache to speed up builds
 # scons_cache_path = os.path.join(os.getcwd(), ".scons_cache")
@@ -69,6 +70,7 @@ env['SHLIBPREFIX'] = ''
 
 # Source root directory
 src_dir = "src"
+runtime_dir = os.path.join(src_dir, "runtime")
 
 jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
 jsb_arch = env["arch"]
@@ -77,16 +79,22 @@ jsb_arch = env["arch"]
 deps_release_tag = "1.1"
 deps_v8_version = "12.4.254.21"
 deps_lws_version = "4.3"
+deps_node_version = "24.18.0"
 deps_url = "https://github.com/godotjs/GodotJS-Dependencies/releases"
+deps_node_url = "https://github.com/moluopro/libnode/releases/download"
 
 class LibraryDetails:
-    def __init__(self, platform, arch, libname, delimiter):
+    def __init__(self, platform, arch, libname, delimiter, custom_platform_base = None):
         self.platform = platform
         self.arch = arch
         self.libname = libname
         self.delimiter = delimiter
+        self.custom_platform_base = custom_platform_base
     def platform_base(self):
-        return self.platform + self.delimiter + self.arch + self.delimiter + "release"
+        if self.custom_platform_base is None:
+            return self.platform + self.delimiter + self.arch + self.delimiter + "release"
+        else:
+            return self.custom_platform_base(self)
 
 class LibraryDescriptor:
     def __init__(self, name, details):
@@ -115,16 +123,22 @@ v8_prebuilt_libs = LibraryDescriptor("v8", [
     LibraryDetails("android", "arm64", "libv8_monolith.a", "."),
 ])
 # libnode: Node.js as a static library (embeds V8). Prebuilt archives must be placed at
-# third/node/<platform>_<arch>_release/libnode.{lib,a} with headers at third/node/include.
-node_prebuilt_libs = LibraryDescriptor("node", [
-    LibraryDetails("windows", "x86_64", "libnode.lib", "_"),
-    LibraryDetails("linux", "x86_64", "libnode.a", "."),
-    LibraryDetails("linux", "arm64", "libnode.a", "."),
-    LibraryDetails("macos", "x86_64", "libnode.a", "."),
-    LibraryDetails("macos", "arm64", "libnode.a", "."),
-    LibraryDetails("ios", "arm64", "libnode.a", "."),
-    LibraryDetails("android", "x86_64", "libnode.a", "."),
-    LibraryDetails("android", "arm64", "libnode.a", "."),
+# third/libnode/<platform>_<arch>_release/libnode.{lib,a} with headers at third/libnode/include.
+def _libnode_platform_base(details: LibraryDetails):
+    arch_map :dict = {
+        "x86_64": "x64",
+        "arm64": "arm64",
+    }
+    return f"{details.platform}{details.delimiter}{arch_map[details.arch]}"
+node_prebuilt_libs = LibraryDescriptor("libnode", [
+    LibraryDetails("windows", "x86_64", "libnode.lib", "/", _libnode_platform_base),
+    LibraryDetails("linux", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("linux", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("macos", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("macos", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("ios", "arm64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("android", "x86_64", "libnode.a", "/", _libnode_platform_base),
+    LibraryDetails("android", "arm64", "libnode.a", "/", _libnode_platform_base),
 ])
 lws_prebuilt_libs = LibraryDescriptor("lws", [
     LibraryDetails("windows", "x86_64", "websockets_static.lib", "_"),
@@ -171,7 +185,7 @@ def get_thirdparty_support(support, path):
     return None
 
 def read_macro_value(name, def_val=None):
-    with open(os.path.join(src_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
+    with open(os.path.join(runtime_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
         regex = rf"^#define\s+{name}\s+(\d+)$"
         for line in f:
             matches = re.finditer(regex, line)
@@ -189,6 +203,16 @@ def dependency_is_ready(name, target_dir):
             if details.platform == jsb_platform and details.arch == jsb_arch:
                 return (
                     os.path.isfile(os.path.join(target_dir, "include", "v8.h"))
+                    and os.path.isfile(
+                        os.path.join(target_dir, details.platform_base(), details.libname)
+                    )
+                )
+        return False
+    if name == "node":
+        for details in node_prebuilt_libs.details:
+            if details.platform == jsb_platform and details.arch == jsb_arch:
+                return (
+                    os.path.isfile(os.path.join(target_dir, "include", "node.h"))
                     and os.path.isfile(
                         os.path.join(target_dir, details.platform_base(), details.libname)
                     )
@@ -214,14 +238,18 @@ def remove_dependency_path(path):
     elif os.path.exists(path):
         os.remove(path)
 
-def download_dependency(name, version, target_dir):
+def download_dependency(name, version, target_dir, url_override=None, archive_root=None):
     if dependency_is_ready(name, target_dir):
         return
     if os.path.exists(target_dir):
         remove_dependency_path(target_dir)
     filename = f"{name}_{version}.zip"
     temporary_filename = f"{filename}.part"
-    url = f"{deps_url}/download/{deps_release_tag}/{filename}"
+    # Use override URL for libnode (different source than other dependencies)
+    if url_override:
+        url = url_override
+    else:
+        url = f"{deps_url}/download/{deps_release_tag}/{filename}"
     print(f"Dependency '{name}' not found at '{target_dir}'.")
     print(f"Downloading {filename} from {url} ...")
     try:
@@ -266,9 +294,11 @@ def download_dependency(name, version, target_dir):
             # The archive contains a top-level directory named after the dependency
             # (e.g. "v8"), so extract into a temporary parent before installing it.
             zip_ref.extractall(temporary_target_dir)
-        extracted_target_dir = os.path.join(temporary_target_dir, os.path.basename(target_dir))
+        # Use archive_root if specified (for libnode which has "libnode/" instead of "node/")
+        expected_root = archive_root if archive_root else os.path.basename(target_dir)
+        extracted_target_dir = os.path.join(temporary_target_dir, expected_root)
         if not os.path.exists(extracted_target_dir):
-            raise RuntimeError(f"Extraction failed: Directory '{target_dir}' was not created.")
+            raise RuntimeError(f"Extraction failed: Directory '{expected_root}' was not found in archive.")
         os.makedirs(parent_dir, exist_ok=True)
         os.replace(extracted_target_dir, target_dir)
         shutil.rmtree(temporary_target_dir, ignore_errors=True)
@@ -291,10 +321,12 @@ node_support = None
 if env.get("use_node", False):
     if not is_library_supported(node_prebuilt_libs):
         check(False, "libnode prebuilt is not supported for this platform/arch. See plan (Phase 1) for supported targets.")
-    # TODO(Node): publish a prebuilt libnode release and set deps_node_version to enable auto download.
-    # download_dependency("node", deps_node_version, f"{third_folder_name}/node")
+    node_url = f"{deps_node_url}/{deps_node_version}/libnode.zip"
+    download_dependency("node", deps_node_version, f"{third_folder_name}/libnode", url_override=node_url)
     node_support = validate_library_support(node_prebuilt_libs)
-    check(node_support is not None, f"libnode prebuilt not found at 'third/node/'. Place libnode.{{lib,a}} under 'third/node/{jsb_platform}_{jsb_arch}_release/' and headers at 'third/node/include/' (see plan).")
+    check(node_support is not None, "libnode prebuild lib is not found.")
+    if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
+        download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
 
 use_quickjs = None if node_support is not None else (f"{third_folder_name}/quickjs" if env.get("use_quickjs", False) else (f"{third_folder_name}/quickjs-ng" if env.get("use_quickjs_ng", False) else None))
 jsc_support = None if node_support is not None else ("jsc" if env.get("use_jsc", False) and use_quickjs is None else None)
@@ -313,6 +345,23 @@ if node_support is not None:
     v8_support = v8_prebuilt_libs if is_library_supported(v8_prebuilt_libs) else None
 else:
     v8_support = validate_library_support(v8_prebuilt_libs) if quickjs_support is None and jsc_support is None else None
+
+# The prebuilt v8_monolith for iOS is built against the iphoneos SDK only; the
+# simulator SDK refuses to link it ("object file built for 'iOS'"). Until a
+# simulator variant of the prebuilt is published, reject this combination
+# explicitly instead of failing with a cryptic linker error.
+if v8_support is not None and jsb_platform == "ios" and env.get('ios_simulator', False):
+    check(False, "v8 prebuilt does not support iOS Simulator (only device builds are available). "
+                 "Use 'ios_simulator=no', or pick quickjs-ng/jsc for simulator builds.")
+
+# Same class of problem on macOS: the v8 prebuilt ships per-architecture
+# archives only (macos.arm64.release / macos.x86_64.release), no universal
+# variant. A universal build would either silently fail to match any prebuilt
+# (v8_support becomes None -> build degrades to "no engine") or fail at link
+# time with missing symbols for the other architecture. Reject it explicitly.
+if v8_support is not None and jsb_platform == "macos" and jsb_arch == "universal":
+    check(False, "v8 prebuilt does not support macOS universal builds (only per-arch arm64/x86_64 are available). "
+                 "Use arch=arm64 or arch=x86_64, or pick quickjs-ng/jsc for universal builds.")
 # TEMPORARY (see TODO.md): disable lws on linux (prebuilt lib is not PIC).
 # In node mode lws is disabled too (avoids cross-linking v8 symbols against libnode).
 lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and node_support is None and jsb_platform != "linux" else None
@@ -400,7 +449,7 @@ def generate_jsb_gen_header():
                 output.write(f"// {t.help}\n")
         output.write(f"#define {t.name} {t.value}\n")
     output.write("\n")
-    write_file(os.path.join(src_dir, "jsb.gen.h"), output)
+    write_file(os.path.join(runtime_dir, "jsb.gen.h"), output)
 
 # =============================================================================
 # Generate jsb_project_preset.gen.cpp (embedded JS bundles)
@@ -506,10 +555,10 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     output = io.StringIO()
 
     # delete obsolete files
-    remove_file(os.path.join(src_dir, "weaver-editor", "jsb_project_preset.cpp"))
-    remove_file(os.path.join(src_dir, "jsb_project_preset.cpp"))
+    remove_file(os.path.join(runtime_dir, "weaver-editor", "jsb_project_preset.cpp"))
+    remove_file(os.path.join(runtime_dir, "jsb_project_preset.cpp"))
 
-    outfile = "jsb_project_preset.gen.cpp"  # generated into src_dir via write_file
+    outfile = "jsb_project_preset.gen.cpp"  # generated into runtime_dir via write_file
 
     output.write("// AUTO-GENERATED\n")
     output.write("\n")
@@ -530,7 +579,7 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     generate_method_code(output, "get_source_ed", indent, ed_preset_defines)
     output.write("#endif\n")
 
-    write_file(os.path.join(src_dir, outfile), output)
+    write_file(os.path.join(runtime_dir, outfile), output)
 
 generate_code([
     PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
@@ -556,9 +605,9 @@ generate_code([
 # =============================================================================
 
 templates_script = os.path.join("misc", "build", "generate_templates_header.py")
-templates_output = os.path.join(src_dir, "weaver-editor", "templates", "templates.gen.h")
+templates_output = os.path.join(src_dir, "editor", "weaver-editor", "templates", "templates.gen.h")
 if os.path.exists(templates_script):
-    subprocess.run([sys.executable, templates_script, os.path.join(src_dir, "weaver-editor", "templates"), templates_output], check=True)
+    subprocess.run([sys.executable, templates_script, os.path.join(src_dir, "editor", "weaver-editor", "templates"), templates_output], check=True)
 
 generate_jsb_gen_header()
 
@@ -597,8 +646,8 @@ env["CXXFLAGS"] = cxx_flags
 
 natvis_sources = [
     os.path.join(root_dir, "third", "godot-cpp", "natvis", "godot-cpp.natvis"),
-    os.path.join(root_dir, "src", "jsb.natvis"),
-    os.path.join(root_dir, "src", "impl", "quickjs", "jsb.quickjs.natvis"),
+    os.path.join(root_dir, "src", "runtime", "jsb.natvis"),
+    os.path.join(root_dir, "src", "runtime", "impl", "quickjs", "jsb.quickjs.natvis"),
 ]
 merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
 merged_natvis = os.path.join(root_dir, "godotjs-ext.natvis")
@@ -620,13 +669,19 @@ else:
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
-    os.path.join(root_dir, src_dir, "compat"),
-    os.path.join(root_dir, src_dir, "internal"),
-    os.path.join(root_dir, src_dir, "weaver"),
-    os.path.join(root_dir, src_dir, "bridge"),
-    os.path.join(root_dir, src_dir, "js_type_extension"),
+    os.path.join(root_dir, runtime_dir),
+    os.path.join(root_dir, runtime_dir, "compat"),
+    os.path.join(root_dir, runtime_dir, "internal"),
+    os.path.join(root_dir, runtime_dir, "weaver"),
+    os.path.join(root_dir, runtime_dir, "bridge"),
+    os.path.join(root_dir, runtime_dir, "js_type_extension"),
     os.path.join(root_dir, third_dir),
 ])
+
+# Add editor include path for editor target
+if env["target"] == "editor":
+    editor_dir = os.path.join(src_dir, "editor")
+    env.Append(CPPPATH=[os.path.join(root_dir, editor_dir)])
 
 # Add v8 include/library path
 # (skipped in node mode: libnode bundles the v8 headers and provides the v8 symbols)
@@ -636,9 +691,7 @@ if v8_support is not None and node_support is None:
     if jsb_platform == "windows":
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "v8_monolith.lib"))])
         env.Append(LINKFLAGS=["winmm.lib", "Dbghelp.lib", "advapi32.lib"])
-    elif jsb_platform == "linux":
-        env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
-    elif jsb_platform == "macos":
+    elif jsb_platform in ("linux", "macos", "ios"):
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
     env.Append(CPPDEFINES=["V8_COMPRESS_POINTERS"])
 
@@ -647,8 +700,8 @@ if v8_support is not None and node_support is None:
 # so that the N-API symbols it defines are preserved and exported by the main DLL.
 if node_support is not None:
     node_basename = node_support[1].platform_base()
-    node_lib_path = os.path.join(root_dir, third_dir, "node", node_basename, "libnode.lib" if jsb_platform == "windows" else "libnode.a")
-    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "node", "include")])
+    node_lib_path = os.path.join(root_dir, third_dir, "libnode", node_basename, "libnode.lib" if jsb_platform == "windows" else "libnode.a")
+    env.Append(CPPPATH=[os.path.join(root_dir, third_dir, "libnode", "include")])
     # NOTE: do NOT define V8_COMPRESS_POINTERS here. The moluopro/libnode prebuilt
     # (Node 24.x) is built WITHOUT pointer compression, and V8::Initialize() aborts
     # with "Embedder-vs-V8 build configuration mismatch" when the embedder side
@@ -674,6 +727,10 @@ if node_support is not None:
         env.Append(LINKFLAGS=["-Wl,-force_load", os.path.abspath(node_lib_path)])
         env.Append(LINKFLAGS=["-framework", "Foundation"])
 
+# JavaScriptCore is a system framework on macOS and iOS; link it for JSC builds
+if jsc_support is not None and jsb_platform in ("macos", "ios"):
+    env.Append(LINKFLAGS=["-framework", "JavaScriptCore"])
+
 # Add lws include/library path
 if lws_support is not None:
     lws_basename = lws_support[1].platform_base()
@@ -687,40 +744,43 @@ if lws_support is not None:
     elif jsb_platform == "macos":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
-# Add all GodotJS source files (migrated to src/)
+# Add all GodotJS runtime source files
 godotjs_sources = []
-godotjs_sources += Glob(os.path.join(src_dir, "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "compat", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "internal", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "bridge", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "weaver", "*.cpp"))
-godotjs_sources += Glob(os.path.join(src_dir, "js_type_extension", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "compat", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "bridge", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "weaver", "*.cpp"))
+godotjs_sources += Glob(os.path.join(runtime_dir, "js_type_extension", "*.cpp"))
 # api_tool module: core (runtime)
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
-if env["target"] in ["editor", "template_debug"]:
-    godotjs_sources += Glob(os.path.join(src_dir, "weaver-editor", "*.cpp"))
-    # api_tool module: editor-only (parser, generator, export plugin)
+
+# Add editor source files (only for editor target)
+if env["target"] == "editor":
+    editor_dir = os.path.join(src_dir, "editor")
+    godotjs_sources += Glob(os.path.join(editor_dir, "*.cpp"))
+    godotjs_sources += Glob(os.path.join(editor_dir, "weaver-editor", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
 
 # Add engine-specific impl sources
 # NOTE: node mode implies JSB_WITH_V8 (libnode embeds V8), so the node branch MUST be
-# checked before the v8 branch to pick src/impl/node/ instead of src/impl/v8/.
+# checked before the v8 branch to pick src/runtime/impl/node/ instead of src/runtime/impl/v8/.
 if is_defined("JSB_WITH_NODE"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "node", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "node", "*.cpp"))
 elif is_defined("JSB_WITH_V8"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "v8", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "v8", "*.cpp"))
 elif is_defined("JSB_WITH_QUICKJS"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "quickjs", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "quickjs", "*.cpp"))
 elif is_defined("JSB_WITH_WEB"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "web", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "web", "*.cpp"))
 elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
-    godotjs_sources += Glob(os.path.join(src_dir, "impl", "jsc", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "impl", "jsc", "*.cpp"))
 
 # Add test sources if tests enabled
 if env.get("tests", False):
     env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
-    godotjs_sources += Glob(os.path.join(src_dir, "tests", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(runtime_dir, "tests", "*.cpp"))
 
 # Add quickjs/quickjs-ng source files (C files) with C11 flags
 quickjs_obj = []
@@ -746,7 +806,17 @@ if quickjs_support is not None:
 all_sources = godotjs_sources + quickjs_obj
 
 # .dev doesn't inhibit compatibility
-suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
+# Preserve .universal suffix for macOS/iOS to distinguish architectures
+# Add .simulator suffix for iOS simulator builds
+if env['platform'] in ['macos', 'ios']:
+    # macOS/iOS: preserve .universal suffix
+    suffix = env['suffix'].replace(".dev", "")
+    # iOS simulator: add .simulator suffix
+    if env['platform'] == 'ios' and env.get('ios_simulator', False):
+        suffix = suffix.replace(".universal", ".universal.simulator")
+else:
+    # Other platforms: remove .universal suffix
+    suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
 lib_filename = "{}{}{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
 
 library = env.SharedLibrary(
@@ -758,6 +828,63 @@ copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 
 default_args = [library, copy]
 
+# iOS: generate xcframework from device and simulator builds
+if jsb_platform == "ios" and env.get('ios_simulator', False):
+    # The xcframework is generated as a post-build step of the SIMULATOR build
+    # ('ios_simulator=yes'). At this point the simulator dylib is part of the
+    # current build graph, so it can be safely declared as a source. The device
+    # dylib however is produced by a SEPARATE scons invocation
+    # ('ios_simulator=no'), so it must NOT be declared as a source (SCons
+    # requires all sources to exist at parse time); the action checks for it at
+    # execution time instead.
+    #
+    # AlwaysBuild() forces regeneration on every 'ios_simulator=yes' run, so a
+    # freshly rebuilt device dylib is always picked up without manually
+    # deleting the xcframework.
+    target = env['target']
+
+    xcframework_name = "{}.ios.{}.xcframework".format(libname, target)
+    xcframework_path = os.path.join("bin", "ios", xcframework_name)
+
+    # Note: the dylib suffix embeds the arch part following godot-cpp's naming:
+    # ".universal" for arch=universal, ".{arch}" otherwise; simulator builds append ".simulator".
+    # The SHLIBPREFIX ("lib" on macOS/iOS) must be included to match the actual output filename.
+    shlibprefix = env.subst('$SHLIBPREFIX')
+    device_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}{}.dylib".format(shlibprefix, libname, target, ".universal" if env["arch"] == "universal" else "." + env["arch"]))
+    simulator_lib_path = os.path.join("bin", "ios", "{}{}.ios.{}{}.simulator.dylib".format(shlibprefix, libname, target, ".universal" if env["arch"] == "universal" else "." + env["arch"]))
+
+    # NOTE: SCons invokes the action with target=/source=/env= keyword
+    # arguments, so the parameter names must match exactly.
+    def _generate_xcframework(target, source, env):
+        if not os.path.exists(device_lib_path):
+            print_warning(f"Skip generating xcframework: device library not found at '{device_lib_path}'. "
+                          f"Run 'scons platform=ios ... ios_simulator=no' first.")
+            return None
+
+        cmd = [
+            "xcodebuild", "-create-xcframework",
+            "-library", device_lib_path,
+            "-library", simulator_lib_path,
+            "-output", xcframework_path
+        ]
+        print("Generating xcframework:", " ".join(cmd))
+        subprocess.check_call(cmd)
+        return None
+
+    xcframework_cmd = env.Command(
+        xcframework_path,
+        # declare the simulator dylib node as source so SCons links it before
+        # running the xcframework action (the action itself uses the plain
+        # path strings above)
+        [library],
+        _generate_xcframework
+    )
+    env.AlwaysBuild(xcframework_cmd)
+
+    # Copy xcframework to addon directory
+    xcframework_copy = env.Install("{}/bin/ios/".format(addon_dir), xcframework_cmd)
+    default_args += [xcframework_cmd, xcframework_copy]
+
 # Windows: generate a node.dll Node-API forwarder so native .node addons can resolve
 # napi_* symbols (they import them from a module literally named 'node.dll').
 # The forwarder forwards every napi_*/node_api_*/node_module_register export to the
@@ -766,7 +893,7 @@ if node_support is not None and jsb_platform == "windows":
     node_dll_path = os.path.join(root_dir, "bin", jsb_platform, "node.dll")
     node_def_path = os.path.join(root_dir, "bin", jsb_platform, "node.def")
     node_shim_script = os.path.join(root_dir, "misc", "build", "generate_node_shim.py")
-    node_include_dir = os.path.join(root_dir, third_dir, "node", "include")
+    node_include_dir = os.path.join(root_dir, third_dir, "libnode", "include")
     shim_arch = "ARM64" if jsb_arch == "arm64" else "X64"
 
     def _build_node_shim(target, source, env):
@@ -801,7 +928,7 @@ if node_support is not None and jsb_platform == "windows":
 # exported by the main DLL (which statically links libnode), so it only
 # links against the main DLL and keeps its own size tiny.
 if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
-    helper_main = os.path.join(src_dir, "node_helper", "jsb_node_host_main.cpp")
+    helper_main = os.path.join(runtime_dir, "node_helper", "jsb_node_host_main.cpp")
     helper_name = "godotjs-ext" + (".exe" if jsb_platform == "windows" else "")
     helper_dir = os.path.join("bin", env["platform"])
     # windows: link the main DLL's import library; posix: link the shared

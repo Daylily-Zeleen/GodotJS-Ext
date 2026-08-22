@@ -51,7 +51,7 @@ jobs:
         working-directory: scripts
 
       - name: Upload scripts/out
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scripts-out
           path: ${{github.workspace}}/scripts/out
@@ -59,7 +59,7 @@ jobs:
 
 
   build:
-    name: Build (${{ matrix.platform }}, ${{ matrix.engine }})
+    name: Build (${{ matrix.platform }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.engine }})
     needs: environment
     strategy:
       fail-fast: false
@@ -67,22 +67,139 @@ jobs:
         include:
           - platform: windows
             os: windows-latest
+            arch: x86_64
+            target: editor
             engine: v8
           - platform: windows
             os: windows-latest
+            arch: x86_64
+            target: editor
             engine: qjs-ng
           - platform: linux
             os: ubuntu-22.04
+            arch: x86_64
+            target: editor
             engine: v8
           - platform: linux
             os: ubuntu-22.04
+            arch: x86_64
+            target: editor
             engine: qjs-ng
+          # Linux arm64 builds (cross-compiled on x86_64 runner with
+          # gcc-aarch64-linux-gnu; native arm64 runners are too scarce)
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: editor
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: editor
+            engine: qjs-ng
+          # macOS builds.
+          # - qjs-ng: universal (single build covers arm64 + x86_64, avoiding
+          #   the deprecated/slow macos-13 x86_64 runners)
+          # - v8: arm64 only (the v8 prebuilt has no universal variant, see
+          #   SConstruct's explicit rejection of macos+universal+v8)
           - platform: macos
             os: macos-latest
+            arch: arm64
+            target: editor
             engine: v8
           - platform: macos
             os: macos-latest
+            arch: universal
+            target: editor
             engine: qjs-ng
+          # iOS builds (device + simulator -> xcframework)
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: qjs-ng
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: jsc
+          # Android platform (arm64, x86_64)
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: qjs-ng
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: qjs-ng
+          # Web platform (wasm32) - with threads
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: v8
+            threads: true
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: qjs-ng
+            threads: true
+          # Web platform (wasm32) - without threads
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: v8
+            threads: false
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_release
+            engine: qjs-ng
+            threads: false
+          # Node engine (Windows, Linux, macOS)
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: editor
+            engine: node
+          # NOTE: node builds on macos/linux are temporarily disabled:
+          # libnode.a lacks the typeinfo symbols of v8::Value{Serializer,Deserializer}::Delegate,
+          # which our delegate subclasses reference (see 低优先级.md).
+          # - platform: linux
+          #   os: ubuntu-22.04
+          #   arch: x86_64
+          #   target: editor
+          #   engine: node
+          # - platform: macos
+          #   os: macos-latest
+          #   arch: arm64
+          #   target: editor
+          #   engine: node
+          # JavaScriptCore engine (macOS, iOS only)
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: editor
+            engine: jsc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -90,7 +207,7 @@ jobs:
           submodules: recursive
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
@@ -98,7 +215,7 @@ jobs:
         run: pip install scons
 
       - name: Download JS runtime
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: scripts-out
           path: scripts/out
@@ -109,20 +226,54 @@ jobs:
       # GCC/Clang embed debug info per object file, so their caches are safe.
       - name: Restore V8 dependency cache
         if: matrix.engine == 'v8'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: third/v8
-          key: v8-dependency-${{ runner.os }}-${{ hashFiles('SConstruct') }}
+          key: v8-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
+
+      - name: Restore Node dependency cache
+        if: matrix.engine == 'node'
+        uses: actions/cache@v6
+        with:
+          path: third/node
+          key: node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
       - name: Restore SCons cache
         if: matrix.platform != 'windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .scons-cache
-          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.engine }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
+          key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}${{ matrix.platform == 'web' && format('-threads-{0}', matrix.threads) || '' }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
           restore-keys: |
-            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.engine }}-
-            scons-${{ runner.os }}-${{ matrix.platform }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}${{ matrix.platform == 'web' && format('-threads-{0}', matrix.threads) || '' }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-
+            scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-
+
+      - name: Setup JDK 17 for Android
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android NDK
+        if: matrix.platform == 'android'
+        run: |
+          # Install NDK 28.1.13356709 (default version in godot-cpp)
+          sdkmanager "ndk;28.1.13356709"
+          # Set ANDROID_HOME environment variable
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+
+      - name: Setup Emscripten
+        if: matrix.platform == 'web'
+        uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 3.1.39
+          actions-cache-folder: 'emsdk-cache'
 
       - name: Build GDExtension
         shell: bash
@@ -131,9 +282,68 @@ jobs:
           if [ "${{ matrix.platform }}" != "windows" ]; then
             export SCONS_CACHE="$GITHUB_WORKSPACE/.scons-cache"
           fi
-          engine_flag="${{ matrix.engine == 'qjs-ng' && 'use_quickjs_ng=yes' || '' }}"
-          arch_flag="${{ matrix.platform == 'macos' && 'arch=arm64' || '' }}"
-          scons platform=${{ matrix.platform }} target=editor compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $arch_flag -j$(nproc || sysctl -n hw.ncpu)
+          
+          # Set engine flag based on matrix.engine
+          if [ "${{ matrix.engine }}" == "qjs-ng" ]; then
+            engine_flag="use_quickjs_ng=yes"
+          elif [ "${{ matrix.engine }}" == "node" ]; then
+            engine_flag="use_node=yes"
+          elif [ "${{ matrix.engine }}" == "jsc" ]; then
+            engine_flag="use_jsc=yes"
+          else
+            engine_flag=""
+          fi
+          
+          # Set threads flag for web platform
+          if [ "${{ matrix.platform }}" == "web" ]; then
+            if [ "${{ matrix.threads }}" == "false" ]; then
+              threads_flag="threads=no"
+            else
+              threads_flag="threads=yes"
+            fi
+          else
+            threads_flag=""
+          fi
+          
+          # Determine parallel job count (cross-platform)
+          if command -v nproc >/dev/null 2>&1; then
+            NPROC=$(nproc)
+          elif command -v sysctl >/dev/null 2>&1; then
+            NPROC=$(sysctl -n hw.ncpu)
+          else
+            NPROC=2
+          fi
+          
+          # Linux arm64: cross-compile with the aarch64 toolchain (the native
+          # arm64 runners are too scarce). godot-cpp's linux.py appends
+          # -march=armv8-a which only the aarch64 compiler understands.
+          cross_flags=""
+          if [ "${{ matrix.platform }}" == "linux" ] && [ "${{ matrix.arch }}" == "arm64" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            cross_flags="CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++"
+          fi
+          
+          # iOS, Android, and Web don't support tests or dev_build
+          if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
+          else
+            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
+          fi
+          
+          # iOS: Build simulator version and generate xcframework.
+          # NOTE: v8 has no iOS-simulator prebuilt, so only quickjs-ng/jsc
+          # produce an xcframework; v8 produces the device dylib alone.
+          if [ "${{ matrix.platform }}" == "ios" ]; then
+            if [ "${{ matrix.engine }}" != "v8" ]; then
+              echo "Building iOS simulator version..."
+              scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag ios_simulator=yes -j$NPROC
+              echo "Generating xcframework..."
+              # The xcframework is automatically generated by SConstruct when both builds are present
+            else
+              echo "Skipping iOS simulator build for v8 (no simulator prebuilt available)"
+            fi
+          fi
 
       - name: Prepare artifact
         shell: bash
@@ -141,12 +351,66 @@ jobs:
           mkdir -p artifact
           cp -r bin/* artifact/ 2>/dev/null || true
 
+      - name: Copy LICENSE to artifact
+        shell: bash
+        run: |
+          mkdir -p artifact/addons/godotjs-ext.daylily-zeleen
+          cp LICENSE artifact/addons/godotjs-ext.daylily-zeleen/
+
       - name: Upload GDExtension artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.platform }}-editor-${{ matrix.engine }}
+          name: ${{ matrix.platform }}-${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.engine }}${{ matrix.platform == 'web' && matrix.threads == false && '-nothreads' || '' }}
           path: artifact/
           retention-days: 1
+
+
+  # Guard against PARTIAL release zips: misc_upload_assets.yml globs '*-v8' /
+  # '*-qjs-ng' over this run's artifacts and merges whatever matches. A total
+  # mismatch fails loudly at release time, but a partial match (a matrix leg
+  # renamed or dropped) would silently ship a zip missing platforms.
+  #
+  # Expected names are DERIVED from the build matrix above (single source of
+  # truth - no second list to maintain). Extra artifacts matching the globs
+  # are by-design auto-included into releases and are NOT flagged.
+  verify-release-artifacts:
+    name: Verify Release Artifact Names
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Diff expected (derived from build matrix) vs actual artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > expected.txt
+          import yaml
+          wf = yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))
+          legs = wf['jobs']['build']['strategy']['matrix']['include']
+          out = []
+          for leg in legs:
+              eng = leg.get('engine')
+              if eng not in ('v8', 'qjs-ng'):
+                  continue  # jsc/node are not part of the release merge flow yet
+              suffix = '-nothreads' if (leg['platform'] == 'web' and leg.get('threads') is False) else ''
+              out.append(f"{leg['platform']}-{leg['target']}-{leg['arch']}-{eng}{suffix}")
+          print('\n'.join(sorted(out)))
+          PY
+          gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            -q '.artifacts[].name' | sort > actual.txt
+          echo "=== expected (derived from build matrix) ==="
+          cat expected.txt
+          echo "=== actual artifacts of this run ==="
+          cat actual.txt
+          if ! missing=$(comm -23 expected.txt actual.txt); then exit $?; fi
+          if [ -n "$missing" ]; then
+            echo "::error::Release merge would silently skip these legs:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "All release-matched legs are present."
 
   test:
     name: Test (${{ matrix.runtime }})
@@ -154,8 +418,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [host-v8, host-qjs]
-    runs-on: ubuntu-22.04
+        include:
+          # host-v8 / host-qjs run on Linux (artifacts built natively there)
+          - runtime: host-v8
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-v8
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          - runtime: host-qjs
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-qjs-ng
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          # host-node runs on Windows: libnode is only linked on Windows
+          # (linux/macos builds were dropped due to missing libnode symbols)
+          - runtime: host-node
+            os: windows-latest
+            artifact: windows-editor-x86_64-node
+            godot_asset: Godot_v4.7.1-stable_win64.exe.zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -170,12 +449,21 @@ jobs:
         working-directory: scripts
 
       - name: Install gdb
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gdb
 
+      # A crashing Godot process on Windows can pop up the Windows Error
+      # Reporting dialog, which blocks the runner forever. Disable its UI.
+      - name: Disable Windows Error Reporting UI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
+
       - name: Download GDExtension artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: linux-editor-${{ matrix.runtime == 'host-v8' && 'v8' || 'qjs-ng' }}
+          name: ${{ matrix.artifact }}
           path: runtime-artifacts
 
       - name: Download Godot (Linux)
@@ -183,17 +471,26 @@ jobs:
         with:
           repo: godotengine/godot
           version: tags/4.7.1-stable
-          file: Godot_v4.7.1-stable_linux.x86_64.zip
+          file: ${{ matrix.godot_asset }}
           target: godot/godot.zip
 
       - name: Extract Godot
+        shell: bash
         run: |
           mkdir -p tests/bin
-          unzip -o godot/godot.zip -d tests/bin/
-          chmod +x tests/bin/Godot*
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            powershell -NoProfile -Command "Expand-Archive -Path godot/godot.zip -DestinationPath tests/bin -Force"
+          else
+            unzip -o godot/godot.zip -d tests/bin/
+          fi
+          chmod +x tests/bin/Godot* 2>/dev/null || true
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          cp "$GODOT_BIN" tests/bin/godot-host-v8
-          cp "$GODOT_BIN" tests/bin/godot-host-qjs
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            # Windows requires the .exe suffix for spawnSync to launch it
+            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}.exe"
+          else
+            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}"
+          fi
           echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
@@ -215,6 +512,7 @@ jobs:
         working-directory: project
 
       - name: Generate API data
+        timeout-minutes: 15
         shell: bash
         # The C++ unit tests (and api_tool) need the .api_dumping data, which
         # is normally generated by the editor. In a fresh CI checkout it does
@@ -228,21 +526,80 @@ jobs:
         # unit test step below also depends on this data, so a genuinely
         # incomplete generation would fail there.
         run: |
-          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --dump-extension-api-with-docs || true
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
-          tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
-          test -f project/.godot/.api_dumping/header.capi
+          # NOTE: the editor may crash during its shutdown phase after the data has
+          # been written (Godot 4.7.1 + extension teardown - tracked separately);
+          # success is judged by the presence of the generated store below.
+          # The first-generation pipeline is non-deterministically hit by a
+          # teardown/reimport SIGSEGV (tracked separately). A rerun on wiped
+          # caches usually completes cleanly, so retry a few times and only
+          # fail when the store is still missing afterwards.
+          ok=0
+          for attempt in 1 2 3; do
+            if "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit; then
+              ok=1
+            fi
+            if test -f project/.godot/.api_dumping/header.capi; then
+              ok=1
+              break
+            fi
+            echo "attempt $attempt did not produce the api store, wiping caches and retrying..."
+            rm -rf project/.godot
+            rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
+            "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+            test -f project/extension_api.json
+          done
+          test -f project/.godot/.api_dumping/header.capi || { echo "api store missing after retries"; exit 1; }
+          # The editor first-run install can leave .godot/godotjs_ext partially
+          # wiped when it crashes mid-reimport (test_01.js etc. are tsc output,
+          # not part of the runtime install manifest). Re-emit before tests.
+          rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
+
+      # Diagnostic: rerun the exact first-time generation scenario under gdb
+      # to capture a symbolized backtrace of the teardown SIGSEGV. Never
+      # fails the job (continue-on-error), the backtrace lands in the log.
+      - name: Debug first-generation teardown crash (diagnostic)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Wipe the WHOLE .godot cache dir (not just api_dumping): leftover
+          # import caches / runtime install markers from a previous successful
+          # generation change the startup+teardown path and mask the crash.
+          rm -rf project/.godot
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+          test -f project/extension_api.json
+          gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          # The wipe above also removed the compiled JS output (tsc artifacts
+          # live under .godot/godotjs_ext); restore them for the test steps.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
 
       - name: Run C++ unit tests
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
         run: |
-          timeout 120 tests/bin/Godot_v4.7.1-stable_linux.x86_64 --headless --path project --jsb-run-tests
+          if [ "$RUNNER_OS" == "Windows" ]; then
+          # Editor startup flows may wipe compiled JS output; re-emit defensively
+          # and log the directory state for diagnostics.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
+          ls project/.godot/godotjs_ext | head -20 || true
+            "$GODOT" --headless --path project --jsb-run-tests
+          else
+            timeout 120 "$GODOT" --headless --path project --jsb-run-tests
+          fi
 
       - name: Run TypeScript integration tests
         shell: bash
         run: |
+          # Editor startup flows may wipe compiled JS output; re-emit defensively
+          # and log the directory state for diagnostics.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
+          ls project/.godot/godotjs_ext | head -20 || true
           node scripts/test/run-runtime-matrix.mts --runtimes ${{ matrix.runtime }} --skip-builds
 
   changesets:

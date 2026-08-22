@@ -31,7 +31,7 @@
 // Parses extension_api.json using godot-cpp PropertyInfo/MethodInfo types.
 // All functions return Error with proper error messages.
 
-#include "../api_tool_types.h"
+#include "api_tool/api_tool_types.h"
 #include "api_tool_parser.h"
 #include "api_tool_store_writer.h"
 #include <godot_cpp/classes/dir_access.hpp>
