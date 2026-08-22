@@ -498,6 +498,7 @@ jobs:
             fi
             echo "attempt $attempt did not produce the api store, wiping caches and retrying..."
             rm -rf project/.godot
+            pnpm -C project exec tsc --noCheck
             "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
             test -f project/extension_api.json
           done
