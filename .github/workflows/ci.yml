@@ -498,7 +498,7 @@ jobs:
             fi
             echo "attempt $attempt did not produce the api store, wiping caches and retrying..."
             rm -rf project/.godot
-            pnpm -C project exec tsc --noCheck --force
+            rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
             "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
             test -f project/extension_api.json
           done
@@ -506,7 +506,7 @@ jobs:
           # The editor first-run install can leave .godot/godotjs_ext partially
           # wiped when it crashes mid-reimport (test_01.js etc. are tsc output,
           # not part of the runtime install manifest). Re-emit before tests.
-          pnpm -C project exec tsc --noCheck --force
+          rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
 
       # Diagnostic: rerun the exact first-time generation scenario under gdb
       # to capture a symbolized backtrace of the teardown SIGSEGV. Never
