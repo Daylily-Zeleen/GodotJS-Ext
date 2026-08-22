@@ -429,7 +429,12 @@ jobs:
           fi
           chmod +x tests/bin/Godot* 2>/dev/null || true
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            # Windows requires the .exe suffix for spawnSync to launch it
+            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}.exe"
+          else
+            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}"
+          fi
           echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
