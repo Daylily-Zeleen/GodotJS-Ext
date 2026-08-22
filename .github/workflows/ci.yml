@@ -503,6 +503,10 @@ jobs:
             test -f project/extension_api.json
           done
           test -f project/.godot/.api_dumping/header.capi || { echo "api store missing after retries"; exit 1; }
+          # The editor first-run install can leave .godot/godotjs_ext partially
+          # wiped when it crashes mid-reimport (test_01.js etc. are tsc output,
+          # not part of the runtime install manifest). Re-emit before tests.
+          pnpm -C project exec tsc --noCheck
 
       # Diagnostic: rerun the exact first-time generation scenario under gdb
       # to capture a symbolized backtrace of the teardown SIGSEGV. Never
