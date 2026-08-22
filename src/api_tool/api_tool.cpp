@@ -30,6 +30,7 @@
 #include "api_tool.h"
 #include "api_tool_types.h"
 #include "core/api_tool_loader.h"
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -56,14 +57,24 @@ static ApiLoader *get_loader() {
 // ============================================================================
 
 Error initialize() {
+	UtilityFunctions::print("[API Tool] initialize");
 	if (get_loader() == nullptr) {
 		memnew(ApiLoader);
 	}
-	return get_loader()->initialize();
+	const Error err = get_loader()->initialize();
+	UtilityFunctions::print("[API Tool] initialize -> ", UtilityFunctions::error_string(err));
+	return err;
 }
 
 void finalize() {
-	CRASH_COND_MSG(get_loader() == nullptr, "Can't finalize Api tool again. If you need, please call api_tool::initialize() first.");
+	UtilityFunctions::print("[API Tool] finalize");
+	// Be forgiving during shutdown: the editor teardown order relative to the
+	// first-time generation path is not guaranteed, so a double-finalize must
+	// not abort the process (it used to CRASH_COND here).
+	if (ApiLoader::get_singleton() == nullptr) {
+		UtilityFunctions::print("[API Tool] finalize skipped (not initialized)");
+		return;
+	}
 	memdelete(ApiLoader::get_singleton());
 }
 

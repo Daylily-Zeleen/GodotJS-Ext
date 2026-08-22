@@ -30,6 +30,7 @@
 #include "weaver/jsb_weaver.h"
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 
@@ -103,6 +104,7 @@ void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
 }
 
 void jsb_startup() {
+	UtilityFunctions::print("[jsb] startup");
 	if (api_tool::has_generated_data()) {
 		api_tool::initialize();
 	}
@@ -132,7 +134,9 @@ void jsb_startup() {
 }
 
 void jsb_shutdown() {
+	UtilityFunctions::print("[jsb] shutdown: finalizing api_tool");
 	api_tool::finalize();
+	UtilityFunctions::print("[jsb] shutdown: api_tool finalized");
 }
 
 extern "C" {

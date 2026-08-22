@@ -477,6 +477,19 @@ jobs:
           "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
           test -f project/.godot/.api_dumping/header.capi
 
+      # Diagnostic: rerun the exact first-time generation scenario under gdb
+      # to capture a symbolized backtrace of the teardown SIGSEGV. Never
+      # fails the job (continue-on-error), the backtrace lands in the log.
+      - name: Debug first-generation teardown crash (diagnostic)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          rm -rf project/.godot/.api_dumping
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+          test -f project/extension_api.json
+          gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+
       - name: Run C++ unit tests
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
