@@ -530,6 +530,11 @@ jobs:
         # they are independent from the TypeScript integration tests below.
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
+          # Editor startup flows may wipe compiled JS output; re-emit defensively
+          # and log the directory state for diagnostics.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
+          ls project/.godot/godotjs_ext | head -20 || true
             "$GODOT" --headless --path project --jsb-run-tests
           else
             timeout 120 "$GODOT" --headless --path project --jsb-run-tests
@@ -538,6 +543,11 @@ jobs:
       - name: Run TypeScript integration tests
         shell: bash
         run: |
+          # Editor startup flows may wipe compiled JS output; re-emit defensively
+          # and log the directory state for diagnostics.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
+          ls project/.godot/godotjs_ext | head -20 || true
           node scripts/test/run-runtime-matrix.mts --runtimes ${{ matrix.runtime }} --skip-builds
 
   changesets:
