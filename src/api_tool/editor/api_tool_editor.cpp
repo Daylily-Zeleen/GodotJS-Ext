@@ -297,16 +297,16 @@ void full_generate_and_reboot() {
 }
 
 Error generate_api_tool_data(const String &p_extension_api_json_path) {
+	// Ensure the loader exists and its base dir is resolved. Do NOT destroy
+	// it around regeneration: consumers (JS environments, cached documents)
+	// hold pointers into the loader's store, so after writing the new files
+	// we reload the store IN PLACE via api_tool::reload().
 	initialize();
 	String out_dir = get_api_dumping_dir();
-	finalize();
 
 	// Use generator to launch subprocess and parse
 	Error err = ApiGenerator::generate(p_extension_api_json_path, out_dir);
 	if (err != OK) {
-		// Restore the loader so the editor shutdown path can call
-		// api_tool::finalize() again without hitting CRASH_COND.
-		initialize();
 		return err;
 	}
 
@@ -320,7 +320,8 @@ Error generate_api_tool_data(const String &p_extension_api_json_path) {
 		DirAccess::rename_absolute(backup_path, p_extension_api_json_path);
 	}
 
-	return initialize();
+	reload();
+	return OK;
 }
 
 Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_types_only) {

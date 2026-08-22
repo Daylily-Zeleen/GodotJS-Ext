@@ -126,5 +126,7 @@ const godot::LocalVector<MethodHash> *get_builtin_method_compatibility_hashes(go
 const godot::LocalVector<MethodHash> *get_class_method_compatibility_hashes(const godot::StringName &p_class_name, const godot::StringName &p_name);
 
 bool has_generated_data();
+// Reload the store in place after the files on disk were regenerated.
+void reload();
 
 } // namespace api_tool

@@ -49,6 +49,10 @@ public:
 	~ApiLoader();
 
 	godot::Error initialize();
+	// Re-read the store IN PLACE (clear caches + reload header). Unlike
+	// destroying the singleton via finalize(), existing consumers keep
+	// valid pointers into the loader.
+	godot::Error reload();
 
 	// Clear all cached data. Calls cache invalidation callbacks.
 	void clear();

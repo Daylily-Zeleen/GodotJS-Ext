@@ -111,6 +111,24 @@ Error ApiLoader::initialize() {
 	return OK;
 }
 
+Error ApiLoader::reload() {
+	std::unique_lock lock(mutex_);
+	// Drop every cached payload first so nothing stale survives the update,
+	// then reuse the regular initialization to re-resolve the base dir and
+	// read the freshly written store. The singleton itself stays alive.
+	clear();
+	update_base_dir();
+	loaded_ = false;
+
+	String header_path = base_dir_ + "/" + FILE_HEADER;
+	Error err = ApiStoreReader::read_header(header_path, header_);
+	ERR_FAIL_COND_V_MSG(err, err, vformat("[API Tool] Reload error (%s), failed to read header: %s ", UtilityFunctions::error_string(err), header_path));
+	loaded_ = true;
+
+	internal::double_precision = header_.precision == RealPrecision::DOUBLE;
+	return OK;
+}
+
 // ============================================================================
 // Clear cache + notify callbacks
 // ============================================================================

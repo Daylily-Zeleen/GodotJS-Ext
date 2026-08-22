@@ -298,6 +298,15 @@ const LocalVector<MethodHash> *get_class_method_compatibility_hashes(const Strin
 #endif // !DISABLE_DEPRECATED
 }
 
+// Reload the store in place. Unlike the previous destroy-and-recreate dance
+// (finalize + initialize) this keeps the ApiLoader singleton alive so that
+// pointers already handed out to consumers remain valid.
+void reload() {
+	if (get_loader() == nullptr) {
+		return;
+	}
+	get_loader()->reload();
+}
 bool has_generated_data() {
 	initialize();
 	return get_loader()->has_generated_data();
