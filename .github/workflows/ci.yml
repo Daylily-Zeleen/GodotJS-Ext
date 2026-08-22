@@ -485,7 +485,10 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          rm -rf project/.godot/.api_dumping
+          # Wipe the WHOLE .godot cache dir (not just api_dumping): leftover
+          # import caches / runtime install markers from a previous successful
+          # generation change the startup+teardown path and mask the crash.
+          rm -rf project/.godot
           "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
           gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
