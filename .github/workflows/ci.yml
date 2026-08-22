@@ -364,72 +364,54 @@ jobs:
           path: artifact/
           retention-days: 1
 
-  # Verify that CI artifact names still match what the release merge flow
-  # expects: .github/workflows/misc_upload_assets.yml globs '-v8' / '-qjs-ng'
-  # suffixed artifacts and merges their bin/ dirs into the release zips.
-  # KEEP THESE LISTS IN SYNC WITH THE BUILD MATRIX ABOVE.
+
+  # Guard against PARTIAL release zips: misc_upload_assets.yml globs '*-v8' /
+  # '*-qjs-ng' over this run's artifacts and merges whatever matches. A total
+  # mismatch fails loudly at release time, but a partial match (a matrix leg
+  # renamed or dropped) would silently ship a zip missing platforms.
+  #
+  # Expected names are DERIVED from the build matrix above (single source of
+  # truth - no second list to maintain). Extra artifacts matching the globs
+  # are by-design auto-included into releases and are NOT flagged.
   verify-release-artifacts:
     name: Verify Release Artifact Names
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Check artifact names against release merge expectations
+      - uses: actions/checkout@v6
+      - name: Diff expected (derived from build matrix) vs actual artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_V8=(
-            linux-editor-x86_64-v8
-            linux-editor-arm64-v8
-            windows-editor-x86_64-v8
-            macos-editor-arm64-v8
-            ios-template_release-arm64-v8
-            android-template_release-arm64-v8
-            android-template_release-x86_64-v8
-            web-template_release-wasm32-v8
-          )
-          EXPECTED_QJS=(
-            linux-editor-x86_64-qjs-ng
-            linux-editor-arm64-qjs-ng
-            windows-editor-x86_64-qjs-ng
-            macos-editor-universal-qjs-ng
-            ios-template_release-arm64-qjs-ng
-            android-template_release-arm64-qjs-ng
-            android-template_release-x86_64-qjs-ng
-            web-template_release-wasm32-qjs-ng
-            web-template_release-wasm32-qjs-ng-nothreads
-          )
+          python3 - <<'PY' > expected.txt
+          import yaml
+          wf = yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))
+          legs = wf['jobs']['build']['strategy']['matrix']['include']
+          out = []
+          for leg in legs:
+              eng = leg.get('engine')
+              if eng not in ('v8', 'qjs-ng'):
+                  continue  # jsc/node are not part of the release merge flow yet
+              suffix = '-nothreads' if (leg['platform'] == 'web' and leg.get('threads') is False) else ''
+              out.append(f"{leg['platform']}-{leg['target']}-{leg['arch']}-{eng}{suffix}")
+          print('\n'.join(sorted(out)))
+          PY
           gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            -q '.artifacts[].name' > actual.txt
-          echo "=== artifacts of this run ==="
+            -q '.artifacts[].name' | sort > actual.txt
+          echo "=== expected (derived from build matrix) ==="
+          cat expected.txt
+          echo "=== actual artifacts of this run ==="
           cat actual.txt
-          fail=0
-          check() {
-            local engine="$1"; shift
-            local name found
-            for name in "$@"; do
-              if grep -Fxq "$name" actual.txt; then
-                echo "OK       $name"
-              else
-                echo "MISSING  $name   (release pattern '*-"$engine"' will skip it)"
-                fail=1
-              fi
-            done
-            while IFS= read -r name; do
-              [ -z "$name" ] && continue
-              case "$name" in *"-$engine") ;; *) continue ;; esac
-              found=0
-              for e in "$@"; do [ "$e" = "$name" ] && found=1; done
-              if [ $found -ne 1 ]; then
-                echo "EXTRA    $name   (would silently land in the '$engine' release zip)"
-                fail=1
-              fi
-            done < actual.txt
-          }
-          check v8 "${EXPECTED_V8[@]}"
-          check qjs-ng "${EXPECTED_QJS[@]}"
-          exit $fail
+          if ! missing=$(comm -23 expected.txt actual.txt); then exit $?; fi
+          if [ -n "$missing" ]; then
+            echo "::error::Release merge would silently skip these legs:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "All release-matched legs are present."
+
   test:
     name: Test (${{ matrix.runtime }})
     needs: build
