@@ -115,6 +115,30 @@ npx tsc --noCheck
 
 The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).
 
+### Generating the API Tool Data (Command Line)
+
+The editor plugin keeps engine class information in a binary store under
+`.godot/.api_dumping`, which is required before TypeScript code can resolve
+Godot types. In a fresh checkout (or CI) this store does not exist yet and
+must be bootstrapped in two steps:
+
+```bash
+# 1. Dump the extension API together with docs. On some Godot versions the
+#    editor aborts during shutdown, but extension_api.json is already
+#    written by then.
+Godot_v4.7.1-stable_win64.exe --headless --editor --path project --dump-extension-api-with-docs
+
+# 2. Convert extension_api.json into the binary store. When running
+#    headless, the editor exits automatically once finished.
+Godot_v4.7.1-stable_win64.exe --headless --editor --path project --godotjs-api-generate extension_api.json
+```
+
+`--godotjs-api-generate <extension_api.json>` accepts a path relative to
+the project directory (or an absolute path). It is also the receiving end
+of the reboot chain spawned by the editor menu command *Generate API Data*,
+which saves the scenes, quits and relaunches the editor with this argument.
+
+
 ## Release
 
 This repository uses the `scripts` directory as the pnpm workspace root for versioning and release management. Changesets updates the workspace version and changelog, while GitHub Actions creates the GitHub Release and uploads the platform binaries.

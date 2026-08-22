@@ -111,6 +111,14 @@ Error ApiLoader::initialize() {
 	return OK;
 }
 
+Error ApiLoader::reload() {
+	// NB: clear() and initialize() each take the mutex themselves, so this
+	// wrapper must NOT hold the lock (std::mutex is not recursive; taking
+	// it twice on the same thread throws std::system_error EDEADLK).
+	clear();
+	return initialize();
+}
+
 // ============================================================================
 // Clear cache + notify callbacks
 // ============================================================================

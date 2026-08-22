@@ -29,7 +29,7 @@
 // Binary file writing layer (editor-only, TOOLS_ENABLED).
 // Serializes API data structures to disk files.
 
-#include "../api_tool_types.h"
+#include "api_tool/api_tool_types.h"
 #include "api_tool_doc_types.h"
 #include <godot_cpp/variant/string.hpp>
 

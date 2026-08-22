@@ -63,7 +63,7 @@ jobs:
             return release.data.id;
 
       - name: Download V8 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts-v8
           pattern: "*-v8"
@@ -131,7 +131,7 @@ jobs:
             return release.data.id;
 
       - name: Download QJS-NG artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts-qjs-ng
           pattern: "*-qjs-ng"

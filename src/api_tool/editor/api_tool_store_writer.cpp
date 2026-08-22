@@ -27,7 +27,7 @@
 // Binary file writing implementation (editor-only, TOOLS_ENABLED).
 
 #include "api_tool_store_writer.h"
-#include "../core/api_tool_payload.h"
+#include "api_tool/core/api_tool_payload.h"
 
 using namespace godot;
 
