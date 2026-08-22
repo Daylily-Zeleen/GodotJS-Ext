@@ -51,7 +51,7 @@ jobs:
         working-directory: scripts
 
       - name: Upload scripts/out
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scripts-out
           path: ${{github.workspace}}/scripts/out
@@ -207,7 +207,7 @@ jobs:
           submodules: recursive
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
@@ -215,7 +215,7 @@ jobs:
         run: pip install scons
 
       - name: Download JS runtime
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: scripts-out
           path: scripts/out
@@ -226,21 +226,21 @@ jobs:
       # GCC/Clang embed debug info per object file, so their caches are safe.
       - name: Restore V8 dependency cache
         if: matrix.engine == 'v8'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: third/v8
           key: v8-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
       - name: Restore Node dependency cache
         if: matrix.engine == 'node'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: third/node
           key: node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
       - name: Restore SCons cache
         if: matrix.platform != 'windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .scons-cache
           key: scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.engine }}${{ matrix.platform == 'web' && format('-threads-{0}', matrix.threads) || '' }}-${{ hashFiles('SConstruct', 'src/**', 'third/godot-cpp/**') }}
@@ -251,14 +251,14 @@ jobs:
 
       - name: Setup JDK 17 for Android
         if: matrix.platform == 'android'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Android SDK
         if: matrix.platform == 'android'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android NDK
         if: matrix.platform == 'android'
@@ -270,7 +270,7 @@ jobs:
 
       - name: Setup Emscripten
         if: matrix.platform == 'web'
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v16
         with:
           version: 3.1.39
           actions-cache-folder: 'emsdk-cache'
@@ -358,7 +358,7 @@ jobs:
           cp LICENSE artifact/addons/godotjs-ext.daylily-zeleen/
 
       - name: Upload GDExtension artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}-${{ matrix.target }}-${{ matrix.arch }}-${{ matrix.engine }}${{ matrix.platform == 'web' && matrix.threads == false && '-nothreads' || '' }}
           path: artifact/
@@ -413,7 +413,7 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
 
       - name: Download GDExtension artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
           path: runtime-artifacts
