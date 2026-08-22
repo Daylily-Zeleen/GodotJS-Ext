@@ -523,6 +523,10 @@ jobs:
           "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
           gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          # The wipe above also removed the compiled JS output (tsc artifacts
+          # live under .godot/godotjs_ext); restore them for the test steps.
+          rm -f project/.godot/.tsbuildinfo
+          pnpm -C project exec tsc --noCheck
 
       - name: Run C++ unit tests
         shell: bash
