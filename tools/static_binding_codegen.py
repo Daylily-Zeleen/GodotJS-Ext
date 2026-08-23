@@ -512,22 +512,22 @@ def arg_template_expr(a):
     t = a["type"]
     if t in VARIANT_TYPE_VALUES:
         if "default" in a:
-            return 'sb::Arg<%d, %s>' % (VARIANT_TYPE_VALUES[t], cxx_str(a["default"]))
-        return 'sb::Arg<%d>' % VARIANT_TYPE_VALUES[t]
+            return 'Arg<%d, %s>' % (VARIANT_TYPE_VALUES[t], cxx_str(a["default"]))
+        return 'Arg<%d>' % VARIANT_TYPE_VALUES[t]
     # unmapped ("Variant") -- untyped; may still carry a default literal
     assert t == "Variant", f"unhandled argument type: {t}"
     if "default" in a:
-        return 'sb::ArgAny<%s>' % cxx_str(a["default"])
-    return 'sb::ArgAny<>'
+        return 'ArgAny<%s>' % cxx_str(a["default"])
+    return 'ArgAny<>'
 
 
 def ret_template_expr(t):
     if t in ('void', 'null'):
-        return 'sb::Ret<0>'
+        return 'Ret<0>'
     if t in VARIANT_TYPE_VALUES:
-        return 'sb::Ret<%d>' % VARIANT_TYPE_VALUES[t]
+        return 'Ret<%d>' % VARIANT_TYPE_VALUES[t]
     assert t == "Variant", f"unhandled return type: {t}"
-    return 'sb::RetAny'
+    return 'RetAny'
 
 
 def emit_dispatch_cpp(m):
