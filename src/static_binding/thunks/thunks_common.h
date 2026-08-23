@@ -86,24 +86,32 @@ struct Ret {
 // ---------------------------------------------------------------------------
 // Marshaling helpers.
 
+// Slot type for a parameter of semantic type T -- the authoritative answer
+// comes from godot-cpp's ptrcall contract itself (e.g. bool -> uint8_t,
+// Object* -> Object*, everything else identity). Never hand raw addresses of
+// semantic values to the engine: some encodes are NOT trivial writes.
+template <typename T>
+using SlotOf = typename godot::PtrToArg<T>::EncodeT;
+
 template <class ArgT>
 inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
 		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		typename ArgT::gd_type &out, int provided) {
+		SlotOf<typename ArgT::gd_type> &slot, int provided) {
+	typename ArgT::gd_type value{};
 	if (i < provided) {
-		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
+		if (!try_js_to_gd(p_isolate, p_context, info[i], value)) {
 			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
 					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
 			return false;
 		}
-		return true;
+	} else if constexpr (ArgT::has_default) {
+		value = default_as<typename ArgT::gd_type, ArgT::def>();
+	} else {
+		jsb_throw(p_isolate, jsb_errorf("missing argument %d", i));
+		return false;
 	}
-	if constexpr (ArgT::has_default) {
-		out = default_as<typename ArgT::gd_type, ArgT::def>();
-		return true;
-	}
-	jsb_throw(p_isolate, jsb_errorf("missing argument %d", i));
-	return false;
+	godot::PtrToArg<typename ArgT::gd_type>::encode(value, &slot);
+	return true;
 }
 
 // Untyped tail loop for vararg methods -- the only allowed loop (§4.0-B).
