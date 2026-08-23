@@ -22,6 +22,13 @@
 > （与 api_tool_types.h 中指针加载失败的既有处理惯例一致）；删除「调用期分派
 > 需去重」的防御性条款——该场景不成立：绑定决策仅在注册期发生一次，之后每次
 > 调用直接进入已挂回调，不存在重复查找。
+>
+> v7 修订：新增 §4.6 默认值处理——核实 extension_api.json 的 default_value 为
+> 字符串字面量（"0"/"true"/"Color(0, 0, 0, 1)"…），api_tool 现状经
+> `UtilityFunctions::str_to_var` 一行解析（api_tool_parser.cpp:239-247），
+> 无自制字面量解析器。故静态绑定不做构建期翻译：codegen 仅搬运原始串，
+> 运行时惰性解析 + magic static 缓存，解析函数与动态路径同源（单一事实源）；
+> §12.4 翻译器风险随之消解。
 
 ---
 
@@ -143,7 +150,7 @@ argc 校验：M ≤ info.Length() ≤ N，越界立即抛异常（报方法名�
 第 i 参（0 ≤ i < N）按声明类型独立展开（codegen 顺序发射 N 条语句）：
     i < info.Length() → 严格类型检查（can_convert_strict 语义）后转换；
                         失败即抛 JS 异常，信息含参数序号、JS 实际类型、期望 Godot 类型
-    否则              → 填入烧进生成物的默认值常量（源自 extension_api.json）
+    否则              → 填入默认值（机制见 §4.6；缺失且无默认值的情况已被 M 下界拦住）
 ```
 
 **B. 可变参数方法（vararg）——仅尾部允许循环**
@@ -283,6 +290,51 @@ void unary_operator_thunk(...);        // 右操作数固定 NIL Variant（与�
 invoke 换成具体实例；生成器从 json 全量发射所有 `(LeftVT, Op, RightVT)`
 组合的实例与注册项。
 
+### 4.6 默认值处理
+
+**数据形态（已核实）**：extension_api.json 中 `default_value` 是字符串形式的
+Godot 字面量——`"0"` / `"true"` / `"Color(0, 0, 0, 1)"` /
+`"PackedByteArray()"` 等；STRING 类型参数的默认值就是字面文本本身。
+api_tool 现状解析仅两行（api_tool_parser.cpp:239-247）：STRING →
+`Variant(原串)`；其余 → `UtilityFunctions::str_to_var(原串)`——**引擎自带
+解析器，项目无自制字面量解析代码**。
+
+因此静态绑定**不做任何构建期翻译**（不在 Python 里重写 GDScript 字面量解析
+器），生成物只搬运原始数据，解析发生在运行时首次用到时：
+
+```cpp
+// default_values.gen.h —— codegen 发射（每方法一份特化）
+template <> struct MethodDefaults<0x<MethodHash>> {
+    static constexpr int N = <声明参数数>, D = <默认值个数>;
+    // (声明类型, 原始串)：类型用于构造目标 Variant，串交给 str_to_var
+    static const std::array<Variant, D> &get();
+};
+// 实现骨架（thunks/ 手写一次，codegen 只填表）：
+static const std::array<Variant, D> &MethodDefaults<H>::get() {
+    static const auto v = internal::parse_defaults(
+        std::array{ DefaultEntry{VT_STRING, "res://"},
+                    DefaultEntry{VT_VECTOR2, "Vector2(0, 0)"}, ... });
+    return v;
+}
+```
+
+`internal::parse_defaults` 内部逐条执行与 api_tool_parser.cpp 完全相同的
+规则（STRING 直取；其余 `str_to_var`），**解析逻辑单一事实源**——两条绑定
+路径的默认值语义不可能分叉。
+
+要点：
+- **缓存形制**：函数局部 static（magic static），每方法仅首次缺参调用时解析
+  一遍，此后 O(1) 取缓存；与指针缓存的线程安全模型一致
+- **下标是编译期常量**：§4.0-A 展开后第 i 参缺失即 `defaults[i − M]`，i 与
+  M 都是编译期值，省掉动态路径每次调用的
+  `index − (argc − default_size)` 运行期算术（api_tool_types.h:180 同款公式）
+- **跳过类型检查**：默认值源自官方 json、按声明类型构造，必然匹配，不走
+  can_convert_strict
+- **与 ptrcall 正交**：补齐发生在编组阶段，补齐后参数缓冲完整；V1 保守策略
+  不变（含默认值方法留 Variant 路径），P4 放宽 ptrcall 覆盖面时可直接纳入
+- **失败行为与动态路径一致**：str_to_var 解析失败得 NIL，两条路径同源同
+  结果，由 §13.C 双路径对照天然覆盖
+
 ## 5. 无哈希实体的静态化策略（汇总）
 
 | 实体 | 引擎侧取指针的键 | 方案 |
@@ -312,7 +364,7 @@ gen/
 ├── constructors.gen.h        # (VT, ctor_index) 键
 ├── properties.gen.h          # §4.4-A 内置成员 + §4.4-B 对象索引属性 accessor
 ├── operators.gen.h           # §4.5 运算符 thunks（三枚举组合全量发射）
-├── default_values.gen.h      # 各方法默认值常量（§4.0-A 补参用）
+├── default_values.gen.h      # 各方法默认值表：(声明类型, 原始串)，运行时惰性解析（§4.6）
 └── registry.gen.h/.cpp       # 类级分派表 + hash→thunk 入口
 ```
 
@@ -424,9 +476,10 @@ tools/static_binding_codegen.py
 3. **StringName 初始化顺序**：SN 表必须在 GDExtension CORE init 之后建立；
    生成器只发射引用，运行时惰性构造（builtin 方法/utility 取指针同样依赖
    方法名 StringName，故 SN 表是全局前置件）
-4. **默认值常量生成正确性**：extension_api.json 中默认值为 JSON 标量
-   （数字/布尔/字符串/null），生成器将其翻译为 `Variant(...)` 初始化表达式；
-   翻译规则须与 api_tool 解析器一致，并用往返用例守护（§13.D）
+4. ~~默认值翻译正确性~~（已消解）：核实 json 默认值为字符串字面量且
+   api_tool 本就经 `str_to_var` 解析（§4.6）；静态路径复用同一函数，无第二套
+   翻译器可出错。残余风险仅为「解析结果与动态路径不一致」，由 §13.C 对照
+   测试守护
 5. **导出模板**：`EDITOR_EXTENSION` 过滤与导出兼容性需在 P2 验证
 6. **对照测试的豁免清单膨胀**：需引擎上下文/有随机性的实体不可避免要豁免，
    清单是入库数据文件，PR 评审把关，防止「测不了」悄悄变成「不测」
@@ -493,7 +546,8 @@ argc 越界      → 抛异常
 vararg 固定段错型 → 抛；尾段任意类型 → 收集成功
 ```
 
-外加：构造函数各重载 index 构造后字段抽查；`codegen --check` 新鲜度门禁
+外加：构造函数各重载 index 构造后字段抽查；含默认值方法做「缺参静态 vs
+缺参动态」对照（断言两侧补入相同默认值）；`codegen --check` 新鲜度门禁
 （CI 中改 json 未重生成即红）。
 
 ### E. CI 接线（P5）
