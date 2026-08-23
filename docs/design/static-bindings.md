@@ -1,6 +1,6 @@
 # 静态绑定（Static Bindings）设计方案
 
-> 分支：`feature/static-bindings` · 状态：**设计稿 v4（未实施）**
+> 分支：`feature/static-bindings` · 状态：**设计稿 v5（未实施）**
 > 目标：将 JS→Godot 的函数查找从「每次调用的名称解析」降为「编译期已知哈希的一次性指针获取 + 参数编组」
 >
 > v2 修订：转换层命名改为 `js_to_gd/gd_to_js` 且推迟；新增固定/可变参数两类编组规则；
@@ -11,10 +11,12 @@
 > 取消独立 convert 目录（必要性论证见 §3.1：V1 与 ptrcall 均非必需，若需要也是扩展现有
 > TypeConvert）；新增 §13 测试与验证设计（完整性 + 行为等价性双重证明）。
 >
-> v4 修订：§7 新增「回退可见性」——静态绑定 miss 回退动态之前，非扩展类接口
-> （`APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}`）必须输出 WARNING，
-> 指明未找到哪个静态绑定；扩展类接口 miss 升级为 ERROR（待评审确认级别）；
-> §13.B 审计联动断言警告集合。
+> v4 修订：§7 新增「回退可见性」——静态绑定 miss 回退动态之前必须输出日志指明
+> 未找到哪个静态绑定。
+>
+> v5 修订：§7.1 级别定稿——扩展类接口 miss = **ERROR**（已评审确认）；非扩展类
+> 接口 miss = WARNING，其定位明确为「日后排查静态化覆盖是否完整的排查线索」；
+> 澄清日志去重说明（为何现状无需去重代码、未来何种改动会引入刷屏风险）。
 
 ---
 
@@ -322,7 +324,7 @@ gen/
         if (auto *entry = static_binding::find(class_id, key))
             → 挂静态 thunk（FunctionCallback 或 accessor 描述符）
         else
-            → 【回退可见性检查，见下】
+            → 【回退可见性检查，见 §7.1】
             → 挂现行动态闭包（api_tool 查询路径，行为与 main 一致）
 ```
 
@@ -337,19 +339,24 @@ APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}（引擎核心/编辑器内置
     JSB_LOG(WARNING,
         "static binding not found: %s.%s [%s], falling back to dynamic binding",
         类名, 实体名(方法/属性/运算符), api_type 名);
-    —— 非扩展类接口未命中静态绑定属预期外的静默降级，必须可见，
-       便于发现生成范围缺口 / 评估是否需要扩大静态化覆盖
+    —— 引擎类接口未命中静态绑定是**预期行为**（不在生成范围内）。输出警告的
+       定位是**排查线索**：日后怀疑某处功能不完整或性能不符预期时，可据此日志
+       快速回答「哪些调用实际走了动态路径」，不必翻生成清单人工比对
 
 APIType ∈ {API_EXTENSION, API_EDITOR_EXTENSION}（本项目扩展类接口）却 miss:
     JSB_LOG(ERROR, 同上格式);
     —— 主战场接口缺失意味着生成物与引擎不同源或注册表损坏，属缺陷级
-       （级别待评审确认，倾向 ERROR）
+       （ERROR 已评审定稿）
 ```
 
 要点：
 - 警告内容必须**指名道姓**：哪个类、哪个实体、什么 APIType、做了什么决定
-- 注册期每实体仅决策一次，日志天然不去重也不会刷屏；若未来引入调用期分派，
-  需配 per-entity once-cache 保证同类日志只打一次
+- **关于日志去重的说明**：本方案的 static/fallback 分配决策发生在**类首次
+  加载、构建 wrapper 时**，每个实体一生只决策一次，因此 miss 日志天然只会
+  出现一条，现状不需要任何去重代码。防御性约定：若未来有人把静态查找从
+  「注册期」挪到「每次调用时」，同一热点的 miss 会以调用频率刷屏（如每秒
+  60 条相同 WARNING），届时必须补 per-entity once-cache 保证同实体只告警
+  一次——此条是给未来改动的护栏，不是现在的待办
 - 该日志流同时是 §13.B 注册期审计的数据源（单测断言「警告集合 == 预期回退
   集合」）
 
@@ -407,7 +414,7 @@ tools/static_binding_codegen.py
 ## 12. 风险与开放问题
 
 1. **hash 随引擎版本整体变化**：生成物必须与引擎同源重生成；跨版本 miss
-   靠回退兜底 + 警告（不 crash）
+   靠回退兜底 + §7.1 日志（不 crash）
 2. **二进制体积**：全量实例化约数千个 thunk；P4 基准测量后决定是否按项目实际
    用到的子集裁剪（配合 `--extension-only` 与白名单）
 3. **StringName 初始化顺序**：SN 表必须在 GDExtension CORE init 之后建立；
