@@ -29,6 +29,10 @@
 > 无自制字面量解析器。故静态绑定不做构建期翻译：codegen 仅搬运原始串，
 > 运行时惰性解析 + magic static 缓存，解析函数与动态路径同源（单一事实源）；
 > §12.4 翻译器风险随之消解。
+>
+> v8 修订：§4.6 键控单位由「方法 Hash」细化为「(声明类型, 字面量串)」——
+> 全局按值去重的单例模板 `default_value<VT, Lit>`，同值跨方法共享同一份解析
+> 结果与存储；gen/ 中不再需要 per-method 的 default_values.gen.h。
 
 ---
 
@@ -300,40 +304,51 @@ api_tool 现状解析仅两行（api_tool_parser.cpp:239-247）：STRING →
 解析器，项目无自制字面量解析代码**。
 
 因此静态绑定**不做任何构建期翻译**（不在 Python 里重写 GDScript 字面量解析
-器），生成物只搬运原始数据，解析发生在运行时首次用到时：
+器），解析放在运行时首次用到时进行。
+
+**键控单位是「值」而非「方法」**：默认值的身份由 `(声明类型, 字面量串)` 决定，
+与其宿主方法无关——十个方法都用整数 0，就该共享同一份解析结果与存储。
+故不做 per-method 默认值表，改为全局按值键控的单例模板：
 
 ```cpp
-// default_values.gen.h —— codegen 发射（每方法一份特化）
-template <> struct MethodDefaults<0x<MethodHash>> {
-    static constexpr int N = <声明参数数>, D = <默认值个数>;
-    // (声明类型, 原始串)：类型用于构造目标 Variant，串交给 str_to_var
-    static const std::array<Variant, D> &get();
+// thunks/default_values.h（手写一次，全项目通用，非生成物）
+template <size_t N> struct FixedString {          // C++20 structural NTTP 载体
+    char value[N]{};
+    constexpr FixedString(const char (&s)[N]) { std::copy_n(s, N, value); }
 };
-// 实现骨架（thunks/ 手写一次，codegen 只填表）：
-static const std::array<Variant, D> &MethodDefaults<H>::get() {
-    static const auto v = internal::parse_defaults(
-        std::array{ DefaultEntry{VT_STRING, "res://"},
-                    DefaultEntry{VT_VECTOR2, "Vector2(0, 0)"}, ... });
+
+template <Variant::Type VT, FixedString Lit>
+const Variant &default_value() {
+    static const Variant v = internal::parse_default<VT>(Lit.value);
     return v;
 }
+// internal::parse_default 与 api_tool_parser.cpp:239-247 同规则单一实现：
+//   VT_STRING → Variant(str)；其余 → UtilityFunctions::str_to_var(str)
 ```
 
-`internal::parse_defaults` 内部逐条执行与 api_tool_parser.cpp 完全相同的
-规则（STRING 直取；其余 `str_to_var`），**解析逻辑单一事实源**——两条绑定
-路径的默认值语义不可能分叉。
+```cpp
+// codegen 在固定参数缺参位的展开（第 i 参缺失，i/M 为编译期常量）：
+args[i] = default_value<Variant::VECTOR2, "Vector2(0, 0)">();
+```
 
 要点：
-- **缓存形制**：函数局部 static（magic static），每方法仅首次缺参调用时解析
-  一遍，此后 O(1) 取缓存；与指针缓存的线程安全模型一致
-- **下标是编译期常量**：§4.0-A 展开后第 i 参缺失即 `defaults[i − M]`，i 与
-  M 都是编译期值，省掉动态路径每次调用的
-  `index − (argc − default_size)` 运行期算术（api_tool_types.h:180 同款公式）
-- **跳过类型检查**：默认值源自官方 json、按声明类型构造，必然匹配，不走
+- **全局按值去重**：`(VT, Lit)` 相同的模板实例化只有一个——解析一次、存储
+  一份；生成物体积从「方法数 × 缺参位数」降为「唯一 (类型, 串) 对数」
+  （Godot API 中大量重复的 "0"/"false"/"-1"/空串使该集合远小于方法总数）
+- **下标是编译期常量**：§4.0-A 展开后第 i 参缺失即取第 i−M 个默认值，省掉
+  动态路径每次调用的 `index − (argc − default_size)` 运行期算术
+  （api_tool_types.h:180 同款公式）
+- **跳过类型检查**：默认值源自官方数据、按声明类型构造，必然匹配，不走
   can_convert_strict
-- **与 ptrcall 正交**：补齐发生在编组阶段，补齐后参数缓冲完整；V1 保守策略
-  不变（含默认值方法留 Variant 路径），P4 放宽 ptrcall 覆盖面时可直接纳入
+- **缓存形制**：函数局部 static（magic static），线程安全，与指针缓存同模型
+- **与 ptrcall 正交**：补齐后参数缓冲完整；V1 保守策略不变（含默认值方法留
+  Variant 路径），P4 放宽 ptrcall 覆盖面时可直接纳入
 - **失败行为与动态路径一致**：str_to_var 解析失败得 NIL，两条路径同源同
   结果，由 §13.C 双路径对照天然覆盖
+- **工具链前提**：class 型 NTTP 需 C++20（GCC≥10 / Clang≥13 /
+  MSVC 19.30+），CI 现有矩阵均满足，P1 编译冒烟即验证；若个别目标工具链
+  异常，退化方案：运行期 `HashMap<(VT, 串), Variant>` 全局缓存 + thunk 体内
+  `static const Variant &` 引用摊销查找——语义不变，仅多一层间接
 
 ## 5. 无哈希实体的静态化策略（汇总）
 
@@ -364,8 +379,8 @@ gen/
 ├── constructors.gen.h        # (VT, ctor_index) 键
 ├── properties.gen.h          # §4.4-A 内置成员 + §4.4-B 对象索引属性 accessor
 ├── operators.gen.h           # §4.5 运算符 thunks（三枚举组合全量发射）
-├── default_values.gen.h      # 各方法默认值表：(声明类型, 原始串)，运行时惰性解析（§4.6）
 └── registry.gen.h/.cpp       # 类级分派表 + hash→thunk 入口
+                              # （默认值无独立生成文件：缺参位内联引用 §4.6 单例模板）
 ```
 
 - 分派策略：类内 `switch (method_hash)`（整型 switch 编译器优化良好），
@@ -501,7 +516,7 @@ constructors:      每个 (type, ctor_index)
 operators:         每个 (left_type, op, right_type)
 members:           每个 (type, member_name)
 indexed_props:     每个 (class, prop, index≥0)
-default_values:    每个 default_arguments 条目
+default_values:    每个 default_arguments 条目都对应到唯一 (类型, 串) 实例并被缺参位引用
 输出 manifest.gen.json（各类计数 + 全实体键列表），提交入库供 diff 审查
 ```
 
