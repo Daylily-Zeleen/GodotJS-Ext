@@ -112,7 +112,7 @@ static void _load_godot_object_class(const v8::FunctionCallbackInfo<v8::Value> &
 		info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
 		return;
 	}
-\tJSB_LOG(Warning, "static binding not found: utility.%s [utility], falling back to dynamic binding", original_name);
+		JSB_LOG(Warning, "static binding not found: utility.%s [utility], falling back to dynamic binding", original_name);
 #endif
 		info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, ObjectReflectBindingUtil::_godot_utility_func, v8::Int32::New(isolate, utility_func_index)));
 		return;
