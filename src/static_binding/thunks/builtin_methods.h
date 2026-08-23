@@ -12,7 +12,7 @@ namespace jsb::static_binding::thunks {
 // is handed to the engine directly -- godot-cpp types are engine-layout
 // mirrors and PtrToArg<T>::EncodeT == T for every parameter type we emit,
 // so no separate encoding buffer exists.
-template <uint16_t VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
 		class RetT, class... ArgsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
@@ -79,7 +79,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 // ---------------------------------------------------------------------------
 // Vararg builtin method (§4.0-B): fixed prefix unrolled, only the tail loops.
-template <uint16_t VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
 		class RetT, class... ArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int F = (int)sizeof...(ArgsT);

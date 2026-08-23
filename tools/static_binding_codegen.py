@@ -108,6 +108,8 @@ def load_variant_type_map(interface_json_path):
         if not name.startswith(prefix):
             continue
         tail = name[len(prefix):]
+        if tail == "VARIANT_MAX":
+            continue  # sentinel entry, not a real type
         mapping[_enum_token_to_json_name(tail)] = int(v["value"])
 
     # sanity: contiguous from NIL=0
@@ -191,6 +193,7 @@ def default_count(ent):
 
 def collect(data, vt_map):
     m = Model()
+    m.vt_names = {}
 
     # --- builtin classes ----------------------------------------------------
     seen_vts = []
@@ -201,6 +204,7 @@ def collect(data, vt_map):
                 f"FATAL: builtin class '{name}' not found in GDExtensionVariantType "
                 f"mapping (check {_ENUM_TOKEN_FIXUPS} / interface json)")
         vt = vt_map[name]
+        m.vt_names[vt] = name
         seen_vts.append(vt)
         for meth in bc.get("methods", []):
             if "hash" not in meth:
@@ -574,7 +578,7 @@ def emit_dispatch_cpp(m):
                      "thunks::builtin_vararg_method_thunk" if e.get("is_vararg") else
                      "thunks::utility_function_thunk" if is_utility else
                      "thunks::builtin_method_thunk")
-        vt_part = ("%d, " % e["vt"]) if not is_utility else ""
+        vt_part = ("(godot::Variant::Type)%d, " % e["vt"]) if not is_utility else ""
         static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
         return "%s%s<%s%du, %s, %s%s%s>" % (
             "(ThunkFn)&", tmpl_name, vt_part, e["hash"], name_lit,
@@ -589,7 +593,7 @@ def emit_dispatch_cpp(m):
         by_hash = collections.OrderedDict()
         for e in entries:
             by_hash.setdefault(e["hash"], []).append(e)
-        L.append("ThunkFn find_vt_%d(const godot::StringName &p_name, uint32_t p_hash) {" % vt)
+        L.append("ThunkFn find_%s(const godot::StringName &p_name, uint32_t p_hash) {" % m.vt_names[vt])
         L.append("\tswitch (p_hash) {")
         for h, group in by_hash.items():
             if len(group) == 1:
@@ -609,12 +613,16 @@ def emit_dispatch_cpp(m):
 
     L.append("} // namespace")
     L.append("")
-    L.append("const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
-    L.append("\tswitch (p_vt) {")
-    for vt in sorted(by_vt):
-        L.append("\tcase %d: return find_vt_%d(p_name, p_hash);" % (vt, vt))
-    L.append("\tdefault: return nullptr;")
-    L.append("\t}")
+    L.append("const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
+    L.append("\tstatic_assert((int)godot::Variant::VARIANT_MAX <= 64, \"slot table sized for 64 variant types\");")
+    L.append("\tusing PerVtResolver = ThunkFn (*)(const godot::StringName &, uint32_t);")
+    L.append("\tstatic const PerVtResolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+    max_vt = max(VARIANT_TYPE_VALUES.values())
+    for vt in range(max_vt + 1):
+        fn = ("find_" + m.vt_names[vt]) if vt in by_vt else "nullptr"
+        L.append("\t\t%s," % fn)
+    L.append("\t};")
+    L.append("\treturn unsigned(p_vt) < std::size(k_by_type) ? k_by_type[unsigned(p_vt)](p_name, p_hash) : nullptr;")
     L.append("}")
     L.append("")
 
