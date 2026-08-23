@@ -50,7 +50,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	GDExtensionConstTypePtr arg_ptrs[N > 0 ? N : 1];
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		(api_tool::internal::var_to_arg_ptr(args[I],
-				arg_buf + I * sizeof(godot::Variant), ArgsT::vt), ...);
+				arg_buf + I * sizeof(godot::Variant), pack_one_type<ArgsT>()), ...);
 	}(std::make_index_sequence<N>{});
 
 	godot::Variant ret;
