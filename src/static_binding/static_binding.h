@@ -16,7 +16,7 @@
 
 #pragma once
 
-#ifdef JSB_WITH_STATIC_BINDINGS
+#if JSB_WITH_STATIC_BINDINGS
 
 #include "string_names.h"
 #include "gen/registry.gen.h"
