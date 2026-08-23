@@ -107,7 +107,7 @@ static void _load_godot_object_class(const v8::FunctionCallbackInfo<v8::Value> &
 		JSB_LOG(VeryVerbose, "expose godot utility function %s (%d)", original_name, utility_func_index);
 		jsb_check(method_info.utility_func);
 
-#ifdef JSB_WITH_STATIC_BINDINGS
+#if JSB_WITH_STATIC_BINDINGS
 	if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->method.name, api_utility_function->hash)) {
 		info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
 		return;

@@ -12,7 +12,7 @@
 
 #pragma once
 
-#ifdef JSB_WITH_STATIC_BINDINGS
+#if JSB_WITH_STATIC_BINDINGS
 
 #include "thunks_common.h"
 
