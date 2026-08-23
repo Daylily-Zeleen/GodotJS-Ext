@@ -153,7 +153,7 @@ inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context
 
 // Per-instantiation lazy native-pointer cache (magic static, thread-safe on
 // first call). Returns nullptr on engine/generated-tables version mismatch.
-template <uint16_t VTC, uint32_t HashC, FixedString NameLit>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit>
 GDExtensionPtrBuiltInMethod resolve_builtin_method() {
 	// one-shot lookup: a temporary StringName suffices, nothing retains it
 	const godot::StringName method_name(NameLit.value);
