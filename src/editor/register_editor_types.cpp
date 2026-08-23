@@ -47,7 +47,12 @@ void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 
 	jsb::EditorUtilityFuncs_register_impl();
 
-	GDREGISTER_INTERNAL_CLASS(GodotJSEditorHelper);
+	// GodotJSEditorHelper 必须 exposed 注册（GDREGISTER_CLASS）：
+	// --generate-types 的场景/资源类型生成在 JS 运行时里经 api store 解析该类，
+	// 而 internal 注册的类不进 extension_api.json（unexposed），缺失即抛
+	// "godot class not found 'GodotJSEditorHelper'"。生成器侧由
+	// NamingUtil::get_omitted_original_classes() 过滤，不会因此进入产物。
+	GDREGISTER_CLASS(GodotJSEditorHelper);
 	GDREGISTER_INTERNAL_CLASS(GodotJSExportPlugin);
 	GDREGISTER_INTERNAL_CLASS(GodotJSEditorPlugin);
 	EditorPlugins::add_by_type<GodotJSEditorPlugin>();
