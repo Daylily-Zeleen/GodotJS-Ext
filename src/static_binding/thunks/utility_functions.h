@@ -1,15 +1,3 @@
-/************************************************************************/
-/*  utility_functions.h                                                 */
-/************************************************************************/
-/*  This file is part of:                                               */
-/*                                GodotJS-Ext                           */
-/*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
-/*                                                                      */
-/*  Thunk template for global utility functions (design doc §4.2).      */
-/*  Utility functions have no default arguments today (engine-side      */
-/*  convention), so argc is validated strictly.                         */
-/************************************************************************/
-
 #pragma once
 
 #if JSB_WITH_STATIC_BINDINGS
@@ -18,7 +6,10 @@
 
 namespace jsb::static_binding::thunks {
 
-template <uint64_t HashC, FixedString NameLit, class RetT, class... ArgsT>
+// ---------------------------------------------------------------------------
+// Global utility function (§4.2). Utility functions carry no default
+// arguments today, so argc is validated strictly.
+template <uint32_t HashC, FixedString NameLit, class RetT, class... ArgsT>
 void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
 
@@ -40,17 +31,18 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 
-	godot::Variant args[N > 0 ? N : 1];
-	if (!marshal_fixed_args<ArgsT...>(isolate, context, info, args, (int)info.Length(),
-			std::make_index_sequence<N>{})) {
-		return;
-	}
-
-	alignas(8) unsigned char arg_buf[sizeof(godot::Variant) * (N > 0 ? N : 1)] = {};
-	GDExtensionConstTypePtr arg_ptrs[N > 0 ? N : 1];
+	const int provided = (int)info.Length();
+	std::tuple<typename ArgsT::gd_type...> storage;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(api_tool::internal::var_to_arg_ptr(args[I],
-				arg_buf + I * sizeof(godot::Variant), pack_one_type<ArgsT>()), ...);
+		bool ok = true;
+		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
+				std::get<I>(storage), provided)) && ...);
+		return ok;
+	}(std::make_index_sequence<N>{});
+
+	void *arg_ptrs[N > 0 ? N : 1];
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(storage)), ...);
 	}(std::make_index_sequence<N>{});
 
 	godot::Variant ret;

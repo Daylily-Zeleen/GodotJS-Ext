@@ -40,6 +40,31 @@ GENERATED_NOTE = (
 # Name -> GDExtensionVariantType value, populated by load_variant_type_map.
 VARIANT_TYPE_VALUES = {}
 
+# json type name -> C++ parameter type used by the direct-conversion layer.
+PARAM_TYPE_MAP = {
+    "bool": "bool",
+    "int": "int64_t",
+    "float": "double",
+    "String": "godot::String",
+    "StringName": "godot::StringName",
+    "NodePath": "godot::NodePath",
+    "RID": "godot::RID",
+    "Callable": "godot::Callable",
+    "Signal": "godot::Signal",
+    "Object": "godot::Object*",
+    "Dictionary": "godot::Dictionary",
+    "Array": "godot::Array",
+    "Variant": "godot::Variant",
+}
+for _t in ("Vector2", "Vector2i", "Rect2", "Rect2i", "Vector3", "Vector3i",
+           "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB",
+           "Basis", "Transform3D", "Projection", "Color",
+           "PackedByteArray", "PackedInt32Array", "PackedInt64Array",
+           "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray",
+           "PackedVector2Array", "PackedVector3Array", "PackedColorArray",
+           "PackedVector4Array"):
+    PARAM_TYPE_MAP[_t] = "godot::" + _t
+
 DEFAULT_INTERFACE_JSON = os.path.join("third", "godot-cpp", "gdextension",
                                       "gdextension_interface.json")
 
@@ -510,15 +535,11 @@ def emit_registry_cpp(m):
 
 def arg_template_expr(a):
     t = a["type"]
-    if t in VARIANT_TYPE_VALUES:
-        if "default" in a:
-            return 'Arg<%d, %s>' % (VARIANT_TYPE_VALUES[t], cxx_str(a["default"]))
-        return 'Arg<%d>' % VARIANT_TYPE_VALUES[t]
-    # unmapped ("Variant") -- untyped; may still carry a default literal
-    assert t == "Variant", f"unhandled argument type: {t}"
+    ct = PARAM_TYPE_MAP.get(t)
+    assert ct, f"unhandled argument type: {t}"
     if "default" in a:
-        return 'ArgAny<%s>' % cxx_str(a["default"])
-    return 'ArgAny<>'
+        return 'Arg<%s, %s>' % (ct, cxx_str(a["default"]))
+    return 'Arg<%s>' % ct
 
 
 def ret_template_expr(t):
@@ -554,7 +575,7 @@ def emit_dispatch_cpp(m):
                       else "thunks::builtin_method_thunk"))
         vt_part = ("%d, " % e["vt"]) if not is_utility else ""
         static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
-        return "%s%s<%s%dULL, %s, %s%s%s>" % (
+        return "%s%s<%s%du, %s, %s%s%s>" % (
             "(ThunkFn)&", tmpl_name, vt_part, e["hash"], name_lit,
             static_part, ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
 
@@ -567,14 +588,14 @@ def emit_dispatch_cpp(m):
         by_hash = collections.OrderedDict()
         for e in entries:
             by_hash.setdefault(e["hash"], []).append(e)
-        L.append("ThunkFn find_vt_%d(const godot::StringName &p_name, uint64_t p_hash) {" % vt)
+        L.append("ThunkFn find_vt_%d(const godot::StringName &p_name, uint32_t p_hash) {" % vt)
         L.append("\tswitch (p_hash) {")
         for h, group in by_hash.items():
             if len(group) == 1:
                 e = group[0]
-                L.append("\tcase %dULL: return %s;" % (h, entry_expr(e)))
+                L.append("\tcase %du: return %s;" % (h, entry_expr(e)))
             else:
-                L.append("\tcase %dULL: {" % h)
+                L.append("\tcase %du: {" % h)
                 for e in group:
                     nlit = cxx_str(m.pool.strings[e["name_id"]])
                     L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(e)))
@@ -587,7 +608,7 @@ def emit_dispatch_cpp(m):
 
     L.append("} // namespace")
     L.append("")
-    L.append("const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint64_t p_hash) {")
+    L.append("const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
     L.append("\tswitch (p_vt) {")
     for vt in sorted(by_vt):
         L.append("\tcase %d: return find_vt_%d(p_name, p_hash);" % (vt, vt))
@@ -600,13 +621,13 @@ def emit_dispatch_cpp(m):
     for u in m.utility_funcs:
         util_by_hash.setdefault(u["hash"], []).append(u)
 
-    L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint64_t p_hash) {")
+    L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash) {")
     L.append("\tswitch (p_hash) {")
     for h, group in util_by_hash.items():
         if len(group) == 1:
-            L.append("\tcase %dULL: return %s;" % (h, entry_expr(group[0], True)))
+            L.append("\tcase %du: return %s;" % (h, entry_expr(group[0], True)))
         else:
-            L.append("\tcase %dULL: {" % h)
+            L.append("\tcase %du: {" % h)
             for u in group:
                 nlit = cxx_str(m.pool.strings[u["name_id"]])
                 L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(u, True)))
@@ -680,10 +701,6 @@ def main():
 
     m = collect(data, vt_map)
     outputs = {
-        "string_names.gen.h": emit_string_names_h(),
-        "string_names.gen.cpp": emit_string_names_cpp(m),
-        "registry.gen.h": emit_registry_h(),
-        "registry.gen.cpp": emit_registry_cpp(m),
         "dispatch.gen.cpp": emit_dispatch_cpp(m),
         "manifest.gen.json": emit_manifest(m, ns.input, ns.interface),
     }
