@@ -37,6 +37,9 @@ GENERATED_NOTE = (
     " --input <extension_api.json> --out src/static_binding/gen)\n"
 )
 
+# Name -> GDExtensionVariantType value, populated by load_variant_type_map.
+VARIANT_TYPE_VALUES = {}
+
 DEFAULT_INTERFACE_JSON = os.path.join("third", "godot-cpp", "gdextension",
                                       "gdextension_interface.json")
 
@@ -86,6 +89,8 @@ def load_variant_type_map(interface_json_path):
     values = sorted(mapping.values())
     assert values[0] == 0 and values == list(range(len(values))), \
         f"non-contiguous GDExtensionVariantType values: {values[:10]}..."
+    VARIANT_TYPE_VALUES.clear()
+    VARIANT_TYPE_VALUES.update(mapping)
     assert mapping.get("Nil") == 0 and mapping.get("String") == 4 \
         and mapping.get("Vector2") == 5 and mapping.get("Callable") > mapping.get("RID"), \
         "variant type anchor check failed"
@@ -503,6 +508,119 @@ def emit_registry_cpp(m):
     return "\n".join(L)
 
 
+def arg_template_expr(a):
+    t = a["type"]
+    if t in VARIANT_TYPE_VALUES:
+        if "default" in a:
+            return 'sb::Arg<%d, %s>' % (VARIANT_TYPE_VALUES[t], cxx_str(a["default"]))
+        return 'sb::Arg<%d>' % VARIANT_TYPE_VALUES[t]
+    # unmapped ("Variant") -- untyped; may still carry a default literal
+    assert t == "Variant", f"unhandled argument type: {t}"
+    if "default" in a:
+        return 'sb::ArgAny<%s>' % cxx_str(a["default"])
+    return 'sb::ArgAny<>'
+
+
+def ret_template_expr(t):
+    if t in ('void', 'null'):
+        return 'sb::Ret<0>'
+    if t in VARIANT_TYPE_VALUES:
+        return 'sb::Ret<%d>' % VARIANT_TYPE_VALUES[t]
+    assert t == "Variant", f"unhandled return type: {t}"
+    return 'sb::RetAny'
+
+
+def emit_dispatch_cpp(m):
+    """Dispatch tables: outer switch on variant type / flat for utilities,
+    inner resolution by (hash -> name if-chain), because signature-derived
+    hashes collide across same-signature methods."""
+    L = [GENERATED_NOTE,
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/builtin_methods.h"',
+         '#include "static_binding/thunks/utility_functions.h"',
+         "",
+         "namespace jsb::static_binding {",
+         "namespace {",
+         "using thunks::builtin_method_thunk;",
+         "using thunks::builtin_vararg_method_thunk;",
+         "using thunks::utility_function_thunk;",
+         ""]
+
+    def entry_expr(e, is_utility=False):
+        name_lit = cxx_str(m.pool.strings[e["name_id"]])
+        args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
+        tmpl_name = ("thunks::utility_function_thunk" if is_utility else
+                     ("thunks::builtin_vararg_method_thunk" if e.get("is_vararg")
+                      else "thunks::builtin_method_thunk"))
+        vt_part = ("%d, " % e["vt"]) if not is_utility else ""
+        static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
+        return "%s%s<%s%dULL, %s, %s%s%s>" % (
+            "(ThunkFn)&", tmpl_name, vt_part, e["hash"], name_lit,
+            static_part, ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+
+    by_vt = collections.OrderedDict()
+    for e in m.builtin_methods:
+        by_vt.setdefault(e["vt"], []).append(e)
+
+    for vt in sorted(by_vt):
+        entries = by_vt[vt]
+        by_hash = collections.OrderedDict()
+        for e in entries:
+            by_hash.setdefault(e["hash"], []).append(e)
+        L.append("ThunkFn find_vt_%d(const godot::StringName &p_name, uint64_t p_hash) {" % vt)
+        L.append("\tswitch (p_hash) {")
+        for h, group in by_hash.items():
+            if len(group) == 1:
+                e = group[0]
+                L.append("\tcase %dULL: return %s;" % (h, entry_expr(e)))
+            else:
+                L.append("\tcase %dULL: {" % h)
+                for e in group:
+                    nlit = cxx_str(m.pool.strings[e["name_id"]])
+                    L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(e)))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    L.append("} // namespace")
+    L.append("")
+    L.append("const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint64_t p_hash) {")
+    L.append("\tswitch (p_vt) {")
+    for vt in sorted(by_vt):
+        L.append("\tcase %d: return find_vt_%d(p_name, p_hash);" % (vt, vt))
+    L.append("\tdefault: return nullptr;")
+    L.append("\t}")
+    L.append("}")
+    L.append("")
+
+    util_by_hash = collections.OrderedDict()
+    for u in m.utility_funcs:
+        util_by_hash.setdefault(u["hash"], []).append(u)
+
+    L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint64_t p_hash) {")
+    L.append("\tswitch (p_hash) {")
+    for h, group in util_by_hash.items():
+        if len(group) == 1:
+            L.append("\tcase %dULL: return %s;" % (h, entry_expr(group[0], True)))
+        else:
+            L.append("\tcase %dULL: {" % h)
+            for u in group:
+                nlit = cxx_str(m.pool.strings[u["name_id"]])
+                L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(u, True)))
+            L.append("\t\treturn nullptr;")
+            L.append("\t}")
+    L.append("\tdefault: return nullptr;")
+    L.append("\t}")
+    L.append("}")
+    L.append("")
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
 def emit_manifest(m, input_path, interface_path):
     uniq_defaults = set()
     for lst in (m.builtin_methods, m.class_methods, m.utility_funcs):
@@ -566,6 +684,7 @@ def main():
         "string_names.gen.cpp": emit_string_names_cpp(m),
         "registry.gen.h": emit_registry_h(),
         "registry.gen.cpp": emit_registry_cpp(m),
+        "dispatch.gen.cpp": emit_dispatch_cpp(m),
         "manifest.gen.json": emit_manifest(m, ns.input, ns.interface),
     }
 
