@@ -57,7 +57,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	// marshal into strongly-typed storage (unrolled, §4.0-A)
-	std::tuple<typename ArgsT::gd_type...> storage;
+	std::tuple<SlotOf<typename ArgsT::gd_type>...> storage;
 		[&]<std::size_t... I>(std::index_sequence<I...>) {
 		bool ok = true;
 		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
@@ -65,7 +65,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return ok;
 	}(std::make_index_sequence<N>{});
 
-	// argument pointers point at the tuple elements directly
+
 	void *arg_ptrs[N > 0 ? N : 1];
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(storage)), ...);

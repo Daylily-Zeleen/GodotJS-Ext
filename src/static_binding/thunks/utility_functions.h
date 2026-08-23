@@ -32,7 +32,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	const int provided = (int)info.Length();
-	std::tuple<typename ArgsT::gd_type...> storage;
+	std::tuple<SlotOf<typename ArgsT::gd_type>...> storage;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		bool ok = true;
 		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
