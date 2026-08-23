@@ -1,15 +1,3 @@
-/************************************************************************/
-/*  dispatch.h                                                          */
-/************************************************************************/
-/*  This file is part of:                                               */
-/*                                GodotJS-Ext                           */
-/*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
-/*                                                                      */
-/*  Static-binding thunk lookup, dispatched by compile-generated        */
-/*  switch tables (gen/dispatch.gen.cpp). Returns nullptr when the      */
-/*  entity has no static binding -- callers fall back to the dynamic    */
-/*  path and log per §7.1 of the design doc.                            */
-/************************************************************************/
 
 #pragma once
 

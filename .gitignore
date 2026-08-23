@@ -2,8 +2,6 @@ __pycache__
 
 # generated files
 *.gen.*
-# ...except static-binding tables, which are committed by design (docs/design/static-bindings.md)
-!src/static_binding/gen/**
 
 # Ignore library files but not the gdextension file
 /bin/**
