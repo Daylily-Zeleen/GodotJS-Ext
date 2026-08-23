@@ -669,6 +669,7 @@ else:
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
+    os.path.join(root_dir, src_dir, "testing"),
     os.path.join(root_dir, runtime_dir),
     os.path.join(root_dir, runtime_dir, "compat"),
     os.path.join(root_dir, runtime_dir, "internal"),
@@ -762,6 +763,9 @@ if env["target"] == "editor":
     godotjs_sources += Glob(os.path.join(editor_dir, "*.cpp"))
     godotjs_sources += Glob(os.path.join(editor_dir, "weaver-editor", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
+    if env.get("tests", False):
+        # editor doctest suite (T0 skeleton; codegen unit tests land here in T1)
+        godotjs_sources += Glob(os.path.join(editor_dir, "tests", "*.cpp"))
 
 # Add engine-specific impl sources
 # NOTE: node mode implies JSB_WITH_V8 (libnode embeds V8), so the node branch MUST be

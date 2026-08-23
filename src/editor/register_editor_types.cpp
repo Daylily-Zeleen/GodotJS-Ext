@@ -28,6 +28,7 @@
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
+#include "testing/jsb_test_runner.h"
 #include "weaver-editor/jsb_weaver_editor.h"
 #include "api_tool/api_tool.h"
 
@@ -65,6 +66,19 @@ void _uninitialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 
 	EditorPlugins::remove_by_type<GodotJSEditorPlugin>();
 }
+
+#ifdef JSB_TESTS_ENABLED
+// Editor-side doctest entry (--jsb-run-editor-tests). While the build is a
+// single extension library this is forwarded to from the runtime's
+// jsb_startup() (the only registered startup callback); post P4 it becomes
+// the editor library's own startup callback. Must NOT be wired to the
+// MODULE_INITIALIZATION_LEVEL_EDITOR initializer: at that stage the main
+// loop does not exist yet, so SceneTree::quit() is unreachable (see
+// TASK_STATUS.md 9.3).
+void _editor_tests_startup() {
+	jsb::testing::try_run("--jsb-run-editor-tests");
+}
+#endif // JSB_TESTS_ENABLED
 
 
 extern "C" {

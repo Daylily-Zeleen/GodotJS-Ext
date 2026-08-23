@@ -16,7 +16,7 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
 /*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
@@ -27,18 +27,14 @@
 
 #pragma once
 
+// Runtime-suite test fixtures (engine-dependent). Engine-independent shared
+// utilities live in src/testing/jsb_test_utils.h.
+
 #include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
-#define DOCTEST_CONFIG_NO_POSIX_SIGNALS
-#define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
-#include "doctest/doctest.h"
-
-#include <chrono>
-#include <thread>
-
-#define JSB_TESTS_EXECUTION_SCOPE(env) const jsb::tests::V8ContextScope JSB_CONCAT(unique_, __COUNTER__)(env)
+#include "testing/jsb_test_utils.h" // doctest config macros + shared utils
 
 namespace jsb::tests {
 struct StubBindings {
@@ -89,16 +85,16 @@ private:
 
 public:
 	V8ContextScope(v8::Isolate *isolate)
-			: isolate_(isolate)
-			, handle_scope_(isolate)
-			, context_(isolate->GetCurrentContext())
-			, context_scope_(isolate->GetCurrentContext()) {}
+		: isolate_(isolate)
+		, handle_scope_(isolate)
+		, context_(isolate->GetCurrentContext())
+		, context_scope_(isolate->GetCurrentContext()) {}
 
 	V8ContextScope(jsb::Environment *env)
-			: isolate_(env->get_isolate())
-			, handle_scope_(env->get_isolate())
-			, context_(env->get_context())
-			, context_scope_(env->get_context()) {}
+		: isolate_(env->get_isolate())
+		, handle_scope_(env->get_isolate())
+		, context_(env->get_context())
+		, context_scope_(env->get_context()) {}
 
 	~V8ContextScope() = default;
 

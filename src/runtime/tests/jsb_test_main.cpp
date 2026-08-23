@@ -16,7 +16,7 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
 /*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
@@ -30,22 +30,23 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest/doctest.h"
 
-#include <cstdio>
-
-// Include all test headers to register TEST_CASE macros
+// Include all test headers to register TEST_CASE macros.
+//
+// While the build is a single extension library (pre P4) this is the ONLY
+// doctest implementation TU for both suites; the editor suite's cases join
+// the same registry (see src/editor/tests/jsb_editor_test_main.cpp). Suites
+// are isolated at run time by their leading [runtime] / [editor] case-name
+// tag inside jsb::testing::try_run().
 #include "tests/jsb_test_helpers.h"
 #include "tests/test_jsb_any_runtime.h"
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_SHADOW_REALM_ENABLED
-#	include "tests/test_jsb_shadow_realm.h"
+#include "tests/test_jsb_shadow_realm.h"
 #endif // JSB_SHADOW_REALM_ENABLED
 #include "tests/test_jsb_source_map.h"
 #if JSB_WITH_QUICKJS
-#	include "tests/test_jsb_quickjs_runtime.h"
-#endif
-#if JSB_WITH_V8
-#	include "tests/test_jsb_v8_runtime.h"
+#include "tests/test_jsb_quickjs_runtime.h"
 #endif
 
 // doctest will automatically collect all TEST_CASE and run them in main()
