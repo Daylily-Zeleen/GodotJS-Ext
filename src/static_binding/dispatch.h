@@ -1,0 +1,36 @@
+/************************************************************************/
+/*  dispatch.h                                                          */
+/************************************************************************/
+/*  This file is part of:                                               */
+/*                                GodotJS-Ext                           */
+/*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
+/*                                                                      */
+/*  Static-binding thunk lookup, dispatched by compile-generated        */
+/*  switch tables (gen/dispatch.gen.cpp). Returns nullptr when the      */
+/*  entity has no static binding -- callers fall back to the dynamic    */
+/*  path and log per §7.1 of the design doc.                            */
+/************************************************************************/
+
+#pragma once
+
+#ifdef JSB_WITH_STATIC_BINDINGS
+
+#include <cstdint>
+#include <v8.h>
+#include <godot_cpp/variant/string_name.hpp>
+
+namespace jsb::static_binding {
+
+using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
+
+// Builtin hashes are computed from the SIGNATURE and are NOT unique within a
+// type (e.g. String's casecmp_to family all share one hash), so the method
+// name participates in the lookup. vt: GDExtensionVariantType value.
+const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint64_t p_hash);
+
+// Same for utility functions.
+const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint64_t p_hash);
+
+} // namespace jsb::static_binding
+
+#endif // JSB_WITH_STATIC_BINDINGS
