@@ -1,11 +1,15 @@
 # 静态绑定（Static Bindings）设计方案
 
-> 分支：`feature/static-bindings` · 状态：**设计稿 v2（未实施）**
+> 分支：`feature/static-bindings` · 状态：**设计稿 v3（未实施）**
 > 目标：将 JS→Godot 的函数查找从「每次调用的名称解析」降为「编译期已知哈希的一次性指针获取 + 参数编组」
 >
-> v2 修订（评审意见落实）：转换层命名改为 `js_to_gd/gd_to_js` 且推迟到 ptrcall 阶段；
-> 新增固定/可变参数两类编组规则；对象类索引属性静态化（index 进模板实参与调用点）；
-> 内置成员属性与数组下标/键访问划清界限；删除析构处理与「require-missing-module SIGSEGV」（均经代码核实为多余/不存在）。
+> v2 修订：转换层命名改为 `js_to_gd/gd_to_js` 且推迟；新增固定/可变参数两类编组规则；
+> 对象类索引属性静态化；内置成员属性与数组下标/键访问划清界限；删除析构处理与
+> 「require-missing-module SIGSEGV」（均经代码核实）。
+>
+> v3 修订：运算符恢复为独立小节——`(Op, LeftVT, RightVT)` 三个引擎枚举直接作模板实参；
+> 取消独立 convert 目录（必要性论证见 §3.1：V1 与 ptrcall 均非必需，若需要也是扩展现有
+> TypeConvert）；新增 §13 测试与验证设计（完整性 + 行为等价性双重证明）。
 
 ---
 
@@ -41,8 +45,8 @@ utility function 都携带官方 **hash**。GDExtension 接口本身支持按 ha
 │   ├─ 首次：gdextension_interface 按官方键取原生函数指针     │
 │   │        （函数局部 static 缓存，线程安全）               │
 │   ├─ 参数：按 §4.0 编组（固定=逐参展开；vararg=仅尾部循环） │
-│   │        V1 复用 TypeConvert；ptrcall 阶段换 js_to_gd<T> │
-│   └─ 返回：gd_to_js                                       │
+│   │        V1 复用 TypeConvert                             │
+│   └─ 返回：gd_var_to_js                                   │
 │                                                           │
 │ 静态注册表 miss → 回退现行动态绑定（功能无损兜底）          │
 └───────────────────────────────────────────────────────────┘
@@ -68,29 +72,29 @@ if env["static_binding"]:
 - 生成产物**提交入库**：可 review diff、避免鸡生蛋；提供 `scons static_binding_gen`
   单独再生成；CI 增加 `codegen --check` 新鲜度校验（防止改了 json 忘了重生成）
 - CI 矩阵后续增加一条 `static_binding=yes` 的 leg（矩阵中多出一行构建组合，
-  用静态绑定产物编译并跑现有测试）做守护，防止该路径无人编译而腐烂（P5 落地）
+  用静态绑定产物编译并跑现有测试 + §13 生成的对照测试）做守护（P5 落地）
 
-## 3. 类型转换层（V1 复用现有；直连层随 ptrcall 引入）
+## 3. 类型转换层
 
-### 3.1 分期结论
+### 3.1 结论：不新建层，扩展点留在现有 TypeConvert
 
-- **V1（Variant 路径）不新增任何转换层**：thunk 直接复用现有
-  `TypeConvert::js_to_gd_var(isolate, ctx, val, type, out)` /
-  `TypeConvert::gd_var_to_js(...)`（`src/runtime/bridge/jsb_type_convert.*`，
-  Variant 中心，签名与行为均不变）
-- **直连模板族推迟到 ptrcall 阶段（V2）**：仅当生成器把某方法标记为可
-  ptrcall 时，才需要「不经 Variant」的按类型直取。届时新增：
+**V1（Variant 路径）直接复用现有 `TypeConvert::js_to_gd_var(isolate, ctx, val,
+type, out)` / `gd_var_to_js(...)`**（`src/runtime/bridge/jsb_type_convert.*`），
+签名行为均不变。
 
-```
-js_to_gd<T>(isolate, v) -> T          // T 为 Godot 侧类型
-gd_to_js<T>(isolate, val) -> v8::Local<v8::Value>
-```
+关于「为什么不另起一层」的论证：
 
-命名与既有 `js_to_gd_var` / `gd_var_to_js` 家族对齐（`gd` = Godot 类型），
-**不用 `*_cpp_*`**——JS 包装对象本身也是 C++ 对象，"cpp" 无区分度。
-Level-0 内部可选改为委托直连模板（纯实现细节，对外零影响）。
+1. **功能上不需要**：thunk 的正确性只依赖「JS 值 ↔ Variant」，这正是
+   TypeConvert 已做的事；静态化的收益来自指针获取与编组方式，与转换实现无关。
+2. **ptrcall 也未必需要新层**：ptrcall 参数缓冲区完全可以由
+   「现有 js_to_gd_var 得到 Variant → `var.operator T()` / `(T)var` 提取原始值」
+   两步填充，全程复用现有转换。新转换层唯一能省的是中间那次 Variant 暂存。
+3. **若 P4 基准证明该暂存开销显著**：届时在**现有 `jsb_type_convert.h/.cpp`
+   内**新增按 C++ 类型分派的模板重载（命名沿用 `js_to_gd<T>` / `gd_to_js<T>`，
+   与 `*_gd_var_*` 家族词汇对齐），保持单一转换事实源——**不建
+   `src/static_binding/convert` 目录**，避免两处维护同一份类型知识。
 
-### 3.2 Traits 与 Concepts（C++20，随 V2 引入）
+### 3.2 Traits 与 Concepts（C++20，仅在上述第 3 点成立时引入）
 
 ```cpp
 template <typename T> struct GdTypeTraits;   // 每类型特化：
@@ -105,35 +109,9 @@ concept GdFundamental = std::same_as<T, double> || std::same_as<T, float>
 template <typename T>
 concept GdBuiltin = requires { typename GdTypeTraits<T>; }
                  && GdTypeTraits<T>::IsBuiltin;
-
-template <typename T>
-concept GdArgFromJs = GdFundamental<T> || GdBuiltin<T>
-                   || std::same_as<T, godot::String> || std::same_as<T, godot::StringName>
-                   || std::same_as<T, godot::NodePath> || /* Callable/Signal/RID/Object */ ...;
 ```
 
-### 3.3 直连转换示例（V2 时实现）
-
-```cpp
-template <GdFundamental T>
-T js_to_gd(v8::Isolate *isolate, v8::Local<v8::Value> v) {
-    return static_cast<T>(v->NumberValue(isolate).FromMaybe(0));
-}
-template <> String js_to_gd<String>(...)    // v8::String → UTF8 → String
-template <> Vector2 js_to_gd<Vector2>(...)  // v8::Object → x/y 属性读取
-...
-// 反向：gd_to_js<T>(...)
-```
-
-覆盖清单（与 `Variant::Type` 一一对应）：bool / int / float / String /
-StringName / NodePath / Vector2(2i,3,3i,4,4i) / Rect2(2i) / Transform2D /
-Vector3(3i) / Transform3D / Basis / Quaternion / Plane / AABB / Color /
-Projection / RID / Object / Callable / Signal / Dictionary / Array /
-PackedByteArray|Int32Array|Int64Array|Float32Array|Float64Array|
-StringArray|Vector2Array|Vector3Array|ColorArray
-
-Object 类走既有实例包装器往返；Packed 数组后续优先对接 TypedArray/
-ArrayBuffer 视图减少拷贝（优化点，随 V2 评估）。
+覆盖清单同 `Variant::Type` 全集；Object 类走既有实例包装器往返。
 
 ## 4. 函数 Thunk 模板族（核心）
 
@@ -168,7 +146,7 @@ argc 校验：info.Length() ≥ F − F内默认值数
 ```
 
 约束：vararg 方法**永远不走 ptrcall**（引擎限制），锁定 Variant 数组路径；
-§4.3 的 V2 ptrcall 仅适用于「非 vararg && 无默认值」的方法。
+§4.3 的 ptrcall 仅适用于「非 vararg && 无默认值」的方法。
 
 ### 4.1 内置类型方法（有 hash）
 
@@ -183,13 +161,13 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
     }();
     // magic static：并发首调安全；指针进程级有效
     // 按 §4.0 A/B 规则编组参数 → fn(&base, args, &ret, argc)
-    // 返回：gd_to_js
+    // 返回：gd_var_to_js
 }
 ```
 
 ### 4.2 全局 utility 函数（有 hash）
 
-与 4.1 同构：`variant_get_ptr_utility_function(name_sn, hash)`（同样需要方法名
+与 4.1 同构：`variant_get_ptr_utility_function(name_sn, hash)`（同样需要函数名
 StringName），无 base 参数；编组规则同 §4.0。
 
 ### 4.3 类方法（有 hash）
@@ -203,12 +181,13 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
     static GDExtensionMethodBind *mb = classdb_get_method_bind(
         SN_TABLE.get<ClassId>(), SN_TABLE.get<MethodHash>(), (GDExtensionInt)MethodHash);
     // V1：Variant 路径（§4.0 编组；object_method_bind_call）
-    // V2：「非 vararg && 无默认值」→ object_method_bind_ptrcall（typed 解包，零 Variant）
+    // 可选优化：「非 vararg && 无默认值」→ object_method_bind_ptrcall
+    //          （参数缓冲由 Variant 提取填充，见 §3.1 第 2 点）
 }
 ```
 
-**对象类索引属性**（`ApiPropertyInfo::index ≥ 0`，见 §5）复用本节的
-MethodBind 获取方式，另加 index 模板实参，见 §4.4-B。
+**对象类索引属性**（`ApiPropertyInfo::index ≥ 0`，见 §4.4-B）复用本节的
+MethodBind 获取方式，另加 index 模板实参。
 
 ### 4.4 属性访问器（三类，边界必须分清）
 
@@ -222,7 +201,7 @@ template <GDExtensionVariantType VT, uint64_t MemberId>
 void builtin_member_get_thunk(v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value> &) {
     static const auto fn = gdextension_interface::variant_get_ptr_getter(
         VT, sn_table.member_name<MemberId>());
-    // base 由 this（值类型包装）取出；getter(base, &ret)；gd_to_js(ret)
+    // base 由 this（值类型包装）取出；getter(base, &ret)；gd_var_to_js(ret)
 }
 template <GDExtensionVariantType VT, uint64_t MemberId>
 void builtin_member_set_thunk(...);   // variant_get_ptr_setter(VT, name_sn)
@@ -261,24 +240,50 @@ void object_prop_set_thunk(...);           // args = { idx, converted_value }
 Proxy）、GDictionary 亦未支持 `["key"]` 调用，无调用点可言。待未来实现 JS
 下标语法时另行立项。
 
-## 5. 无哈希实体的静态化策略（运算符 / 构造 / 成员）
+### 4.5 运算符（三个引擎枚举直接作模板实参）
 
-| 实体 | 引擎侧取指针的键 | 静态化方案 |
+键就是 `(Variant::Operator op, Variant::Type left, Variant::Type right)`
+**三个枚举本身**——无 hash、无 StringName，天然是模板非类型实参。
+api json 每个 builtin 类的 `operators` 数组已枚举全部组合（api_tool 侧
+`ApiOperatorInfo` 即按此四元组建模）；`jsb_primitive_operators.def.h` 头部的
+TODO（"通过 extension_api.json 进行代码生成"）正是本节要还的债。
+
+现状（`jsb_primitive_bindings_reflect.cpp`）：JS 侧运算符以**方法调用**形式
+触发，`BinaryOperator/UnaryOperator::invoke` 从 `info.Data()` 取 op 后调
+`Variant::evaluate`——godot-cpp 封装内部**每次调用都重新解析** evaluator。
+
+静态化：
+
+```cpp
+template <Variant::Operator Op, Variant::Type LeftVT, Variant::Type RightVT>
+void binary_operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+    static const auto eval = gdextension_interface::variant_get_ptr_operator_evaluator(
+        Op, LeftVT, RightVT);          // 键=三枚举，一次取定，进程级有效
+    // 左右操作数经现有 TypeConvert 转 Variant（与现行为一致的宽松语义）
+    // eval(&left, &right, &ret)；失败路径与现状相同抛 get_variant_operator_name 信息
+}
+
+template <Variant::Operator Op, Variant::Type VT>
+void unary_operator_thunk(...);        // 右操作数固定 NIL Variant（与现状一致）
+```
+
+注册点不变（类包装构建时按运算符名挂 FunctionCallback），仅回调从泛型
+invoke 换成具体实例；生成器从 json 全量发射所有 `(LeftVT, Op, RightVT)`
+组合的实例与注册项。
+
+## 5. 无哈希实体的静态化策略（汇总）
+
+| 实体 | 引擎侧取指针的键 | 方案 |
 |---|---|---|
 | 内置方法 | hash（+ 类型与方法名 StringName） | §4.1 |
 | 类方法 | hash（+ 类名/方法名 StringName） | §4.3 |
 | utility 函数 | hash（+ 函数名 StringName） | §4.2 |
-| 构造函数 | **(类型, 重载 index)**——注意构造函数**没有 hash**，`variant_get_ptr_constructor(VT, ctor_index)` 的第二参是 json 里的重载序号 | 同 §4.1 变体：`constructor_thunk<VT, CtorIndex>`，写入未初始化 Variant；重载选择沿用现有「按参数个数+严格类型匹配」逻辑（`jsb_primitive_bindings_reflect.cpp` 构造分发），但候选表由生成器静态发射 |
-| ~~析构~~ | —— | **不处理**（已核实：全库无 `variant_get_ptr_destructor` 调用点；`has_destructor` 仅存档从未消费。内置值实例即堆上 `godot::Variant*`，JS GC finalizer 经 `Environment::dealloc_variant` → `variant_allocator_.free` 析构，Variant 自身析构完成引擎侧清理，无需也无法在此插桩优化） |
+| 构造函数 | **(类型, 重载 index)**——构造函数没有 hash，`variant_get_ptr_constructor(VT, ctor_index)` 第二参是 json 重载序号 | `constructor_thunk<VT, CtorIndex>`，写入未初始化 Variant；重载选择沿用现有「按参数个数+严格类型匹配」逻辑，候选表由生成器静态发射 |
+| ~~析构~~ | —— | **不处理**（已核实：全库无 `variant_get_ptr_destructor` 调用点；`has_destructor` 仅存档从未消费。内置值实例即堆上 `godot::Variant*`，GC finalizer 经 `Environment::dealloc_variant` → `variant_allocator_.free` 析构，无需插桩） |
 | 内置成员属性 | (类型, 成员名 StringName)，无 hash | §4.4-A |
 | 对象类索引属性 | getter/setter 方法 hash + index | §4.4-B |
-| **运算符** | **无 hash**，但每条 operator 明确列出 `(op, left_type, right_type)` | **三元组即编译期键**：`operator_thunk<LeftVT, Op, RightVT>`，首次调用 `variant_get_ptr_operator_evaluator(Op, Left, Right)` 惰性取指针缓存 |
+| 运算符 | `(op, left_type, right_type)` 三个引擎枚举 | §4.5：三枚举直接作模板实参 |
 | 全局常量/枚举 | 纯数据 | 保持 api_tool 动态读取（需求允许）；后续可选生成 constexpr 映射表 |
-
-> 运算符的关键认知：不需要把动态查找变成编译期函数体，只需要把「每次调用
-> 都查 evaluator 指针」变成「每个 (left, op, right) 组合只查一次」。三元组
-> 模板实例化天然实现这一点——api json 已枚举全部组合，生成器可全量发射，
-> 无需哈希。
 
 ## 6. 代码生成器
 
@@ -294,7 +299,7 @@ gen/
 ├── utility_functions.gen.h
 ├── constructors.gen.h        # (VT, ctor_index) 键
 ├── properties.gen.h          # §4.4-A 内置成员 + §4.4-B 对象索引属性 accessor
-├── operators.gen.h           # 运算符三元组 thunks
+├── operators.gen.h           # §4.5 运算符 thunks（三枚举组合全量发射）
 ├── default_values.gen.h      # 各方法默认值常量（§4.0-A 补参用）
 └── registry.gen.h/.cpp       # 类级分派表 + hash→thunk 入口
 ```
@@ -302,13 +307,14 @@ gen/
 - 分派策略：类内 `switch (method_hash)`（整型 switch 编译器优化良好），
   类间再按类名/类 hash 一级分派；避免全量扁平巨型 switch
 - 生成物提交入库（可 review、CI 可校验新鲜度：`codegen --check` 比对无 diff）
+- **对账自检**（详见 §13.A）：生成结束时输出实体计数清单并与 json 逐一核对
 
 ## 7. 注册与回退（混合模式）
 
 ```
 类首次加载（module loader 构建 wrapper 时）：
-    for each method/member/property:
-        if (auto *thunk = static_binding::find(class_id, key))
+    for each method/member/property/operator:
+        if (auto *entry = static_binding::find(class_id, key))
             → 挂静态 thunk（FunctionCallback 或 accessor 描述符）
         else
             → 挂现行动态闭包（api_tool 查询路径，行为与 main 一致）
@@ -326,7 +332,7 @@ gen/
 - `api_tool_editor` generate 阶段新增可选开关：仅保留
   `APIType ∈ {API_EXTENSION, API_EDITOR_EXTENSION}` 的**类文档**
 - 语义限定为「类文档过滤」：builtin 类型与 utility 文档**仍保留**——
-  §4.1/§4.2 的 thunk 依赖其 hash 与签名；进一步瘦身另立开关
+  §4.1/§4.2/§4.5 的 thunk 依赖其签名与枚举；进一步瘦身另立开关
 - 用途：静态绑定模式下减小 store 体积、加快加载；主战场是扩展类（引擎类）
 - CI/构建联动：`static_binding=yes` 时若仓库无 extension_api.json → 报错
   并给出两条引导命令（dump → generate --extension-only）
@@ -346,43 +352,113 @@ gen/
 ```
 src/static_binding/
 ├── gen/                      # 生成物（提交入库）
-├── convert/                  # （V2/ptrcall 阶段）js_to_gd/gd_to_js 直连模板 + traits/concepts
 └── thunks/                   # 手写脚手架：thunk 公共骨架（argc 校验、§4.0 编组规则、
                               #   isolate scope、异常→JS 异常转译）
 tools/static_binding_codegen.py
 ```
 
+（不设独立 convert 目录——转换能力统一收敛在现有 `jsb_type_convert.*`，见 §3.1）
+
 ## 11. 实施计划
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **P0** | 分支/宏/SConstruct 接线 + codegen 骨架（仅生成表格，不接线） | `static_binding=no` 产物与 main 一致；`=yes` 可编译 |
-| **P1** | builtin 方法 + utility thunks 上线（§4.0 固定/vararg 两族编组 + 默认值常量 + 回退接线；转换复用现有 TypeConvert） | 专项测试：每类绑定至少一条往返用例；固定/可变参数各有缺参、错型、越界用例 |
+| **P0** | 分支/宏/SConstruct 接线 + codegen 骨架（仅生成表格，不接线） | `static_binding=no` 产物与 main 一致；`=yes` 可编译；§13.A 对账清单零缺口 |
+| **P1** | builtin 方法 + utility thunks 上线（§4.0 固定/vararg 两族编组 + 默认值常量 + 回退接线；转换复用现有 TypeConvert） | §13.C 双路径对照全过；§13.D 错误路径用例全过 |
 | **P2** | 类方法 thunks + 首载注册钩子 + `--extension-only` | 同上 |
-| **P3** | 属性访问器：§4.4-A 内置成员 + §4.4-B 对象索引属性（含调用点改造） | accessor 读写往返用例（含 index≥0 属性族） |
-| **P4** | 运算符/构造 thunks；（可选）js_to_gd/gd_to_js 直连层 + ptrcall V2 | 同上 |
-| **P5** | 基准测试（动态 vs 静态 vs ptrcall）、文档完善、CI 加 `static_binding=yes` leg | 性能报告 + CI 绿 |
+| **P3** | 属性访问器：§4.4-A 内置成员 + §4.4-B 对象索引属性（含调用点改造） | §13.C/D 属性部分全过（含 index≥0 属性族往返） |
+| **P4** | 运算符/构造 thunks；（条件触发）TypeConvert 内直连模板 + ptrcall | §13.C 运算符全组合对照全过；基准报告 |
+| **P5** | 文档完善、CI 加 `static_binding=yes` leg（跑现有测试 + §13 生成测试） | CI 绿 |
 
 ## 12. 风险与开放问题
 
 1. **hash 随引擎版本整体变化**：生成物必须与引擎同源重生成；跨版本 miss
    靠回退兜底 + 警告（不 crash）
-2. **二进制体积**：全量实例化约数千个 thunk；P5 测量后决定是否按项目实际
+2. **二进制体积**：全量实例化约数千个 thunk；P4 基准测量后决定是否按项目实际
    用到的子集裁剪（配合 `--extension-only` 与白名单）
 3. **StringName 初始化顺序**：SN 表必须在 GDExtension CORE init 之后建立；
    生成器只发射引用，运行时惰性构造（builtin 方法/utility 取指针同样依赖
    方法名 StringName，故 SN 表是全局前置件）
 4. **默认值常量生成正确性**：extension_api.json 中默认值为 JSON 标量
    （数字/布尔/字符串/null），生成器将其翻译为 `Variant(...)` 初始化表达式；
-   翻译规则须与 api_tool 解析器一致，并用往返用例守护
+   翻译规则须与 api_tool 解析器一致，并用往返用例守护（§13.D）
 5. **导出模板**：`EDITOR_EXTENSION` 过滤与导出兼容性需在 P2 验证
-6. **运算符求值器的线程亲和性**：evaluator 指针进程全局有效 ✓；但缓存填充
-   发生在哪个 isolate 无所谓（纯 C 指针）
+6. **对照测试的豁免清单膨胀**：需引擎上下文/有随机性的实体不可避免要豁免，
+   清单是入库数据文件，PR 评审把关，防止「测不了」悄悄变成「不测」
 
-## 13. 验收标准
+## 13. 测试与验证设计
+
+目标：回答两个问题——**生成的静态绑定是否完整**（该有的一个不少）、
+**每个调用是否正常**（每个实体都有行为等价证据）。
+
+### A. 生成期完整性（codegen 自检，硬门禁）
+
+生成器结束时对账并输出报告，任何一项不平即**退出码非零**：
+
+```
+builtin_methods:   json 中每个 (type, name, hash) 都有 thunk 实例与注册项
+class_methods:     每个 (class, name, hash) 同上（虚函数/纯定义除外，见豁免规则）
+utility_functions: 每个 (name, hash)
+constructors:      每个 (type, ctor_index)
+operators:         每个 (left_type, op, right_type)
+members:           每个 (type, member_name)
+indexed_props:     每个 (class, prop, index≥0)
+default_values:    每个 default_arguments 条目
+输出 manifest.gen.json（各类计数 + 全实体键列表），提交入库供 diff 审查
+```
+
+豁免规则显式化：不可静态化实体（如无 hash 的虚函数定义）由生成器写入
+`exemptions.gen.json` 并说明原因，而非静默跳过——**缺失必须可见**。
+
+### B. 注册期完整性（C++ 单测）
+
+- **同源交叉验证**：单测同时持有静态注册表与 api_tool store（同一 json 的两
+  个独立实现），遍历 store 断言每个应静态化的实体都能在注册表命中；反向断言
+  注册表中不存在 json 之外的幽灵条目
+- **回退分布审计**：测试模式下记录每类包装构建时 static/fallback 的分配结果，
+  断言 fallback 集合 == 豁免清单（多一个少一个都红）
+
+### C. 行为等价性（核心：双路径对照测试）
+
+**原则：凡是能静态化的可调用实体，都要有一次「静态路径 vs 动态路径」的同参
+对照执行，结果 Variant 级相等。**
+
+- codegen 附带产出对照测试驱动（`tests/gen/parity_*.gen.cpp` 或 .ts，随阶段
+  逐步启用）：
+  - 样本值合成器：按 `Variant::Type` 给规范样本（含边界：0/1/-1/空串/典型
+    结构体值），object 参数用白名单安全类的默认实例
+  - 对每个实体：合成合法参数 → 分别经静态 thunk 与动态路径调用 →
+    返回值/抛错行为/对象副作用状态三者比对
+- 显式豁免清单（数据文件入库评审）：需要引擎上下文（场景树、渲染、物理）、
+  有随机性/时间依赖、纯写副作用无法观测的实体；**豁免即登记，不允许静默**
+- 属性：accessor 写后读往返 + 与动态 get/set 路径对照（重点覆盖 index≥0 族）
+- 运算符：全组合对照 `Variant::evaluate` 结果（引擎参考实现）
+
+### D. 错误路径与编组规则用例（手写，覆盖 §4.0 语义）
+
+两族编组 × 四类异常输入矩阵：
+
+```
+缺参且有默认值 → 补齐生效（断言默认值确实被使用）
+缺参且无默认值 → 抛异常（信息含方法名与期望个数区间）
+实参类型不符   → 抛异常（信息含参数序号、JS 实际类型、期望 Godot 类型）
+argc 越界      → 抛异常
+vararg 固定段错型 → 抛；尾段任意类型 → 收集成功
+```
+
+外加：构造函数各重载 index 构造后字段抽查；`codegen --check` 新鲜度门禁
+（CI 中改 json 未重生成即红）。
+
+### E. CI 接线（P5）
+
+- `static_binding=yes` leg：编译 + 跑**现有全套测试**（动态基线已在另一条
+  leg 上保持绿色）+ §13.B/C/D 测试 → 两腿同为绿即行为一致性证据
+- `manifest.gen.json` / `exemptions.gen.json` 进 `codegen --check` 校验范围
+
+## 14. 验收标准
 
 - `static_binding=no`：与 main 行为逐位一致（宏隔离 + 源集隔离，无新符号进产物）
-- `static_binding=yes`：现有测试全过 + 新增专项测试全过（覆盖 §4 各类绑定、
-  §4.0 两族编组的缺参/错型/越界、§4.4 三类属性访问器与回退路径）
-- P5 基准：热点调用（Node.get_child / Vector2 加法 / utility abs）较动态
-  路径的每次调用开销有可测量改善（具体指标以 P5 基准报告为准）
+- `static_binding=yes`：现有测试全过 + §13 全部门禁过（A 对账零缺口、B 注册
+  审计零偏差、C 对照测试除显式豁免外全过、D 错误路径矩阵全过）
+- P4 基准：热点调用（Node.get_child / Vector2 加法 / utility abs / Vector2.x
+  访问）较动态路径的每次调用开销有可测量改善（指标以基准报告为准）
