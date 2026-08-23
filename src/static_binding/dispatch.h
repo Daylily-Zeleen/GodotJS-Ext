@@ -16,8 +16,19 @@
 #ifdef JSB_WITH_STATIC_BINDINGS
 
 #include <cstdint>
-#include <v8.h>
+
+// forward declarations only -- pulling in the full v8 header here would leak
+// engine-specific include paths into every translation unit including this one.
+namespace v8 {
+template <class T>
+class FunctionCallbackInfo;
+class Value;
+} // namespace v8
 #include <godot_cpp/variant/string_name.hpp>
+
+namespace godot {
+class StringName;
+} // namespace godot
 
 namespace jsb::static_binding {
 
