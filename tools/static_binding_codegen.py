@@ -570,9 +570,10 @@ def emit_dispatch_cpp(m):
     def entry_expr(e, is_utility=False):
         name_lit = cxx_str(m.pool.strings[e["name_id"]])
         args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
-        tmpl_name = ("thunks::utility_function_thunk" if is_utility else
-                     ("thunks::builtin_vararg_method_thunk" if e.get("is_vararg")
-                      else "thunks::builtin_method_thunk"))
+        tmpl_name = ("thunks::utility_vararg_function_thunk" if is_utility and e.get("is_vararg") else
+                     "thunks::builtin_vararg_method_thunk" if e.get("is_vararg") else
+                     "thunks::utility_function_thunk" if is_utility else
+                     "thunks::builtin_method_thunk")
         vt_part = ("%d, " % e["vt"]) if not is_utility else ""
         static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
         return "%s%s<%s%du, %s, %s%s%s>" % (
@@ -598,7 +599,7 @@ def emit_dispatch_cpp(m):
                 L.append("\tcase %du: {" % h)
                 for e in group:
                     nlit = cxx_str(m.pool.strings[e["name_id"]])
-                    L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(e)))
+                    L.append('\t\tif (p_name == godot::StringName(%s)) return %s;' % (nlit, entry_expr(e)))
                 L.append("\t\treturn nullptr;")
                 L.append("\t}")
         L.append("\tdefault: return nullptr;")
@@ -630,7 +631,7 @@ def emit_dispatch_cpp(m):
             L.append("\tcase %du: {" % h)
             for u in group:
                 nlit = cxx_str(m.pool.strings[u["name_id"]])
-                L.append('\t\tif (p_name == sn<%s>()) return %s;' % (nlit, entry_expr(u, True)))
+                L.append('\t\tif (p_name == godot::StringName(%s)) return %s;' % (nlit, entry_expr(u, True)))
             L.append("\t\treturn nullptr;")
             L.append("\t}")
     L.append("\tdefault: return nullptr;")

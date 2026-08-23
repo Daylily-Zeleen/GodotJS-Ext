@@ -31,14 +31,6 @@ struct FixedString {
 	}
 };
 
-// Per-literal StringName singleton. First instantiation happens at wrapper
-// build time or first call, i.e. after GDExtension CORE init.
-template <FixedString Lit>
-const godot::StringName &sn() {
-	static const godot::StringName name{Lit.value};
-	return name;
-}
-
 // ---------------------------------------------------------------------------
 // Default value for optional parameters, keyed by (C++ type, literal).
 // Parsed once per instantiation (magic static); STRING literals are used
@@ -163,19 +155,22 @@ inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context
 // first call). Returns nullptr on engine/generated-tables version mismatch.
 template <uint16_t VTC, uint32_t HashC, FixedString NameLit>
 GDExtensionPtrBuiltInMethod resolve_builtin_method() {
+	// one-shot lookup: a temporary StringName suffices, nothing retains it
+	const godot::StringName method_name(NameLit.value);
 	static GDExtensionPtrBuiltInMethod fn =
 			::godot::gdextension_interface::variant_get_ptr_builtin_method(
 					(GDExtensionVariantType)VTC,
-					sn<NameLit>()._native_ptr(),
+					method_name._native_ptr(),
 					(GDExtensionInt)HashC);
 	return fn;
 }
 
 template <uint32_t HashC, FixedString NameLit>
 GDExtensionPtrUtilityFunction resolve_utility_function() {
+	const godot::StringName function_name(NameLit.value);
 	static GDExtensionPtrUtilityFunction fn =
 			::godot::gdextension_interface::variant_get_ptr_utility_function(
-					sn<NameLit>()._native_ptr(),
+					function_name._native_ptr(),
 					(GDExtensionInt)HashC);
 	return fn;
 }
