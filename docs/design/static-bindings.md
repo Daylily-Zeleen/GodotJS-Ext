@@ -16,7 +16,12 @@
 >
 > v5 修订：§7.1 级别定稿——扩展类接口 miss = **ERROR**（已评审确认）；非扩展类
 > 接口 miss = WARNING，其定位明确为「日后排查静态化覆盖是否完整的排查线索」；
-> 澄清日志去重说明（为何现状无需去重代码、未来何种改动会引入刷屏风险）。
+> 澄清日志去重说明。
+>
+> v6 修订：§7.1 日志宏改用 godot-cpp 的 `WARN_PRINT_ONCE` / `ERR_PRINT_ONCE`
+> （与 api_tool_types.h 中指针加载失败的既有处理惯例一致）；删除「调用期分派
+> 需去重」的防御性条款——该场景不成立：绑定决策仅在注册期发生一次，之后每次
+> 调用直接进入已挂回调，不存在重复查找。
 
 ---
 
@@ -336,7 +341,7 @@ APIType 取自 `ApiClass::api_type`（`godot::ClassDB::APIType`，api_tool 已�
 
 ```
 APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}（引擎核心/编辑器内置类接口）:
-    JSB_LOG(WARNING,
+    WARN_PRINT_ONCE(
         "static binding not found: %s.%s [%s], falling back to dynamic binding",
         类名, 实体名(方法/属性/运算符), api_type 名);
     —— 引擎类接口未命中静态绑定是**预期行为**（不在生成范围内）。输出警告的
@@ -344,19 +349,18 @@ APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}（引擎核心/编辑器内置
        快速回答「哪些调用实际走了动态路径」，不必翻生成清单人工比对
 
 APIType ∈ {API_EXTENSION, API_EDITOR_EXTENSION}（本项目扩展类接口）却 miss:
-    JSB_LOG(ERROR, 同上格式);
+    ERR_PRINT_ONCE(同上格式);
     —— 主战场接口缺失意味着生成物与引擎不同源或注册表损坏，属缺陷级
        （ERROR 已评审定稿）
 ```
 
 要点：
 - 警告内容必须**指名道姓**：哪个类、哪个实体、什么 APIType、做了什么决定
-- **关于日志去重的说明**：本方案的 static/fallback 分配决策发生在**类首次
-  加载、构建 wrapper 时**，每个实体一生只决策一次，因此 miss 日志天然只会
-  出现一条，现状不需要任何去重代码。防御性约定：若未来有人把静态查找从
-  「注册期」挪到「每次调用时」，同一热点的 miss 会以调用频率刷屏（如每秒
-  60 条相同 WARNING），届时必须补 per-entity once-cache 保证同实体只告警
-  一次——此条是给未来改动的护栏，不是现在的待办
+- **为什么不会刷屏（无需去重设计）**：static/fallback 分配决策只发生在
+  **注册期**（类首次加载、构建 wrapper 时），每个实体一生只决策一次；此后
+  每次 JS 调用直接进入已挂好的回调，不存在重复查找，日志天然单条。宏本身的
+  ONCE 语义（内部 static 标记）是第二重保险，与 `api_tool_types.h` 中指针
+  加载失败路径的既有处理（L141/244/288/603 `ERR_PRINT_ONCE`）完全同款
 - 该日志流同时是 §13.B 注册期审计的数据源（单测断言「警告集合 == 预期回退
   集合」）
 
@@ -458,7 +462,7 @@ default_values:    每个 default_arguments 条目
   注册表中不存在 json 之外的幽灵条目
 - **回退分布审计**：测试模式下记录每类包装构建时 static/fallback 的分配结果，
   断言 fallback 集合 == 豁免清单（多一个少一个都红）
-- **回退日志审计**（§7.1 联动）：捕获 JSB_LOG 流，断言 WARNING/ERROR 集合
+- **回退日志审计**（§7.1 联动）：捕获引擎日志流（测试模式重定向/落盘解析），断言 WARNING/ERROR 集合
   与 fallback 分布一致——「说了要回退的」和「真的回退了的」一一对应
 
 ### C. 行为等价性（核心：双路径对照测试）
