@@ -1,6 +1,6 @@
 # 静态绑定（Static Bindings）设计方案
 
-> 分支：`feature/static-bindings` · 状态：**设计稿 v3（未实施）**
+> 分支：`feature/static-bindings` · 状态：**设计稿 v4（未实施）**
 > 目标：将 JS→Godot 的函数查找从「每次调用的名称解析」降为「编译期已知哈希的一次性指针获取 + 参数编组」
 >
 > v2 修订：转换层命名改为 `js_to_gd/gd_to_js` 且推迟；新增固定/可变参数两类编组规则；
@@ -10,6 +10,11 @@
 > v3 修订：运算符恢复为独立小节——`(Op, LeftVT, RightVT)` 三个引擎枚举直接作模板实参；
 > 取消独立 convert 目录（必要性论证见 §3.1：V1 与 ptrcall 均非必需，若需要也是扩展现有
 > TypeConvert）；新增 §13 测试与验证设计（完整性 + 行为等价性双重证明）。
+>
+> v4 修订：§7 新增「回退可见性」——静态绑定 miss 回退动态之前，非扩展类接口
+> （`APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}`）必须输出 WARNING，
+> 指明未找到哪个静态绑定；扩展类接口 miss 升级为 ERROR（待评审确认级别）；
+> §13.B 审计联动断言警告集合。
 
 ---
 
@@ -48,7 +53,7 @@ utility function 都携带官方 **hash**。GDExtension 接口本身支持按 ha
 │   │        V1 复用 TypeConvert                             │
 │   └─ 返回：gd_var_to_js                                   │
 │                                                           │
-│ 静态注册表 miss → 回退现行动态绑定（功能无损兜底）          │
+│ 静态注册表 miss → 回退现行动态绑定（功能无损兜底，见 §7）    │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -317,15 +322,44 @@ gen/
         if (auto *entry = static_binding::find(class_id, key))
             → 挂静态 thunk（FunctionCallback 或 accessor 描述符）
         else
+            → 【回退可见性检查，见下】
             → 挂现行动态闭包（api_tool 查询路径，行为与 main 一致）
 ```
 
-回退触发条件：
-1. `static_binding=no`（宏隔离，注册表整体不存在）
-2. `--extension-only` 模式未包含该类（引擎内置类走动态）
-3. 引擎版本与生成物不同源 → 按 hash/index 取指针返回空 → 回退 + 警告日志
+### 7.1 回退可见性（miss 必须留痕）
 
-原则：**任何 miss 都必须落到动态路径**——静态绑定只做加速、不做功能裁剪。
+**回退到动态绑定之前**，先判定宿主实体的 API 来源并输出日志——
+APIType 取自 `ApiClass::api_type`（`godot::ClassDB::APIType`，api_tool 已随
+类数据存储）：
+
+```
+APIType ∉ {API_EXTENSION, API_EDITOR_EXTENSION}（引擎核心/编辑器内置类接口）:
+    JSB_LOG(WARNING,
+        "static binding not found: %s.%s [%s], falling back to dynamic binding",
+        类名, 实体名(方法/属性/运算符), api_type 名);
+    —— 非扩展类接口未命中静态绑定属预期外的静默降级，必须可见，
+       便于发现生成范围缺口 / 评估是否需要扩大静态化覆盖
+
+APIType ∈ {API_EXTENSION, API_EDITOR_EXTENSION}（本项目扩展类接口）却 miss:
+    JSB_LOG(ERROR, 同上格式);
+    —— 主战场接口缺失意味着生成物与引擎不同源或注册表损坏，属缺陷级
+       （级别待评审确认，倾向 ERROR）
+```
+
+要点：
+- 警告内容必须**指名道姓**：哪个类、哪个实体、什么 APIType、做了什么决定
+- 注册期每实体仅决策一次，日志天然不去重也不会刷屏；若未来引入调用期分派，
+  需配 per-entity once-cache 保证同类日志只打一次
+- 该日志流同时是 §13.B 注册期审计的数据源（单测断言「警告集合 == 预期回退
+  集合」）
+
+其余回退触发条件：
+1. `static_binding=no`（宏隔离，注册表整体不存在，无日志问题）
+2. `--extension-only` 模式未包含该类（引擎内置类走动态，逐条按 §7.1 记录）
+3. 引擎版本与生成物不同源 → 按 hash/index 取指针返回空 → 回退 + 按 §7.1 记录
+
+原则不变：**任何 miss 都必须落到动态路径**——静态绑定只做加速、不做功能裁剪；
+但每一次 miss 都必须在日志里留下「丢了什么」的记录。
 
 ## 8. api_tool 扩展类过滤（`--extension-only`）
 
@@ -344,7 +378,7 @@ gen/
 | ApiLoader 文档缓存 | 静态命中后短路动态解析；两套状态不混用 |
 | 对象包装器（InstanceHandle）/ 值类型包装 | 不变；thunk 取实例的方式与现有一致；析构链路（GC finalizer → Variant 析构）零改动 |
 | 调试器/反射（列出成员） | 仍走 api_tool 文档——静态绑定只改「怎么调」，不改「有哪些」 |
-| 热重载 / 引擎版本变化 | 生成物随 extension_api.json 重生成；miss 回退兜底 + 警告 |
+| 热重载 / 引擎版本变化 | 生成物随 extension_api.json 重生成；miss 回退兜底 + §7.1 日志 + 警告 |
 | 多线程 | 函数指针缓存用函数局部 static（首调线程安全）；SN 表在 CORE init 后惰性建立 |
 
 ## 10. 目录结构
@@ -364,7 +398,7 @@ tools/static_binding_codegen.py
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | **P0** | 分支/宏/SConstruct 接线 + codegen 骨架（仅生成表格，不接线） | `static_binding=no` 产物与 main 一致；`=yes` 可编译；§13.A 对账清单零缺口 |
-| **P1** | builtin 方法 + utility thunks 上线（§4.0 固定/vararg 两族编组 + 默认值常量 + 回退接线；转换复用现有 TypeConvert） | §13.C 双路径对照全过；§13.D 错误路径用例全过 |
+| **P1** | builtin 方法 + utility thunks 上线（§4.0 固定/vararg 两族编组 + 默认值常量 + 回退接线含 §7.1 日志） | §13.C 双路径对照全过；§13.D 错误路径用例全过 |
 | **P2** | 类方法 thunks + 首载注册钩子 + `--extension-only` | 同上 |
 | **P3** | 属性访问器：§4.4-A 内置成员 + §4.4-B 对象索引属性（含调用点改造） | §13.C/D 属性部分全过（含 index≥0 属性族往返） |
 | **P4** | 运算符/构造 thunks；（条件触发）TypeConvert 内直连模板 + ptrcall | §13.C 运算符全组合对照全过；基准报告 |
@@ -417,6 +451,8 @@ default_values:    每个 default_arguments 条目
   注册表中不存在 json 之外的幽灵条目
 - **回退分布审计**：测试模式下记录每类包装构建时 static/fallback 的分配结果，
   断言 fallback 集合 == 豁免清单（多一个少一个都红）
+- **回退日志审计**（§7.1 联动）：捕获 JSB_LOG 流，断言 WARNING/ERROR 集合
+  与 fallback 分布一致——「说了要回退的」和「真的回退了的」一一对应
 
 ### C. 行为等价性（核心：双路径对照测试）
 
@@ -459,6 +495,6 @@ vararg 固定段错型 → 抛；尾段任意类型 → 收集成功
 
 - `static_binding=no`：与 main 行为逐位一致（宏隔离 + 源集隔离，无新符号进产物）
 - `static_binding=yes`：现有测试全过 + §13 全部门禁过（A 对账零缺口、B 注册
-  审计零偏差、C 对照测试除显式豁免外全过、D 错误路径矩阵全过）
+  审计零偏差含回退日志一致性、C 对照测试除显式豁免外全过、D 错误路径矩阵全过）
 - P4 基准：热点调用（Node.get_child / Vector2 加法 / utility abs / Vector2.x
   访问）较动态路径的每次调用开销有可测量改善（指标以基准报告为准）
