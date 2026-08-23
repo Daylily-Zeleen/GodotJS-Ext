@@ -26,22 +26,22 @@
 /************************************************************************/
 
 #include "jsb_primitive_bindings_reflect.h"
-#if !JSB_WITH_STATIC_BINDINGS
-#	include "../internal/jsb_variant_info.h"
-#	include "../internal/jsb_variant_util.h"
-#	include "api_tool/api_tool_types.h"
-#	include "jsb_bridge_helper.h"
-#	include "jsb_class_info.h"
-#	include "jsb_class_register.h"
-#	include "jsb_reflect_binding_util.h"
-#	include "jsb_transpiler.h"
-#	include "jsb_type_convert.h"
+#include "static_binding/dispatch.h"
+#include "../internal/jsb_variant_info.h"
+#include "../internal/jsb_variant_util.h"
+#include "api_tool/api_tool_types.h"
+#include "jsb_bridge_helper.h"
+#include "jsb_class_info.h"
+#include "jsb_class_register.h"
+#include "jsb_reflect_binding_util.h"
+#include "jsb_transpiler.h"
+#include "jsb_type_convert.h"
 
-#	define JSB_DEFINE_OPERATOR2(op_code)                                                                                  \
+#define JSB_DEFINE_OPERATOR2(op_code)                                                                                  \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 
-#	define JSB_DEFINE_OPERATOR1(op_code)                                                                                 \
+#define JSB_DEFINE_OPERATOR1(op_code)                                                                                 \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 
@@ -61,26 +61,26 @@
 				return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, (ClassName), &ReflectConstructorCall<ForCppType>::constructor, *(ClassID)); \
 			}                                                                                                                                                   \
 			(void)0
-#	else
+#else
 #		define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr) (void)0
 #		define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName) (void)0
 #	endif
 
-#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) JSB_DEFINE_OPERATOR2(op_code)
-#	define JSB_DEFINE_OVERLOADED_BINARY_END()
+#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) JSB_DEFINE_OPERATOR2(op_code)
+#define JSB_DEFINE_OVERLOADED_BINARY_END()
 
-#	define JSB_DEFINE_BINARY_OVERLOAD(R, A, B)
-#	define JSB_DEFINE_UNARY(op_code) JSB_DEFINE_OPERATOR1(op_code)
-#	define JSB_DEFINE_COMPARATOR(op_code) JSB_DEFINE_OPERATOR2(op_code)
+#define JSB_DEFINE_BINARY_OVERLOAD(R, A, B)
+#define JSB_DEFINE_UNARY(op_code) JSB_DEFINE_OPERATOR1(op_code)
+#define JSB_DEFINE_COMPARATOR(op_code) JSB_DEFINE_OPERATOR2(op_code)
 
-#	define JSB_TYPE_BEGIN(InType)                                    \
+#define JSB_TYPE_BEGIN(InType)                                    \
 		template <>                                                   \
 		struct OperatorRegister<InType> {                             \
 			typedef InType CurrentType;                               \
 			static void generate(impl::ClassBuilder &class_builder) { \
 				JSB_LOG(VeryVerbose, "expose primitive type " #InType);
 
-#	define JSB_TYPE_END() \
+#define JSB_TYPE_END() \
 		}                  \
 		}                  \
 		;
@@ -154,9 +154,9 @@ struct OperatorRegister {
 	static void generate(impl::ClassBuilder &class_builder) {}
 };
 
-#	define Number double
-#	include "../internal/jsb_primitive_operators.def.h"
-#	undef Number
+#define Number double
+#include "../internal/jsb_primitive_operators.def.h"
+#undef Number
 
 struct VariantBindFallbacks {
 	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -746,6 +746,18 @@ public:
 					method_info_storage.argument_types.write[argument_index] = type;
 				}
 
+#if JSB_WITH_STATIC_BINDINGS
+				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk((uint32_t)TYPE, method_info.method.name, method_info.hash)) {
+					if (method_info.is_static()) {
+						class_builder.Static().Method(member_name, sb_thunk);
+					} else {
+						class_builder.Instance().Method(member_name, sb_thunk);
+					}
+					continue;
+				}
+				JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding",
+						class_name, member_name);
+#endif
 				// function wrapper
 				if (has_return_value) {
 					if (method_info.is_static()) {
@@ -911,14 +923,13 @@ public:
 };
 
 void register_primitive_bindings_reflect(Environment *p_env) {
-#	pragma push_macro("DEF")
-#	undef DEF
-#	define DEF(TypeName) p_env->add_class_register(static_cast<Variant::Type>(GetTypeInfo<TypeName>::VARIANT_TYPE), &VariantBind<TypeName>::reflect_bind);
-#	include "jsb_primitive_types.def.h"
-#	pragma pop_macro("DEF")
+#pragma push_macro("DEF")
+#undef DEF
+#define DEF(TypeName) p_env->add_class_register(static_cast<Variant::Type>(GetTypeInfo<TypeName>::VARIANT_TYPE), &VariantBind<TypeName>::reflect_bind);
+#include "jsb_primitive_types.def.h"
+#pragma pop_macro("DEF")
 
 	p_env->add_class_register(static_cast<Variant::Type>(GetTypeInfo<String>::VARIANT_TYPE), &VariantBind<String>::reflect_bind_utilities);
 }
 } //namespace jsb
 
-#endif

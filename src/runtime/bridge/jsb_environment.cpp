@@ -61,13 +61,8 @@
 #	include "../impl/web/jsb_web_interop.h"
 #endif
 
-#if !JSB_WITH_STATIC_BINDINGS
-#	include "jsb_primitive_bindings_reflect.h"
-#	define register_primitive_bindings(param) register_primitive_bindings_reflect(param)
-#else
-#	include "jsb_primitive_bindings_static.h"
-#	define register_primitive_bindings(param) register_primitive_bindings_static(param)
-#endif
+#include "jsb_primitive_bindings_reflect.h"
+#define register_primitive_bindings(param) register_primitive_bindings_reflect(param)
 
 #if JSB_USE_JS_TYPE_EXTENSION
 #	include "js_type_extension/string_ext.h"
