@@ -28,7 +28,6 @@
 #pragma once
 
 #include "jsb_bridge_pch.h"
-#if !JSB_WITH_STATIC_BINDINGS
 namespace jsb {
 class Environment;
 

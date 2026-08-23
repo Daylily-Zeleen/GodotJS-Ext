@@ -121,8 +121,9 @@
 // construct a Variant with `Variant::construct` instead of `VariantUtilityFunctions::type_convert`
 #define JSB_CONSTRUCT_DEFAULT_VARIANT_SLOW 0
 
-// NOT IMPLEMENTED YET
+#ifndef JSB_WITH_STATIC_BINDINGS
 #define JSB_WITH_STATIC_BINDINGS 0
+#endif
 
 // utf16 conversion may have less overhead, but uses more memory?
 #define JSB_UTF16_CONV_PREFERRED 1
