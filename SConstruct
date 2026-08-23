@@ -33,6 +33,7 @@ opts.Add(BoolVariable("use_node", "Build with Node.js (libnode) support. libnode
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
+opts.Add(BoolVariable("static_binding", "Compile static binding tables into the build (requires src/static_binding/gen; regenerate with scons static_binding_gen)", False))
 opts.Add(BoolVariable("embedded_natvis", "Embed natvis files into the PDB via /NATVIS (MSVC/clang-cl linkers only). If no, merge all natvis files into a single root-level godotjs-ext.natvis instead.", True))
 opts.Update(localEnv)
 
@@ -792,6 +793,19 @@ runtime_globs = [
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
 ]
 
+# Static bindings: opt-in compile-time generated tables (design: docs/design/static-bindings.md)
+if env.get("static_binding", False):
+    _sb_dir = os.path.join(src_dir, "static_binding")
+    _sb_gen_dir = os.path.join(_sb_dir, "gen")
+    if not (os.path.isdir(_sb_gen_dir) and os.listdir(_sb_gen_dir)):
+        print_error("static_binding=yes but src/static_binding/gen is missing or empty. "
+                    "Generate it first: scons static_binding_gen "
+                    "(requires project/extension_api.json and the godot-cpp submodule)")
+    godotjs_sources += Glob(os.path.join(_sb_dir, "*.cpp"))
+    godotjs_sources += Glob(os.path.join(_sb_dir, "thunks", "*.cpp"))
+    godotjs_sources += Glob(os.path.join(_sb_gen_dir, "*.cpp"))
+    env.Append(CPPDEFINES=["JSB_WITH_STATIC_BINDINGS"])
+
 editor_dir = os.path.join(src_dir, "editor")
 editor_globs = [
     os.path.join(editor_dir, "*.cpp"),
@@ -1050,5 +1064,29 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
             return None
         env.AddPostAction(helper_copy, _make_helper_executable)
     default_args += [helper, helper_copy]
+
+# ---------------------------------------------------------------------------
+# Static binding code generation target:
+#   scons static_binding_gen
+# Regenerates src/static_binding/gen from project/extension_api.json.
+_sb_api_json = os.path.join(root_dir, "project", "extension_api.json")
+_sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
+_sb_codegen = os.path.join(root_dir, "tools", "static_binding_codegen.py")
+_sb_out_dir = os.path.join(src_dir, "static_binding", "gen")
+if os.path.exists(_sb_codegen):
+    if os.path.exists(_sb_api_json) and os.path.exists(_sb_interface_json):
+        _sb_outputs = [os.path.join(_sb_out_dir, f) for f in (
+            "string_names.gen.h", "string_names.gen.cpp",
+            "registry.gen.h", "registry.gen.cpp",
+            "manifest.gen.json",
+        )]
+        _sb_action = "{} \"{}\" --input \"{}\" --interface \"{}\" --out \"{}\"".format(
+            sys.executable, _sb_codegen, _sb_api_json, _sb_interface_json, _sb_out_dir)
+        env.Command(_sb_outputs, [_sb_api_json, _sb_interface_json], _sb_action)
+        env.Alias("static_binding_gen", _sb_outputs)
+    else:
+        print_warning("scons static_binding_gen unavailable: missing project/extension_api.json "
+                      "or third/godot-cpp/gdextension/gdextension_interface.json. Dump the api json first:")
+        print_warning("  godot.windows.editor.x86_64.exe --headless --editor --path ./project --dump-extension-api-with-docs")
 
 Default(*default_args)
