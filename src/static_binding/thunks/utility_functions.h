@@ -45,8 +45,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(storage)), ...);
 	}(std::make_index_sequence<N>{});
 
-	godot::Variant ret;
-	init_return<RetT>(ret);
+	typename ReturnSlotOf<RetT>::type ret{};
 	fn(&ret, arg_ptrs, N);
 	translate_return<RetT>(isolate, context, ret, info);
 }
@@ -111,8 +110,7 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	godot::Variant ret;
-	init_return<RetT>(ret);
+	typename ReturnSlotOf<RetT>::type ret{};
 	fn(&ret, arg_ptrs, argc);
 
 	for (int i = F; i < argc; ++i) {
