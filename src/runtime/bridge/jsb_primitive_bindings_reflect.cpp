@@ -596,6 +596,16 @@ public:
 		{
 			for (const api_tool::ApiMemberInfo &member : api_builtin_class->members) {
 				const StringName &name = member.name;
+
+#if JSB_WITH_STATIC_BINDINGS
+				// static-first: bind the generated accessor thunks directly
+				if (jsb::static_binding::ThunkFn sb_getter = jsb::static_binding::find_builtin_member_getter_thunk(TYPE, name)) {
+					class_builder.Instance().Property(internal::NamingUtil::get_member_name(name), sb_getter,
+							jsb::static_binding::find_builtin_member_setter_thunk(TYPE, name),
+							(int32_t)0);
+					continue;
+				}
+#endif
 				const Variant::Type member_type = member.type;
 
 				JSB_DEFINE_FAST_GETSET(member_type, real_t, name, &member);

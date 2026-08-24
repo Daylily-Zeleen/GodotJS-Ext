@@ -88,7 +88,6 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}(std::make_index_sequence<N>{});
 
 	godot::Variant ret;
-	init_return<RetT>(ret);
 	GDExtensionCallError call_error{};
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, instance, (const GDExtensionConstVariantPtr *)arg_ptrs, N, &ret, &call_error);
@@ -175,7 +174,6 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	}
 
 	godot::Variant ret;
-	init_return<RetT>(ret);
 	GDExtensionCallError call_error{};
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, instance, (const GDExtensionConstVariantPtr *)arg_ptrs, argc, &ret, &call_error);

@@ -166,6 +166,7 @@ def cxx_str(s):
 class Model:
     def __init__(self):
         self.pool = StringPool()
+        self.indexed_method_names = {}
         self.builtin_methods = []
         self.utility_funcs = []
         self.class_methods = []
@@ -224,6 +225,9 @@ def collect(data, vt_map):
                 "vt": vt,
                 "name_id": m.pool.get(mem["name"]),
                 "type_id": m.pool.get(mem["type"]),
+                # raw name: builtin member groups are keyed per VT in
+                # emit_dispatch_cpp; the literal is emitted per entry
+                "name_str": mem["name"],
             })
         for ctor in bc.get("constructors", []):
             m.constructors.append({
@@ -306,11 +310,22 @@ def collect(data, vt_map):
                 "class_name_id": cls_name_id,
                 "prop_name_id": m.pool.get(prop["name"]),
                 "index": int(prop["index"]),
+                # method defs actually carrying this index (None = side
+                # unresolved); emit_class_dispatch_cpp threads the index
+                # into those thunk instantiations via these hashes
+                # declared value type (json property "type") -- drives the
+                # strict JS->Variant conversion in the static setter
+                "prop_type": prop.get("type", "Variant"),
+                "_gdef": gdef,
+                "_sdef": sdef,
                 "getter_name_id": m.pool.get(gname),
                 "setter_name_id": m.pool.get(sname),
                 "getter_hash": int(gdef["hash"]) if gdef and "hash" in gdef else 0,
                 "setter_hash": int(sdef["hash"]) if sdef and "hash" in sdef else 0,
             })
+
+    # (class_name, method_hash) -> {method_name} backing an indexed property;
+    # used to thread the property index into those thunk instantiations
 
     # --- utility functions ------------------------------------------------------
     for uf in data.get("utility_functions", []):
@@ -570,6 +585,7 @@ def emit_dispatch_cpp(m):
     L = [GENERATED_NOTE,
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/builtin_methods.h"',
+         '#include "static_binding/thunks/builtin_members.h"',
          '#include "static_binding/thunks/utility_functions.h"',
          "",
          "namespace jsb::static_binding {",
@@ -654,6 +670,34 @@ def emit_dispatch_cpp(m):
     L.append("\t}")
     L.append("}")
     L.append("")
+    # ---- builtin member accessors (P3) -------------------------------------
+    L.append("// ---- builtin member accessors (P3) ----")
+    by_vt = collections.OrderedDict()
+    for e in m.members:
+        by_vt.setdefault(e["vt"], []).append(e)
+
+    def emit_member_lookup(fn_name, side):
+        tmpl = ("thunks::member_getter_thunk" if side == "g"
+                else "thunks::member_setter_thunk")
+        L.append("const ThunkFn %s(godot::Variant::Type p_vt, const godot::StringName &p_name) {" % fn_name)
+        L.append("\tswitch ((int)p_vt) {")
+        for vt in sorted(by_vt):
+            L.append("\tcase %d: {" % vt)
+            for e in by_vt[vt]:
+                nlit = cxx_str(e["name_str"])
+                L.append('\t\tif (p_name == godot::StringName(%s))'
+                         ' return (ThunkFn)&%s<(godot::Variant::Type)%d, %s>;'
+                         % (nlit, tmpl, vt, nlit))
+            L.append("\t\treturn nullptr;")
+            L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    emit_member_lookup("find_builtin_member_getter_thunk", "g")
+    emit_member_lookup("find_builtin_member_setter_thunk", "s")
+
     L.append("} // namespace jsb::static_binding")
     L.append("")
     return "\n".join(L)
@@ -672,16 +716,16 @@ def class_ident(name):
     return s
 
 
-def class_entry_expr(e, cname):
+def class_entry_expr(e, cname, extra=""):
     name_lit = cxx_str(m.pool.strings[e["name_id"]])
     cls_lit = cxx_str(cname)
     args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
     tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
                  else "thunks::class_method_thunk")
-    return "%s<%du, %s, %s, %s, %s%s>" % (
+    return "%s<%du, %s, %s, %s, %s%s%s>" % (
         tmpl_name, e["hash"], cls_lit, name_lit,
         cxx_bool(e["is_static"]),
-        ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+        ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs, extra)
 
 
 def emit_class_dispatch_cpp(m):
@@ -692,6 +736,7 @@ def emit_class_dispatch_cpp(m):
     L = [GENERATED_NOTE,
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/class_methods.h"',
+         '#include "static_binding/thunks/indexed_properties.h"',
          "",
          "#include <cstring>",
          "",
@@ -701,20 +746,21 @@ def emit_class_dispatch_cpp(m):
          "using thunks::class_vararg_method_thunk;",
          ""]
 
-    def class_entry_expr(e, cname):
+    def class_entry_expr(e, cname, extra=""):
         name_lit = cxx_str(m.pool.strings[e["name_id"]])
         cls_lit = cxx_str(cname)
         args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
         tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
                      else "thunks::class_method_thunk")
-        return "%s<%du, %s, %s, %s, %s%s>" % (
+        return "%s<%du, %s, %s, %s, %s%s%s>" % (
             tmpl_name, e["hash"], cls_lit, name_lit,
             cxx_bool(e["is_static"]),
-            ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+            ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs, extra)
 
     by_cls = collections.OrderedDict()
     for e in m.class_methods:
         by_cls.setdefault(e["class_name_id"], []).append(e)
+
 
     cls_entries = []
     for cid in sorted(by_cls, key=lambda cid: m.pool.strings[cid]):
@@ -761,6 +807,94 @@ def emit_class_dispatch_cpp(m):
     L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
     L.append("\t\tconst int cmp = strcmp(godot::String(p_class).utf8().get_data(), k_entries[mid].name);")
     L.append("\t\tif (cmp == 0) return k_entries[mid].resolve(p_name, p_hash);")
+    L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
+    L.append("\t}")
+    L.append("\treturn nullptr;")
+    L.append("}")
+    L.append("")
+    # ---- indexed property accessors (P3) ------------------------------------
+    # One template instance per (property side): the constant index cannot live
+    # on the shared backing method (one method typically serves many indexes).
+    L.append("// ---- indexed property accessors (P3) ----")
+    ip_by_cls = collections.OrderedDict()
+    for p in m.indexed_props:
+        ip_by_cls.setdefault(p["class_name_id"], []).append(p)
+
+    def prop_vt_value(t):
+        """json property type -> GDExtensionVariantType value."""
+        if t in VARIANT_TYPE_VALUES:
+            return VARIANT_TYPE_VALUES[t]
+        if t.startswith(("enum::", "bitfield::")):
+            return VARIANT_TYPE_VALUES["int"]
+        # engine class names (AudioStream...) and compound hints
+        # ("Texture2D,-AtlasTexture") behave as Object* everywhere else
+        return VARIANT_TYPE_VALUES["Object"]
+
+    def ip_side_expr(p, setter):
+        d = p["_sdef"] if setter else p["_gdef"]
+        nm = m.pool.strings[p["setter_name_id" if setter else "getter_name_id"]]
+        if setter:
+            return "%s<%du, %s, %s, %d, %d>" % (
+                "thunks::indexed_property_setter_thunk", int(d["hash"]),
+                cxx_str(cname), cxx_str(nm),
+                p["index"], prop_vt_value(p["prop_type"]))
+        return "%s<%du, %s, %s, %d>" % (
+            "thunks::indexed_property_getter_thunk", int(d["hash"]),
+            cxx_str(cname), cxx_str(nm), p["index"])
+
+    ip_entries = []
+    for cid in sorted(ip_by_cls, key=lambda cid: m.pool.strings[cid]):
+        cname = m.pool.strings[cid]
+        ident = "find_ip_" + class_ident(cname)
+        ip_entries.append((cxx_str(cname), ident))
+        L.append("namespace {")
+        L.append("ThunkFn %s(const godot::StringName &p_name, bool p_setter) {" % ident)
+        for p in ip_by_cls[cname if False else cid]:
+            nlit = cxx_str(m.pool.strings[p["prop_name_id"]])
+            gdef, sdef = p["_gdef"], p["_sdef"]
+            branches = []
+            if gdef is not None and "hash" in gdef:
+                branches.append("\t\tif (!p_setter) return (ThunkFn)&%s;" % ip_side_expr(p, False))
+            if sdef is not None and "hash" in sdef:
+                branches.append("\t\tif (p_setter) return (ThunkFn)&%s;" % ip_side_expr(p, True))
+            if branches:
+                L.append('\t\tif (p_name == godot::StringName(%s)) {' % nlit)
+                L.extend(branches)
+                L.append("\t\t}")
+        L.append("\t\treturn nullptr;")
+        L.append("\t}")
+        L.append("} // namespace")
+        L.append("")
+
+    L.append("const ThunkFn find_indexed_property_getter_thunk(const godot::StringName &p_class,")
+    L.append("        const godot::StringName &p_name) {")
+    L.append("\tstruct Entry { const char *name; ThunkFn (*resolve)(const godot::StringName &, bool); };")
+    L.append("\tstatic const Entry k_entries[] = {")
+    for lit, ident in ip_entries:
+        L.append('\t\t{%s, &%s},' % (lit, ident))
+    L.append("\t};")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tconst int cmp = strcmp(godot::String(p_class).utf8().get_data(), k_entries[mid].name);")
+    L.append("\t\tif (cmp == 0) return k_entries[mid].resolve(p_name, false);")
+    L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
+    L.append("\t}")
+    L.append("\treturn nullptr;")
+    L.append("}")
+    L.append("")
+    L.append("const ThunkFn find_indexed_property_setter_thunk(const godot::StringName &p_class,")
+    L.append("        const godot::StringName &p_name) {")
+    L.append("\tstruct Entry { const char *name; ThunkFn (*resolve)(const godot::StringName &, bool); };")
+    L.append("\tstatic const Entry k_entries[] = {")
+    for lit, ident in ip_entries:
+        L.append('\t\t{%s, &%s},' % (lit, ident))
+    L.append("\t};")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tconst int cmp = strcmp(godot::String(p_class).utf8().get_data(), k_entries[mid].name);")
+    L.append("\t\tif (cmp == 0) return k_entries[mid].resolve(p_name, true);")
     L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
     L.append("\t}")
     L.append("\treturn nullptr;")
