@@ -134,30 +134,99 @@ inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Contex
 	return true;
 }
 
-template <class RetT>
-inline void init_return(godot::Variant &r_ret) {
-	if constexpr (RetT::has_return) {
-		if constexpr (requires { RetT::vt; }) {
-			r_ret = godot::UtilityFunctions::type_convert(godot::Variant(), RetT::vt);
-		}
-		// RetAny: leave NIL; the engine overwrites it on return.
-	}
-}
+// ---------------------------------------------------------------------------
+// Return slots: a GDExtension ptr entry writes the NATIVE representation of
+// the declared return type into r_return (bool -> uint8_t byte, INT ->
+// int64_t, STRING -> godot::String buffer, ...) -- NOT a Variant. The dynamic
+// path mirrors this with ctor_arg_ptr(ret_ptr, return_val.type).
+//
+// Ret<N>  : native slot of variant type N
+// RetAny  : Variant slot (json "Variant" returns are full Variants)
+// Ret<0>  : no return at all
+template <int VT_>
+struct VtSlotType;
+#define JSB_VT_SLOT(VT, CppT) template <> struct VtSlotType<VT> { using type = CppT; }
+JSB_VT_SLOT(0, godot::Variant);           // NIL placeholder (unused arm)
+JSB_VT_SLOT(1, uint8_t);                  // BOOL
+JSB_VT_SLOT(2, int64_t);                  // INT
+JSB_VT_SLOT(3, double);                   // FLOAT
+JSB_VT_SLOT(4, godot::String);
+JSB_VT_SLOT(5, godot::Vector2);
+JSB_VT_SLOT(6, godot::Vector2i);
+JSB_VT_SLOT(7, godot::Rect2);
+JSB_VT_SLOT(8, godot::Rect2i);
+JSB_VT_SLOT(9, godot::Vector3);
+JSB_VT_SLOT(10, godot::Vector3i);
+JSB_VT_SLOT(11, godot::Transform2D);
+JSB_VT_SLOT(12, godot::Vector4);
+JSB_VT_SLOT(13, godot::Vector4i);
+JSB_VT_SLOT(14, godot::Plane);
+JSB_VT_SLOT(15, godot::Quaternion);
+JSB_VT_SLOT(16, godot::AABB);
+JSB_VT_SLOT(17, godot::Basis);
+JSB_VT_SLOT(18, godot::Transform3D);
+JSB_VT_SLOT(19, godot::Projection);
+JSB_VT_SLOT(20, godot::Color);
+JSB_VT_SLOT(21, godot::StringName);
+JSB_VT_SLOT(22, godot::NodePath);
+JSB_VT_SLOT(23, godot::RID);
+JSB_VT_SLOT(24, godot::Object *);
+JSB_VT_SLOT(25, godot::Callable);
+JSB_VT_SLOT(26, godot::Signal);
+JSB_VT_SLOT(27, godot::Dictionary);
+JSB_VT_SLOT(28, godot::Array);
+JSB_VT_SLOT(29, godot::PackedByteArray);
+JSB_VT_SLOT(30, godot::PackedInt32Array);
+JSB_VT_SLOT(31, godot::PackedInt64Array);
+JSB_VT_SLOT(32, godot::PackedFloat32Array);
+JSB_VT_SLOT(33, godot::PackedFloat64Array);
+JSB_VT_SLOT(34, godot::PackedStringArray);
+JSB_VT_SLOT(35, godot::PackedVector2Array);
+JSB_VT_SLOT(36, godot::PackedVector3Array);
+JSB_VT_SLOT(37, godot::PackedColorArray);
+JSB_VT_SLOT(38, godot::PackedVector4Array);
+#undef JSB_VT_SLOT
 
+// Primary: RetAny (no vt member) and no-return cases -> Variant placeholder.
+template <class RetT, class = void>
+struct ReturnSlotOf {
+	using type = godot::Variant;
+};
+
+// Ret<N>: the native slot of variant type N.
 template <class RetT>
+struct ReturnSlotOf<RetT, std::void_t<decltype(RetT::vt)>> {
+	using type = typename VtSlotType<(int)RetT::vt>::type;
+};
+
+// The slot is either the native return representation (utility/builtin
+// ptrcall) or a full Variant (object_method_bind_call in class_methods).
+template <class RetT, class SlotT>
 inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const godot::Variant &ret, const v8::FunctionCallbackInfo<v8::Value> &info) {
+		SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if constexpr (!RetT::has_return) {
 		return true;
-	} else {
+	} else if constexpr (std::is_same_v<SlotT, godot::Variant>) {
+		// Variant ABI: the engine wrote a complete Variant.
 		v8::Local<v8::Value> jrval;
-		bool ok;
-		if constexpr (requires { RetT::vt; }) {
-			ok = TypeConvert::gd_var_to_js(p_isolate, p_context, ret, RetT::vt, jrval);
-		} else {
-			ok = TypeConvert::gd_var_to_js(p_isolate, p_context, ret, jrval);
+		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret_slot, jrval)) {
+			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
+			return false;
 		}
-		if (!ok) {
+		info.GetReturnValue().Set(jrval);
+		return true;
+	} else if constexpr (requires { RetT::vt; }) {
+		// Native slot: decode through the godot-cpp ptrcall contract, then
+		// wrap for the JS translation.
+		using SlotCppT = typename VtSlotType<(int)RetT::vt>::type;
+		godot::Variant ret;
+		if constexpr (std::is_same_v<SlotCppT, uint8_t>) {
+			ret = (bool)godot::PtrToArg<SlotCppT>::convert(&ret_slot);
+		} else {
+			ret = godot::PtrToArg<SlotCppT>::convert(&ret_slot);
+		}
+		v8::Local<v8::Value> jrval;
+		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret, jrval)) {
 			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
 			return false;
 		}
