@@ -95,6 +95,18 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 			}
 
 			if (prop_index >= 0) {
+#if JSB_WITH_STATIC_BINDINGS
+				const jsb::static_binding::ThunkFn sb_getter = jsb::static_binding::find_indexed_property_getter_thunk(p_class_name, prop_name);
+				const jsb::static_binding::ThunkFn sb_setter = sb_getter ? jsb::static_binding::find_indexed_property_setter_thunk(p_class_name, prop_name) : nullptr;
+				if (sb_getter || sb_setter) {
+					class_builder.Instance().Property(property_name,
+							sb_getter,
+							sb_setter,
+							(int32_t)0);
+					continue;
+				}
+#endif
+
 				const int remap_index = (int)p_env->get_variant_info_collection().object_properties.size();
 				internal::FPropertyInfo2 property_info2;
 				property_info2.getter_func = getter_method;

@@ -33,7 +33,7 @@ opts.Add(BoolVariable("use_node", "Build with Node.js (libnode) support. libnode
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
-opts.Add(BoolVariable("static_binding", "Compile static binding tables into the build (requires src/static_binding/gen; regenerate with scons static_binding_gen)", False))
+opts.Add(BoolVariable("static_binding", "Compile static binding tables into the build (requires src/static_binding/gen; regenerate with scons static_binding_gen)", True))
 opts.Add(BoolVariable("embedded_natvis", "Embed natvis files into the PDB via /NATVIS (MSVC/clang-cl linkers only). If no, merge all natvis files into a single root-level godotjs-ext.natvis instead.", True))
 opts.Update(localEnv)
 
