@@ -808,6 +808,10 @@ if env.get("static_binding", False):
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "thunks", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "gen", "*.cpp"))
+    if jsb_platform == "windows":
+        # the class dispatch TU instantiates ~15k thunks and overflows the
+        # default COFF section count without /bigobj
+        env.Append(CCFLAGS=["/bigobj"])
     env.Append(CPPDEFINES=["JSB_WITH_STATIC_BINDINGS"])
 
 editor_dir = os.path.join(src_dir, "editor")
