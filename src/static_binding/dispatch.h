@@ -4,6 +4,7 @@
 #if JSB_WITH_STATIC_BINDINGS
 
 #include <cstdint>
+#include <godot_cpp/variant/variant.hpp>
 
 // forward declarations only -- pulling in the full v8 header here would leak
 // engine-specific include paths into every translation unit including this one.
@@ -25,10 +26,14 @@ using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 // Builtin hashes are computed from the SIGNATURE and are NOT unique within a
 // type (e.g. String's casecmp_to family all share one hash), so the method
 // name participates in the lookup. vt: GDExtensionVariantType value.
-const ThunkFn find_builtin_thunk(uint32_t p_vt, const godot::StringName &p_name, uint64_t p_hash);
+const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash);
 
 // Same for utility functions.
-const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint64_t p_hash);
+const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash);
+
+// Object-derived class methods: p_class is the engine class name
+// (e.g. "Node"), hash the official method hash.
+const ThunkFn find_class_method_thunk(const godot::StringName &p_class, uint32_t p_hash);
 
 } // namespace jsb::static_binding
 

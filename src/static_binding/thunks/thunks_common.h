@@ -78,9 +78,33 @@ struct Ret {
 // ---------------------------------------------------------------------------
 // Marshaling helpers.
 
-// Slot type for a parameter of semantic type T -- the authoritative answer
-// comes from godot-cpp's ptrcall contract itself (e.g. bool -> uint8_t,
-// Object* -> Object*, everything else identity). Never hand raw addresses of
+// Produce one strongly-typed value from the JS arguments (conversion,
+// default-fill, or error). This is the single conversion entry point shared
+// by every thunk shape.
+template <class ArgT>
+inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
+		typename ArgT::gd_type &out, int provided) {
+	if (i < provided) {
+		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
+			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
+					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
+			return false;
+		}
+		return true;
+	}
+	if constexpr (ArgT::has_default) {
+		out = default_as<typename ArgT::gd_type, ArgT::def>();
+		return true;
+	}
+	jsb_throw(p_isolate, jsb_errorf("missing argument %d", i));
+	return false;
+}
+
+// ptrcall flavor: produce the value and encode it into a raw argument slot
+// through godot-cpp's ptrcall contract. SlotOf<T> is PtrToArg<T>::EncodeT --
+// the authoritative slot layout (bool -> uint8_t, narrow ints widen to
+// int64_t, Object* -> engine object pointer). Never hand raw addresses of
 // semantic values to the engine: some encodes are NOT trivial writes.
 template <typename T>
 using SlotOf = typename godot::PtrToArg<T>::EncodeT;
@@ -90,16 +114,7 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
 		SlotOf<typename ArgT::gd_type> &slot, int provided) {
 	typename ArgT::gd_type value{};
-	if (i < provided) {
-		if (!try_js_to_gd(p_isolate, p_context, info[i], value)) {
-			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
-					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
-			return false;
-		}
-	} else if constexpr (ArgT::has_default) {
-		value = default_as<typename ArgT::gd_type, ArgT::def>();
-	} else {
-		jsb_throw(p_isolate, jsb_errorf("missing argument %d", i));
+	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
 	}
 	godot::PtrToArg<typename ArgT::gd_type>::encode(value, &slot);
@@ -155,23 +170,25 @@ inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context
 // first call). Returns nullptr on engine/generated-tables version mismatch.
 template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit>
 GDExtensionPtrBuiltInMethod resolve_builtin_method() {
-	// one-shot lookup: a temporary StringName suffices, nothing retains it
-	const godot::StringName method_name(NameLit.value);
-	static GDExtensionPtrBuiltInMethod fn =
-			::godot::gdextension_interface::variant_get_ptr_builtin_method(
-					(GDExtensionVariantType)VTC,
-					method_name._native_ptr(),
-					(GDExtensionInt)HashC);
+		static GDExtensionPtrBuiltInMethod fn = [&] {
+		// one-shot lookup: a temporary StringName suffices, nothing retains it
+		const godot::StringName method_name(NameLit.value);
+		return ::godot::gdextension_interface::variant_get_ptr_builtin_method(
+				(GDExtensionVariantType)VTC,
+				method_name._native_ptr(),
+				(GDExtensionInt)HashC);
+	}();
 	return fn;
 }
 
 template <uint32_t HashC, FixedString NameLit>
 GDExtensionPtrUtilityFunction resolve_utility_function() {
-	const godot::StringName function_name(NameLit.value);
-	static GDExtensionPtrUtilityFunction fn =
-			::godot::gdextension_interface::variant_get_ptr_utility_function(
-					function_name._native_ptr(),
-					(GDExtensionInt)HashC);
+	static GDExtensionPtrUtilityFunction fn = [&] {
+		const godot::StringName function_name(NameLit.value);
+		return ::godot::gdextension_interface::variant_get_ptr_utility_function(
+				function_name._native_ptr(),
+				(GDExtensionInt)HashC);
+	}();
 	return fn;
 }
 

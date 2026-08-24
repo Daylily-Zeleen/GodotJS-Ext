@@ -8,12 +8,10 @@ namespace jsb::static_binding::thunks {
 
 // ---------------------------------------------------------------------------
 // Fixed-arity builtin method (§4.0-A: unrolled per-parameter, no loops).
-// Parameters live as strongly-typed values in a tuple; each element's address
-// is handed to the engine directly -- godot-cpp types are engine-layout
-// mirrors and PtrToArg<T>::EncodeT == T for every parameter type we emit,
-// so no separate encoding buffer exists.
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
-		class RetT, class... ArgsT>
+// Parameters are marshaled into ptrcall slots (SlotOf<T> = PtrToArg<T>::EncodeT)
+// through the official encode() contract.
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
+		bool IsStaticC, class RetT, class... ArgsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -23,27 +21,25 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
+	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name((godot::Variant::Type)VTC)
+				+ godot::Variant::get_type_name(VTC)
 				+ "::" + godot::String(NameLit.value));
 		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name((godot::Variant::Type)VTC)
+				+ godot::Variant::get_type_name(VTC)
 				+ "::" + godot::String(NameLit.value));
 		return;
 	}
 
-	// argc gate: M <= provided <= N
 	const int provided = (int)info.Length();
 	if (provided < M || provided > N) {
 		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d",
-				godot::Variant::get_type_name((godot::Variant::Type)VTC),
+				godot::Variant::get_type_name(VTC),
 				godot::String(NameLit.value).utf8().get_data(), M, N, provided));
 		return;
 	}
 
-	// base: the wrapper's Variant IS the engine layout, hand its address over
 	void *base_ptr = nullptr;
 	if constexpr (!IsStaticC) {
 		godot::Variant *self = TypeConvert::is_variant(info.This())
@@ -53,22 +49,24 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			jsb_throw(isolate, "no bound this");
 			return;
 		}
-		base_ptr = self;
+		base_ptr = self; // a Variant is the engine layout itself
 	}
 
-	// marshal into strongly-typed storage (unrolled, §4.0-A)
-	std::tuple<SlotOf<typename ArgsT::gd_type>...> storage;
-		[&]<std::size_t... I>(std::index_sequence<I...>) {
-		bool ok = true;
+	// marshal into ptrcall slots (unrolled)
+	std::tuple<SlotOf<typename ArgsT::gd_type>...> slots;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
-				std::get<I>(storage), provided)) && ...);
-		return ok;
+						std::get<I>(slots), provided)) &&
+				...);
 	}(std::make_index_sequence<N>{});
-
+	if (!ok) {
+		return; // JS exception already thrown by marshal_one
+	}
 
 	void *arg_ptrs[N > 0 ? N : 1];
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (void *)&std::get<I>(storage)), ...);
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
 	godot::Variant ret;
@@ -79,8 +77,8 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 // ---------------------------------------------------------------------------
 // Vararg builtin method (§4.0-B): fixed prefix unrolled, only the tail loops.
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC,
-		class RetT, class... ArgsT>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
+		bool IsStaticC, class RetT, class... ArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int F = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -90,13 +88,13 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
+	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name((godot::Variant::Type)VTC)
+				+ godot::Variant::get_type_name(VTC)
 				+ "::" + godot::String(NameLit.value));
 		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name((godot::Variant::Type)VTC)
+				+ godot::Variant::get_type_name(VTC)
 				+ "::" + godot::String(NameLit.value));
 		return;
 	}
@@ -104,7 +102,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	const int provided = (int)info.Length();
 	if (provided < M) {
 		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d",
-				godot::Variant::get_type_name((godot::Variant::Type)VTC),
+				godot::Variant::get_type_name(VTC),
 				godot::String(NameLit.value).utf8().get_data(), M, provided));
 		return;
 	}
@@ -122,13 +120,16 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	}
 
 	// fixed prefix: unrolled with type checks & defaults
-	std::tuple<typename ArgsT::gd_type...> prefix;
+	std::tuple<SlotOf<typename ArgsT::gd_type>...> prefix_slots;
+	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		bool ok = true;
 		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
-				std::get<I>(prefix), provided)) && ...);
-		return ok;
+						std::get<I>(prefix_slots), provided)) &&
+				...);
 	}(std::make_index_sequence<F>{});
+	if (!ok) {
+		return;
+	}
 
 	// vararg tail: untyped Variants (the only loop, §4.0-B)
 	const int argc = provided > F ? provided : F;
@@ -145,11 +146,10 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		}
 	}
 
-	// argument pointers must cover ALL argc slots: prefix elements are already
-	// engine-layout values; tail elements are full Variants (NIL slots).
+	// argument pointers must cover ALL argc slots
 	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix)), ...);
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix_slots)), ...);
 	}(std::make_index_sequence<F>{});
 	for (int i = F; i < argc; ++i) {
 		arg_ptrs[i] = &tail_args[i - F];

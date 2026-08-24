@@ -26,6 +26,7 @@
 /************************************************************************/
 
 #include "jsb_object_bindings.h"
+#include "static_binding/dispatch.h"
 #include "api_tool/api_tool.h"
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
@@ -122,7 +123,19 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 
 		// class: methods
 		for (const api_tool::ApiClassMethod &method_info : api_class->methods) {
-			if (method_info.is_virtual()) continue; // 虚函数不需要绑定
+			if (method_info.is_virtual()) continue;
+#ifdef JSB_WITH_STATIC_BINDINGS
+			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.hash)) {
+				if (method_info.method.flags & METHOD_FLAG_STATIC) {
+					static_builder.Method(method_name, sb_thunk);
+				} else {
+					class_builder.Instance().Method(method_name, sb_thunk);
+				}
+				continue;
+			}
+			JSB_LOG(Warning, "static binding not found: %s.%s [class], falling back to dynamic binding",
+					p_class_name, method_name);
+#endif // 虚函数不需要绑定
 #if JSB_EXCLUDE_GETSET_METHODS
 			if (omitted_methods.has(method_info.method.name)) continue;
 #endif
