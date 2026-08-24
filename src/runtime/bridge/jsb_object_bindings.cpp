@@ -125,8 +125,8 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 		for (const api_tool::ApiClassMethod &method_info : api_class->methods) {
 			if (method_info.is_virtual()) continue; // 虚函数不需要绑定
 			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
-#if JSB_WITH_STATIC_BINDINGS
-			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.hash)) {
+#if 0 // BISECT: class hook disabled
+			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_name, method_info.hash)) {
 				if (method_info.method.flags & METHOD_FLAG_STATIC) {
 					static_builder.Method(method_name, sb_thunk);
 				} else {

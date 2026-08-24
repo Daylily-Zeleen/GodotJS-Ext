@@ -32,8 +32,10 @@ const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringN
 const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash);
 
 // Object-derived class methods: p_class is the engine class name
-// (e.g. "Node"), hash the official method hash.
-const ThunkFn find_class_method_thunk(const godot::StringName &p_class, uint32_t p_hash);
+// (e.g. "Node"), p_name disambiguates same-hash overloads, hash is the
+// official method hash.
+const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
+        const godot::StringName &p_name, uint32_t p_hash);
 
 } // namespace jsb::static_binding
 

@@ -747,7 +747,7 @@ public:
 				}
 
 #if JSB_WITH_STATIC_BINDINGS
-				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk((uint32_t)TYPE, method_info.method.name, method_info.hash)) {
+				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.method.name, method_info.hash)) {
 					if (method_info.is_static()) {
 						class_builder.Static().Method(member_name, sb_thunk);
 					} else {
