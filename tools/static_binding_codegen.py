@@ -540,7 +540,12 @@ def emit_registry_cpp(m):
 def arg_template_expr(a):
     t = a["type"]
     ct = PARAM_TYPE_MAP.get(t)
-    assert ct, f"unhandled argument type: {t}"
+    if ct is None:
+        # enums/bitfields are integers at the ABI level; bare engine class
+        # names (Button, Sprite2D, ...) behave as plain Object* in the
+        # dynamic path as well -- same conversion semantics.
+        ct = ("int64_t" if t.startswith(("enum::", "bitfield::"))
+              else "godot::Object*")
     if "default" in a:
         return 'Arg<%s, %s>' % (ct, cxx_str(a["default"]))
     return 'Arg<%s>' % ct
@@ -551,8 +556,11 @@ def ret_template_expr(t):
         return 'Ret<0>'
     if t in VARIANT_TYPE_VALUES:
         return 'Ret<%d>' % VARIANT_TYPE_VALUES[t]
-    assert t == "Variant", f"unhandled return type: {t}"
-    return 'RetAny'
+    if t.startswith("enum::") or t.startswith("bitfield::") or t == "Variant":
+        if t == "Variant":
+            return 'RetAny'
+        return 'Ret<2>'  # INT: enums/bitfields come back as integers
+    raise AssertionError(f"unhandled return type: {t}")
 
 
 def emit_dispatch_cpp(m):
@@ -651,6 +659,118 @@ def emit_dispatch_cpp(m):
     return "\n".join(L)
 
 
+def class_ident(name):
+    """Class names in Godot are identifier-safe; keep a conservative sanitizer."""
+    out = []
+    for ch in name:
+        if ch.isalnum() or ch == "_":
+            out.append(ch)
+        else:
+            out.append("_%02X" % ord(ch))
+    s = "".join(out)
+    assert s.isidentifier(), f"class name is not a valid identifier: {name!r} -> {s}"
+    return s
+
+
+def class_entry_expr(e, cname):
+    name_lit = cxx_str(m.pool.strings[e["name_id"]])
+    cls_lit = cxx_str(cname)
+    args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
+    tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
+                 else "thunks::class_method_thunk")
+    return "%s<%du, %s, %s, %s, %s%s>" % (
+        tmpl_name, e["hash"], cls_lit, name_lit,
+        cxx_bool(e["is_static"]),
+        ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+
+
+def emit_class_dispatch_cpp(m):
+    """Per-class hash switches for Object-derived methods. The top-level entry
+    resolves the class via binary search over sorted entries (registration-time
+    only), then delegates -- the per-class switch disambiguates same-hash
+    overloads by method name."""
+    L = [GENERATED_NOTE,
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/class_methods.h"',
+         "",
+         "#include <cstring>",
+         "",
+         "namespace jsb::static_binding {",
+         "namespace {",
+         "using thunks::class_method_thunk;",
+         "using thunks::class_vararg_method_thunk;",
+         ""]
+
+    def class_entry_expr(e, cname):
+        name_lit = cxx_str(m.pool.strings[e["name_id"]])
+        cls_lit = cxx_str(cname)
+        args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
+        tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
+                     else "thunks::class_method_thunk")
+        return "%s<%du, %s, %s, %s, %s%s>" % (
+            tmpl_name, e["hash"], cls_lit, name_lit,
+            cxx_bool(e["is_static"]),
+            ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+
+    by_cls = collections.OrderedDict()
+    for e in m.class_methods:
+        by_cls.setdefault(e["class_name_id"], []).append(e)
+
+    cls_entries = []
+    for cid in sorted(by_cls, key=lambda cid: m.pool.strings[cid]):
+        entries = by_cls[cid]
+        cname = m.pool.strings[cid]
+        ident = "find_cls_" + class_ident(cname)
+        cls_entries.append((cxx_str(cname), ident))
+
+        by_hash = collections.OrderedDict()
+        for e in entries:
+            by_hash.setdefault(e["hash"], []).append(e)
+
+        L.append("ThunkFn %s(const godot::StringName &p_name, uint32_t p_hash) {" % ident)
+        L.append("\tswitch (p_hash) {")
+        for h, group in by_hash.items():
+            if len(group) == 1:
+                e = group[0]
+                L.append("\tcase %du: return (ThunkFn)&%s;" % (h, class_entry_expr(e, cname)))
+            else:
+                L.append("\tcase %du: {" % h)
+                for e in group:
+                    nlit = cxx_str(m.pool.strings[e["name_id"]])
+                    L.append('\t\tif (p_name == godot::StringName(%s)) return (ThunkFn)&%s;'
+                             % (nlit, class_entry_expr(e, cname)))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    L.append("} // namespace")
+    L.append("")
+    L.append("const ThunkFn find_class_method_thunk(const godot::StringName &p_class,")
+    L.append("        const godot::StringName &p_name, uint32_t p_hash) {")
+    L.append("\tstruct Entry { const char *name; ThunkFn (*resolve)(const godot::StringName &, uint32_t); };")
+    L.append("\tstatic const Entry k_entries[] = {")
+    for lit, ident in cls_entries:
+        L.append('\t\t{%s, &%s},' % (lit, ident))
+    L.append("\t};")
+    L.append("\t// binary search by class name (registration-time only, ~10 compares)")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tconst int cmp = strcmp(godot::String(p_class).utf8().get_data(), k_entries[mid].name);")
+    L.append("\t\tif (cmp == 0) return k_entries[mid].resolve(p_name, p_hash);")
+    L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
+    L.append("\t}")
+    L.append("\treturn nullptr;")
+    L.append("}")
+    L.append("")
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
 def emit_manifest(m, input_path, interface_path):
     uniq_defaults = set()
     for lst in (m.builtin_methods, m.class_methods, m.utility_funcs):
@@ -711,6 +831,7 @@ def main():
     m = collect(data, vt_map)
     outputs = {
         "dispatch.gen.cpp": emit_dispatch_cpp(m),
+        "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
         "manifest.gen.json": emit_manifest(m, ns.input, ns.interface),
     }
 
