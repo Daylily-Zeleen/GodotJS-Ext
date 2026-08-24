@@ -5,7 +5,7 @@
 /*                                GodotJS-Ext                           */
 /*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
 /*                                                                      */
-/*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
+/*  Copyright (c) 2026-present å¿å¿§ã® (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
 /*  Copyright (c) Contributors of GodotJS                               */
 /*                 - <https://github.com/godotjs/GodotJS>               */
@@ -45,8 +45,8 @@ static Variant::Type sanitize_return_type(const Variant::Type p_metadata_type, c
 }
 
 /** TODO:
-		仅对 RefCounted, 额外添加 [Symbol.dispose] 与 [Symbol.asyncDispose] 以支持离开 using 作用域时释放资源资源， env->dispose_binding_object
-		注意文档也要相应生成
+		ä»å¯¹ RefCounted, é¢å¤æ·»å  [Symbol.dispose] ä¸ [Symbol.asyncDispose] ä»¥æ¯æç¦»å¼ using ä½ç¨åæ¶éæ¾èµæºèµæºï¼ env->dispose_binding_object
+		æ³¨æææ¡£ä¹è¦ç¸åºçæ
  */
 NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, const godot::StringName &p_class_name, NativeClassID *r_class_id) {
 	v8::Isolate *isolate = p_env->get_isolate();
@@ -107,7 +107,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 						setter_method ? _godot_object_set2 : nullptr,
 						remap_index);
 			} else {
-				// TODO: 改用更简单的访问器回调取代 _godot_object_method
+				// TODO: æ¹ç¨æ´ç®åçè®¿é®å¨åè°åä»£ _godot_object_method
 				class_builder.Instance().Property(property_name,
 						getter_method ? _godot_object_method : nullptr,
 						(void *)getter_method,
@@ -123,8 +123,9 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 
 		// class: methods
 		for (const api_tool::ApiClassMethod &method_info : api_class->methods) {
-			if (method_info.is_virtual()) continue;
-#ifdef JSB_WITH_STATIC_BINDINGS
+			if (method_info.is_virtual()) continue; // 虚函数不需要绑定
+			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
+#if JSB_WITH_STATIC_BINDINGS
 			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.hash)) {
 				if (method_info.method.flags & METHOD_FLAG_STATIC) {
 					static_builder.Method(method_name, sb_thunk);
@@ -135,11 +136,10 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 			}
 			JSB_LOG(Warning, "static binding not found: %s.%s [class], falling back to dynamic binding",
 					p_class_name, method_name);
-#endif // 虚函数不需要绑定
+#endif
 #if JSB_EXCLUDE_GETSET_METHODS
 			if (omitted_methods.has(method_info.method.name)) continue;
 #endif
-			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
 
 			if (method_info.method.flags & METHOD_FLAG_STATIC) {
 				static_builder.Method(method_name, _godot_object_method, (void *)&method_info);
