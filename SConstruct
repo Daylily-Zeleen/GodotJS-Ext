@@ -777,6 +777,9 @@ runtime_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
 
 editor_env = env.Clone()
+editor_env.variant_dir = "build_editor"
+editor_env["OBJPREFIX"] = "build_editor/"
+
 if jsb_platform == "windows":
     editor_env.Append(CCFLAGS=["/FS"])
 editor_sources = []
