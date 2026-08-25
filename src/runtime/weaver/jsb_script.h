@@ -38,7 +38,7 @@
 #include <godot_cpp/templates/self_list.hpp>
 #include <godot_cpp/templates/vector.hpp>
 
-#include <runtime/compat/misc.h>
+#include <common/compat/misc.h>
 #include "jsb_script_language.h"
 
 class ScriptInstance;

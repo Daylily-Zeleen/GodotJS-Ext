@@ -30,7 +30,7 @@
 #include "jsb_script_instance.h"
 #include "jsb_script_language.h"
 
-#include <runtime/compat/misc.h>
+#include <common/compat/misc.h>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 

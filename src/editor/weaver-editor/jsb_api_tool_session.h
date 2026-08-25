@@ -27,7 +27,6 @@
 
 #pragma once
 
-#include <cstdio>
 #include "api_tool/api_tool.h"
 
 namespace jsb::editor {
@@ -45,20 +44,20 @@ namespace jsb::editor {
 class ApiToolSession {
 public:
 	explicit ApiToolSession(bool p_require_data = true) {
-		fprintf(stderr, "[DBG] session: check has_generated_data\n");
 		if (p_require_data && !api_tool::has_generated_data()) {
-			fprintf(stderr, "[DBG] session: no data\n");
 			valid_ = false;
 			return;
 		}
 		// Idempotent; no-op when already initialized.
-		fprintf(stderr, "[DBG] session: calling initialize\n");
 		api_tool::initialize();
-		fprintf(stderr, "[DBG] session: initialize returned OK\n");
 		valid_ = true;
 	}
 
-	~ApiToolSession() = default;
+	~ApiToolSession() {
+		// Release this extension's own store copy. The runtime holds a separate
+		// copy for the whole process lifetime, so finalizing here is safe.
+		api_tool::finalize();
+	}
 
 	bool is_valid() const { return valid_; }
 

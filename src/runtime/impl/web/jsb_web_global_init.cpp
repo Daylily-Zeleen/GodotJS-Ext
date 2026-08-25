@@ -29,7 +29,7 @@
 #include "../../bridge/jsb_environment.h"
 #include "../../bridge/jsb_type_convert.h"
 #include "../../bridge/jsb_worker.h"
-#include "../../internal/jsb_logger.h"
+#include <common/internal/jsb_logger.h>
 #include "../../internal/jsb_variant_util.h"
 
 #include <cstdint>

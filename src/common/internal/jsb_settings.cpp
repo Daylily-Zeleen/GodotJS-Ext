@@ -34,9 +34,9 @@
 
 #include <godot_cpp/classes/resource_uid.hpp>
 
-#include <runtime/compat/project_settings.h>
+#include "compat/project_settings.h"
 #ifdef TOOLS_ENABLED
-#	include <runtime/compat/editor_settings.h>
+#	include <common/compat/editor_settings.h>
 #	include <godot_cpp/classes/engine.hpp>
 #endif // TOOLS_ENABLED
 

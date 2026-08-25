@@ -29,7 +29,7 @@
 
 #include "../internal/jsb_bridge_table.h"
 #include <runtime/bridge/jsb_bridge.h>
-#include <runtime/compat/jsb_compat.h>
+#include <common/compat/jsb_compat.h>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_language_extension.hpp>
 #include <godot_cpp/classes/thread.hpp>

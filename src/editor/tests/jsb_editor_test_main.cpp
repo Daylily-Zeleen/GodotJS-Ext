@@ -30,7 +30,7 @@
 
 // Editor-suite test entry. The editor extension has its own doctest
 // implementation TU (this file); cases are registered from the included
-// headers. See src/testing/jsb_test_runner.h for the --jsb-run-editor-tests
+// headers. See src/common/tests/jsb_test_runner.h for the --jsb-run-editor-tests
 // entry point wired into the editor extension's startup callback.
 #include "tests/test_jsb_editor_skeleton.h"
 

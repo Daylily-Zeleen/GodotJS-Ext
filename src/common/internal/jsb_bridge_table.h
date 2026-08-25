@@ -48,6 +48,7 @@
 //  - All pointers are valid for the duration of the call only.
 
 #include <cstdint>
+#include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -55,20 +56,29 @@
 
 namespace jsb {
 
-using JsbEvalFn = void (*)(const char *p_source_utf8, int64_t p_length,
-                           GDExtensionVariantPtr r_result_variant, int64_t *r_error);
+// All bridge functions return godot::Error directly; only the Variant RESULT
+// is passed through an out-parameter (GDExtensionVariantPtr).
+using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
+                                   GDExtensionVariantPtr r_result_variant);
 
 /// Evaluate source with one argument Variant exposed as the `__jsb_arg` global.
-using JsbEvalArgFn = void (*)(const char *p_source_utf8, int64_t p_length,
-                              GDExtensionConstVariantPtr p_argument_variant,
-                              GDExtensionVariantPtr r_result_variant, int64_t *r_error);
+using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
+                                      GDExtensionConstVariantPtr p_argument_variant,
+                                      GDExtensionVariantPtr r_result_variant);
 
-using JsbQueryFn = void (*)(const char *p_arg_utf8, int64_t p_length,
-                            GDExtensionVariantPtr r_result_variant, int64_t *r_error);
+using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length,
+                                    GDExtensionVariantPtr r_result_variant);
 
-using JsbFillStatsFn = void (*)(void *p_statistics_raw, int64_t *r_error);
+using JsbFillStatsFn = godot::Error (*)(void *p_statistics_raw);
 
-using JsbVoidFn = void (*)(int64_t *r_error);
+using JsbVoidFn = godot::Error (*)();
+
+/// Register an editor-side console output sink. `p_userdata` is passed back on
+/// every write; returns an opaque handle used to remove the sink later.
+using JsbAddConsoleFn = int64_t (*)(void *p_userdata,
+                                    void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length));
+/// Remove a previously registered console sink. Returns OK even if unknown.
+using JsbRemoveConsoleFn = godot::Error (*)(int64_t p_handle);
 
 struct JsbBridgeTable {
 	/// sizeof(JsbBridgeTable) at the time the runtime built it. Reject tables
@@ -98,8 +108,8 @@ struct JsbBridgeTable {
 	/// request a full garbage collection pass
 	JsbVoidFn request_gc = nullptr;
 
-	/// result = PackedStringArray of the language's reserved words
-	JsbQueryFn get_reserved_words = nullptr;
+	JsbAddConsoleFn add_console_output = nullptr;
+	JsbRemoveConsoleFn remove_console_output = nullptr;
 };
 
 /// Runtime-side singleton accessor (defined in jsb_bridge_table.cpp).

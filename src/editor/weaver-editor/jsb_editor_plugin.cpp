@@ -29,15 +29,13 @@
 #include "jsb_editor_plugin.h"
 #include "api_tool/api_tool.h"
 #include "jsb_api_tool_session.h"
-#include "runtime/internal/jsb_settings.h"
-#include <runtime/internal/jsb_string_names.h>
-#include <runtime/internal/jsb_naming_util.h>
+#include "common/internal/jsb_settings.h"
+#include <common/internal/jsb_naming_util.h>
 #include "api_tool/editor/api_tool_editor.h"
 #include "jsb_config_classes_dialog.h"
 #include <cstdio>
 #include "jsb_editor_bridge.h"
 #include "jsb_docked_panel.h"
-#include "jsb_editor_helper.h"
 #include <codegen/jsb_codegen_generator.h>
 #include "jsb_editor_progress.h"
 #include "jsb_export_plugin.h"
@@ -58,7 +56,7 @@
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/timer.hpp>
 
-#include <runtime/compat/misc.h>
+#include <common/compat/misc.h>
 #define JSB_TYPE_ROOT "typings"
 
 enum {
@@ -148,8 +146,7 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 		case NOTIFICATION_APPLICATION_FOCUS_IN:
 			if (const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge()) {
 				if (bridge->scan_external_changes != nullptr) {
-					int64_t err = OK;
-					bridge->scan_external_changes(&err);
+					bridge->scan_external_changes();
 				}
 			}
 			break;
@@ -214,22 +211,6 @@ void GodotJSEditorPlugin::_generate_types_from_cmdline() {
 			}
 		}
 		return;
-	}
-	// The editor-side StringNames copy needs the same replacement tables the
-	// runtime builds at language init; rebuild them here (idempotent-ish:
-	// add_replacement is insert-based and the inputs are deterministic).
-	{
-		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-		PackedStringArray reserved_words;
-		if (bridge != nullptr && bridge->get_reserved_words != nullptr) {
-			int64_t qerr = OK;
-			Variant words;
-			bridge->get_reserved_words("", 0, words._native_ptr(), &qerr);
-			if (qerr == OK && words.get_type() == Variant::PACKED_STRING_ARRAY) {
-				reserved_words = words;
-			}
-		}
-		jsb::internal::StringNames::get_singleton().populate_replacements(reserved_words);
 	}
 	// The first filesystem scan starts only AFTER `init_plugins()` (i.e. after our
 	// NOTIFICATION_READY + deferred call): `_first_scan_filesystem()` runs inside
@@ -835,8 +816,30 @@ void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArra
 }
 
 bool GodotJSEditorPlugin::_is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path) {
-	return GodotJSEditorHelper::is_path_matchn(p_wildcards, p_path);
+	for (const String &wildcard : p_wildcards) {
+		if ((wildcard.contains("*") || wildcard.contains("?")) && p_path.match(wildcard)) {
+			return true;
+		} else {
+			const String &lower_case_path = p_path.to_lower();
+			String lower_case_wildcard = wildcard.to_lower();
+			if (lower_case_path == lower_case_wildcard) {
+				return true; // Exact match file.
+			} else {
+				if (!lower_case_wildcard.ends_with("/")) {
+					// Cheat as directory.
+					lower_case_wildcard += "/";
+				}
+
+				if (lower_case_path.begins_with(lower_case_wildcard)) {
+					return true; // Match directory.
+				}
+			}
+		}
+	}
+
+	return false;
 }
+
 
 Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths) {
 	Vector<String> filtered_paths;
@@ -945,7 +948,7 @@ void GodotJSEditorPlugin::_on_generate_api_tool_data_confirmed(ConfirmationDialo
 	EditorInterface::get_singleton()->save_all_scenes();
 	p_dialog->queue_free();
 
-	GodotJSEditorHelper::generate_api_tool_data();
+	api_tool::full_generate_and_reboot();
 }
 
 void GodotJSEditorPlugin::try_install_project_files(std::function<void(bool)> complete, bool force) {
@@ -1149,9 +1152,8 @@ void GodotJSEditorPlugin::load_editor_entry_module() {
 	ERR_FAIL_NULL_MSG(bridge->eval, "runtime bridge eval is not available");
 
 	String source = "require('jsb.editor.main')\n";
-	int64_t err = OK;
 	Variant result;
-	bridge->eval(source.utf8().get_data(), source.utf8().length(), result._native_ptr(), &err);
+	const godot::Error err = bridge->eval(source.utf8().get_data(), source.utf8().length(), result._native_ptr());
 	ERR_FAIL_COND_MSG(err != OK, "failed to evaluate jsb.editor.main");
 }
 
@@ -1220,11 +1222,9 @@ void GodotJSEditorPlugin::ensure_tsc_installed() {
 	ERR_FAIL_NULL_MSG(bridge, "runtime bridge is not available");
 	ERR_FAIL_NULL_MSG(bridge->eval, "runtime bridge eval is not available");
 
-	int64_t err = OK;
-	Variant result;
 	String source = "require('jsb.editor.main').run_npm_install()\n";
 	const CharString code_utf8 = source.utf8();
-	bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr(), &err);
+	const godot::Error err = bridge->eval(code_utf8.get_data(), code_utf8.length(), nullptr);
 	if (err != OK) {
 		JSB_LOG(Warning, "run_npm_install failed (%d)", (int)err);
 	}

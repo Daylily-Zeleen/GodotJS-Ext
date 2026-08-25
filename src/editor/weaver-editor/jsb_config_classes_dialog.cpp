@@ -27,13 +27,13 @@
 
 #include "jsb_editor_pch.h"
 
-#include "runtime/internal/jsb_naming_util.h"
-#include "runtime/internal/jsb_settings.h"
-#include "runtime/internal/jsb_class_visibility.h"
+#include "common/internal/jsb_naming_util.h"
+#include "common/internal/jsb_settings.h"
+#include "common/internal/jsb_class_visibility.h"
 #include "jsb_editor_plugin.h"
 
-#include <runtime/compat/editor_settings.h>
-#include <runtime/compat/misc.h>
+#include <common/compat/editor_settings.h>
+#include <common/compat/misc.h>
 #include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/confirmation_dialog.hpp>
 #include <godot_cpp/classes/file_access.hpp>

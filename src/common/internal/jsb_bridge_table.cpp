@@ -42,56 +42,43 @@ namespace jsb {
 // godot-cpp into the caller-owned variant storage.
 // ---------------------------------------------------------------------------
 
-static void bridge_eval(const char *p_source_utf8, int64_t p_length,
-                        GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_eval(const char *p_source_utf8, int64_t p_length,
+                                GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	if (!Thread::is_main_thread()) {
-		*r_error = ERR_UNAVAILABLE;
-		return;
+		return ERR_UNAVAILABLE;
 	}
 
 	Error err = OK;
 	jsb::JSValueMove result = lang->eval_source(String::utf8(p_source_utf8, (int)p_length), err);
 	if (err != OK) {
-		*r_error = err;
-		return;
+		return err;
 	}
 
 	Variant value = result.to_variant();
 	if (r_result_variant) {
 		::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
 	}
-	*r_error = OK;
+	return OK;
 }
 
-static void bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length,
+static godot::Error bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length,
                                  GDExtensionConstVariantPtr p_argument_variant,
-                                 GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	fprintf(stderr, "[BRIDGE-DBG] eval_with_arg enter\n");
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+                                 GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	if (!Thread::is_main_thread()) {
-		*r_error = ERR_UNAVAILABLE;
-		return;
+		return ERR_UNAVAILABLE;
 	}
 
 	std::shared_ptr<jsb::Environment> env = lang->get_environment();
 	if (!env) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 
 	v8::Isolate *isolate = env->get_isolate();
@@ -106,11 +93,8 @@ static void bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length,
 		arg = Variant(p_argument_variant);
 	}
 	v8::Local<v8::Value> arg_value;
-	bool conv_ok = jsb::TypeConvert::gd_var_to_js(isolate, context, arg, arg_value);
-	fprintf(stderr, "[BRIDGE-DBG] gd_var_to_js ok=%d type=%d\n", (int)conv_ok, (int)arg.get_type());
-	if (!conv_ok) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
+	if (!jsb::TypeConvert::gd_var_to_js(isolate, context, arg, arg_value)) {
+		return ERR_INVALID_PARAMETER;
 	}
 	const v8::Local<v8::String> arg_key = impl::Helper::new_string_ascii(isolate, "__jsb_arg");
 	context->Global()->Set(context, arg_key, arg_value).Check();
@@ -118,36 +102,26 @@ static void bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length,
 	Error err = OK;
 	const String src_str = String::utf8(p_source_utf8, (int)p_length);
 	const CharString src_utf8 = src_str.utf8();
-	fprintf(stderr, "[BRIDGE-DBG] before eval (%d chars)\n", (int)src_utf8.length());
 	jsb::JSValueMove result = env->eval_source(src_utf8.get_data(), src_utf8.length(), "bridge_eval", err);
-	fprintf(stderr, "[BRIDGE-DBG] after eval err=%d\n", (int)err);
 	if (err != OK) {
-		*r_error = err;
-		return;
+		return err;
 	}
 
 	Variant value = result.to_variant();
-	fprintf(stderr, "[BRIDGE-DBG] to_variant done type=%d\n", (int)value.get_type());
 	if (r_result_variant) {
 		::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
 	}
-	*r_error = OK;
-	fprintf(stderr, "[BRIDGE-DBG] eval_with_arg done\n");
+	return OK;
 }
 
-static void bridge_get_module_source_info(const char *p_path_utf8, int64_t p_length,
-                                          GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_get_module_source_info(const char *p_path_utf8, int64_t p_length,
+                                      GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	if (!r_result_variant) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
+		return ERR_INVALID_PARAMETER;
 	}
 
 	const String path = String::utf8(p_path_utf8, (int)p_length);
@@ -158,28 +132,23 @@ static void bridge_get_module_source_info(const char *p_path_utf8, int64_t p_len
 	if (env && env->load(path, &module) == OK && module != nullptr) {
 		info["source"] = module->source_info.source_filepath;
 		info["package"] = module->source_info.package_filepath;
-		*r_error = OK;
 	} else {
-		*r_error = ERR_CANT_OPEN;
+		return ERR_CANT_OPEN;
 	}
 
 	Variant value = info;
 	::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
+	return OK;
 }
 
-static void bridge_get_module_direct_dependencies(const char *p_path_utf8, int64_t p_length,
-                                                  GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_get_module_direct_dependencies(const char *p_path_utf8, int64_t p_length,
+                                      GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	if (!r_result_variant) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
+		return ERR_INVALID_PARAMETER;
 	}
 
 	const String path = String::utf8(p_path_utf8, (int)p_length);
@@ -211,102 +180,102 @@ static void bridge_get_module_direct_dependencies(const char *p_path_utf8, int64
 				}
 			}
 		}
-		*r_error = OK;
 	} else {
-		*r_error = ERR_CANT_OPEN;
+		return ERR_CANT_OPEN;
 	}
 
 	Variant value = deps;
 	::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
+	return OK;
 }
 
-static void bridge_fill_statistics(void *p_statistics_raw, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_fill_statistics(void *p_statistics_raw) {
 	if (!p_statistics_raw) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
+		return ERR_INVALID_PARAMETER;
 	}
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 
 	std::shared_ptr<jsb::Environment> env = lang->get_environment();
 	if (!env) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	env->get_statistics(*static_cast<jsb::Statistics *>(p_statistics_raw));
-	*r_error = OK;
+	return OK;
 }
 
-static void bridge_scan_external_changes(int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_scan_external_changes() {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	lang->scan_external_changes();
-	*r_error = OK;
+	return OK;
 }
 
-static void bridge_is_global_class_generic(const char *p_path_utf8, int64_t p_length,
-                                           GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_is_global_class_generic(const char *p_path_utf8, int64_t p_length,
+                                      GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
+		return ERR_UNCONFIGURED;
 	}
 	if (!r_result_variant) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
+		return ERR_INVALID_PARAMETER;
 	}
 
 	const String path = String::utf8(p_path_utf8, (int)p_length);
 	Variant value = lang->is_global_class_generic(path);
 	::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
-	*r_error = OK;
+	return OK;
 }
 
-static void bridge_request_gc(int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
-
+static godot::Error bridge_request_gc() {
 	if (!Thread::is_main_thread()) {
-		*r_error = ERR_UNAVAILABLE;
-		return;
+		return ERR_UNAVAILABLE;
 	}
 	jsb::Environment::gc();
-	*r_error = OK;
+	return OK;
 }
 
-static void bridge_get_reserved_words(const char *p_arg_utf8, int64_t p_length,
-                                      GDExtensionVariantPtr r_result_variant, int64_t *r_error) {
-	if (!r_error) return;
-	*r_error = ERR_UNAVAILABLE;
 
-	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
-	if (lang == nullptr || !Thread::is_main_thread()) {
-		*r_error = ERR_UNCONFIGURED;
-		return;
-	}
-	if (!r_result_variant) {
-		*r_error = ERR_INVALID_PARAMETER;
-		return;
-	}
+namespace {
+// Trampoline that adapts an editor-side write callback into the runtime's
+// IConsoleOutput list. Lifetime is owned by the bridge until removal.
+class EditorConsoleTrampoline final : public jsb::internal::IConsoleOutput {
+public:
+	void *userdata = nullptr;
+	void (*write_fn)(void *, int32_t, const char *, int64_t) = nullptr;
 
-	Variant value = lang->_get_reserved_words();
-	::godot::gdextension_interface::variant_new_copy(r_result_variant, value._native_ptr());
-	*r_error = OK;
+	void write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) override {
+		const CharString utf8 = p_text.utf8();
+		write_fn(userdata, (int32_t)p_severity, utf8.get_data(), utf8.length());
+	}
+};
+
+Vector<EditorConsoleTrampoline *> g_editor_consoles;
+int64_t g_next_console_handle = 1;
+} //namespace
+
+static int64_t bridge_add_console_output(void *p_userdata,
+        void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length)) {
+	if (!p_write) return -1;
+	EditorConsoleTrampoline *t = memnew(EditorConsoleTrampoline);
+	t->userdata = p_userdata;
+	t->write_fn = p_write;
+	g_editor_consoles.append(t);
+	return (int64_t)(intptr_t)t;
+}
+
+static godot::Error bridge_remove_console_output(int64_t p_handle) {
+	EditorConsoleTrampoline *t = (EditorConsoleTrampoline *)(intptr_t)p_handle;
+	const int idx = g_editor_consoles.find(t);
+	if (idx >= 0) {
+		memdelete(t);
+		g_editor_consoles.remove_at(idx);
+	}
+	return OK; // idempotent
 }
 
 static JsbBridgeTable g_bridge_table = {
@@ -319,7 +288,8 @@ static JsbBridgeTable g_bridge_table = {
 	&bridge_scan_external_changes,
 	&bridge_is_global_class_generic,
 	&bridge_request_gc,
-	&bridge_get_reserved_words,
+	&bridge_add_console_output,
+	&bridge_remove_console_output,
 };
 
 const JsbBridgeTable *get_bridge_table() {

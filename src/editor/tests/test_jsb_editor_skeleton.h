@@ -30,7 +30,7 @@
 // project-root working directory contract shared by both suites.
 // Real codegen unit tests land here in T1.
 
-#include "testing/jsb_test_utils.h"
+#include "../common/tests/jsb_test_utils.h"
 #include <godot_cpp/classes/os.hpp>
 
 namespace jsb::tests {

@@ -27,7 +27,7 @@
 
 #include "jsb_console_output.h"
 
-#include <runtime/compat/rw_lock.h>
+#include <common/compat/rw_lock.h>
 #include <godot_cpp/templates/vector.hpp>
 
 namespace jsb::internal {

@@ -26,7 +26,7 @@
 /************************************************************************/
 
 #include "jsb_repl.h"
-#include "runtime/compat/jsb_compat.h"
+#include "common/compat/jsb_compat.h"
 #include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
@@ -46,13 +46,21 @@
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
-#include <runtime/compat/editor_settings.h>
-#include <runtime/compat/misc.h>
+#include <common/compat/editor_settings.h>
+#include <common/compat/misc.h>
 void GodotJSREPL::_bind_methods() {
 }
 
 GodotJSREPL::GodotJSREPL() {
 	//TODO list all created realm instances in REPL, interact with the currently selected one.
+
+	// Register this REPL as a console output sink through the runtime bridge.
+	{
+		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+		if (bridge != nullptr && bridge->add_console_output != nullptr) {
+			console_handle_ = bridge->add_console_output(this, &console_write_trampoline);
+		}
+	}
 
 	input_submitting_ = false;
 	VBoxContainer *vbox = memnew(VBoxContainer);
@@ -159,8 +167,13 @@ GodotJSREPL::GodotJSREPL() {
 }
 
 GodotJSREPL::~GodotJSREPL() {
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge != nullptr && bridge->remove_console_output != nullptr && console_handle_ >= 0) {
+		bridge->remove_console_output(console_handle_);
+		console_handle_ = -1;
+	}
+
 	// ensure self removed before any member destruction to avoid deadlock
-	remove_from_output_list();
 
 	// avoid warning due to unhandled strings
 	output_backlog_.swap().clear();
@@ -231,9 +244,7 @@ void GodotJSREPL::_gc_pressed() {
 		JSB_LOG(Error, "runtime bridge is not available.");
 		return;
 	}
-	int64_t err = OK;
-	bridge->request_gc(&err);
-	if (err == OK) {
+	if (bridge->request_gc() == OK) {
 		add_line("Explicit GC requested");
 	}
 }
@@ -347,10 +358,9 @@ Variant GodotJSREPL::eval_source(const String &p_code) {
 		JSB_LOG(Error, "runtime bridge is not available.");
 		return {};
 	}
-	int64_t err = OK;
-	Variant result;
 	const CharString code_utf8 = p_code.utf8();
-	bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr(), &err);
+	Variant result;
+	const godot::Error err = bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr());
 	if (err != OK) {
 		return {};
 	}
@@ -378,9 +388,13 @@ void GodotJSREPL::_backlog_flush() {
 	backlog.clear();
 }
 
-void GodotJSREPL::write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) {
-	output_backlog_.add(p_text);
+void GodotJSREPL::on_console_write(int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
+	output_backlog_.add(String::utf8(p_text_utf8, (int)p_length));
 	callable_mp(this, &GodotJSREPL::_backlog_flush).call_deferred();
+}
+
+void GodotJSREPL::console_write_trampoline(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
+	static_cast<GodotJSREPL *>(p_userdata)->on_console_write(p_severity, p_text_utf8, p_length);
 }
 
 void GodotJSREPL::add_history(const String &p_text) {
@@ -409,3 +423,4 @@ void GodotJSREPL::_start_tsc_pressed() {
 		check_tsc();
 	}
 }
+

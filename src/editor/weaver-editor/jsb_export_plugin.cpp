@@ -35,7 +35,7 @@
 #	include <godot_cpp/classes/project_settings.hpp>
 #endif // JSB_WITH_NODE
 
-#include <runtime/compat/misc.h>
+#include <common/compat/misc.h>
 
 #include "api_tool/editor/api_tool_editor.h"
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
@@ -212,10 +212,9 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 	if (const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
 			bridge != nullptr && bridge->get_module_source_info != nullptr) {
 		// source + optional package.json of THIS module
-		int64_t qerr = OK;
 		Variant source_info;
 		const CharString path_utf8 = p_path.utf8();
-		bridge->get_module_source_info(path_utf8.get_data(), path_utf8.length(), source_info._native_ptr(), &qerr);
+		godot::Error qerr = bridge->get_module_source_info(path_utf8.get_data(), path_utf8.length(), source_info._native_ptr());
 		if (qerr == OK && source_info.get_type() == Variant::DICTIONARY) {
 			Dictionary info = source_info;
 			export_raw_file(info.get("source", String()), p_remap);
@@ -228,7 +227,7 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 		// one-level dependencies (recursion happens through this very function)
 		if (bridge->get_module_direct_dependencies != nullptr) {
 			Variant deps_var;
-			bridge->get_module_direct_dependencies(path_utf8.get_data(), path_utf8.length(), deps_var._native_ptr(), &qerr);
+			qerr = bridge->get_module_direct_dependencies(path_utf8.get_data(), path_utf8.length(), deps_var._native_ptr());
 			if (qerr == OK && deps_var.get_type() == Variant::PACKED_STRING_ARRAY) {
 				for (const String &filename : (PackedStringArray)deps_var) {
 					if (export_compiled_script(filename, false)) {

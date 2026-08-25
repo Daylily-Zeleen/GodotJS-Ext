@@ -38,7 +38,7 @@
 #	include <v8-cppgc.h>
 #endif
 
-#include "../../internal/jsb_logger.h"
+#include <common/internal/jsb_logger.h>
 #include "../../internal/jsb_macros.h"
 
 #include "../shared/jsb_custom_field.h"

@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_editor_helper.cpp                                               */
+/*  jsb_codegen_scene_descriptors.cpp                                   */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -17,7 +17,7 @@
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
 /*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -25,28 +25,30 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#include "runtime/internal/jsb_class_visibility.h"
-#include "jsb_editor_helper.h"
+#include "jsb_codegen_scene_descriptors.h"
 
-#include "jsb_editor_bridge.h"
-#include <runtime/internal/jsb_naming_util.h>
-#include "api_tool/api_tool.h"
-#include "api_tool/editor/api_tool_editor.h"
+#include "../weaver-editor/jsb_api_tool_session.h"
+#include "../weaver-editor/jsb_editor_bridge.h"
+#include <common/internal/jsb_class_visibility.h>
+#include <common/internal/jsb_logger.h>
+#include <common/internal/jsb_path_util.h>
+#include <common/internal/jsb_naming_util.h>
+#include <common/internal/jsb_settings.h>
+#include <godot_cpp/classes/script.hpp>
+#include <api_tool/api_tool.h>
+
 #include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/animation_mixer.hpp>
-#include <godot_cpp/classes/editor_interface.hpp>
-#include <godot_cpp/classes/editor_toaster.hpp>
-#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
-#include <godot_cpp/classes/resource_format_loader.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
-#include <godot_cpp/classes/script.hpp>
+#include <godot_cpp/templates/local_vector.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
-// The following enums must be kept in sync with jsb.editor.codegen.ts
-enum class CodeGenType {
-	ScriptNodeTypeDescriptor,
-	ScriptResourceTypeDescriptor,
-};
+namespace jsb::codegen {
+
+namespace {
 enum class DescriptorType {
 	Godot,
 	User,
@@ -64,7 +66,7 @@ enum class DescriptorType {
 	Indexed,
 };
 
-bool GodotJSEditorHelper::_request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result) {
+bool _request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result) {
 	jsb::JsbBridgeTable bridge_copy;
 	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
 	if (bridge == nullptr || bridge->eval_with_arg == nullptr) {
@@ -86,17 +88,15 @@ bool GodotJSEditorHelper::_request_codegen(const String &p_script_path, const Di
 	source += "  return m.codegen(__jsb_arg);\n";
 	source += "})()\n";
 
-	int64_t err = OK;
 	Variant result;
 	{
 		const Variant request_variant = p_request; // Variant wrapping the request dictionary
-		bridge_copy.eval_with_arg(source.utf8().get_data(), source.utf8().length(),
-			request_variant._native_ptr(), result._native_ptr(), &err);
-	}
-
-	if (err != OK) {
-		JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
-		return false;
+		const godot::Error err = bridge_copy.eval_with_arg(source.utf8().get_data(),
+			source.utf8().length(), request_variant._native_ptr(), result._native_ptr());
+		if (err != OK) {
+			JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
+			return false;
+		}
 	}
 	if (result.get_type() != Variant::DICTIONARY) {
 		return false;
@@ -105,7 +105,7 @@ bool GodotJSEditorHelper::_request_codegen(const String &p_script_path, const Di
 	return true;
 }
 
-StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName &class_name) {
+StringName _get_exposed_node_class_name(const StringName &class_name) {
 	StringName exposed_class_name = class_name;
 
 	while (!jsb::internal::ClassVisibility::is_original_class_exposed(exposed_class_name)) {
@@ -118,7 +118,7 @@ StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName &c
 	return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
 }
 
-Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
+Dictionary _build_node_type_descriptor(const godot::BitField<jsb::internal::SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
 	jsb_check(p_strategic != 0);
 
 	Dictionary descriptor;
@@ -153,11 +153,10 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
 		bool generic_global_class = true;
 		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
-			int64_t qerr = OK;
 			Variant result;
 			const String spath = script->get_path();
 			const CharString spath_utf8 = spath.utf8();
-			bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr(), &qerr);
+			const godot::Error qerr = bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr());
 			generic_global_class = (qerr == OK) ? (bool)result : true;
 		}
 		if (!script.is_valid()
@@ -243,7 +242,7 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 			}
 
 			descriptor["type"] = (int32_t)DescriptorType::Godot;
-			descriptor["name"] = GodotJSEditorHelper::_get_exposed_node_class_name(p_node->get_class());
+			descriptor["name"] = _get_exposed_node_class_name(p_node->get_class());
 			descriptor["arguments"] = generic_arguments;
 		} else {
 			descriptor["type"] = (int32_t)DescriptorType::User;
@@ -252,7 +251,7 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 		}
 	}
 
-	if (p_strategic.has_flag(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
+	if (p_strategic.has_flag(jsb::internal::SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
 		if (p_node->is_unique_name_in_owner()) {
 			r_unique_name_nodes["%" + p_node->get_name()] = descriptor;
 		}
@@ -260,8 +259,7 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 	return descriptor;
 }
 
-// Similar logic to EditorNode::_dialog_display_load_error.
-void GodotJSEditorHelper::_log_load_error(const String &p_file, const String &p_type, Error p_error) {
+void _log_load_error(const String &p_file, const String &p_type, godot::Error p_error) {
 	if (p_error) {
 		switch (p_error) {
 			case ERR_CANT_OPEN: {
@@ -292,14 +290,10 @@ void GodotJSEditorHelper::_log_load_error(const String &p_file, const String &p_
 	}
 }
 
-void GodotJSEditorHelper::_bind_methods() {
-	ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("show_toast", "text", "severity"), &GodotJSEditorHelper::show_toast);
-	ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("get_resource_type_descriptor", "resource_path"), &GodotJSEditorHelper::get_resource_type_descriptor);
-	ClassDB::bind_static_method(jsb_typename(GodotJSEditorHelper), D_METHOD("get_scene_nodes", "scene_path"), &GodotJSEditorHelper::get_scene_nodes);
-}
+} //namespace
 
-Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String &p_path) {
-	ERR_FAIL_COND_V_MSG(!has_api_tool_data(), {}, "Please generate api tool data first.");
+Dictionary get_resource_type_descriptor(const String &p_path) {
+	ERR_FAIL_COND_V_MSG(!api_tool::has_generated_data(), {}, "Please generate api tool data first.");
 
 	Dictionary descriptor;
 	Ref<Resource> resource = ResourceLoader::get_singleton()->load(p_path, "", ResourceLoader::CACHE_MODE_REUSE);
@@ -318,9 +312,9 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String &p_pat
 			return descriptor;
 		}
 
-		BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
+		godot::BitField<jsb::internal::SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
 	if (strategic == 0) {
-		strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+		strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
 		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
 	}
 
@@ -351,18 +345,17 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String &p_pat
 	{
 		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
 		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
-			int64_t qerr = OK;
 			Variant result;
 			const String spath = script->get_path();
 			const CharString spath_utf8 = spath.utf8();
-			bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr(), &qerr);
+			const godot::Error qerr = bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr());
 			generic_global_class = (qerr == OK) ? (bool)result : true;
 		}
 	}
 
 	if (!script.is_valid() || generic_global_class) {
 		descriptor["type"] = (int32_t)DescriptorType::Godot;
-		descriptor["name"] = GodotJSEditorHelper::_get_exposed_node_class_name(resource->get_class());
+		descriptor["name"] = _get_exposed_node_class_name(resource->get_class());
 	} else {
 		String class_name = ((bool)script->call("can_instantiate"))
 				? static_cast<String>(script->get_global_name())
@@ -381,8 +374,8 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String &p_pat
 	return descriptor;
 }
 
-Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
-	ERR_FAIL_COND_V_MSG(!has_api_tool_data(), {}, "Please generate api tool data first.");
+Dictionary get_scene_nodes(const String &p_path) {
+	ERR_FAIL_COND_V_MSG(!api_tool::has_generated_data(), {}, "Please generate api tool data first.");
 
 	Ref<PackedScene> scene_data = ResourceLoader::get_singleton()->load(p_path, "", ResourceLoader::CACHE_MODE_REPLACE);
 
@@ -402,9 +395,9 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
 	Dictionary unique_name_nodes;
 	int child_count = instantiated_scene->get_child_count(true);
 
-	BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
+	godot::BitField<jsb::internal::SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
 	if (strategic == 0) {
-		strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+		strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
 		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
 	}
 	for (int i = 0; i < child_count; i++) {
@@ -414,7 +407,7 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
 
 	instantiated_scene->queue_free();
 
-	if (!strategic.has_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
+	if (!strategic.has_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
 		nodes.clear();
 	}
 	nodes.merge(unique_name_nodes);
@@ -422,21 +415,7 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
 	return nodes;
 }
 
-void GodotJSEditorHelper::show_toast(const String &p_text, int p_severity) {
-	if (EditorToaster *toaster = EditorInterface::get_singleton()->get_editor_toaster()) {
-		toaster->push_toast(p_text, (EditorToaster::Severity)p_severity);
-	}
-}
-
-bool GodotJSEditorHelper::has_api_tool_data() {
-	return api_tool::has_generated_data();
-}
-
-void GodotJSEditorHelper::generate_api_tool_data() {
-	api_tool::full_generate_and_reboot();
-}
-
-bool GodotJSEditorHelper::is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path) {
+bool is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path) {
 	for (const String &wildcard : p_wildcards) {
 		if ((wildcard.contains("*") || wildcard.contains("?")) && p_path.match(wildcard)) {
 			return true;
@@ -460,3 +439,5 @@ bool GodotJSEditorHelper::is_path_matchn(const PackedStringArray &p_wildcards, c
 
 	return false;
 }
+
+} //namespace jsb::codegen

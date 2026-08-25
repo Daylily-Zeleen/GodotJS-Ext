@@ -30,7 +30,7 @@
 #include "../bridge/jsb_essentials.h"
 #include "../bridge/jsb_object_db.h"
 #include "../bridge/jsb_type_convert.h"
-#include "../compat/string_builder.h"
+#include "../../common/compat/string_builder.h"
 #include "jsb_test_helpers.h"
 
 #include <godot_cpp/classes/weak_ref.hpp>

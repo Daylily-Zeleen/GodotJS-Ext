@@ -85,10 +85,6 @@ public:
 		replacements_inv_.insert(replacement, name);
 	}
 
-	/// Build the original<->exposed name replacement tables from the currently
-	/// visible class list and singletons. `p_reserved_words` is used to rename
-	/// utility functions that collide with JavaScript reserved words.
-	void populate_replacements(const PackedStringArray &p_reserved_words);
 
 	StringName sn_godot_typeloader;
 	StringName sn_godot_postbind;

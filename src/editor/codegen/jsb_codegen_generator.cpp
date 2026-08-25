@@ -28,8 +28,9 @@
 #include "jsb_codegen_writer.h"
 
 #include "api_tool/api_tool.h"
-#include <runtime/internal/jsb_class_visibility.h>
+#include <common/internal/jsb_class_visibility.h>
 #include <api_tool/editor/api_tool_editor.h>
+#include "jsb_codegen_scene_descriptors.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -37,13 +38,12 @@
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
-#include <weaver-editor/jsb_editor_helper.h>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include "jsb_logger.h"
-#include <runtime/internal/jsb_macros.h>
-#include <runtime/internal/jsb_naming_util.h>
-#include <runtime/internal/jsb_settings.h>
+#include <common/internal/jsb_logger.h>
+#include <common/internal/jsb_macros.h>
+#include <common/internal/jsb_naming_util.h>
+#include <common/internal/jsb_settings.h>
 #include "../internal/jsb_class_visibility.h"
 
 namespace jsb {
@@ -604,7 +604,7 @@ bool SceneTSDGenerator::emit_scene_node_types(const String &p_scene_path) {
     // matching children emits `"path": {}` (see baseline Worker.nodes.gen.ts).
     // The old TS codegen only threw on `undefined`, which cannot happen through
     // this call path; helper-side load failures already log their own errors.
-    Dictionary children = GodotJSEditorHelper::get_scene_nodes(p_scene_path);
+    Dictionary children = jsb::codegen::get_scene_nodes(p_scene_path);
 
     const String dir_path = make_scene_path(p_scene_path, false);
     const Error dir_error = DirAccess::make_dir_recursive_absolute(dir_path);
@@ -731,7 +731,7 @@ ResourceTSDGenerator::ScriptRpcInfo ResourceTSDGenerator::get_script_rpc_info(co
 }
 
 bool ResourceTSDGenerator::emit_resource_type(const String &p_resource_path) {
-    Dictionary descriptor = GodotJSEditorHelper::get_resource_type_descriptor(p_resource_path);
+    Dictionary descriptor = jsb::codegen::get_resource_type_descriptor(p_resource_path);
     if (descriptor.is_empty()) {
         ERR_PRINT("resource type unavailable: " + p_resource_path);
         return false;

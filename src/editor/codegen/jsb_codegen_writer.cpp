@@ -33,8 +33,8 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include <runtime/internal/jsb_naming_util.h>
-#include <runtime/internal/jsb_settings.h>
+#include <common/internal/jsb_naming_util.h>
+#include <common/internal/jsb_settings.h>
 
 namespace jsb {
 namespace codegen {

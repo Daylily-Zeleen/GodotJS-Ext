@@ -27,12 +27,12 @@
 
 #include "jsb_editor_settings.h"
 
-#include "../runtime/internal/jsb_setting_keys.h"
-#include "../runtime/internal/jsb_settings.h"
-#include "../runtime/compat/project_settings.h"
-#include "../runtime/internal/jsb_macros.h"
-#include "../runtime/internal/jsb_logger.h"
-#include "../runtime/compat/editor_settings.h"
+#include "../common/internal/jsb_setting_keys.h"
+#include "../common/internal/jsb_settings.h"
+#include <common/compat/project_settings.h>
+#include "../common/internal/jsb_macros.h"
+#include <common/internal/jsb_logger.h>
+#include "../common/compat/editor_settings.h"
 
 #include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/engine.hpp>

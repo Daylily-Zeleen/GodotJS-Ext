@@ -52,7 +52,7 @@
 #	include <future>
 #endif // JSB_WITH_DEBUGGER
 
-#include <runtime/compat/thread.h>
+#include <common/compat/thread.h>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 

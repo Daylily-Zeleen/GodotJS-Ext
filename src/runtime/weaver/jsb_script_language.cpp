@@ -851,5 +851,51 @@ void GodotJSScriptLanguage::_bind_methods() {
 
 void GodotJSScriptLanguage::populate_string_names_replacements() {
 	// Populate StringNames replacement list so that classes can be lazily loaded by their exposed class name.
-	jsb::internal::StringNames::get_singleton().populate_replacements(GodotJSScriptLanguage::get_singleton()->_get_reserved_words());
+	jsb::internal::StringNames &names = jsb::internal::StringNames::get_singleton();
+
+	LocalVector<StringName> exposed_class_list;
+	// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
+	jsb::internal::ClassVisibility::get_exposed_original_class_list(exposed_class_list, false);
+
+	for (const StringName &class_name : exposed_class_list) {
+		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(class_name);
+
+		if (class_name != exposed_name) {
+			names.add_replacement(class_name, exposed_name);
+		}
+	}
+
+	PackedStringArray singleton_list = Engine::get_singleton()->get_singleton_list(); // 单例可以在编辑器过程中被动态增减，如何动态刷新？
+	for (const StringName &singleton_name : singleton_list) {
+		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(singleton_name);
+		if (exposed_name != singleton_name) {
+			names.add_replacement(singleton_name, exposed_name);
+		}
+	}
+
+	PackedStringArray reserved_words = GodotJSScriptLanguage::get_singleton()->_get_reserved_words();
+
+	for (const StringName &func_name : api_tool::list_utility_functions()) {
+		StringName exposed_name = func_name;
+
+		if (reserved_words.has(exposed_name)) {
+			exposed_name = jsb::internal::NamingUtil::get_member_name("godot_" + exposed_name);
+		}
+
+		if (exposed_name != func_name) {
+			names.add_replacement(func_name, exposed_name);
+		}
+	}
+
+	for (const StringName &constant_name : api_tool::list_global_constants()) {
+		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(constant_name);
+
+		if (reserved_words.has(exposed_name)) {
+			exposed_name = jsb::internal::NamingUtil::get_member_name("godot_" + exposed_name);
+		}
+
+		if (exposed_name != constant_name) {
+			names.add_replacement(constant_name, exposed_name);
+		}
+	}
 }

@@ -28,10 +28,10 @@
 #include "jsb_statistics_viewer.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_bridge.h"
-#include <runtime/impl/shared/jsb_statistics.h>
+#include <common/impl/shared/jsb_statistics.h>
 
-#include <runtime/compat/editor_settings.h>
-#include <runtime/compat/misc.h>
+#include <common/compat/editor_settings.h>
+#include <common/compat/misc.h>
 GodotJSStatisticsViewer::GodotJSStatisticsViewer() {
 	tree = memnew(Tree);
 	tree->set_v_size_flags(SIZE_EXPAND_FILL);
@@ -71,9 +71,7 @@ void GodotJSStatisticsViewer::on_timer() {
 	if (bridge == nullptr || bridge->fill_statistics == nullptr) return;
 
 	jsb::Statistics stats;
-	int64_t err = OK;
-	bridge->fill_statistics(&stats, &err);
-	if (err != OK) return;
+	if (bridge->fill_statistics(&stats) != OK) return;
 
 	int index = 0;
 	for (const jsb::impl::CustomField &field : stats.custom_fields) {

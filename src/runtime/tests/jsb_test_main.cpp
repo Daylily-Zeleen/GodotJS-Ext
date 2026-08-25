@@ -32,11 +32,8 @@
 
 // Include all test headers to register TEST_CASE macros.
 //
-// While the build is a single extension library (pre P4) this is the ONLY
-// doctest implementation TU for both suites; the editor suite's cases join
-// the same registry (see src/editor/tests/jsb_editor_test_main.cpp). Suites
-// are isolated at run time by their leading [runtime] / [editor] case-name
-// tag inside jsb::testing::try_run().
+// The editor extension has its own doctest implementation TU
+// (src/editor/tests/jsb_editor_test_main.cpp).
 #include "tests/jsb_test_helpers.h"
 #include "tests/test_jsb_any_runtime.h"
 #include "tests/test_jsb_path_util.h"

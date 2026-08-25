@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_editor_helper.h                                                 */
+/*  jsb_codegen_scene_descriptors.h                                     */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -17,7 +17,7 @@
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
 /*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -26,37 +26,28 @@
 /************************************************************************/
 
 #pragma once
-#include "jsb_editor_pch.h"
 
-#include <runtime/compat/editor_settings.h>
+#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/string.hpp>
+
 namespace godot {
 class Node;
 }
+namespace jsb::codegen {
 
-class GodotJSEditorHelper : public Object {
-	GDCLASS(GodotJSEditorHelper, Object);
 
-private:
-	using SceneDTSGenerateStrategic = jsb::internal::SceneDTSGenerateStrategic;
-
-	static bool _request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result);
-	static StringName _get_exposed_node_class_name(const StringName &class_name);
-	static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const godot::Node *p_root_node, Dictionary &r_unique_name_nodes);
-	static void _log_load_error(const String &p_file, const String &p_type, Error p_error);
-
-protected:
-	static void _bind_methods();
-
-public:
-	virtual ~GodotJSEditorHelper() override = default;
-
-	static Dictionary get_resource_type_descriptor(const String &p_path);
-	static Dictionary get_scene_nodes(const String &p_path);
-	static void show_toast(const String &p_text, int p_severity);
-
-	static bool has_api_tool_data();
-	static void generate_api_tool_data();
-
-	static bool is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
+enum class CodeGenType {
+	ScriptNodeTypeDescriptor,
+	ScriptResourceTypeDescriptor,
 };
 
+// Builds the type descriptor dictionary for a scene/resource path by loading
+// the user module and calling its `codegen(request)` export through the
+// runtime bridge. Previously lived in GodotJSEditorHelper.
+godot::Dictionary get_resource_type_descriptor(const godot::String &p_path);
+godot::Dictionary get_scene_nodes(const godot::String &p_path);
+
+bool is_path_matchn(const godot::PackedStringArray &p_wildcards, const godot::String &p_path);
+
+} //namespace jsb::codegen

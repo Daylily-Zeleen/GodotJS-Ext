@@ -28,13 +28,13 @@
 #pragma once
 
 // Runtime-suite test fixtures (engine-dependent). Engine-independent shared
-// utilities live in src/testing/jsb_test_utils.h.
+// utilities live in src/common/tests/jsb_test_utils.h.
 
 #include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
-#include "testing/jsb_test_utils.h" // doctest config macros + shared utils
+#include "../common/tests/jsb_test_utils.h" // doctest config macros + shared utils
 
 namespace jsb::tests {
 struct StubBindings {

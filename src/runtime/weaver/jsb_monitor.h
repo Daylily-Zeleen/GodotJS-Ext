@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include <runtime/compat/jsb_compat.h>
-#include <runtime/impl/shared/jsb_statistics.h>
+#include <common/compat/jsb_compat.h>
+#include <common/impl/shared/jsb_statistics.h>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
