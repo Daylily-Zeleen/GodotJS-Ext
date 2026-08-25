@@ -757,16 +757,23 @@ public:
 				}
 
 #if JSB_WITH_STATIC_BINDINGS
-				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.method.name, method_info.hash)) {
-					if (method_info.is_static()) {
-						class_builder.Static().Method(member_name, sb_thunk);
-					} else {
-						class_builder.Instance().Method(member_name, sb_thunk);
+				// KNOWN ISSUE: calling a static thunk on reference-type variants
+				// (Array / Dictionary) segfaults inside the engine ptrcall even
+				// though the resolved fn pointer matches the dynamic path's byte
+				// for byte. Root cause under investigation -- keep these two
+				// types on the dynamic path until it is understood.
+				if constexpr (TYPE != Variant::Type::ARRAY && TYPE != Variant::Type::DICTIONARY) {
+					if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.method.name, method_info.hash)) {
+						if (method_info.is_static()) {
+							class_builder.Static().Method(member_name, sb_thunk);
+						} else {
+							class_builder.Instance().Method(member_name, sb_thunk);
+						}
+						continue;
 					}
-					continue;
+					JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding",
+							class_name, member_name);
 				}
-				JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding",
-						class_name, member_name);
 #endif
 				// function wrapper
 				if (has_return_value) {
