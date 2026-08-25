@@ -3,6 +3,7 @@
 #if JSB_WITH_STATIC_BINDINGS
 
 #include "thunks_common.h"
+#include <godot_cpp/variant/variant_internal.hpp>
 
 namespace jsb::static_binding::thunks {
 
@@ -49,7 +50,9 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			jsb_throw(isolate, "no bound this");
 			return;
 		}
-		base_ptr = self; // a Variant is the engine layout itself
+		// The engine expects the OPAQUE data pointer (what the dynamic path
+		// passes via TVariantOpaquePointer), not the Variant address.
+		base_ptr = godot::internal::VariantInternal::get_opaque_pointer(self);
 	}
 
 	// marshal into ptrcall slots (unrolled)
@@ -115,7 +118,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 			jsb_throw(isolate, "no bound this");
 			return;
 		}
-		base_ptr = self;
+		base_ptr = godot::internal::VariantInternal::get_opaque_pointer(self);
 	}
 
 	// fixed prefix: unrolled with type checks & defaults
