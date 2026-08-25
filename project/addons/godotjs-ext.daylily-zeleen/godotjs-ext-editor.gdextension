@@ -1,0 +1,15 @@
+[configuration]
+
+entry_symbol = "jsb_editor_library_init"
+compatibility_minimum = 4.7
+reloadable = false
+
+[libraries]
+
+windows.debug.editor.x86_64 = "res://addons/godotjs-ext.daylily-zeleen/bin/windows/godotjs-ext-editor.windows.editor.x86_64.dll"
+windows.debug.editor.arm64 = "bin/windows/godotjs-ext-editor.windows.editor.arm64.dll"
+
+macos.debug.editor = "bin/macos/godotjs-ext-editor.macos.editor.universal.dylib"
+
+linux.debug.editor.x86_64 = "bin/linux/godotjs-ext-editor.linux.editor.x86_64.so"
+linux.debug.editor.arm64 = "bin/linux/godotjs-ext-editor.linux.editor.arm64.so"

@@ -27,6 +27,7 @@
 
 #pragma once
 #include "jsb_editor_pch.h"
+#include <runtime/internal/jsb_double_buffered.h>
 
 #include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/h_box_container.hpp>
@@ -88,7 +89,7 @@ protected:
 	void add_string(const String &p_str);
 	void add_line(const String &p_line);
 	void add_history(const String &p_text);
-	jsb::JSValueMove eval_source(const String &p_code);
+	Variant eval_source(const String &p_code);
 	String encode_string(const String &p_text);
 	void check_install();
 	void check_tsc();

@@ -37,6 +37,5 @@
 #include "runtime/internal/jsb_path_util.h"
 #include "runtime/internal/jsb_process.h"
 #include "runtime/internal/jsb_settings.h"
-#include "runtime/weaver/jsb_script_language.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 

@@ -28,17 +28,15 @@
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
+#include "internal/jsb_settings.h"
+#include "runtime/internal/jsb_class_visibility.h"
 #include "testing/jsb_test_runner.h"
 #include "weaver-editor/jsb_weaver_editor.h"
 #include "api_tool/api_tool.h"
 
 using namespace godot;
 
-namespace jsb {
-// Defined in weaver-editor/jsb_editor_utility_funcs.cpp: installs the real
-// `jsb.editor` implementation into the runtime's EditorUtilityFuncs dispatcher.
-void EditorUtilityFuncs_register_impl();
-} // namespace jsb
+
 
 
 void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
@@ -46,13 +44,12 @@ void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 		return;
 	}
 
-	jsb::EditorUtilityFuncs_register_impl();
 
 	// GodotJSEditorHelper 必须 exposed 注册（GDREGISTER_CLASS）：
 	// --generate-types 的场景/资源类型生成在 JS 运行时里经 api store 解析该类，
 	// 而 internal 注册的类不进 extension_api.json（unexposed），缺失即抛
 	// "godot class not found 'GodotJSEditorHelper'"。生成器侧由
-	// NamingUtil::get_omitted_original_classes() 过滤，不会因此进入产物。
+	// ClassVisibility::get_omitted_original_classes() 过滤，不会因此进入产物。
 	GDREGISTER_CLASS(GodotJSEditorHelper);
 	GDREGISTER_INTERNAL_CLASS(GodotJSExportPlugin);
 	GDREGISTER_INTERNAL_CLASS(GodotJSEditorPlugin);
@@ -84,6 +81,11 @@ void _editor_tests_startup() {
 extern "C" {
 GDExtensionBool GDE_EXPORT jsb_editor_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
 	GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
+
+#ifdef JSB_TESTS_ENABLED
+	// Editor doctest suite entry (see _editor_tests_startup above).
+	init_obj.register_startup_callback(_editor_tests_startup);
+#endif
 
 	init_obj.register_initializer(_initialize_godotjs_editor_module);
 	init_obj.register_terminator(_uninitialize_godotjs_editor_module);

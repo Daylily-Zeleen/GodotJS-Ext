@@ -450,22 +450,19 @@ void Environment::init() {
 	resolver.add_search_path("res://"); // use the root directory as custom lib path by default
 	resolver.add_search_path("res://node_modules"); // so far, it's the only supported path for node_modules in GodotJS
 
-	// load internal scripts (jsb.core, jsb.editor.main, jsb.editor.codegen)
+	// load internal scripts (jsb.core, jsb.editor.main)
 	static constexpr char kRuntimeBundleFile[] = "jsb.runtime.bundle.js";
 	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSProjectPreset::get_source_rt(kRuntimeBundleFile)) == OK,
 			"the embedded '%s' not found, run 'scons' again to refresh all *.gen.cpp sources",
 			kRuntimeBundleFile);
 	static constexpr char kEditorBundleFile[] = "jsb.editor.bundle.js";
-#ifdef TOOLS_ENABLED
-	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSProjectPreset::get_source_ed(kEditorBundleFile)) == OK,
-			"the embedded '%s' not found, run 'scons' again to refresh all *.gen.cpp sources",
-			kEditorBundleFile);
-#else
-	// Users may consume editor APIs in codegen functions. However, we want to permit regular ES6 import syntax.
-	// We provide a dummy module that can be imported (but not used) in runtime-only builds.
-	static constexpr char kDummyModule[] = "(function(define){define('jsb.editor.codegen',[],function(){return{}})})";
+	// The editor bundle is owned by the editor extension; it loads
+	// `jsb.editor.main` on demand via require (idempotent). Here we only
+	// register an empty placeholder module so user scripts importing this id in
+	// a process without the editor extension don't crash. (P1 removed the TS
+	// codegen; jsb.editor.codegen stays as an empty compatibility shim.)
+	static constexpr char kDummyModule[] = "(function(define){define('jsb.editor.main',[],function(){return{}});define('jsb.editor.codegen',[],function(){return{}})})";
 	AMDModuleLoader::load_source(this, kDummyModule, sizeof(kDummyModule) - 1, kEditorBundleFile);
-#endif
 }
 
 void Environment::dispose() {
@@ -1065,6 +1062,7 @@ void Environment::get_statistics(Statistics &r_stats) const {
 	r_stats.cached_string_names = string_name_cache_.size();
 	r_stats.persistent_objects = persistent_object_count_;
 	r_stats.allocated_variants = variant_allocator_.get_allocated_num();
+	r_stats.objects_bytes = (int64_t)r_stats.objects * (int64_t)internal::SArray<jsb::ObjectHandle>::get_slot_size();
 }
 
 ObjectCacheID Environment::get_cached_function(const v8::Local<v8::Function> &p_func) {
@@ -1473,6 +1471,7 @@ v8::Local<v8::Function> Environment::_new_require_func(const String &p_module_id
 	require->Set(context, jsb_name(this, cache), module_cache_.get_cache(isolate)).Check();
 	return require;
 }
+
 
 Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	JSB_BENCHMARK_SCOPE(JSRealm, load);

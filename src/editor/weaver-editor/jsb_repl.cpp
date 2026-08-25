@@ -27,6 +27,7 @@
 
 #include "jsb_repl.h"
 #include "runtime/compat/jsb_compat.h"
+#include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
 
@@ -225,8 +226,16 @@ void GodotJSREPL::check_install() {
 }
 
 void GodotJSREPL::_gc_pressed() {
-	jsb::Environment::gc();
-	add_line("Explicit GC requested");
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->request_gc == nullptr) {
+		JSB_LOG(Error, "runtime bridge is not available.");
+		return;
+	}
+	int64_t err = OK;
+	bridge->request_gc(&err);
+	if (err == OK) {
+		add_line("Explicit GC requested");
+	}
 }
 
 void GodotJSREPL::_clear_pressed() {
@@ -260,7 +269,7 @@ void GodotJSREPL::_input_changed(const String &p_text) {
 	//TODO we haven't implemented the js function invocation from outside of Realm, just temporarily call as source code eval
 	const PackedStringArray results =
 			is_auto_complete_allowed(p_text)
-			? (PackedStringArray)eval_source(jsb_format("require('jsb.editor.main').auto_complete('%s')", encode_string(p_text))).to_variant()
+			? (PackedStringArray)(Variant)eval_source(jsb_format("require('jsb.editor.main').auto_complete('%s')", encode_string(p_text)))
 			: PackedStringArray();
 	_show_candidates(results);
 }
@@ -326,17 +335,26 @@ void GodotJSREPL::_input_submitted(const String &p_text) {
 	input_submitting_ = true;
 	add_line(p_text);
 	input_box_->clear();
-	const jsb::JSValueMove value = eval_source(p_text);
-	add_string(value.to_string());
+	const Variant value = eval_source(p_text);
+	add_string(value.get_type() == Variant::NIL ? String("undefined") : value.stringify());
 	add_history(p_text);
 	input_submitting_ = false;
 }
 
-jsb::JSValueMove GodotJSREPL::eval_source(const String &p_code) {
-	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
-	jsb_check(lang);
-	Error err;
-	return lang->eval_source(p_code, err);
+Variant GodotJSREPL::eval_source(const String &p_code) {
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->eval == nullptr) {
+		JSB_LOG(Error, "runtime bridge is not available.");
+		return {};
+	}
+	int64_t err = OK;
+	Variant result;
+	const CharString code_utf8 = p_code.utf8();
+	bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr(), &err);
+	if (err != OK) {
+		return {};
+	}
+	return result;
 }
 
 void GodotJSREPL::add_line(const String &p_line) {

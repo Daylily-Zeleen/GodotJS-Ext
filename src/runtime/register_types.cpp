@@ -27,6 +27,7 @@
 
 #include "api_tool/api_tool.h"
 #include "compat/jsb_compat.h"
+#include "internal/jsb_settings.h"
 #include "testing/jsb_test_runner.h"
 #include "weaver/jsb_weaver.h"
 #include <godot_cpp/classes/engine.hpp>
@@ -35,18 +36,16 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 
-#ifdef TOOLS_ENABLED
-// TODO: 仅临时实现，后续需要拆分库 Editor 库
-#	include "editor/register_editor_types.h"
-#endif // TOOLS_ENABLED
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	_initialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
-#endif // TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		// Register runtime-owned project settings before anything reads them.
+		// (SERVERS is the lowest level the engine passes to GDExtensions.)
+		jsb::internal::init_project_settings();
+	}
 
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
@@ -73,10 +72,6 @@ void jsb_initialize_module(ModuleInitializationLevel p_level) {
 }
 
 void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	_uninitialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
-#endif // TOOLS_ENABLED
-
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
 			GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
@@ -106,23 +101,11 @@ void jsb_startup() {
 
 #ifdef JSB_TESTS_ENABLED
 	// Run doctest unit tests if --jsb-run-tests is passed on command line.
-	// Cases live in src/runtime/tests/*.h, registered via the shared doctest
-	// implementation TU (see src/editor/tests/jsb_editor_test_main.cpp while
-	// the build is a single extension library); the [runtime] name tag keeps
-	// them isolated from the editor suite under --jsb-run-editor-tests.
+	// Cases live in src/runtime/tests/*.h; the editor suite (--jsb-run-editor-tests)
+	// lives in the editor extension's own startup callback.
 	jsb::testing::try_run("--jsb-run-tests");
 #endif // JSB_TESTS_ENABLED
 
-#ifdef JSB_TESTS_ENABLED
-#	ifdef TOOLS_ENABLED
-	// Editor suite entry lives in src/editor (its cases in
-	// src/editor/tests/*.h); forwarded here because this is the only startup
-	// callback the engine sees while the build is one extension library
-	// (godot-cpp's register_startup_callback is a single slot, and
-	// jsb_editor_library_init is only referenced post P4).
-	_editor_tests_startup();
-#	endif // TOOLS_ENABLED
-#endif // JSB_TESTS_ENABLED
 }
 
 void jsb_shutdown() {

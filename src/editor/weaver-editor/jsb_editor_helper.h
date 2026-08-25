@@ -39,9 +39,9 @@ class GodotJSEditorHelper : public Object {
 private:
 	using SceneDTSGenerateStrategic = jsb::internal::SceneDTSGenerateStrategic;
 
-	static bool _request_codegen(jsb::JSEnvironment &p_env, GodotJSScript *p_script, const Dictionary &p_request, Dictionary &p_result);
+	static bool _request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result);
 	static StringName _get_exposed_node_class_name(const StringName &class_name);
-	static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment &p_env, Node *p_node, const godot::Node *p_root_node, Dictionary &r_unique_name_nodes);
+	static Dictionary _build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const godot::Node *p_root_node, Dictionary &r_unique_name_nodes);
 	static void _log_load_error(const String &p_file, const String &p_type, Error p_error);
 
 protected:

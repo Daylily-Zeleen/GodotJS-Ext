@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_editor_test_main.cpp                                            */
+/*  jsb_editor_settings.h                                               */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -7,6 +7,8 @@
 /*                                                                      */
 /*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
+/*  Copyright (c) Contributors of GodotJS                               */
+/*                 - <https://github.com/godotjs/GodotJS>               */
 /*                                                                      */
 /*  This library is free software; you can redistribute it and/or       */
 /*  modify it under the terms of the GNU Lesser General Public          */
@@ -14,8 +16,8 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -23,15 +25,23 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#if defined(JSB_TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#pragma once
 
-#define DOCTEST_CONFIG_IMPLEMENT
-#include "doctest/doctest.h"
+// Editor-side settings registration (editor extension only).
+// Ownership split:
+//   - the runtime extension registers godotjs_ext/runtime/** project settings
+//   - the editor extension registers godotjs_ext/editor/** and
+//     godotjs_ext/codegen/** project settings plus EditorSettings defaults
 
-// Editor-suite test entry. The editor extension has its own doctest
-// implementation TU (this file); cases are registered from the included
-// headers. See src/testing/jsb_test_runner.h for the --jsb-run-editor-tests
-// entry point wired into the editor extension's startup callback.
-#include "tests/test_jsb_editor_skeleton.h"
+namespace jsb::internal {
 
-#endif // JSB_TESTS_ENABLED && TOOLS_ENABLED
+/// Register editor-owned PROJECT settings (packaging + codegen/** keys).
+/// No EditorSettings dependency; idempotent.
+void init_editor_project_settings();
+
+/// Register EditorSettings defaults (autogen paths etc.). Requires the
+/// EditorSettings singleton to exist -- call once editor plugins are being
+/// instantiated. Idempotent; retried later if it was not ready yet.
+void init_editor_settings_defaults();
+
+} //namespace jsb::internal

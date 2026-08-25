@@ -41,14 +41,9 @@ public:
 
 	static String snake_to_camel_case(const String &p_identifier, bool p_input_is_upper = false);
 
-	static void get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes = true);
-
-	static bool is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes = {});
-
-	static StringName find_exposed_base_class(const StringName &p_unexposed_original_class);
-
-	// Classes hardcoded as not usable from JavaScript regardless of ignored-classes settings.
-	static const HashSet<StringName> &get_omitted_original_classes();
+	// NOTE: class-exposure queries (is_original_class_exposed / find_exposed_base_class /
+	// get_exposed_original_class_list / get_omitted_original_classes) moved to
+	// jsb_class_visibility.h -- NamingUtil is a pure string-transform utility.
 
 	static String get_class_name(const String &p_original_name) {
 		if (Settings::get_camel_case_bindings_enabled()) {

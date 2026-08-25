@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://de18dg007n3ik"]
 
 [ext_resource type="Script" path="res://tests/worker/test-worker.ts" id="1_6g5s2"]
 

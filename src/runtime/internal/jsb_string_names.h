@@ -26,6 +26,8 @@
 /************************************************************************/
 
 #pragma once
+
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
@@ -82,6 +84,11 @@ public:
 		replacements_.insert(name, replacement);
 		replacements_inv_.insert(replacement, name);
 	}
+
+	/// Build the original<->exposed name replacement tables from the currently
+	/// visible class list and singletons. `p_reserved_words` is used to rename
+	/// utility functions that collide with JavaScript reserved words.
+	void populate_replacements(const PackedStringArray &p_reserved_words);
 
 	StringName sn_godot_typeloader;
 	StringName sn_godot_postbind;

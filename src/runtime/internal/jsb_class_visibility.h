@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_statistics.h                                                    */
+/*  jsb_class_visibility.h                                                */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -17,7 +17,7 @@
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
 /*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -27,35 +27,28 @@
 
 #pragma once
 
-#include "../impl/shared/jsb_custom_field.h"
-#include "jsb_bridge_pch.h"
-namespace jsb {
-struct Statistics {
-	// num of traced objects
-	int objects;
+// Class exposure queries: whether an original (engine-side) class name is
+// usable from JavaScript. These are binding-availability semantics -- they
+// consult ClassDB, the omitted-classes table, project settings (ignored
+// classes) and the api store -- deliberately kept out of NamingUtil so that
+// the latter stays a pure string-transform utility.
 
-	// num of registered native classes
-	int native_classes;
+#include "compat/jsb_compat.h"
+#include <godot_cpp/templates/hash_set.hpp>
+#include <godot_cpp/templates/local_vector.hpp>
+#include <godot_cpp/variant/variant.hpp>
 
-	// num of registered script classes
-	int script_classes;
+namespace jsb::internal {
+class ClassVisibility {
+public:
+	// Classes hardcoded as not usable from JavaScript regardless of ignored-classes settings.
+	static const HashSet<StringName> &get_omitted_original_classes();
 
-	int cached_string_names;
-	uint32_t persistent_objects;
+	static void get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes = true);
 
-	// allocated num of Variants in pool (only valid in debug mode)
-	uint32_t allocated_variants;
+	static bool is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes = {});
 
-	// impl-specific fields
-	Vector<impl::CustomField> custom_fields;
-
-	impl::CustomField get_custom_field(const String &name) const {
-		for (const impl::CustomField &it : custom_fields) {
-			if (it.name == name) {
-				return it;
-			}
-		}
-		return {};
-	}
+	// Nearest exposed ancestor of an unexposed class (empty if none).
+	static StringName find_exposed_base_class(const StringName &p_unexposed_original_class);
 };
-} //namespace jsb
+} //namespace jsb::internal

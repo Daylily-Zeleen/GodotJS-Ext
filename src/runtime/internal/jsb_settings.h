@@ -36,6 +36,11 @@ template <typename T>
 class BitField;
 }
 namespace jsb::internal {
+
+// Register runtime-owned project settings (godotjs_ext/runtime/** keys plus
+// godotjs_ext/editor/script/inline_uid which the runtime consumes). Called once
+// from the runtime extension's SERVERS-level initializer; idempotent.
+void init_project_settings();
 enum SceneDTSGenerateStrategic {
 	ORIGIN_NAME_NODE = 1 << 0,
 	UNIQUE_NAME_NODE = 1 << 1,
@@ -46,6 +51,7 @@ enum AutoGenSettingFlags {
 	GEN_ON_SAVE = 1 << 1,
 	CHANGED_FILE_ONLY = 1 << 2,
 };
+
 
 class Settings {
 public:

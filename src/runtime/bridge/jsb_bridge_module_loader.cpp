@@ -27,7 +27,6 @@
 
 #include "jsb_bridge_module_loader.h"
 #include "jsb_callable.h"
-#include "jsb_editor_utility_funcs.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
 
@@ -554,8 +553,6 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 			}
 		}
 
-		// internal 'jsb.editor'
-		EditorUtilityFuncs::expose(isolate, context, jsb_obj);
 	}
 
 	p_module.exports.Reset(isolate, jsb_obj);

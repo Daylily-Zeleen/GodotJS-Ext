@@ -25,13 +25,12 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
+#include "runtime/internal/jsb_class_visibility.h"
 #include "jsb_editor_helper.h"
 
-#include "runtime/bridge/jsb_bridge_helper.h"
-#include "runtime/bridge/jsb_callable.h"
-#include "runtime/bridge/jsb_type_convert.h"
-#include "runtime/weaver/jsb_script.h"
-#include "runtime/weaver/jsb_script_instance.h"
+#include "jsb_editor_bridge.h"
+#include <runtime/internal/jsb_naming_util.h>
+#include "api_tool/api_tool.h"
 #include "api_tool/editor/api_tool_editor.h"
 #include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/animation_mixer.hpp>
@@ -41,6 +40,7 @@
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/resource_format_loader.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/script.hpp>
 
 // The following enums must be kept in sync with jsb.editor.codegen.ts
 enum class CodeGenType {
@@ -64,61 +64,43 @@ enum class DescriptorType {
 	Indexed,
 };
 
-bool GodotJSEditorHelper::_request_codegen(jsb::JSEnvironment &p_env, GodotJSScript *p_script, const Dictionary &p_request, Dictionary &p_result) {
-	v8::Isolate *isolate = p_env->get_isolate();
-	v8::Local<v8::Context> context = p_env->get_context();
-
-	p_script->load_module_if_missing();
-	String module_id = p_script->get_module_id();
-	jsb::JavaScriptModule *module = p_env->get_module_cache().find(module_id);
-
-	if (module == nullptr) {
-		JSB_LOG(Warning, "Codegen failed to load module script '%s'.", p_script->get_path());
+bool GodotJSEditorHelper::_request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result) {
+	jsb::JsbBridgeTable bridge_copy;
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->eval_with_arg == nullptr) {
+		JSB_LOG(Warning, "Codegen failed: runtime bridge is not available.");
 		return false;
 	}
+	bridge_copy = *bridge;
 
-	if (module->exports.IsEmpty()) {
-		return false;
-	}
+	// module_id: the .ts -> compiled .js mapping used by the runtime module cache
+	const String module_id = jsb::internal::PathUtil::convert_typescript_path(p_script_path);
 
-	v8::Local<v8::Value> module_exports = module->exports.Get(isolate);
+	// The request travels as the transient `__jsb_arg` global (engine objects
+	// included); the user module's `codegen(request)` result comes back as a
+	// Dictionary through the variant out-parameter -- no JSON involved.
+	String source;
+	source += "(function() {\n";
+	source += "  const m = require(\"" + module_id + "\");\n";
+	source += "  if (!m || typeof m.codegen !== \"function\") { return null; }\n";
+	source += "  return m.codegen(__jsb_arg);\n";
+	source += "})()\n";
 
-	if (module_exports.IsEmpty() || !module_exports->IsObject()) {
-		return false;
-	}
-
-	const v8::Local<v8::Value> codegen_func_val = module_exports.As<v8::Object>()->Get(context, jsb_name(p_env, codegen)).ToLocalChecked();
-
-	if (codegen_func_val.IsEmpty() || !codegen_func_val->IsFunction()) {
-		return false;
-	}
-
-	const v8::Local<v8::Function> codegen_func = codegen_func_val.As<v8::Function>();
-
-	v8::Local<v8::Value> codegen_request_val;
-
-	if (!jsb::TypeConvert::gd_var_to_js(isolate, context, p_request, codegen_request_val)) {
-		JSB_LOG(Error, "Codegen failed for module '%s': Failed to convert codegen request", module_id);
-		return false;
-	}
-
-	jsb::impl::TryCatch try_catch(isolate);
-
-	v8::Local<v8::Value> argv[] = { codegen_request_val };
-	const v8::MaybeLocal<v8::Value> maybe_result = codegen_func->Call(context, v8::Undefined(isolate), std::size(argv), argv);
-
-	if (try_catch.has_caught()) {
-		JSB_LOG(Error, "Codegen failed for module '%s': %s", module_id, jsb::BridgeHelper::get_exception(try_catch));
-		return false;
-	}
-
-	v8::Local<v8::Value> result_val;
+	int64_t err = OK;
 	Variant result;
-
-	if (!maybe_result.ToLocal(&result_val) || !jsb::TypeConvert::js_to_gd_var(isolate, context, result_val, Variant::Type::DICTIONARY, result)) {
-		return false;
+	{
+		const Variant request_variant = p_request; // Variant wrapping the request dictionary
+		bridge_copy.eval_with_arg(source.utf8().get_data(), source.utf8().length(),
+			request_variant._native_ptr(), result._native_ptr(), &err);
 	}
 
+	if (err != OK) {
+		JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
+		return false;
+	}
+	if (result.get_type() != Variant::DICTIONARY) {
+		return false;
+	}
 	p_result = result;
 	return true;
 }
@@ -126,7 +108,7 @@ bool GodotJSEditorHelper::_request_codegen(jsb::JSEnvironment &p_env, GodotJSScr
 StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName &class_name) {
 	StringName exposed_class_name = class_name;
 
-	while (!jsb::internal::NamingUtil::is_original_class_exposed(exposed_class_name)) {
+	while (!jsb::internal::ClassVisibility::is_original_class_exposed(exposed_class_name)) {
 		exposed_class_name = ClassDB::get_parent_class(exposed_class_name);
 		if (exposed_class_name.ends_with("Extension")) {
 			exposed_class_name = ClassDB::get_parent_class(exposed_class_name);
@@ -136,7 +118,7 @@ StringName GodotJSEditorHelper::_get_exposed_node_class_name(const StringName &c
 	return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
 }
 
-Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, jsb::JSEnvironment &p_env, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
+Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
 	jsb_check(p_strategic != 0);
 
 	Dictionary descriptor;
@@ -147,22 +129,19 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 	if (p_node == p_root_node || p_node->get_scene_file_path().is_empty() || p_root_node->is_editable_instance(p_node)) {
 		for (int i = 0; i < child_count; i++) {
 			Node *child = p_node->get_child(i, true);
-			children[child->get_name()] = _build_node_type_descriptor(p_strategic, p_env, child, p_root_node, r_unique_name_nodes);
+			children[child->get_name()] = _build_node_type_descriptor(p_strategic, child, p_root_node, r_unique_name_nodes);
 		}
 	}
 
-	GodotJSScript *script = nullptr;
-	if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(p_node)) {
-		script = script_instance->get_script().ptr();
-	}
+	Ref<Script> script = p_node->get_script();
 
-	if (script != nullptr) {
+	if (script.is_valid()) {
 		Dictionary codegen_request;
-		codegen_request[jsb_string_name(type)] = (int32_t)CodeGenType::ScriptNodeTypeDescriptor;
-		codegen_request[jsb_string_name(node)] = p_node;
-		codegen_request[jsb_string_name(children)] = children;
+		codegen_request["type"] = (int32_t)CodeGenType::ScriptNodeTypeDescriptor;
+		codegen_request["node"] = p_node;
+		codegen_request["children"] = children;
 
-		if (!_request_codegen(p_env, script, codegen_request, descriptor)) {
+		if (!_request_codegen(script->get_path(), codegen_request, descriptor)) {
 			descriptor.clear();
 		}
 	}
@@ -171,10 +150,20 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 		// By default, only scene (and sub-scene) roots are typed with a user defined type. This ensures that classes are
 		// able to use SceneNodes in their type declaration without illegally referencing their own type. Users can use
 		// codegen to override this behavior.
-		if (script == nullptr
+		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+		bool generic_global_class = true;
+		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
+			int64_t qerr = OK;
+			Variant result;
+			const String spath = script->get_path();
+			const CharString spath_utf8 = spath.utf8();
+			bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr(), &qerr);
+			generic_global_class = (qerr == OK) ? (bool)result : true;
+		}
+		if (!script.is_valid()
 				|| p_node->get_scene_file_path().is_empty()
-				|| GodotJSScriptLanguage::get_singleton()->is_global_class_generic(script->get_path())
-				|| script->get_global_name().is_empty()) {
+				|| generic_global_class
+				|| ((String)(Variant)script->call("get_global_name")).is_empty()) {
 			Array generic_arguments;
 
 			bool use_scene_nodes_interface = false;
@@ -186,17 +175,17 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 				if (is_path_matchn(include_wildcards, scene_file_path)
 						&& !is_path_matchn(exclude_wildcards, scene_file_path)) {
 					Dictionary scene_nodes;
-					scene_nodes[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-					scene_nodes[jsb_string_name(name)] = "SceneNodes";
+					scene_nodes["type"] = (int32_t)DescriptorType::Godot;
+					scene_nodes["name"] = "SceneNodes";
 
 					Dictionary string_literal;
-					string_literal[jsb_string_name(type)] = (int32_t)DescriptorType::StringLiteral;
-					string_literal[jsb_string_name(value)] = scene_file_path.substr(6); // Remove leading res://
+					string_literal["type"] = (int32_t)DescriptorType::StringLiteral;
+					string_literal["value"] = scene_file_path.substr(6); // Remove leading res://
 
 					Dictionary indexed_scene_nodes;
-					indexed_scene_nodes[jsb_string_name(type)] = (int32_t)DescriptorType::Indexed;
-					indexed_scene_nodes[jsb_string_name(base)] = scene_nodes;
-					indexed_scene_nodes[jsb_string_name(index)] = string_literal;
+					indexed_scene_nodes["type"] = (int32_t)DescriptorType::Indexed;
+					indexed_scene_nodes["base"] = scene_nodes;
+					indexed_scene_nodes["index"] = string_literal;
 
 					generic_arguments.push_back(indexed_scene_nodes);
 
@@ -206,8 +195,8 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 
 			if (!use_scene_nodes_interface) {
 				Dictionary object_literal;
-				object_literal[jsb_string_name(type)] = (int32_t)DescriptorType::ObjectLiteral;
-				object_literal[jsb_string_name(properties)] = children;
+				object_literal["type"] = (int32_t)DescriptorType::ObjectLiteral;
+				object_literal["properties"] = children;
 				generic_arguments.push_back(object_literal);
 			}
 
@@ -218,8 +207,8 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 
 				Dictionary animation_libraries_object_literal;
 				Dictionary animation_libraries_properties;
-				animation_libraries_object_literal[jsb_string_name(type)] = (int32_t)DescriptorType::ObjectLiteral;
-				animation_libraries_object_literal[jsb_string_name(properties)] = animation_libraries_properties;
+				animation_libraries_object_literal["type"] = (int32_t)DescriptorType::ObjectLiteral;
+				animation_libraries_object_literal["properties"] = animation_libraries_properties;
 
 				for (const StringName &library_name : library_names) {
 					Ref<AnimationLibrary> library = animation_mixer->get_animation_library(library_name);
@@ -230,22 +219,22 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 
 					for (const StringName &animation_name : animation_names) {
 						Dictionary string_literal;
-						string_literal[jsb_string_name(type)] = (int32_t)DescriptorType::StringLiteral;
-						string_literal[jsb_string_name(value)] = animation_name;
+						string_literal["type"] = (int32_t)DescriptorType::StringLiteral;
+						string_literal["value"] = animation_name;
 						animation_names_union_array.push_back(string_literal);
 					}
 
 					Dictionary animation_names_union;
-					animation_names_union[jsb_string_name(type)] = (int32_t)DescriptorType::Union;
+					animation_names_union["type"] = (int32_t)DescriptorType::Union;
 					animation_names_union["types"] = animation_names_union_array;
 
 					Array animation_generic_arguments;
 					animation_generic_arguments.push_back(animation_names_union);
 
 					Dictionary animation_library_descriptor;
-					animation_library_descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-					animation_library_descriptor[jsb_string_name(name)] = jsb::internal::NamingUtil::get_class_name("AnimationLibrary");
-					animation_library_descriptor[jsb_string_name(arguments)] = animation_generic_arguments;
+					animation_library_descriptor["type"] = (int32_t)DescriptorType::Godot;
+					animation_library_descriptor["name"] = jsb::internal::NamingUtil::get_class_name("AnimationLibrary");
+					animation_library_descriptor["arguments"] = animation_generic_arguments;
 
 					animation_libraries_properties[library_name] = animation_library_descriptor;
 				}
@@ -253,13 +242,13 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(const BitField<Scene
 				generic_arguments.push_back(animation_libraries_object_literal);
 			}
 
-			descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-			descriptor[jsb_string_name(name)] = GodotJSEditorHelper::_get_exposed_node_class_name(p_node->get_class());
-			descriptor[jsb_string_name(arguments)] = generic_arguments;
+			descriptor["type"] = (int32_t)DescriptorType::Godot;
+			descriptor["name"] = GodotJSEditorHelper::_get_exposed_node_class_name(p_node->get_class());
+			descriptor["arguments"] = generic_arguments;
 		} else {
-			descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::User;
-			descriptor[jsb_string_name(name)] = script->get_global_name();
-			descriptor[jsb_string_name(resource)] = script->get_path();
+			descriptor["type"] = (int32_t)DescriptorType::User;
+			descriptor["name"] = script->get_global_name();
+			descriptor["resource"] = script->get_path();
 		}
 	}
 
@@ -329,57 +318,63 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String &p_pat
 			return descriptor;
 		}
 
-		jsb::JSEnvironment env(instantiated_scene->get_scene_file_path(), true);
-
 		BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
-		if (strategic == 0) {
-			strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
-			JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
-		}
+	if (strategic == 0) {
+		strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
+	}
 
-		Array generic_arguments;
-		Dictionary unique_name_nodes;
-		generic_arguments.push_back(_build_node_type_descriptor(strategic, env, instantiated_scene, instantiated_scene, unique_name_nodes));
+	Array generic_arguments;
+	Dictionary unique_name_nodes;
+	generic_arguments.push_back(_build_node_type_descriptor(strategic, instantiated_scene, instantiated_scene, unique_name_nodes));
 
-		descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-		descriptor[jsb_string_name(name)] = "PackedScene";
-		descriptor[jsb_string_name(arguments)] = generic_arguments;
+	descriptor["type"] = (int32_t)DescriptorType::Godot;
+	descriptor["name"] = "PackedScene";
+	descriptor["arguments"] = generic_arguments;
 
 		return descriptor;
 	}
 
-	GodotJSScript *script = nullptr;
-	if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(resource.ptr())) {
-		script = script_instance->get_script().ptr();
-	}
+	Ref<Script> script = resource->get_script();
 
-	if (script != nullptr) {
-		jsb::JSEnvironment env(resource->get_path(), true);
-
+	if (script.is_valid()) {
 		Dictionary codegen_request;
-		codegen_request[jsb_string_name(type)] = (int32_t)CodeGenType::ScriptResourceTypeDescriptor;
-		codegen_request[jsb_string_name(resource)] = resource;
+		codegen_request["type"] = (int32_t)CodeGenType::ScriptResourceTypeDescriptor;
+		codegen_request["resource"] = resource;
 
-		if (_request_codegen(env, script, codegen_request, descriptor)) {
+		if (_request_codegen(script->get_path(), codegen_request, descriptor)) {
 			return descriptor;
 		}
 	}
 
-	if (script == nullptr || GodotJSScriptLanguage::get_singleton()->is_global_class_generic(script->get_path())) {
-		descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-		descriptor[jsb_string_name(name)] = GodotJSEditorHelper::_get_exposed_node_class_name(resource->get_class());
+	bool generic_global_class = true;
+	{
+		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
+			int64_t qerr = OK;
+			Variant result;
+			const String spath = script->get_path();
+			const CharString spath_utf8 = spath.utf8();
+			bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr(), &qerr);
+			generic_global_class = (qerr == OK) ? (bool)result : true;
+		}
+	}
+
+	if (!script.is_valid() || generic_global_class) {
+		descriptor["type"] = (int32_t)DescriptorType::Godot;
+		descriptor["name"] = GodotJSEditorHelper::_get_exposed_node_class_name(resource->get_class());
 	} else {
-		String class_name = script->_is_valid()
+		String class_name = ((bool)script->call("can_instantiate"))
 				? static_cast<String>(script->get_global_name())
 				: resource->get_class(); // GDExtension: ResourceLoader::get_resource_script_class not available
 
 		if (class_name.is_empty()) {
-			descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::Godot;
-			descriptor[jsb_string_name(name)] = jsb::internal::NamingUtil::get_class_name("Object");
+			descriptor["type"] = (int32_t)DescriptorType::Godot;
+			descriptor["name"] = jsb::internal::NamingUtil::get_class_name("Object");
 		} else {
-			descriptor[jsb_string_name(type)] = (int32_t)DescriptorType::User;
-			descriptor[jsb_string_name(name)] = script->get_global_name();
-			descriptor[jsb_string_name(resource)] = script->get_path();
+			descriptor["type"] = (int32_t)DescriptorType::User;
+			descriptor["name"] = script->get_global_name();
+			descriptor["resource"] = script->get_path();
 		}
 	}
 
@@ -403,10 +398,6 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
 		return Dictionary();
 	}
 
-	jsb::JSEnvironment env(instantiated_scene->get_scene_file_path(), true);
-	v8::Isolate *isolate = env->get_isolate();
-	v8::HandleScope handle_scope(isolate);
-
 	Dictionary nodes;
 	Dictionary unique_name_nodes;
 	int child_count = instantiated_scene->get_child_count(true);
@@ -418,7 +409,7 @@ Dictionary GodotJSEditorHelper::get_scene_nodes(const String &p_path) {
 	}
 	for (int i = 0; i < child_count; i++) {
 		Node *child = instantiated_scene->get_child(i, true);
-		nodes[child->get_name()] = _build_node_type_descriptor(strategic, env, child, instantiated_scene, unique_name_nodes);
+		nodes[child->get_name()] = _build_node_type_descriptor(strategic, child, instantiated_scene, unique_name_nodes);
 	}
 
 	instantiated_scene->queue_free();

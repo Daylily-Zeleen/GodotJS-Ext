@@ -29,6 +29,7 @@
 
 #include "runtime/internal/jsb_naming_util.h"
 #include "runtime/internal/jsb_settings.h"
+#include "runtime/internal/jsb_class_visibility.h"
 #include "jsb_editor_plugin.h"
 
 #include <runtime/compat/editor_settings.h>
@@ -241,7 +242,7 @@ void GodotJSConfigClassesDialog::_build_tree() {
 	items_.clear();
 	tree_->create_item(); // hidden root
 
-	omitted_classes_ = jsb::internal::NamingUtil::get_omitted_original_classes();
+	omitted_classes_ = jsb::internal::ClassVisibility::get_omitted_original_classes();
 	const PackedStringArray ignored = jsb::internal::Settings::get_ignored_classes();
 	const PackedStringArray all_classes = ClassDB::get_class_list();
 

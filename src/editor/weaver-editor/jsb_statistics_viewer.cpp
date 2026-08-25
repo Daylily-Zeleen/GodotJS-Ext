@@ -27,6 +27,8 @@
 
 #include "jsb_statistics_viewer.h"
 #include "jsb_editor_pch.h"
+#include "jsb_editor_bridge.h"
+#include <runtime/impl/shared/jsb_statistics.h>
 
 #include <runtime/compat/editor_settings.h>
 #include <runtime/compat/misc.h>
@@ -65,19 +67,19 @@ void GodotJSStatisticsViewer::activate(bool p_active) {
 }
 
 void GodotJSStatisticsViewer::on_timer() {
-	const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
-	if (!lang) return;
-	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
-	if (!env) return;
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->fill_statistics == nullptr) return;
 
 	jsb::Statistics stats;
-	env->get_statistics(stats);
+	int64_t err = OK;
+	bridge->fill_statistics(&stats, &err);
+	if (err != OK) return;
 
 	int index = 0;
 	for (const jsb::impl::CustomField &field : stats.custom_fields) {
 		add_row(index++, field);
 	}
-	add_row(index++, "jsb:objects", jsb_format("%d (%s)", stats.objects, String::humanize_size(stats.objects * jsb::internal::SArray<jsb::ObjectHandle>::get_slot_size())));
+	add_row(index++, "jsb:objects", jsb_format("%d (%s)", stats.objects, String::humanize_size(stats.objects_bytes)));
 	add_row(index++, "jsb:native_classes", itos(stats.native_classes));
 	add_row(index++, "jsb:script_classes", itos(stats.script_classes));
 	add_row(index++, "jsb:cached_string_names", itos(stats.cached_string_names));

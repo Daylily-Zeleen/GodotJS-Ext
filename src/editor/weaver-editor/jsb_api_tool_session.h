@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_editor_utility_funcs.h                                          */
+/*  jsb_api_tool_session.h                                              */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -17,7 +17,7 @@
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
 /*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -26,17 +26,44 @@
 /************************************************************************/
 
 #pragma once
-#include "jsb_bridge_pch.h"
-namespace jsb {
-struct EditorUtilityFuncs {
-	typedef void (*ExposeFunc)(v8::Isolate *isolate, v8::Local<v8::Context> context, v8::Local<v8::Object> jsb_obj);
 
-	// Called by the runtime bridge module loader to populate the `jsb.editor` object.
-	// Dispatches to the implementation registered by the editor library, or installs
-	// editor-only stubs when no implementation is available (non-editor builds).
-	static void expose(v8::Isolate *isolate, v8::Local<v8::Context> context, v8::Local<v8::Object> jsb_obj);
+#include <cstdio>
+#include "api_tool/api_tool.h"
 
-	// Registered by the editor library at load time to provide the real implementation.
-	static void set_expose_impl(ExposeFunc p_func);
+namespace jsb::editor {
+
+// Scoped guarantee that the api_tool store is available for editor-side work
+// (codegen, doc queries, descriptor generation).
+//
+// Single-library era: initialize() is idempotent and cheap when already loaded;
+// the destructor intentionally does NOT finalize because the runtime side keeps
+// reading the same store until engine shutdown.
+//
+// Two-library era (S6): each extension will hold its own store copy; the
+// destructor will then release THIS side's copy. The call sites are already
+// scoped so that switch is a one-line change here.
+class ApiToolSession {
+public:
+	explicit ApiToolSession(bool p_require_data = true) {
+		fprintf(stderr, "[DBG] session: check has_generated_data\n");
+		if (p_require_data && !api_tool::has_generated_data()) {
+			fprintf(stderr, "[DBG] session: no data\n");
+			valid_ = false;
+			return;
+		}
+		// Idempotent; no-op when already initialized.
+		fprintf(stderr, "[DBG] session: calling initialize\n");
+		api_tool::initialize();
+		fprintf(stderr, "[DBG] session: initialize returned OK\n");
+		valid_ = true;
+	}
+
+	~ApiToolSession() = default;
+
+	bool is_valid() const { return valid_; }
+
+private:
+	bool valid_ = false;
 };
-} //namespace jsb
+
+} //namespace jsb::editor

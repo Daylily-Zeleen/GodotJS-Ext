@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bl3sp2iwarfp1"]
 
 [ext_resource type="Script" path="res://tests/extend/test-extend.ts" id="1_ug7yl"]
 
