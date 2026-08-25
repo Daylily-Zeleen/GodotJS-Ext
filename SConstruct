@@ -781,8 +781,6 @@ editor_env = env.Clone()
 editor_env.variant_dir = "build_editor"
 editor_env["OBJPREFIX"] = "build_editor/"
 
-if jsb_platform == "windows":
-    editor_env.Append(CCFLAGS=["/FS"])
 editor_sources = []
 editor_dir = os.path.join(src_dir, "editor")
 editor_sources += Glob(os.path.join(editor_dir, "*.cpp"))
@@ -902,8 +900,8 @@ library = make_target_env(env, "bin/windows/godotjs-ext").SharedLibrary(
 # (same sources as some runtime-target objects; separate object paths avoid
 # SCons target conflicts between the two environments).
 editor_env = env.Clone()
-
 shared_objs = []
+
 for f in shared_utility_sources:
     # compile under a dedicated variant dir to avoid clashing with the runtime
     # target's objects of the same basename
