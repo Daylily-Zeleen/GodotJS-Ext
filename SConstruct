@@ -857,6 +857,10 @@ if quickjs_support is not None:
     for src in quickjs_support[1].sources:
         quickjs_obj.append(env_c.SharedObject(File(os.path.join(quickjs_dir, src))))
 
+if jsb_platform == "windows":
+    # /FS: parallel CL.EXE instances share the target PDB
+    env.Append(CCFLAGS=["/FS"])
+
 # Combine all sources for compilation
 all_sources = godotjs_sources + quickjs_obj
 
