@@ -880,7 +880,7 @@ def make_target_env(base_env, pdb_name):
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
         # LNK1218. Give every intermediate a real PDB (unique per target so the
         # parallel CL.EXE instances never contend) and keep incremental off.
-        target_env.Append(CCFLAGS=["/Zi", f"/Fd{pdb_name}.pdb"],
+        target_env.Append(CCFLAGS=["/Zi", "/FS", f"/Fd{pdb_name}.pdb"],
                           LINKFLAGS=[f"/PDB:{pdb_name}.pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
     return target_env
 

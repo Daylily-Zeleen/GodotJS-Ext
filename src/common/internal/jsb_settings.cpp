@@ -97,6 +97,7 @@ static const char *jsb_settings_file_filter() {
 // use unnecessary first category layer (runtime and editor) to make the second layer shown as sections in project settings
 
 
+#ifdef TOOLS_ENABLED
 bool Settings::editor_settings_available() {
 	return get_editor_settings().is_valid(); // || Engine::get_singleton()->is_editor_hint();
 }
@@ -116,6 +117,8 @@ BitField<AutoGenSettingFlags> Settings::get_autogen_resource_dts_settings() {
 bool Settings::get_codegen_use_project_settings() {
 	return EDITOR_GET(kEditorCodegenUseProjectSettings);
 }
+#endif // TOOLS_ENABLED
+
 
 bool Settings::is_packaging_with_source_map() {
 	return GLOBAL_GET(kEdPackagingWithSourceMap);
