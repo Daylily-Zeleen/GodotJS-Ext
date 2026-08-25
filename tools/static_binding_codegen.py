@@ -228,6 +228,8 @@ def collect(data, vt_map):
                 # raw name: builtin member groups are keyed per VT in
                 # emit_dispatch_cpp; the literal is emitted per entry
                 "name_str": mem["name"],
+                # the member's OWN declared type drives its ptrcall slot
+                "member_type": VARIANT_TYPE_VALUES.get(mem["type"], -1),
             })
         for ctor in bc.get("constructors", []):
             m.constructors.append({
@@ -686,8 +688,8 @@ def emit_dispatch_cpp(m):
             for e in by_vt[vt]:
                 nlit = cxx_str(e["name_str"])
                 L.append('\t\tif (p_name == godot::StringName(%s))'
-                         ' return (ThunkFn)&%s<(godot::Variant::Type)%d, %s>;'
-                         % (nlit, tmpl, vt, nlit))
+                         ' return (ThunkFn)&%s<(godot::Variant::Type)%d, (godot::Variant::Type)%d, %s>;'
+                         % (nlit, tmpl, vt, e["member_type"], nlit))
             L.append("\t\treturn nullptr;")
             L.append("\t}")
         L.append("\tdefault: return nullptr;")
