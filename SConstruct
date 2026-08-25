@@ -635,7 +635,8 @@ else:
     if '/-std=c++17' in cxx_flags:
         cxx_flags.remove('/-std=c++17')
     cxx_flags.append('-std=c++20')
-cxx_flags.append("/FS")
+if cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
+    cxx_flags.append("/FS")
 env["CXXFLAGS"] = cxx_flags
 
 # =============================================================================
@@ -863,11 +864,7 @@ if quickjs_support is not None:
     for src in quickjs_support[1].sources:
         quickjs_obj.append(env_c.SharedObject(File(os.path.join(quickjs_dir, src))))
 
-if jsb_platform == "windows":
-    # /FS: parallel CL.EXE instances share the target PDB (both extension
-    # targets and their shared objects compile concurrently).
-    env.Append(CCFLAGS=["/FS"])
-    env.Append(CXXFLAGS=["/FS"])
+
 
 # Combine all sources for compilation
 all_sources = godotjs_sources + quickjs_obj
