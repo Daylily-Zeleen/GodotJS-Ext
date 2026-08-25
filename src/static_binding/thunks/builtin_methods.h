@@ -155,6 +155,12 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	}
 
 	typename ReturnSlotOf<RetT>::type ret{};
+	// The engine reads the tail slots through its vararg path and may touch
+	// entries beyond the ones we filled; uninitialized stack garbage there
+	// crashes on dereference. Zero every slot before handing them over.
+	for (int _i = 0; _i < argc && _i < 64; ++_i) {
+		arg_ptrs[_i] = nullptr;
+	}
 	fn(base_ptr, arg_ptrs, &ret, argc);
 
 	for (int i = F; i < argc; ++i) {
