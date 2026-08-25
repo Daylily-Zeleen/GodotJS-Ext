@@ -53,8 +53,8 @@ static constexpr char kRtCamelCaseBindingsEnabled[] = JSB_MODULE_NAME_STRING "/r
 // consumed by the runtime (jsb_resource_loader) so registered by the runtime side
 static constexpr char kScriptInlineResourceUID[] = JSB_MODULE_NAME_STRING "/editor/script/inline_uid";
 
-#ifdef TOOLS_ENABLED
-// ---- editor-owned project settings ----
+// ---- editor-owned project settings (registered by the editor extension;
+// the runtime reads them with fallbacks, so the names must exist everywhere) ----
 static constexpr char kEdPackagingWithSourceMap[] = JSB_MODULE_NAME_STRING "/editor/packaging/source_map_included";
 static constexpr char kEdPackagingIncludeFiles[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_files";
 static constexpr char kEdPackagingIncludeDirectories[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_directories";
@@ -70,6 +70,7 @@ static constexpr char kEdSceneDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING
 static constexpr char kEdSceneDTSExcludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/exclude_path_wildcards";
 static constexpr char kEdSceneDTSGenerateStrategic[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/generate_strategic";
 
+#ifdef TOOLS_ENABLED
 // ---- EditorSettings defaults (editor extension registers these) ----
 static constexpr char kEditorDebuggerPort[] = JSB_MODULE_NAME_STRING "/debugger/editor_port";
 static constexpr char kEditorAutogenPath[] = JSB_MODULE_NAME_STRING "/codegen/autogen_path";
