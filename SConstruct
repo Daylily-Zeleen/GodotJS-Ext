@@ -635,6 +635,7 @@ else:
     if '/-std=c++17' in cxx_flags:
         cxx_flags.remove('/-std=c++17')
     cxx_flags.append('-std=c++20')
+cxx_flags.append("/FS")
 env["CXXFLAGS"] = cxx_flags
 
 # =============================================================================
