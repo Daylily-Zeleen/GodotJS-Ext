@@ -776,6 +776,8 @@ runtime_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
 
 editor_env = env.Clone()
+if jsb_platform == "windows":
+    editor_env.Append(CCFLAGS=["/FS"])
 editor_sources = []
 editor_dir = os.path.join(src_dir, "editor")
 editor_sources += Glob(os.path.join(editor_dir, "*.cpp"))
@@ -905,21 +907,26 @@ for f in shared_utility_sources:
     obj = editor_env.SharedObject(target=os.path.join("editor_shared", os.path.basename(f).replace(".cpp", ".obj")), source=File(f))
     shared_objs.append(obj)
 
-editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-preset_gen_obj = editor_env.SharedObject(
-    target=os.path.join("editor_shared", "jsb_project_preset.gen"),
-    source=File(os.path.join(runtime_dir, "jsb_project_preset.gen.cpp")))
-
-editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-editor_library = make_target_env(env, "bin/windows/godotjs-ext-editor").SharedLibrary(
-    "bin/{}/{}".format(env['platform'], editor_libname),
-    source=editor_sources + shared_objs + [preset_gen_obj],
-)
-
 copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
-editor_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), editor_library)
 
-default_args = [library, copy, editor_library, editor_copy]
+default_args = [library, copy]
+
+if env["target"] == "editor":
+    # The editor extension requires TOOLS_ENABLED headers; only built for
+    # the editor target. Other targets skip it entirely.
+    editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
+    preset_gen_obj = editor_env.SharedObject(
+        target=os.path.join("editor_shared", "jsb_project_preset.gen"),
+        source=File(os.path.join(runtime_dir, "jsb_project_preset.gen.cpp")))
+
+    editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
+    editor_library = make_target_env(env, "bin/windows/godotjs-ext-editor").SharedLibrary(
+        "bin/{}/{}".format(env['platform'], editor_libname),
+        source=editor_sources + shared_objs + [preset_gen_obj],
+    )
+
+    editor_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), editor_library)
+    default_args += [editor_library, editor_copy]
 
 # iOS: generate xcframework from device and simulator builds
 if jsb_platform == "ios" and env.get('ios_simulator', False):
