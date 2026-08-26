@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef JSExport_h
@@ -68,19 +68,19 @@
 
 <pre>
 @textblock
-    @protocol MyClassJavaScriptMethods <JSExport>
-    - (void)foo;
-    @end
+	@protocol MyClassJavaScriptMethods <JSExport>
+	- (void)foo;
+	@end
 
-    @interface MyClass : NSObject <MyClassJavaScriptMethods>
-    - (void)foo;
-    - (void)bar;
-    @end
+	@interface MyClass : NSObject <MyClassJavaScriptMethods>
+	- (void)foo;
+	- (void)bar;
+	@end
 @/textblock
 </pre>
 
  Data properties that are created on the prototype or constructor objects have
- the attributes: <code>writable:true</code>, <code>enumerable:false</code>, <code>configurable:true</code>. 
+ the attributes: <code>writable:true</code>, <code>enumerable:false</code>, <code>configurable:true</code>.
  Accessor properties have the attributes: <code>enumerable:false</code> and <code>configurable:true</code>.
 
  If an instance of <code>MyClass</code> is converted to a JavaScript value, the resulting
@@ -132,19 +132,22 @@
 
 <pre>
 @textblock
-    @protocol MyClassJavaScriptMethods <JSExport>
-    JSExportAs(doFoo,
-    - (void)doFoo:(id)foo withBar:(id)bar
-    );
-    @end
+	@protocol MyClassJavaScriptMethods <JSExport>
+	JSExportAs(doFoo,
+	- (void)doFoo:(id)foo withBar:(id)bar
+	);
+	@end
 @/textblock
 </pre>
 
  Note that the JSExport macro may only be applied to a selector that takes one
  or more argument.
 */
-#define JSExportAs(PropertyName, Selector) \
-    @optional Selector __JS_EXPORT_AS__##PropertyName:(id)argument; @required Selector
+#	define JSExportAs(PropertyName, Selector)                  \
+		@optional                                               \
+		Selector __JS_EXPORT_AS__##PropertyName : (id)argument; \
+		@required                                               \
+		Selector
 
 #endif
 

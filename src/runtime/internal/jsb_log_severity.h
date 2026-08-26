@@ -41,4 +41,3 @@ enum Type : uint8_t {
 };
 } //namespace ELogSeverity
 } //namespace jsb::internal
-

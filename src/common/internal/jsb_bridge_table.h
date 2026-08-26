@@ -58,16 +58,12 @@ namespace jsb {
 
 // All bridge functions return godot::Error directly; only the Variant RESULT
 // is passed through an out-parameter (GDExtensionVariantPtr).
-using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
-                                   GDExtensionVariantPtr r_result_variant);
+using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
 
 /// Evaluate source with one argument Variant exposed as the `__jsb_arg` global.
-using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
-                                      GDExtensionConstVariantPtr p_argument_variant,
-                                      GDExtensionVariantPtr r_result_variant);
+using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
 
-using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length,
-                                    GDExtensionVariantPtr r_result_variant);
+using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
 
 using JsbFillStatsFn = godot::Error (*)(void *p_statistics_raw);
 
@@ -76,7 +72,7 @@ using JsbVoidFn = godot::Error (*)();
 /// Register an editor-side console output sink. `p_userdata` is passed back on
 /// every write; returns an opaque handle used to remove the sink later.
 using JsbAddConsoleFn = int64_t (*)(void *p_userdata,
-                                    void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length));
+		void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length));
 /// Remove a previously registered console sink. Returns OK even if unknown.
 using JsbRemoveConsoleFn = godot::Error (*)(int64_t p_handle);
 

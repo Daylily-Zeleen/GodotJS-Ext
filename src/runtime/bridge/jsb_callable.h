@@ -72,4 +72,3 @@ public:
 	virtual uint32_t hash() const override { return callback_id_.hash(); }
 };
 } //namespace jsb
-

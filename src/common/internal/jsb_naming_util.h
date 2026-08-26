@@ -28,8 +28,8 @@
 #pragma once
 
 #include "jsb_settings.h"
-#include <godot_cpp/templates/local_vector.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
+#include <godot_cpp/templates/local_vector.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 namespace jsb::internal {
@@ -121,4 +121,3 @@ public:
 	}
 };
 } //namespace jsb::internal
-

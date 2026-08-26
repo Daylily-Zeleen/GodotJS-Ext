@@ -80,4 +80,3 @@ public:
 };
 
 } //namespace jsb::internal
-

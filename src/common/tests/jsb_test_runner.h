@@ -38,12 +38,12 @@
 
 #ifdef JSB_TESTS_ENABLED
 
-#include "doctest/doctest.h"
+#	include "doctest/doctest.h"
 
-#include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/scene_tree.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+#	include <godot_cpp/classes/engine.hpp>
+#	include <godot_cpp/classes/os.hpp>
+#	include <godot_cpp/classes/scene_tree.hpp>
+#	include <godot_cpp/variant/utility_functions.hpp>
 
 namespace jsb::testing {
 

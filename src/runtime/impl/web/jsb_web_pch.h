@@ -37,4 +37,3 @@
 
 #include "../shared/jsb_custom_field.h"
 #include "jsb_web_interop.h"
-

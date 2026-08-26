@@ -70,4 +70,3 @@ JS_EXPORT JSObjectRef JSWeakGetObject(JSWeakRef);
 #ifdef __cplusplus
 }
 #endif
-

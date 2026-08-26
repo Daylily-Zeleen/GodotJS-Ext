@@ -36,7 +36,7 @@
 
 #if JSB_USE_V8_LOCKER_PER_ISOLATE_SCOPE && JSB_WITH_V8
 #	include <v8-locker.h>
-#	define JSB_ISOLATE_SCOPE(isolate) \
+#	define JSB_ISOLATE_SCOPE(isolate)                   \
 		v8::Locker JSB_LINE_NAME_(jsb_locker_)(isolate); \
 		v8::Isolate::Scope JSB_LINE_NAME_(jsb_isolate_scope_)(isolate)
 #else

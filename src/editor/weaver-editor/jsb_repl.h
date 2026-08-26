@@ -102,5 +102,4 @@ protected:
 public:
 	GodotJSREPL();
 	virtual ~GodotJSREPL() override;
-
 };

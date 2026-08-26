@@ -53,27 +53,27 @@ namespace codegen {
 // feed the member doc comments. An absent entry in a map means "no doc",
 // matching the TS `?.description` lookups.
 struct ClassDocEntry {
-    api_tool::ApiClassDocument doc;
-    HashMap<String, String> constants; // exposed constant name -> description
-    HashMap<String, String> methods; // exposed method name -> description
-    HashMap<String, String> properties; // exposed property name -> description
+	api_tool::ApiClassDocument doc;
+	HashMap<String, String> constants; // exposed constant name -> description
+	HashMap<String, String> methods; // exposed method name -> description
+	HashMap<String, String> properties; // exposed property name -> description
 };
 
 class DocCache {
 public:
-    // find_doc(): returns nullptr when no document exists for the class.
-    // p_original_name: the engine-side (un-renamed) class name, e.g. "Array"
-    // for the exposed name "GArray". Resolves docs from api_tool.
-    const ClassDocEntry *find_doc(const String &p_class_name, const String &p_original_name);
+	// find_doc(): returns nullptr when no document exists for the class.
+	// p_original_name: the engine-side (un-renamed) class name, e.g. "Array"
+	// for the exposed name "GArray". Resolves docs from api_tool.
+	const ClassDocEntry *find_doc(const String &p_class_name, const String &p_original_name);
 
 private:
-    HashMap<String, ClassDocEntry *> docs_; // class name -> entry (positive cache only)
-    HashSet<String> missing_docs_; // negative cache (TS: cached `false`)
+	HashMap<String, ClassDocEntry *> docs_; // class name -> entry (positive cache only)
+	HashSet<String> missing_docs_; // negative cache (TS: cached `false`)
 
-    void destroy();
+	void destroy();
 
-    // free function access (destroy_doc_cache)
-    friend void destroy_doc_cache(DocCache &p_cache);
+	// free function access (destroy_doc_cache)
+	friend void destroy_doc_cache(DocCache &p_cache);
 };
 
 // releases all cached documents owned by `p_cache`

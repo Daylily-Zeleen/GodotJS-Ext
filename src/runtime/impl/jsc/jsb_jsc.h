@@ -47,4 +47,3 @@
 #include "jsb_jsc_class.h"
 #include "jsb_jsc_class_builder.h"
 #include "jsb_jsc_global_init.h"
-

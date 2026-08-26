@@ -58,38 +58,38 @@ LineMutator make_mutate_return_type(const String &p_type);
 LineMutator make_mutate_template(const String &p_template);
 
 struct GenericParameter {
-    String extends_;
-    String default_;
+	String extends_;
+	String default_;
 };
 
 struct ImplementsEntry {
-    String type;
-    Vector<String> generic_arguments;
+	String type;
+	Vector<String> generic_arguments;
 };
 
 struct PropertyOverride {
-    bool is_literal = false;
-    Vector<String> literal_lines; // valid when is_literal
-    LineMutator mutator; // valid when !is_literal
+	bool is_literal = false;
+	Vector<String> literal_lines; // valid when is_literal
+	LineMutator mutator; // valid when !is_literal
 };
 
 struct TypeMutation {
-    // insertion ordered
-    LocalVector<Pair<String, GenericParameter>> generic_parameters;
+	// insertion ordered
+	LocalVector<Pair<String, GenericParameter>> generic_parameters;
 
-    String super; // empty = not overridden
-    Vector<String> super_generic_arguments;
-    LocalVector<ImplementsEntry> implements;
+	String super; // empty = not overridden
+	Vector<String> super_generic_arguments;
+	LocalVector<ImplementsEntry> implements;
 
-    Vector<String> intro;
-    Vector<String> prelude;
+	Vector<String> intro;
+	Vector<String> prelude;
 
-    HashMap<String, PropertyOverride> property_overrides;
+	HashMap<String, PropertyOverride> property_overrides;
 
-    _FORCE_INLINE_ bool is_empty() const {
-        return generic_parameters.is_empty() && super.is_empty() && super_generic_arguments.is_empty()
-                && implements.is_empty() && intro.is_empty() && prelude.is_empty() && property_overrides.is_empty();
-    }
+	_FORCE_INLINE_ bool is_empty() const {
+		return generic_parameters.is_empty() && super.is_empty() && super_generic_arguments.is_empty()
+				&& implements.is_empty() && intro.is_empty() && prelude.is_empty() && property_overrides.is_empty();
+	}
 };
 
 // merge_type_mutations(): overrides win; literal overrides replace, mutators compose.

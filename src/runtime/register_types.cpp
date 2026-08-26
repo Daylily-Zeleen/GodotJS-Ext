@@ -25,17 +25,16 @@
 
 #include "register_types.h"
 
+#include "../common/tests/jsb_test_runner.h"
 #include "api_tool/api_tool.h"
+#include "weaver/jsb_weaver.h"
 #include <common/compat/jsb_compat.h>
 #include <common/internal/jsb_settings.h>
-#include "../common/tests/jsb_test_runner.h"
-#include "weaver/jsb_weaver.h"
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
-
+#include <godot_cpp/variant/utility_functions.hpp>
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
@@ -105,7 +104,6 @@ void jsb_startup() {
 	// lives in the editor extension's own startup callback.
 	jsb::testing::try_run("--jsb-run-tests");
 #endif // JSB_TESTS_ENABLED
-
 }
 
 void jsb_shutdown() {

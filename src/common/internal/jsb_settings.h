@@ -52,7 +52,6 @@ enum AutoGenSettingFlags {
 	CHANGED_FILE_ONLY = 1 << 2,
 };
 
-
 class Settings {
 public:
 	static bool is_bridge_logging_enabled();

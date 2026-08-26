@@ -43,4 +43,3 @@ public:
 private:
 	void on_tab_changed(int p_tab_index);
 };
-

@@ -552,7 +552,6 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 				names_obj->Set(context, impl::Helper::new_string_ascii(isolate, "get_variant_type"), JSB_NEW_FUNCTION(context, _get_variant_type_name, {})).Check();
 			}
 		}
-
 	}
 
 	p_module.exports.Reset(isolate, jsb_obj);

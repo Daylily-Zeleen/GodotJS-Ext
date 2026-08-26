@@ -51,4 +51,3 @@
 
 #include "jsb_variant_allocator.h"
 #include "jsb_variant_info.h"
-

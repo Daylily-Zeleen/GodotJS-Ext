@@ -154,4 +154,3 @@ struct StaticBindingUtil<int32_t> {
 	}
 };
 } //namespace jsb
-

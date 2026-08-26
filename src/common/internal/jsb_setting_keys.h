@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include <runtime/jsb.config.h>
 #include "jsb_macros.h"
+#include <runtime/jsb.config.h>
 
 // All project/editor setting key names in one place (pure constexpr, safe to
 // compile into both extensions). Registration ownership:

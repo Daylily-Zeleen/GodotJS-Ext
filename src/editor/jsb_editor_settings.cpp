@@ -27,12 +27,12 @@
 
 #include "jsb_editor_settings.h"
 
+#include "../common/compat/editor_settings.h"
+#include "../common/internal/jsb_macros.h"
 #include "../common/internal/jsb_setting_keys.h"
 #include "../common/internal/jsb_settings.h"
 #include <common/compat/project_settings.h>
-#include "../common/internal/jsb_macros.h"
 #include <common/internal/jsb_logger.h>
-#include "../common/compat/editor_settings.h"
 
 #include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -49,9 +49,9 @@
 // File-filter fragment shared by the registrations that hint at script files.
 static const char *editor_settings_file_filter() {
 	static constexpr char filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
-#if JSB_USE_TYPESCRIPT
-								 ",*." JSB_TYPESCRIPT_EXT
-#endif
+#	if JSB_USE_TYPESCRIPT
+									 ",*." JSB_TYPESCRIPT_EXT
+#	endif
 			;
 	return filter;
 }

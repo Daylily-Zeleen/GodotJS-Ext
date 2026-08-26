@@ -49,20 +49,20 @@ constexpr const char *kVersionDocsUrl = "https://docs.godotengine.org/en/latest"
 // jsb.editor.codegen.ts). Kept as a standalone enum so this module does not
 // depend on editor helper internals.
 enum class DescriptorType {
-    Godot = 0,
-    User,
-    FunctionLiteral,
-    ObjectLiteral,
-    StringLiteral,
-    NumericLiteral,
-    BooleanLiteral,
-    Union,
-    Intersection,
-    Conditional,
-    Tuple,
-    Infer,
-    Mapped,
-    Indexed,
+	Godot = 0,
+	User,
+	FunctionLiteral,
+	ObjectLiteral,
+	StringLiteral,
+	NumericLiteral,
+	BooleanLiteral,
+	Union,
+	Intersection,
+	Conditional,
+	Tuple,
+	Infer,
+	Mapped,
+	Indexed,
 };
 
 // PredefinedLines (verbatim)

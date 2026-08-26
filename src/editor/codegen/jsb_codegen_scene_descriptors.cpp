@@ -29,18 +29,18 @@
 
 #include "../weaver-editor/jsb_api_tool_session.h"
 #include "../weaver-editor/jsb_editor_bridge.h"
+#include <api_tool/api_tool.h>
 #include <common/internal/jsb_class_visibility.h>
 #include <common/internal/jsb_logger.h>
-#include <common/internal/jsb_path_util.h>
 #include <common/internal/jsb_naming_util.h>
+#include <common/internal/jsb_path_util.h>
 #include <common/internal/jsb_settings.h>
 #include <godot_cpp/classes/script.hpp>
-#include <api_tool/api_tool.h>
 
 #include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/animation_mixer.hpp>
-#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/templates/local_vector.hpp>
@@ -92,7 +92,9 @@ bool _request_codegen(const String &p_script_path, const Dictionary &p_request, 
 	{
 		const Variant request_variant = p_request; // Variant wrapping the request dictionary
 		const godot::Error err = bridge_copy.eval_with_arg(source.utf8().get_data(),
-			source.utf8().length(), request_variant._native_ptr(), result._native_ptr());
+				source.utf8().length(),
+				request_variant._native_ptr(),
+				result._native_ptr());
 		if (err != OK) {
 			JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
 			return false;
@@ -313,18 +315,18 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 		}
 
 		godot::BitField<jsb::internal::SceneDTSGenerateStrategic> strategic = jsb::internal::Settings::get_scene_dts_generate_strategic();
-	if (strategic == 0) {
-		strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
-		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
-	}
+		if (strategic == 0) {
+			strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+			JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
+		}
 
-	Array generic_arguments;
-	Dictionary unique_name_nodes;
-	generic_arguments.push_back(_build_node_type_descriptor(strategic, instantiated_scene, instantiated_scene, unique_name_nodes));
+		Array generic_arguments;
+		Dictionary unique_name_nodes;
+		generic_arguments.push_back(_build_node_type_descriptor(strategic, instantiated_scene, instantiated_scene, unique_name_nodes));
 
-	descriptor["type"] = (int32_t)DescriptorType::Godot;
-	descriptor["name"] = "PackedScene";
-	descriptor["arguments"] = generic_arguments;
+		descriptor["type"] = (int32_t)DescriptorType::Godot;
+		descriptor["name"] = "PackedScene";
+		descriptor["arguments"] = generic_arguments;
 
 		return descriptor;
 	}

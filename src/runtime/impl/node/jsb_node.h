@@ -35,14 +35,14 @@
 #include "jsb_node_pch.h"
 
 // v8 engine components (pure V8 API, provided by libnode's bundled v8 headers)
-#include "../v8/jsb_v8_pch.h"
-#include "jsb_node_helper.h"
 #include "../v8/jsb_v8_catch.h"
 #include "../v8/jsb_v8_class.h"
 #include "../v8/jsb_v8_class_builder.h"
+#include "../v8/jsb_v8_pch.h"
+#include "jsb_node_helper.h"
 
 #include "jsb_node_typedef.h"
 
+#include "jsb_node_bridge.h"
 #include "jsb_node_global_init.h"
 #include "jsb_node_runtime.h"
-#include "jsb_node_bridge.h"

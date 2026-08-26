@@ -377,7 +377,7 @@ Local<Object> Proxy::GetTarget() const {
 		}
 		return Local<Object>();
 	}
-	JSValueRef self = (JSValueRef)*this;
+	JSValueRef self = (JSValueRef) * this;
 	const JSValueRef target = JSObjectCallAsFunction(ctx, (JSObjectRef)getter, nullptr, 1, &self, &error);
 	if (jsb_unlikely(error) || !target) {
 		if (error) {

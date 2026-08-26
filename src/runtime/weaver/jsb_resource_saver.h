@@ -45,4 +45,3 @@ public:
 	virtual bool _recognize(const Ref<Resource> &p_resource) const override;
 	virtual Error _set_uid(const String &p_path, int64_t p_uid) override;
 };
-

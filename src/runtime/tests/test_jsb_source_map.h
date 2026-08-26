@@ -91,7 +91,7 @@ TEST_CASE("[runtime] [jsb.sourcemap] parse and find") {
 	}
 }
 
-#if !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+#	if !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
 TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
@@ -125,7 +125,7 @@ TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:1:0)", result));
 	}
 }
-#else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+#	else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
 TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
@@ -138,7 +138,7 @@ TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
 
 	CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:0)", result));
 }
-#endif // JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
+#	endif // JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
 
 TEST_CASE("[runtime] [jsb.sourcemap] process_source_position rewrites stacktrace") {
 	GodotJSScriptLanguageIniter initer;

@@ -260,4 +260,3 @@ public:
 	_FORCE_INLINE_ static void set_as_interruptible(v8::Isolate *isolate) {}
 };
 } //namespace jsb::impl
-

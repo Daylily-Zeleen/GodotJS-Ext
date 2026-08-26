@@ -423,4 +423,3 @@ void GodotJSREPL::_start_tsc_pressed() {
 		check_tsc();
 	}
 }
-

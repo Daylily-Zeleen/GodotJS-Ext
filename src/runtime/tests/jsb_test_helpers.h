@@ -85,16 +85,16 @@ private:
 
 public:
 	V8ContextScope(v8::Isolate *isolate)
-		: isolate_(isolate)
-		, handle_scope_(isolate)
-		, context_(isolate->GetCurrentContext())
-		, context_scope_(isolate->GetCurrentContext()) {}
+			: isolate_(isolate)
+			, handle_scope_(isolate)
+			, context_(isolate->GetCurrentContext())
+			, context_scope_(isolate->GetCurrentContext()) {}
 
 	V8ContextScope(jsb::Environment *env)
-		: isolate_(env->get_isolate())
-		, handle_scope_(env->get_isolate())
-		, context_(env->get_context())
-		, context_scope_(env->get_context()) {}
+			: isolate_(env->get_isolate())
+			, handle_scope_(env->get_isolate())
+			, context_(env->get_context())
+			, context_scope_(env->get_context()) {}
 
 	~V8ContextScope() = default;
 
@@ -113,7 +113,7 @@ public:
 		// 清除
 		GodotJSScriptLanguage::get_singleton()->_finish();
 		// 确保每个测试结束后环境恢复
-		GodotJSScriptLanguage::get_singleton()->_init(); 
+		GodotJSScriptLanguage::get_singleton()->_init();
 	}
 
 private:

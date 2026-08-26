@@ -1472,7 +1472,6 @@ v8::Local<v8::Function> Environment::_new_require_func(const String &p_module_id
 	return require;
 }
 
-
 Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	JSB_BENCHMARK_SCOPE(JSRealm, load);
 	this->check_internal_state();

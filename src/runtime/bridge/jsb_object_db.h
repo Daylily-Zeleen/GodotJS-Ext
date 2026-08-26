@@ -266,4 +266,3 @@ public:
 	}
 };
 } //namespace jsb
-

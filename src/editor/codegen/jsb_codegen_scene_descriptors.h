@@ -36,7 +36,6 @@ class Node;
 }
 namespace jsb::codegen {
 
-
 enum class CodeGenType {
 	ScriptNodeTypeDescriptor,
 	ScriptResourceTypeDescriptor,

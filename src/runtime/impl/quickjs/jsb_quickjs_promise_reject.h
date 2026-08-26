@@ -55,4 +55,3 @@ private:
 
 using PromiseRejectCallback = void (*)(PromiseRejectMessage);
 } //namespace v8
-

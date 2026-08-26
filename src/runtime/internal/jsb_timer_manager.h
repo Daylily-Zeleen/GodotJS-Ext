@@ -323,4 +323,3 @@ private:
 	}
 };
 } //namespace jsb::internal
-

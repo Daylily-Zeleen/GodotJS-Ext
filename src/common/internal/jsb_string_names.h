@@ -27,9 +27,9 @@
 
 #pragma once
 
-#include <godot_cpp/variant/packed_string_array.hpp>
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
+#include <godot_cpp/variant/packed_string_array.hpp>
 
 #include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
@@ -84,7 +84,6 @@ public:
 		replacements_.insert(name, replacement);
 		replacements_inv_.insert(replacement, name);
 	}
-
 
 	StringName sn_godot_typeloader;
 	StringName sn_godot_postbind;

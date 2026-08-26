@@ -58,7 +58,7 @@
 // (multi-threaded node::MultiIsolatePlatform requires the locker on every V8 entry).
 #include "../shared/jsb_isolate_scope.h"
 
-#include <common/internal/jsb_logger.h>
 #include "../../internal/jsb_macros.h"
+#include <common/internal/jsb_logger.h>
 
 #include "../shared/jsb_custom_field.h"

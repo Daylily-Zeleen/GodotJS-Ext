@@ -59,4 +59,3 @@ public:
 	static void register_monitors();
 	static void unregister_monitors();
 };
-

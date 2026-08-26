@@ -137,4 +137,3 @@ TEST_CASE("[runtime] [jsb.internal] SArray StringName test") {
 	}
 }
 } //namespace jsb::tests
-

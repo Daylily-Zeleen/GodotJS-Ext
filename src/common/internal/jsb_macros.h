@@ -28,8 +28,8 @@
 #pragma once
 
 #include <runtime/jsb.config.h>
-#include <runtime/jsb_version.h>
 #include <runtime/jsb.gen.h>
+#include <runtime/jsb_version.h>
 #define JSB_STRINGIFY_2(a) #a
 #define JSB_STRINGIFY(a) JSB_STRINGIFY_2(a)
 #define JSB_CONCAT_IMPL(a, b) a##b
@@ -146,4 +146,3 @@
 
 // helper macros to create a handle scope with a unique name
 #define JSB_HANDLE_SCOPE(isolate) v8::HandleScope JSB_CONCAT(unique_, __COUNTER__)(isolate)
-

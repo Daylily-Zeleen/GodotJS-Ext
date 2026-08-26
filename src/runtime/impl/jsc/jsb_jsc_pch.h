@@ -53,4 +53,3 @@
 #include <memory>
 
 #define JSB_JSC_LOG(Severity, Format, ...) JSB_LOG_IMPL(jsc, Severity, Format, ##__VA_ARGS__)
-

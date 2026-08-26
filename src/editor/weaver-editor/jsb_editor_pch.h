@@ -38,4 +38,3 @@
 #include "common/internal/jsb_process.h"
 #include "common/internal/jsb_settings.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>
-

@@ -30,7 +30,7 @@
 #include <JavaScriptCore/WebKitAvailability.h>
 
 #ifndef __cplusplus
-#include <stdbool.h>
+#	include <stdbool.h>
 #endif
 #include <stddef.h> /* for size_t */
 #include <stdint.h> /* for int64_t and uint64_t */
@@ -48,14 +48,14 @@
 @constant     kJSTypeBigInt     A primitive BigInt value.
 */
 typedef enum {
-    kJSTypeUndefined,
-    kJSTypeNull,
-    kJSTypeBoolean,
-    kJSTypeNumber,
-    kJSTypeString,
-    kJSTypeObject,
-    kJSTypeSymbol API_AVAILABLE(macos(10.15), ios(13.0)),
-    kJSTypeBigInt API_AVAILABLE(macos(15.0), ios(18.0))
+	kJSTypeUndefined,
+	kJSTypeNull,
+	kJSTypeBoolean,
+	kJSTypeNumber,
+	kJSTypeString,
+	kJSTypeObject,
+	kJSTypeSymbol API_AVAILABLE(macos(10.15), ios(13.0)),
+	kJSTypeBigInt API_AVAILABLE(macos(15.0), ios(18.0))
 } JSType;
 
 /*!
@@ -77,19 +77,19 @@ typedef enum {
 
  */
 typedef enum {
-    kJSTypedArrayTypeInt8Array,
-    kJSTypedArrayTypeInt16Array,
-    kJSTypedArrayTypeInt32Array,
-    kJSTypedArrayTypeUint8Array,
-    kJSTypedArrayTypeUint8ClampedArray,
-    kJSTypedArrayTypeUint16Array,
-    kJSTypedArrayTypeUint32Array,
-    kJSTypedArrayTypeFloat32Array,
-    kJSTypedArrayTypeFloat64Array,
-    kJSTypedArrayTypeArrayBuffer,
-    kJSTypedArrayTypeNone,
-    kJSTypedArrayTypeBigInt64Array,
-    kJSTypedArrayTypeBigUint64Array,
+	kJSTypedArrayTypeInt8Array,
+	kJSTypedArrayTypeInt16Array,
+	kJSTypedArrayTypeInt32Array,
+	kJSTypedArrayTypeUint8Array,
+	kJSTypedArrayTypeUint8ClampedArray,
+	kJSTypedArrayTypeUint16Array,
+	kJSTypedArrayTypeUint32Array,
+	kJSTypedArrayTypeFloat32Array,
+	kJSTypedArrayTypeFloat64Array,
+	kJSTypedArrayTypeArrayBuffer,
+	kJSTypedArrayTypeNone,
+	kJSTypedArrayTypeBigInt64Array,
+	kJSTypedArrayTypeBigUint64Array,
 } JSTypedArrayType API_AVAILABLE(macos(10.12), ios(10.0));
 
 /*!
@@ -101,11 +101,11 @@ typedef enum {
 @constant     kJSRelationConditionLessThan     The left operand is less than the right operand.
 */
 JSC_CF_ENUM(JSRelationCondition,
-    kJSRelationConditionUndefined,
-    kJSRelationConditionEqual,
-    kJSRelationConditionGreaterThan,
-    kJSRelationConditionLessThan
-) API_AVAILABLE(macos(15.0), ios(18.0));
+		kJSRelationConditionUndefined,
+		kJSRelationConditionEqual,
+		kJSRelationConditionGreaterThan,
+		kJSRelationConditionLessThan)
+API_AVAILABLE(macos(15.0), ios(18.0));
 
 #ifdef __cplusplus
 extern "C" {
@@ -194,7 +194,6 @@ JSC_ASSUME_NONNULL_END
 */
 JS_EXPORT bool JSValueIsObject(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value);
 
-
 /*!
 @function
 @abstract Tests whether a JavaScript value is an object with a given class in its class chain.
@@ -231,7 +230,7 @@ JS_EXPORT bool JSValueIsDate(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNS
 @param exception    A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
 @result             A value of type JSTypedArrayType that identifies value's Typed Array type, or kJSTypedArrayTypeNone if the value is not a Typed Array object.
  */
-JS_EXPORT JSTypedArrayType JSValueGetTypedArrayType(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception) API_AVAILABLE(macos(10.12), ios(10.0));
+JS_EXPORT JSTypedArrayType JSValueGetTypedArrayType(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception) API_AVAILABLE(macos(10.12), ios(10.0));
 
 /* Comparing values */
 
@@ -244,7 +243,7 @@ JS_EXPORT JSTypedArrayType JSValueGetTypedArrayType(JSC_NULL_UNSPECIFIED JSConte
 @param exception A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
 @result true if the two values are equal, false if they are not equal or an exception is thrown.
 */
-JS_EXPORT bool JSValueIsEqual(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef a, JSC_NULL_UNSPECIFIED JSValueRef b, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception);
+JS_EXPORT bool JSValueIsEqual(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef a, JSC_NULL_UNSPECIFIED JSValueRef b, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception);
 
 /*!
 @function
@@ -265,56 +264,56 @@ JS_EXPORT bool JSValueIsStrictEqual(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_N
 @param exception A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
 @result true if value is an object constructed by constructor, as compared by the JS instanceof operator, otherwise false.
 */
-JS_EXPORT bool JSValueIsInstanceOfConstructor(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSObjectRef constructor, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception);
+JS_EXPORT bool JSValueIsInstanceOfConstructor(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSObjectRef constructor, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception);
 
 JSC_ASSUME_NONNULL_BEGIN
 /*!
-    @function
-    @abstract         Compares two JSValues.
-    @param ctx        The execution context to use.
-    @param left       The JSValue as the left operand.
-    @param right      The JSValue as the right operand.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
-    @discussion       The result is computed by comparing the results of JavaScript's `==`, `<`, and `>` operators. If either `left` or `right` is (or would coerce to) `NaN` in JavaScript, then the result is kJSRelationConditionUndefined.
+	@function
+	@abstract         Compares two JSValues.
+	@param ctx        The execution context to use.
+	@param left       The JSValue as the left operand.
+	@param right      The JSValue as the right operand.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
+	@discussion       The result is computed by comparing the results of JavaScript's `==`, `<`, and `>` operators. If either `left` or `right` is (or would coerce to) `NaN` in JavaScript, then the result is kJSRelationConditionUndefined.
 */
-JS_EXPORT JSRelationCondition JSValueCompare(JSContextRef ctx, JSValueRef left, JSValueRef right, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSRelationCondition JSValueCompare(JSContextRef ctx, JSValueRef left, JSValueRef right, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Compares a JSValue with a signed 64-bit integer.
-    @param ctx        The execution context to use.
-    @param left       The JSValue as the left operand.
-    @param right      The int64_t as the right operand.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
-    @discussion       `left` is converted to an integer according to the rules specified by the JavaScript language then compared with `right`.
+	@function
+	@abstract         Compares a JSValue with a signed 64-bit integer.
+	@param ctx        The execution context to use.
+	@param left       The JSValue as the left operand.
+	@param right      The int64_t as the right operand.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
+	@discussion       `left` is converted to an integer according to the rules specified by the JavaScript language then compared with `right`.
 */
-JS_EXPORT JSRelationCondition JSValueCompareInt64(JSContextRef ctx, JSValueRef left, int64_t right, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSRelationCondition JSValueCompareInt64(JSContextRef ctx, JSValueRef left, int64_t right, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Compares a JSValue with an unsigned 64-bit integer.
-    @param ctx        The execution context to use.
-    @param left       The JSValue as the left operand.
-    @param right      The uint64_t as the right operand.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
-    @discussion       `left` is converted to an integer according to the rules specified by the JavaScript language then compared with `right`.
+	@function
+	@abstract         Compares a JSValue with an unsigned 64-bit integer.
+	@param ctx        The execution context to use.
+	@param left       The JSValue as the left operand.
+	@param right      The uint64_t as the right operand.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
+	@discussion       `left` is converted to an integer according to the rules specified by the JavaScript language then compared with `right`.
 */
-JS_EXPORT JSRelationCondition JSValueCompareUInt64(JSContextRef ctx, JSValueRef left, uint64_t right, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSRelationCondition JSValueCompareUInt64(JSContextRef ctx, JSValueRef left, uint64_t right, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Compares a JSValue with a double.
-    @param ctx        The execution context to use.
-    @param left       The JSValue as the left operand.
-    @param right      The double as the right operand.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
-    @discussion       `left` is converted to a double according to the rules specified by the JavaScript language then compared with `right`.
+	@function
+	@abstract         Compares a JSValue with a double.
+	@param ctx        The execution context to use.
+	@param left       The JSValue as the left operand.
+	@param right      The double as the right operand.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A value of JSRelationCondition, a kJSRelationConditionUndefined is returned if an exception is thrown.
+	@discussion       `left` is converted to a double according to the rules specified by the JavaScript language then compared with `right`.
 */
-JS_EXPORT JSRelationCondition JSValueCompareDouble(JSContextRef ctx, JSValueRef left, double right, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSRelationCondition JSValueCompareDouble(JSContextRef ctx, JSValueRef left, double right, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 JSC_ASSUME_NONNULL_END
 
 /* Creating values */
@@ -374,46 +373,46 @@ JS_EXPORT JSC_NULL_UNSPECIFIED JSValueRef JSValueMakeSymbol(JSC_NULL_UNSPECIFIED
 
 JSC_ASSUME_NONNULL_BEGIN
 /*!
-    @function
-    @abstract         Creates a JavaScript BigInt with a double.
-    @param ctx        The execution context to use.
-    @param value      The value to copy into the new BigInt JSValue.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A BigInt JSValue of the value, or NULL if an exception is thrown.
-    @discussion       If the value is not an integer, an exception is thrown.
+	@function
+	@abstract         Creates a JavaScript BigInt with a double.
+	@param ctx        The execution context to use.
+	@param value      The value to copy into the new BigInt JSValue.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A BigInt JSValue of the value, or NULL if an exception is thrown.
+	@discussion       If the value is not an integer, an exception is thrown.
 */
-JS_EXPORT JSValueRef JSBigIntCreateWithDouble(JSContextRef ctx, double value, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSValueRef JSBigIntCreateWithDouble(JSContextRef ctx, double value, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Creates a JavaScript BigInt with a 64-bit signed integer.
-    @param ctx        The execution context to use.
-    @param integer    The 64-bit signed integer to copy into the new BigInt JSValue.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A BigInt JSValue of the integer, or NULL if an exception is thrown.
+	@function
+	@abstract         Creates a JavaScript BigInt with a 64-bit signed integer.
+	@param ctx        The execution context to use.
+	@param integer    The 64-bit signed integer to copy into the new BigInt JSValue.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A BigInt JSValue of the integer, or NULL if an exception is thrown.
 */
-JS_EXPORT JSValueRef JSBigIntCreateWithInt64(JSContextRef ctx, int64_t integer, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSValueRef JSBigIntCreateWithInt64(JSContextRef ctx, int64_t integer, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Creates a JavaScript BigInt with a 64-bit unsigned integer.
-    @param ctx        The execution context to use.
-    @param integer    The 64-bit unsigned integer to copy into the new BigInt JSValue.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A BigInt JSValue of the integer, or NULL if an exception is thrown.
+	@function
+	@abstract         Creates a JavaScript BigInt with a 64-bit unsigned integer.
+	@param ctx        The execution context to use.
+	@param integer    The 64-bit unsigned integer to copy into the new BigInt JSValue.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A BigInt JSValue of the integer, or NULL if an exception is thrown.
 */
-JS_EXPORT JSValueRef JSBigIntCreateWithUInt64(JSContextRef ctx, uint64_t integer, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSValueRef JSBigIntCreateWithUInt64(JSContextRef ctx, uint64_t integer, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Creates a JavaScript BigInt with an integer represented in string.
-    @param ctx        The execution context to use.
-    @param string     The JSStringRef representation of an integer.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A BigInt JSValue of the string, or NULL if an exception is thrown.
-    @discussion       This is equivalent to calling the `BigInt` constructor from JavaScript with a string argument.
+	@function
+	@abstract         Creates a JavaScript BigInt with an integer represented in string.
+	@param ctx        The execution context to use.
+	@param string     The JSStringRef representation of an integer.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A BigInt JSValue of the string, or NULL if an exception is thrown.
+	@discussion       This is equivalent to calling the `BigInt` constructor from JavaScript with a string argument.
 */
-JS_EXPORT JSValueRef JSBigIntCreateWithString(JSContextRef ctx, JSStringRef string, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT JSValueRef JSBigIntCreateWithString(JSContextRef ctx, JSStringRef string, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 JSC_ASSUME_NONNULL_END
 
 /* Converting to and from JSON formatted strings */
@@ -436,7 +435,7 @@ JS_EXPORT JSC_NULL_UNSPECIFIED JSValueRef JSValueMakeFromJSONString(JSC_NULL_UNS
  @param exception A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
  @result         A JSString with the result of serialization, or NULL if an exception is thrown.
  */
-JS_EXPORT JSC_NULL_UNSPECIFIED JSStringRef JSValueCreateJSONString(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, unsigned indent, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception) API_AVAILABLE(macos(10.7), ios(7.0));
+JS_EXPORT JSC_NULL_UNSPECIFIED JSStringRef JSValueCreateJSONString(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, unsigned indent, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception) API_AVAILABLE(macos(10.7), ios(7.0));
 
 /* Converting to primitive values */
 
@@ -458,52 +457,52 @@ JS_EXPORT bool JSValueToBoolean(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_
 @result         The numeric result of conversion, or NaN if an exception is thrown.
 @discussion     The result is equivalent to `Number(value)` in JavaScript.
 */
-JS_EXPORT double JSValueToNumber(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception);
+JS_EXPORT double JSValueToNumber(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception);
 
 JSC_ASSUME_NONNULL_BEGIN
 /*!
-    @function
-    @abstract         Converts a JSValue to a singed 32-bit integer and returns the resulting integer.
-    @param ctx        The execution context to use.
-    @param value      The JSValue to convert.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           An int32_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
-    @discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to an int32_t.
+	@function
+	@abstract         Converts a JSValue to a singed 32-bit integer and returns the resulting integer.
+	@param ctx        The execution context to use.
+	@param value      The JSValue to convert.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           An int32_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
+	@discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to an int32_t.
 */
-JS_EXPORT int32_t JSValueToInt32(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT int32_t JSValueToInt32(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Converts a JSValue to an unsigned 32-bit integer and returns the resulting integer.
-    @param ctx        The execution context to use.
-    @param value      The JSValue to convert.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A uint32_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
-    @discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to a uint32_t.
+	@function
+	@abstract         Converts a JSValue to an unsigned 32-bit integer and returns the resulting integer.
+	@param ctx        The execution context to use.
+	@param value      The JSValue to convert.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A uint32_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
+	@discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to a uint32_t.
 */
-JS_EXPORT uint32_t JSValueToUInt32(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT uint32_t JSValueToUInt32(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Converts a JSValue to a singed 64-bit integer and returns the resulting integer.
-    @param ctx        The execution context to use.
-    @param value      The JSValue to convert.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           An int64_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
-    @discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to an int64_t.
+	@function
+	@abstract         Converts a JSValue to a singed 64-bit integer and returns the resulting integer.
+	@param ctx        The execution context to use.
+	@param value      The JSValue to convert.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           An int64_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
+	@discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to an int64_t.
 */
-JS_EXPORT int64_t JSValueToInt64(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT int64_t JSValueToInt64(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 
 /*!
-    @function
-    @abstract         Converts a JSValue to an unsigned 64-bit integer and returns the resulting integer.
-    @param ctx        The execution context to use.
-    @param value      The JSValue to convert.
-    @param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
-    @result           A uint64_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
-    @discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to a uint64_t.
+	@function
+	@abstract         Converts a JSValue to an unsigned 64-bit integer and returns the resulting integer.
+	@param ctx        The execution context to use.
+	@param value      The JSValue to convert.
+	@param exception  A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
+	@result           A uint64_t with the result of conversion, or 0 if an exception is thrown. Since 0 is valid value, `exception` must be checked after the call.
+	@discussion       The JSValue is converted to an integer according to the rules specified by the JavaScript language. If the value is a BigInt, then the JSValue is truncated to a uint64_t.
 */
-JS_EXPORT uint64_t JSValueToUInt64(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef* JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
+JS_EXPORT uint64_t JSValueToUInt64(JSContextRef ctx, JSValueRef value, JSC_NULLABLE JSValueRef *JSC_NULLABLE exception) API_AVAILABLE(macos(15.0), ios(18.0));
 JSC_ASSUME_NONNULL_END
 
 /*!
@@ -514,7 +513,7 @@ JSC_ASSUME_NONNULL_END
 @param exception A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
 @result         A JSString with the result of conversion, or NULL if an exception is thrown. Ownership follows the Create Rule.
 */
-JS_EXPORT JSC_NULL_UNSPECIFIED JSStringRef JSValueToStringCopy(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception);
+JS_EXPORT JSC_NULL_UNSPECIFIED JSStringRef JSValueToStringCopy(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception);
 
 /*!
 @function
@@ -524,7 +523,7 @@ JS_EXPORT JSC_NULL_UNSPECIFIED JSStringRef JSValueToStringCopy(JSC_NULL_UNSPECIF
 @param exception A pointer to a JSValueRef in which to store an exception, if any. To reliable detect exception, initialize this to null before the call. Pass NULL if you do not care to store an exception.
 @result         The JSObject result of conversion, or NULL if an exception is thrown.
 */
-JS_EXPORT JSC_NULL_UNSPECIFIED JSObjectRef JSValueToObject(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef* JSC_NULL_UNSPECIFIED exception);
+JS_EXPORT JSC_NULL_UNSPECIFIED JSObjectRef JSValueToObject(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value, JSC_NULL_UNSPECIFIED JSValueRef *JSC_NULL_UNSPECIFIED exception);
 
 /* Garbage collection */
 /*!
@@ -533,7 +532,7 @@ JS_EXPORT JSC_NULL_UNSPECIFIED JSObjectRef JSValueToObject(JSC_NULL_UNSPECIFIED 
 @param ctx The execution context to use.
 @param value The JSValue to protect.
 @discussion Use this method when you want to store a JSValue in a global or on the heap, where the garbage collector will not be able to discover your reference to it.
- 
+
 A value may be protected multiple times and must be unprotected an equal number of times before becoming eligible for garbage collection.
 */
 JS_EXPORT void JSValueProtect(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value);
@@ -543,7 +542,7 @@ JS_EXPORT void JSValueProtect(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UN
 @abstract       Unprotects a JavaScript value from garbage collection.
 @param ctx      The execution context to use.
 @param value    The JSValue to unprotect.
-@discussion     A value may be protected multiple times and must be unprotected an 
+@discussion     A value may be protected multiple times and must be unprotected an
  equal number of times before becoming eligible for garbage collection.
 */
 JS_EXPORT void JSValueUnprotect(JSC_NULL_UNSPECIFIED JSContextRef ctx, JSC_NULL_UNSPECIFIED JSValueRef value);

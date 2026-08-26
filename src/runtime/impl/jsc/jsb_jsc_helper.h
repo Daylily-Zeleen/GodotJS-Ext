@@ -230,4 +230,3 @@ public:
 	}
 };
 } //namespace jsb::impl
-

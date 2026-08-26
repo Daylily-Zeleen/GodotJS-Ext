@@ -101,7 +101,6 @@ private:
 	void _await_scan_then_generate_from_cmdline();
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
 
-
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
 	static Vector<String> _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths);
 
@@ -180,4 +179,3 @@ private:
 	static void _update_progress_task(const String &p_task_name, const String &p_state, int p_step);
 	static void _finish_progress_task(const String &p_task_name);
 };
-

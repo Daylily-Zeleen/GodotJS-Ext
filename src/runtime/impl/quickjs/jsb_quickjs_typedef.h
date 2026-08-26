@@ -131,4 +131,3 @@ using GCCallback = void (*)(Isolate *isolate, GCType type, GCCallbackFlags flags
 using AccessorNameGetterCallback = void (*)(Local<Name> property, const PropertyCallbackInfo<Value> &info);
 
 } //namespace v8
-

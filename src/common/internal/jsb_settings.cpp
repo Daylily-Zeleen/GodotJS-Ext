@@ -47,7 +47,6 @@
 
 namespace jsb::internal {
 
-
 // Register runtime-owned project settings (godotjs_ext/runtime/** keys plus
 // godotjs_ext/editor/script/inline_uid which the runtime consumes). ProjectSettings
 // exists long before SERVERS-level extension init, so this is safe here.
@@ -66,7 +65,7 @@ void init_project_settings() {
 
 		static constexpr char filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
 #if JSB_USE_TYPESCRIPT
-							 ",*." JSB_TYPESCRIPT_EXT
+										 ",*." JSB_TYPESCRIPT_EXT
 #endif
 				;
 		{
@@ -87,15 +86,13 @@ void init_project_settings() {
 static const char *jsb_settings_file_filter() {
 	static constexpr char filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
 #if JSB_USE_TYPESCRIPT
-										 ",*." JSB_TYPESCRIPT_EXT
+									 ",*." JSB_TYPESCRIPT_EXT
 #endif
 			;
 	return filter;
 }
 
-
 // use unnecessary first category layer (runtime and editor) to make the second layer shown as sections in project settings
-
 
 #ifdef TOOLS_ENABLED
 bool Settings::editor_settings_available() {
@@ -118,7 +115,6 @@ bool Settings::get_codegen_use_project_settings() {
 	return EDITOR_GET(kEditorCodegenUseProjectSettings);
 }
 #endif // TOOLS_ENABLED
-
 
 bool Settings::is_packaging_with_source_map() {
 	return GLOBAL_GET(kEdPackagingWithSourceMap);
@@ -249,7 +245,7 @@ PackedStringArray Settings::get_ignored_classes() {
 String Settings::get_indentation() {
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-			// use_space_indentation
+		// use_space_indentation
 		if (!!EDITOR_GET("text_editor/behavior/indent/type")) {
 			const int indent_size = EDITOR_GET("text_editor/behavior/indent/size");
 			return String(" ").repeat(indent_size);

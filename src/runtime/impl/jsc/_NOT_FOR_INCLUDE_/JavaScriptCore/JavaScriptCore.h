@@ -20,19 +20,19 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef JavaScriptCore_h
 #define JavaScriptCore_h
 
-#include <JavaScriptCore/JavaScript.h>
 #include <JavaScriptCore/JSStringRefCF.h>
+#include <JavaScriptCore/JavaScript.h>
 
 #include <JavaScriptCore/JSContext.h>
-#include <JavaScriptCore/JSValue.h>
-#include <JavaScriptCore/JSManagedValue.h>
-#include <JavaScriptCore/JSVirtualMachine.h>
 #include <JavaScriptCore/JSExport.h>
+#include <JavaScriptCore/JSManagedValue.h>
+#include <JavaScriptCore/JSValue.h>
+#include <JavaScriptCore/JSVirtualMachine.h>
 
 #endif /* JavaScriptCore_h */

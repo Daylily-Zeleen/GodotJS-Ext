@@ -28,22 +28,18 @@
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
-#include "internal/jsb_settings.h"
-#include "common/internal/jsb_class_visibility.h"
 #include "../common/tests/jsb_test_runner.h"
-#include "weaver-editor/jsb_weaver_editor.h"
 #include "api_tool/api_tool.h"
+#include "common/internal/jsb_class_visibility.h"
+#include "internal/jsb_settings.h"
+#include "weaver-editor/jsb_weaver_editor.h"
 
 using namespace godot;
-
-
-
 
 void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		return;
 	}
-
 
 	// P1 之后 codegen 为纯 C++（jsb::codegen），GodotJSEditorHelper 已删除，
 	// 无需再为 api store 的 JS 反射注册 exposed 类。
@@ -72,7 +68,6 @@ void _editor_tests_startup() {
 	jsb::testing::try_run("--jsb-run-editor-tests");
 }
 #endif // JSB_TESTS_ENABLED
-
 
 extern "C" {
 GDExtensionBool GDE_EXPORT jsb_editor_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {

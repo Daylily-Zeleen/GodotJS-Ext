@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include "../impl/shared/jsb_statistics.h"
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_async_module_manager.h"
@@ -39,7 +40,6 @@
 #include "jsb_module_resolver.h"
 #include "jsb_object_db.h"
 #include "jsb_object_handle.h"
-#include "../impl/shared/jsb_statistics.h"
 #include "jsb_string_name_cache.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
@@ -434,7 +434,6 @@ public:
 	 * \return OK if compiled and run with no error
 	 */
 	Error load(const String &p_name, JavaScriptModule **r_module = nullptr);
-
 
 	//TODO is there a simple way to compile (validate) the script without any side effect?
 	bool validate_script(const String &p_path);

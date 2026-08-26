@@ -27,9 +27,9 @@
 
 #include "jsb_editor_pch.h"
 
+#include "common/internal/jsb_class_visibility.h"
 #include "common/internal/jsb_naming_util.h"
 #include "common/internal/jsb_settings.h"
-#include "common/internal/jsb_class_visibility.h"
 #include "jsb_editor_plugin.h"
 
 #include <common/compat/editor_settings.h>

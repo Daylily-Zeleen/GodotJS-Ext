@@ -26,8 +26,8 @@
 /************************************************************************/
 
 #include "jsb_statistics_viewer.h"
-#include "jsb_editor_pch.h"
 #include "jsb_editor_bridge.h"
+#include "jsb_editor_pch.h"
 #include <common/impl/shared/jsb_statistics.h>
 
 #include <common/compat/editor_settings.h>

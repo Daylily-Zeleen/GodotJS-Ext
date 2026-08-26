@@ -52,4 +52,3 @@ public:
 public:
 	static bool is_not_godot_resource_script(const String &p_path);
 };
-

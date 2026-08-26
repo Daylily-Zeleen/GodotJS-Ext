@@ -30,8 +30,8 @@
 
 #include "../bridge/jsb_environment.h"
 #include "../bridge/jsb_type_convert.h"
-#include "../weaver/jsb_script_language.h"
 #include "../impl/shared/jsb_statistics.h"
+#include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/engine.hpp>
 
 namespace jsb {
@@ -42,8 +42,7 @@ namespace jsb {
 // godot-cpp into the caller-owned variant storage.
 // ---------------------------------------------------------------------------
 
-static godot::Error bridge_eval(const char *p_source_utf8, int64_t p_length,
-                                GDExtensionVariantPtr r_result_variant) {
+static godot::Error bridge_eval(const char *p_source_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
 		return ERR_UNCONFIGURED;
@@ -65,9 +64,7 @@ static godot::Error bridge_eval(const char *p_source_utf8, int64_t p_length,
 	return OK;
 }
 
-static godot::Error bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length,
-                                 GDExtensionConstVariantPtr p_argument_variant,
-                                 GDExtensionVariantPtr r_result_variant) {
+static godot::Error bridge_eval_with_arg(const char *p_source_utf8, int64_t p_length, GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
 		return ERR_UNCONFIGURED;
@@ -114,8 +111,7 @@ static godot::Error bridge_eval_with_arg(const char *p_source_utf8, int64_t p_le
 	return OK;
 }
 
-static godot::Error bridge_get_module_source_info(const char *p_path_utf8, int64_t p_length,
-                                      GDExtensionVariantPtr r_result_variant) {
+static godot::Error bridge_get_module_source_info(const char *p_path_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
 		return ERR_UNCONFIGURED;
@@ -141,8 +137,7 @@ static godot::Error bridge_get_module_source_info(const char *p_path_utf8, int64
 	return OK;
 }
 
-static godot::Error bridge_get_module_direct_dependencies(const char *p_path_utf8, int64_t p_length,
-                                      GDExtensionVariantPtr r_result_variant) {
+static godot::Error bridge_get_module_direct_dependencies(const char *p_path_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
 		return ERR_UNCONFIGURED;
@@ -163,9 +158,8 @@ static godot::Error bridge_get_module_direct_dependencies(const char *p_path_utf
 
 		if (!module->module.IsEmpty()) {
 			v8::Local<v8::Value> temp;
-			if (module->module.Get(isolate).As<v8::Object>()
-					->Get(context, jsb_name(env, children)).ToLocal(&temp)
-				&& temp->IsArray()) {
+			if (module->module.Get(isolate).As<v8::Object>()->Get(context, jsb_name(env, children)).ToLocal(&temp)
+					&& temp->IsArray()) {
 				const v8::Local<v8::Array> children = temp.As<v8::Array>();
 				const int32_t len = children->Length();
 				for (int32_t i = 0; i < len; i++) {
@@ -215,8 +209,7 @@ static godot::Error bridge_scan_external_changes() {
 	return OK;
 }
 
-static godot::Error bridge_is_global_class_generic(const char *p_path_utf8, int64_t p_length,
-                                      GDExtensionVariantPtr r_result_variant) {
+static godot::Error bridge_is_global_class_generic(const char *p_path_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
 		return ERR_UNCONFIGURED;
@@ -239,7 +232,6 @@ static godot::Error bridge_request_gc() {
 	return OK;
 }
 
-
 namespace {
 // Trampoline that adapts an editor-side write callback into the runtime's
 // IConsoleOutput list. Lifetime is owned by the bridge until removal.
@@ -259,7 +251,7 @@ int64_t g_next_console_handle = 1;
 } //namespace
 
 static int64_t bridge_add_console_output(void *p_userdata,
-        void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length)) {
+		void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length)) {
 	if (!p_write) return -1;
 	EditorConsoleTrampoline *t = memnew(EditorConsoleTrampoline);
 	t->userdata = p_userdata;

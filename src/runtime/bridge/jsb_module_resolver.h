@@ -91,4 +91,3 @@ private:
 	Vector<String> search_paths_;
 };
 } //namespace jsb
-

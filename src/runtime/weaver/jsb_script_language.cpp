@@ -25,8 +25,8 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#include "../internal/jsb_class_visibility.h"
 #include "jsb_script_language.h"
+#include "../internal/jsb_class_visibility.h"
 
 #include <iterator>
 

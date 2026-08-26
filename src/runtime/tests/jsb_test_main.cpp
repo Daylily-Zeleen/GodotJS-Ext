@@ -39,11 +39,11 @@
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_SHADOW_REALM_ENABLED
-#include "tests/test_jsb_shadow_realm.h"
+#	include "tests/test_jsb_shadow_realm.h"
 #endif // JSB_SHADOW_REALM_ENABLED
 #include "tests/test_jsb_source_map.h"
 #if JSB_WITH_QUICKJS
-#include "tests/test_jsb_quickjs_runtime.h"
+#	include "tests/test_jsb_quickjs_runtime.h"
 #endif
 
 // doctest will automatically collect all TEST_CASE and run them in main()

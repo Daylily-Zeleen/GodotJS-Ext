@@ -254,4 +254,3 @@ typedef internal::SArray<ScriptClassInfo, ScriptClassID>::Pointer ScriptClassInf
 typedef internal::SArray<ScriptClassInfo, ScriptClassID>::ConstPointer ScriptClassInfoConstPtr;
 
 } //namespace jsb
-

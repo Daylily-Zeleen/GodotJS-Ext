@@ -68,5 +68,4 @@ StringNames::StringNames() {
 	ignored_.insert(sn_name);
 }
 
-
 } //namespace jsb::internal

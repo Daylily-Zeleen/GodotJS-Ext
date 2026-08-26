@@ -65,4 +65,3 @@ TEST_CASE("[runtime] [jsb] quickjs.minimal") {
 }
 } //namespace jsb::tests
 #endif
-

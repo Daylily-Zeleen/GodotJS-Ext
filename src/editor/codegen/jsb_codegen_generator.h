@@ -48,79 +48,78 @@ class ModuleWriter;
 // TSDCodeGen: emits typings/godotN.gen.d.ts + typings/jsb.runtime.gen.d.ts
 class GodotTSDGenerator {
 public:
-    // `p_out_dir` is res://-relative ("" means relative to project root).
-    GodotTSDGenerator(const String &p_out_dir, bool p_use_project_settings);
-    ~GodotTSDGenerator();
+	// `p_out_dir` is res://-relative ("" means relative to project root).
+	GodotTSDGenerator(const String &p_out_dir, bool p_use_project_settings);
+	~GodotTSDGenerator();
 
-    // returns false on error (errors are logged)
-    bool emit(bool p_skip_static_types = true);
+	// returns false on error (errors are logged)
+	bool emit(bool p_skip_static_types = true);
 
 private:
-    String make_path(int p_index) const;
-    FileSplitter *new_splitter();
-    ModuleWriter &split();
-    void cleanup();
+	String make_path(int p_index) const;
+	FileSplitter *new_splitter();
+	ModuleWriter &split();
+	void cleanup();
 
-    void emit_aliases();
-    void emit_singleton(const SingletonDecl &p_singleton);
-    void emit_godot_primitive(ModuleWriter &r_cg, const PrimitiveClassDecl &p_cls);
-    void emit_godot_class(ModuleWriter &r_cg, const ClassDecl &p_cls, bool p_singleton_mode);
-    void emit_utility(const MethodDecl &p_utility_func);
-    void emit_global(const GlobalConstantDecl &p_global);
-    void emit_runtime_gen();
-    void emit_ignored_interfaces();
+	void emit_aliases();
+	void emit_singleton(const SingletonDecl &p_singleton);
+	void emit_godot_primitive(ModuleWriter &r_cg, const PrimitiveClassDecl &p_cls);
+	void emit_godot_class(ModuleWriter &r_cg, const ClassDecl &p_cls, bool p_singleton_mode);
+	void emit_utility(const MethodDecl &p_utility_func);
+	void emit_global(const GlobalConstantDecl &p_global);
+	void emit_runtime_gen();
+	void emit_ignored_interfaces();
 
-    int split_index_ = 0;
-    String out_dir_;
-    bool use_project_settings_;
-    TypeDB types_;
+	int split_index_ = 0;
+	String out_dir_;
+	bool use_project_settings_;
+	TypeDB types_;
 
-    FileSplitter *splitter_ = nullptr;
+	FileSplitter *splitter_ = nullptr;
 };
 
 // SceneTSDCodeGen: emits <scene>.nodes.gen.ts next to autogen path
 class SceneTSDGenerator {
 public:
-    SceneTSDGenerator(const String &p_out_dir, const Vector<String> &p_scene_paths);
+	SceneTSDGenerator(const String &p_out_dir, const Vector<String> &p_scene_paths);
 
-    bool emit();
+	bool emit();
 
 private:
-    String make_scene_path(const String &p_scene_path, bool p_include_filename = true) const;
-    bool emit_scene_node_types(const String &p_scene_path);
+	String make_scene_path(const String &p_scene_path, bool p_include_filename = true) const;
+	bool emit_scene_node_types(const String &p_scene_path);
 
-    String out_dir_;
-    Vector<String> scene_paths_;
-    TypeDB types_;
+	String out_dir_;
+	Vector<String> scene_paths_;
+	TypeDB types_;
 };
 
 // ResourceTSDCodeGen: emits <resource>.gen.ts
 class ResourceTSDGenerator {
 public:
-    ResourceTSDGenerator(const String &p_out_dir, const Vector<String> &p_resource_paths);
+	ResourceTSDGenerator(const String &p_out_dir, const Vector<String> &p_resource_paths);
 
-    bool emit();
+	bool emit();
 
 private:
-    String make_resource_path(const String &p_resource_path, bool p_include_filename = true) const;
-    bool emit_resource_type(const String &p_resource_path);
-    struct ScriptRpcInfo {
-        bool valid = false;
-        String class_name;
-        PackedStringArray methods;
-    };
-    ScriptRpcInfo get_script_rpc_info(const String &p_resource_path) const;
+	String make_resource_path(const String &p_resource_path, bool p_include_filename = true) const;
+	bool emit_resource_type(const String &p_resource_path);
+	struct ScriptRpcInfo {
+		bool valid = false;
+		String class_name;
+		PackedStringArray methods;
+	};
+	ScriptRpcInfo get_script_rpc_info(const String &p_resource_path) const;
 
-    String out_dir_;
-    Vector<String> resource_paths_;
-    PackedStringArray script_extensions_;
-    TypeDB types_;
+	String out_dir_;
+	Vector<String> resource_paths_;
+	PackedStringArray script_extensions_;
+	TypeDB types_;
 };
 
 // convenience: full generation chain used by --generate-types
 // (static types install stays in the plugin; this covers godot d.ts + scenes + resources)
-bool generate_all_types(const String &p_out_dir, bool p_use_project_settings,
-        const Vector<String> &p_scene_paths, const Vector<String> &p_resource_paths);
+bool generate_all_types(const String &p_out_dir, bool p_use_project_settings, const Vector<String> &p_scene_paths, const Vector<String> &p_resource_paths);
 
 } // namespace codegen
 } // namespace jsb

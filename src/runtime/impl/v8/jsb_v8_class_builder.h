@@ -289,4 +289,3 @@ private:
 	ClassBuilder() {}
 };
 } //namespace jsb::impl
-

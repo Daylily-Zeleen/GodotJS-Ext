@@ -472,4 +472,3 @@ private:
 	}
 };
 } //namespace v8
-
