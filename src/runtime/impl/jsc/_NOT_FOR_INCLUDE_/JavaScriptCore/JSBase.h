@@ -27,52 +27,52 @@
 #define JSBase_h
 
 #ifndef __cplusplus
-#	include <stdbool.h>
+#include <stdbool.h>
 #endif
 
 #ifdef __OBJC__
-#	import <Foundation/Foundation.h>
+#import <Foundation/Foundation.h>
 #endif
 
 /* JavaScript engine interface */
 
 /*! @typedef JSContextGroupRef A group that associates JavaScript contexts with one another. Contexts in the same group may share and exchange JavaScript objects. */
-typedef const struct OpaqueJSContextGroup *JSContextGroupRef;
+typedef const struct OpaqueJSContextGroup* JSContextGroupRef;
 
 /*! @typedef JSContextRef A JavaScript execution context. Holds the global object and other execution state. */
-typedef const struct OpaqueJSContext *JSContextRef;
+typedef const struct OpaqueJSContext* JSContextRef;
 
 /*! @typedef JSGlobalContextRef A global JavaScript execution context. A JSGlobalContext is a JSContext. */
-typedef struct OpaqueJSContext *JSGlobalContextRef;
+typedef struct OpaqueJSContext* JSGlobalContextRef;
 
 /*! @typedef JSStringRef A UTF16 character buffer. The fundamental string representation in JavaScript. */
-typedef struct OpaqueJSString *JSStringRef;
+typedef struct OpaqueJSString* JSStringRef;
 
 /*! @typedef JSClassRef A JavaScript class. Used with JSObjectMake to construct objects with custom behavior. */
-typedef struct OpaqueJSClass *JSClassRef;
+typedef struct OpaqueJSClass* JSClassRef;
 
 /*! @typedef JSPropertyNameArrayRef An array of JavaScript property names. */
-typedef struct OpaqueJSPropertyNameArray *JSPropertyNameArrayRef;
+typedef struct OpaqueJSPropertyNameArray* JSPropertyNameArrayRef;
 
 /*! @typedef JSPropertyNameAccumulatorRef An ordered set used to collect the names of a JavaScript object's properties. */
-typedef struct OpaqueJSPropertyNameAccumulator *JSPropertyNameAccumulatorRef;
+typedef struct OpaqueJSPropertyNameAccumulator* JSPropertyNameAccumulatorRef;
 
 /*! @typedef JSTypedArrayBytesDeallocator A function used to deallocate bytes passed to a Typed Array constructor. The function should take two arguments. The first is a pointer to the bytes that were originally passed to the Typed Array constructor. The second is a pointer to additional information desired at the time the bytes are to be freed. */
-typedef void (*JSTypedArrayBytesDeallocator)(void *bytes, void *deallocatorContext);
+typedef void (*JSTypedArrayBytesDeallocator)(void* bytes, void* deallocatorContext);
 
 /* JavaScript data types */
 
 /*! @typedef JSValueRef A JavaScript value. The base type for all JavaScript values, and polymorphic functions on them. */
-typedef const struct OpaqueJSValue *JSValueRef;
+typedef const struct OpaqueJSValue* JSValueRef;
 
 /*! @typedef JSObjectRef A JavaScript object. A JSObject is a JSValue. */
-typedef struct OpaqueJSValue *JSObjectRef;
+typedef struct OpaqueJSValue* JSObjectRef;
 
 /* Clang's __has_declspec_attribute emulation */
 /* https://clang.llvm.org/docs/LanguageExtensions.html#has-declspec-attribute */
 
 #ifndef __has_declspec_attribute
-#	define __has_declspec_attribute(x) 0
+#define __has_declspec_attribute(x) 0
 #endif
 
 /* JavaScript symbol exports */
@@ -80,17 +80,17 @@ typedef struct OpaqueJSValue *JSObjectRef;
 
 #undef JS_EXPORT
 #if defined(JS_NO_EXPORT)
-#	define JS_EXPORT
+#define JS_EXPORT
 #elif defined(WIN32) || defined(_WIN32) || defined(__CC_ARM) || defined(__ARMCC__) || (__has_declspec_attribute(dllimport) && __has_declspec_attribute(dllexport))
-#	if defined(BUILDING_JavaScriptCore) || defined(STATICALLY_LINKED_WITH_JavaScriptCore)
-#		define JS_EXPORT __declspec(dllexport)
-#	else
-#		define JS_EXPORT __declspec(dllimport)
-#	endif
+#if defined(BUILDING_JavaScriptCore) || defined(STATICALLY_LINKED_WITH_JavaScriptCore)
+#define JS_EXPORT __declspec(dllexport)
+#else
+#define JS_EXPORT __declspec(dllimport)
+#endif
 #elif defined(__GNUC__)
-#	define JS_EXPORT __attribute__((visibility("default")))
+#define JS_EXPORT __attribute__((visibility("default")))
 #else /* !defined(JS_NO_EXPORT) */
-#	define JS_EXPORT
+#define JS_EXPORT
 #endif /* defined(JS_NO_EXPORT) */
 
 #ifdef __cplusplus
@@ -110,7 +110,7 @@ extern "C" {
 @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
 @result The JSValue that results from evaluating script, or NULL if an exception is thrown.
 */
-JS_EXPORT JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef thisObject, JSStringRef sourceURL, int startingLineNumber, JSValueRef *exception);
+JS_EXPORT JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef thisObject, JSStringRef sourceURL, int startingLineNumber, JSValueRef* exception);
 
 /*!
 @function JSCheckScriptSyntax
@@ -122,7 +122,7 @@ JS_EXPORT JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSOb
 @param exception A pointer to a JSValueRef in which to store a syntax error exception, if any. Pass NULL if you do not care to store a syntax error exception.
 @result true if the script is syntactically correct, otherwise false.
 */
-JS_EXPORT bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourceURL, int startingLineNumber, JSValueRef *exception);
+JS_EXPORT bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourceURL, int startingLineNumber, JSValueRef* exception);
 
 /*!
 @function JSGarbageCollect
@@ -145,41 +145,41 @@ JS_EXPORT void JSGarbageCollect(JSContextRef ctx);
 
 /* Enable the Objective-C API for platforms with a modern runtime. NOTE: This is duplicated in VM.h. */
 #if !defined(JSC_OBJC_API_ENABLED)
-#	if (defined(__clang__) && defined(__APPLE__) && (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)))
-#		define JSC_OBJC_API_ENABLED 1
-#	else
-#		define JSC_OBJC_API_ENABLED 0
-#	endif
+#if (defined(__clang__) && defined(__APPLE__) && (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)))
+#define JSC_OBJC_API_ENABLED 1
+#else
+#define JSC_OBJC_API_ENABLED 0
+#endif
 #endif
 
 #if JSC_OBJC_API_ENABLED
-#	define JSC_CF_ENUM(enumName, ...)        \
-		typedef CF_ENUM(uint32_t, enumName) { \
-			__VA_ARGS__                       \
-		}
+#define JSC_CF_ENUM(enumName, ...)       \
+    typedef CF_ENUM(uint32_t, enumName) { \
+        __VA_ARGS__                       \
+    }
 #else
-#	define JSC_CF_ENUM(enumName, ...) \
-		typedef enum {                 \
-			__VA_ARGS__                \
-		} enumName
+#define JSC_CF_ENUM(enumName, ...) \
+    typedef enum {                  \
+        __VA_ARGS__                 \
+    } enumName
 #endif
 
 #if JSC_OBJC_API_ENABLED
-#	define JSC_ASSUME_NONNULL_BEGIN _Pragma("clang assume_nonnull begin")
-#	define JSC_ASSUME_NONNULL_END _Pragma("clang assume_nonnull end")
+#define JSC_ASSUME_NONNULL_BEGIN _Pragma("clang assume_nonnull begin")
+#define JSC_ASSUME_NONNULL_END _Pragma("clang assume_nonnull end")
 #else
-#	define JSC_ASSUME_NONNULL_BEGIN
-#	define JSC_ASSUME_NONNULL_END
+#define JSC_ASSUME_NONNULL_BEGIN
+#define JSC_ASSUME_NONNULL_END
 #endif
 
 #if JSC_OBJC_API_ENABLED
-#	define JSC_NULL_UNSPECIFIED _Null_unspecified
-#	define JSC_NULLABLE _Nullable
-#	define JSC_NONNULL _Nonnull
+#define JSC_NULL_UNSPECIFIED _Null_unspecified
+#define JSC_NULLABLE _Nullable
+#define JSC_NONNULL _Nonnull
 #else
-#	define JSC_NULL_UNSPECIFIED
-#	define JSC_NULLABLE
-#	define JSC_NONNULL
+#define JSC_NULL_UNSPECIFIED
+#define JSC_NULLABLE
+#define JSC_NONNULL
 #endif
 
 #endif /* JSBase_h */

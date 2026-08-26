@@ -25,7 +25,9 @@
 
 #include "register_types.h"
 
-#include "../common/tests/jsb_test_runner.h"
+#ifdef JSB_TESTS_ENABLED
+#	include "../common/tests/jsb_test_runner.h"
+#endif
 #include "api_tool/api_tool.h"
 #include "weaver/jsb_weaver.h"
 #include <common/compat/jsb_compat.h>

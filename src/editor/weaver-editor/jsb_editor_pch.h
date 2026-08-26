@@ -32,7 +32,6 @@
 
 #include "common/jsb_project_preset.h"
 
-#include "common/internal/jsb_console_output.h"
 #include "common/internal/jsb_macros.h"
 #include "common/internal/jsb_path_util.h"
 #include "common/internal/jsb_process.h"

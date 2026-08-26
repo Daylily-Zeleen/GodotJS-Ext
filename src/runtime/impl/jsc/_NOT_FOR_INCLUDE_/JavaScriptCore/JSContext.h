@@ -40,7 +40,7 @@
  are tied to a context.
 */
 JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
-		@interface JSContext : NSObject
+@interface JSContext : NSObject
 
 /*!
 @methodgroup Creating New JSContexts
@@ -136,23 +136,23 @@ JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
  WindowProxy object.
 @result The global object.
 */
-@property(readonly, strong) JSValue *globalObject;
+@property (readonly, strong) JSValue *globalObject;
 
 /*!
 @property
 @discussion The <code>exception</code> property may be used to throw an exception to JavaScript.
-
+ 
  Before a callback is made from JavaScript to an Objective-C block or method,
  the prior value of the exception property will be preserved and the property
  will be set to nil. After the callback has completed the new value of the
  exception property will be read, and prior value restored. If the new value
  of exception is not nil, the callback will result in that value being thrown.
-
+ 
  This property may also be used to check for uncaught exceptions arising from
  API function calls (since the default behaviour of <code>exceptionHandler</code> is to
  assign an uncaught exception to this property).
 */
-@property(strong) JSValue *exception;
+@property (strong) JSValue *exception;
 
 /*!
 @property
@@ -164,25 +164,25 @@ JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
  Setting this value to nil will cause all exceptions occurring
  within a callback from JavaScript to be silently caught.
 */
-@property(copy) void (^exceptionHandler)(JSContext *context, JSValue *exception);
+@property (copy) void(^exceptionHandler)(JSContext *context, JSValue *exception);
 
 /*!
 @property
 @discussion All instances of JSContext are associated with a JSVirtualMachine.
 */
-@property(readonly, strong) JSVirtualMachine *virtualMachine;
+@property (readonly, strong) JSVirtualMachine *virtualMachine;
 
 /*!
 @property
 @discussion Name of the JSContext. Exposed when inspecting the context.
 */
-@property(copy) NSString *name API_AVAILABLE(macos(10.10), ios(8.0));
+@property (copy) NSString *name API_AVAILABLE(macos(10.10), ios(8.0));
 
 /*!
 @property
 @discussion Controls whether this @link JSContext @/link is inspectable in Web Inspector. The default value is NO.
 */
-@property(nonatomic, getter=isInspectable) BOOL inspectable API_AVAILABLE(macos(13.3), ios(16.4)) NS_SWIFT_NAME(isInspectable);
+@property (nonatomic, getter=isInspectable) BOOL inspectable API_AVAILABLE(macos(13.3), ios(16.4)) NS_SWIFT_NAME(isInspectable);
 
 @end
 
@@ -192,9 +192,9 @@ JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
  support for subscript access by key and index, for example:
 
 @textblock
-	JSContext *context;
-	JSValue *v = context[@"X"]; // Get value for "X" from the global object.
-	context[@"Y"] = v;          // Assign 'v' to "Y" on the global object.
+    JSContext *context;
+    JSValue *v = context[@"X"]; // Get value for "X" from the global object.
+    context[@"Y"] = v;          // Assign 'v' to "Y" on the global object.
 @/textblock
 
  An object key passed as a subscript will be converted to a JavaScript value,
@@ -214,7 +214,7 @@ JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
 @method
 @abstract Set a particular property on the global object.
 */
-- (void)setObject:(id)object forKeyedSubscript:(NSObject<NSCopying> *)key;
+- (void)setObject:(id)object forKeyedSubscript:(NSObject <NSCopying> *)key;
 
 @end
 
@@ -236,7 +236,7 @@ JS_EXPORT API_AVAILABLE(macos(10.9), ios(7.0))
 @abstract Get the C API counterpart wrapped by a JSContext.
 @result The C API equivalent of this JSContext.
 */
-@property(readonly) JSGlobalContextRef JSGlobalContextRef;
+@property (readonly) JSGlobalContextRef JSGlobalContextRef;
 
 @end
 
