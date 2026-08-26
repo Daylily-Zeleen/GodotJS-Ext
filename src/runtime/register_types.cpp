@@ -26,12 +26,12 @@
 #include "register_types.h"
 
 #ifdef JSB_TESTS_ENABLED
-#	include "../common/tests/jsb_test_runner.h"
+#	include "../tests/jsb_test_runner.h"
 #endif
 #include "api_tool/api_tool.h"
 #include "weaver/jsb_weaver.h"
-#include <common/compat/jsb_compat.h>
-#include <common/internal/jsb_settings.h>
+#include <compat/jsb_compat.h>
+#include <internal/jsb_settings.h>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>

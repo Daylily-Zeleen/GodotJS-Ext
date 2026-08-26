@@ -27,9 +27,8 @@
 
 #include <memory>
 
-#include "jsb_string_names.h"
-#include <common/internal/jsb_macros.h>
-#include <common/internal/jsb_naming_util.h>
+#include <internal/jsb_macros.h>
+#include <internal/jsb_naming_util.h>
 
 #include "api_tool/api_tool.h"
 #include <api_tool/editor/api_tool_editor.h>

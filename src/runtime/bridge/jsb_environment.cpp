@@ -49,7 +49,7 @@
 #include "../internal/jsb_path_util.h"
 #include "../internal/jsb_settings.h"
 #include "../internal/jsb_variant_util.h"
-#include "../jsb_project_preset.h"
+#include "../jsb_runtime_preset.h"
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
 //TODO remove this
@@ -452,7 +452,7 @@ void Environment::init() {
 
 	// load internal scripts (jsb.core, jsb.editor.main)
 	static constexpr char kRuntimeBundleFile[] = "jsb.runtime.bundle.js";
-	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSProjectPreset::get_source_rt(kRuntimeBundleFile)) == OK,
+	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSRuntimePreset::get_source(kRuntimeBundleFile)) == OK,
 			"the embedded '%s' not found, run 'scons' again to refresh all *.gen.cpp sources",
 			kRuntimeBundleFile);
 	static constexpr char kEditorBundleFile[] = "jsb.editor.bundle.js";

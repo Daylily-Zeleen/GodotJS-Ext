@@ -32,7 +32,7 @@
 
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_internal.h"
-#include "../jsb_project_preset.h"
+#include "../jsb_runtime_preset.h"
 #include "jsb_monitor.h"
 
 #if JSB_SHADOW_REALM_ENABLED

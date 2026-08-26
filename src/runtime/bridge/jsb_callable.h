@@ -28,7 +28,7 @@
 #pragma once
 
 #include "jsb_bridge.h"
-#include <common/compat/misc.h>
+#include <compat/misc.h>
 namespace jsb {
 class JSCallable : public CallableCustom {
 private:

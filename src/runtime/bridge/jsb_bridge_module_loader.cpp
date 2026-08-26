@@ -171,9 +171,12 @@ void _get_parameter_name(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 void _get_variant_type_name(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	// Replacement-aware type name (moved out of shared VariantUtil: StringNames
+	// is runtime-owned; this is the only consumer of the replaced variant of it).
 	Variant type;
 	_return_result(info, Variant::INT, type, [](const Variant &type) {
-		return internal::VariantUtil::get_type_name((Variant::Type)(int)type);
+		return internal::StringNames::get_singleton().get_replaced_name(
+				Variant::get_type_name((Variant::Type)(int)type));
 	});
 }
 

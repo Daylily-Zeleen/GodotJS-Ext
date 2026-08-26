@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "../impl/shared/jsb_statistics.h"
+#include <internal/jsb_statistics.h>
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_async_module_manager.h"
@@ -52,7 +52,7 @@
 #	include <future>
 #endif // JSB_WITH_DEBUGGER
 
-#include <common/compat/thread.h>
+#include <compat/thread.h>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 

@@ -26,7 +26,7 @@
 /************************************************************************/
 
 #include "jsb_repl.h"
-#include "common/compat/jsb_compat.h"
+#include "compat/jsb_compat.h"
 #include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
@@ -46,8 +46,8 @@
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
-#include <common/compat/editor_settings.h>
-#include <common/compat/misc.h>
+#include <compat/editor_settings.h>
+#include <compat/misc.h>
 void GodotJSREPL::_bind_methods() {
 }
 

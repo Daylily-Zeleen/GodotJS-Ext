@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include <common/compat/jsb_compat.h>
+#include <compat/jsb_compat.h>
 #include <godot_cpp/classes/resource_format_loader.hpp>
 
 class ResourceFormatLoaderGodotJSScript : public ResourceFormatLoader {

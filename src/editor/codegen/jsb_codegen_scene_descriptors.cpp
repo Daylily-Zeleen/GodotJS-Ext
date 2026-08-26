@@ -30,11 +30,11 @@
 #include "../weaver-editor/jsb_api_tool_session.h"
 #include "../weaver-editor/jsb_editor_bridge.h"
 #include <api_tool/api_tool.h>
-#include <common/internal/jsb_class_visibility.h>
-#include <common/internal/jsb_logger.h>
-#include <common/internal/jsb_naming_util.h>
-#include <common/internal/jsb_path_util.h>
-#include <common/internal/jsb_settings.h>
+#include <internal/jsb_class_visibility.h>
+#include <internal/jsb_logger.h>
+#include <internal/jsb_naming_util.h>
+#include <internal/jsb_path_util.h>
+#include <internal/jsb_settings.h>
 #include <godot_cpp/classes/script.hpp>
 
 #include <godot_cpp/classes/animation_library.hpp>

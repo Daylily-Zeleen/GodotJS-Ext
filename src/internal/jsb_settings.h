@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include <common/compat/jsb_compat.h>
+#include <compat/jsb_compat.h>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 

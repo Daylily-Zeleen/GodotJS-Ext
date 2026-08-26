@@ -28,9 +28,9 @@
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
-#include "../common/tests/jsb_test_runner.h"
+#include "../tests/jsb_test_runner.h"
 #include "api_tool/api_tool.h"
-#include "common/internal/jsb_class_visibility.h"
+#include "internal/jsb_class_visibility.h"
 #include "internal/jsb_settings.h"
 #include "weaver-editor/jsb_weaver_editor.h"
 

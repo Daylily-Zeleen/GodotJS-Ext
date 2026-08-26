@@ -37,8 +37,8 @@
 // Cross-DLL consumption (EditorBridge -> ClassDB get_bridge -> eval) is
 // covered separately by the editor suite ([editor][bridge] cases).
 
-#include "../../common/impl/shared/jsb_statistics.h"
-#include "../common/tests/jsb_test_utils.h"
+#include "../../internal/jsb_statistics.h"
+#include "../tests/jsb_test_utils.h"
 #include "../internal/jsb_bridge_table.h"
 #include "jsb_test_helpers.h"
 #include <cstring>

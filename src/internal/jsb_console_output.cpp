@@ -1,5 +1,5 @@
-/************************************************************************/
-/*  jsb_project_preset.h                                                */
+﻿/************************************************************************/
+/*  jsb_console_output.cpp                                              */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -25,14 +25,36 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#pragma once
+#include "jsb_console_output.h"
 
-#include "compat/jsb_compat.h"
-#include "internal/jsb_preset_source.h"
-struct GodotJSProjectPreset {
-	static jsb::internal::PresetSource get_source_rt(const String &p_filename);
+#include <compat/rw_lock.h>
+#include <godot_cpp/templates/vector.hpp>
 
-#ifdef TOOLS_ENABLED
-	static jsb::internal::PresetSource get_source_ed(const String &p_filename);
-#endif
-};
+namespace jsb::internal {
+namespace {
+RWLock lock_;
+Vector<IConsoleOutput *> outputs_; // TODO: LocalVector?
+} //namespace
+
+IConsoleOutput::IConsoleOutput() {
+	RWLockWrite lock(lock_);
+	outputs_.append(this);
+}
+
+IConsoleOutput::~IConsoleOutput() {
+	remove_from_output_list();
+}
+
+void IConsoleOutput::remove_from_output_list() {
+	RWLockWrite lock(lock_);
+	outputs_.erase(this);
+}
+
+void IConsoleOutput::internal_write(ELogSeverity::Type p_severity, const String &p_text) {
+	RWLockRead lock(lock_);
+	for (IConsoleOutput *output : outputs_) {
+		output->write(p_severity, p_text);
+	}
+}
+
+} //namespace jsb::internal

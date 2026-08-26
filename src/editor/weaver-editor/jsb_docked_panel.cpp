@@ -32,7 +32,7 @@
 
 #include <godot_cpp/classes/margin_container.hpp>
 
-#include <common/compat/misc.h>
+#include <compat/misc.h>
 namespace {
 static constexpr int kTabREPL = 0;
 static constexpr int kTabViewer = 1;

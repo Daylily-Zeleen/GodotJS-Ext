@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_bridge_table.h                                                  */
+/*  jsb_bridge_abi.h                                                    */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -16,7 +16,7 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
 /*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
@@ -27,7 +27,13 @@
 
 #pragma once
 
-// C ABI bridge table between the editor and runtime extensions.
+// C ABI bridge contract between the editor and runtime extensions.
+//
+// This header is the ONLY thing the two extensions share about the bridge:
+// pure type definitions (function pointer signatures + table layout). There
+// are deliberately NO function declarations here -- every symbol declared in
+// a shared header must be resolvable by BOTH extensions, and only the runtime
+// implements the bridge.
 //
 // Threat model / rationale (TASK_STATUS.md 14.2):
 //  - Nothing that can execute JS may be reachable through ClassDB: project
@@ -41,17 +47,15 @@
 //    address through a neutral ClassDB method (`get_bridge` on
 //    GodotJSScriptLanguage). Callers convert the returned integer back to
 //    `JsbBridgeTable*` after checking `struct_size`.
-//  - Variant results are written through `GDExtensionVariantPtr`
-//    (= GDExtensionVariantPtr): the CALLER owns the variant storage; the
-//    callee constructs into it using its own godot-cpp copy. This mirrors how
-//    the engine itself hands variants across extension boundaries.
+//  - Variant results are written through `GDExtensionVariantPtr`: the CALLER
+//    owns the variant storage; the callee constructs into it using its own
+//    godot-cpp copy. This mirrors how the engine itself hands variants across
+//    extension boundaries.
 //  - All pointers are valid for the duration of the call only.
 
 #include <cstdint>
 #include <godot_cpp/classes/global_constants.hpp>
-#include <godot_cpp/variant/dictionary.hpp>
-#include <godot_cpp/variant/packed_string_array.hpp>
-#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/core/method_bind.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 namespace jsb {
@@ -61,9 +65,11 @@ namespace jsb {
 using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
 
 /// Evaluate source with one argument Variant exposed as the `__jsb_arg` global.
-using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
+using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
+		GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
 
-using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
+using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length,
+		GDExtensionVariantPtr r_result_variant);
 
 using JsbFillStatsFn = godot::Error (*)(void *p_statistics_raw);
 
@@ -107,8 +113,5 @@ struct JsbBridgeTable {
 	JsbAddConsoleFn add_console_output = nullptr;
 	JsbRemoveConsoleFn remove_console_output = nullptr;
 };
-
-/// Runtime-side singleton accessor (defined in jsb_bridge_table.cpp).
-const JsbBridgeTable *get_bridge_table();
 
 } //namespace jsb

@@ -27,7 +27,7 @@
 
 #pragma once
 #include "jsb_editor_pch.h"
-#include <common/internal/jsb_double_buffered.h>
+#include <internal/jsb_double_buffered.h>
 
 #include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/h_box_container.hpp>

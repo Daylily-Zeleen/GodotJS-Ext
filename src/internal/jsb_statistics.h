@@ -1,5 +1,5 @@
-﻿/************************************************************************/
-/*  jsb_console_output.cpp                                              */
+/************************************************************************/
+/*  jsb_statistics.h                                                    */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -25,36 +25,42 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#include "jsb_console_output.h"
+#pragma once
 
-#include <common/compat/rw_lock.h>
+#include "jsb_custom_field.h"
 #include <godot_cpp/templates/vector.hpp>
+#include <godot_cpp/variant/string.hpp>
+namespace jsb {
+struct Statistics {
+	// num of traced objects
+	int objects;
 
-namespace jsb::internal {
-namespace {
-RWLock lock_;
-Vector<IConsoleOutput *> outputs_; // TODO: LocalVector?
-} //namespace
+	// num of registered native classes
+	int native_classes;
 
-IConsoleOutput::IConsoleOutput() {
-	RWLockWrite lock(lock_);
-	outputs_.append(this);
-}
+	// num of registered script classes
+	int script_classes;
 
-IConsoleOutput::~IConsoleOutput() {
-	remove_from_output_list();
-}
+	int cached_string_names;
+	uint32_t persistent_objects;
 
-void IConsoleOutput::remove_from_output_list() {
-	RWLockWrite lock(lock_);
-	outputs_.erase(this);
-}
+	// allocated num of Variants in pool (only valid in debug mode)
+	uint32_t allocated_variants;
 
-void IConsoleOutput::internal_write(ELogSeverity::Type p_severity, const String &p_text) {
-	RWLockRead lock(lock_);
-	for (IConsoleOutput *output : outputs_) {
-		output->write(p_severity, p_text);
+	// approximate byte usage of the object table (objects * slot size),
+	// precomputed by the runtime side so consumers never touch runtime internals
+	int64_t objects_bytes = 0;
+
+	// impl-specific fields
+	godot::Vector<impl::CustomField> custom_fields;
+
+	impl::CustomField get_custom_field(const godot::String &name) const {
+		for (const impl::CustomField &it : custom_fields) {
+			if (it.name == name) {
+				return it;
+			}
+		}
+		return {};
 	}
-}
-
-} //namespace jsb::internal
+};
+} //namespace jsb

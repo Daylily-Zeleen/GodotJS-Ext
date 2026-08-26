@@ -37,7 +37,7 @@
 // additionally make the RUNTIME emit a console write and assert it arrives
 // at an editor-side sink through the registered trampoline.
 
-#include "../common/tests/jsb_test_utils.h"
+#include "../tests/jsb_test_utils.h"
 #include "../weaver-editor/jsb_editor_bridge.h"
 #include <cstring>
 #include <godot_cpp/variant/dictionary.hpp>

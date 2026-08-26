@@ -27,9 +27,10 @@
 
 #include "jsb_editor_plugin.h"
 #include "../jsb_editor_settings.h"
+#include "jsb_editor_preset.h"
 #include "api_tool/api_tool.h"
 #include "api_tool/editor/api_tool_editor.h"
-#include "common/internal/jsb_settings.h"
+#include "internal/jsb_settings.h"
 #include "jsb_api_tool_session.h"
 #include "jsb_config_classes_dialog.h"
 #include "jsb_docked_panel.h"
@@ -38,7 +39,7 @@
 #include "jsb_export_plugin.h"
 #include "jsb_resource_loader.h"
 #include <codegen/jsb_codegen_generator.h>
-#include <common/internal/jsb_naming_util.h>
+#include <internal/jsb_naming_util.h>
 #include <cstdio>
 
 #include <godot_cpp/classes/config_file.hpp>
@@ -56,7 +57,7 @@
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/timer.hpp>
 
-#include <common/compat/misc.h>
+#include <compat/misc.h>
 #define JSB_TYPE_ROOT "typings"
 
 enum {
@@ -139,7 +140,7 @@ jsb::internal::PresetSource GodotJSEditorPlugin::get_preset_source(const String 
 	// Editor extension reads its own embedded presets only: every scaffold /
 	// type-declaration source listed in add_install_file() lives in the editor
 	// preset bundle. The runtime bundle belongs to the runtime extension.
-	return GodotJSProjectPreset::get_source_ed(p_filename);
+	return GodotJSEditorPreset::get_source(p_filename);
 }
 
 void GodotJSEditorPlugin::_notification(int p_what) {

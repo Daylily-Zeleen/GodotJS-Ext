@@ -26,7 +26,7 @@
 #include "jsb_codegen_defs.h"
 
 // provides `using namespace godot` (project-wide convention for extension code)
-#include "common/compat/jsb_compat.h"
+#include "compat/jsb_compat.h"
 
 #include <cmath>
 #include <cstdio>

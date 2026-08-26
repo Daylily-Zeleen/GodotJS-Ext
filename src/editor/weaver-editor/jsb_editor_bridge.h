@@ -44,7 +44,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
-#include "common/internal/jsb_bridge_table.h"
+#include <internal/jsb_bridge_abi.h>
 
 namespace jsb::editor {
 

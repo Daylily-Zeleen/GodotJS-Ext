@@ -30,7 +30,7 @@
 
 #include "../bridge/jsb_environment.h"
 #include "../bridge/jsb_type_convert.h"
-#include "../impl/shared/jsb_statistics.h"
+#include <internal/jsb_statistics.h>
 #include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/engine.hpp>
 

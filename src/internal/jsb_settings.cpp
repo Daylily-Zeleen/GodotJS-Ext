@@ -36,7 +36,7 @@
 
 #include "compat/project_settings.h"
 #ifdef TOOLS_ENABLED
-#	include <common/compat/editor_settings.h>
+#	include <compat/editor_settings.h>
 #	include <godot_cpp/classes/engine.hpp>
 #endif // TOOLS_ENABLED
 

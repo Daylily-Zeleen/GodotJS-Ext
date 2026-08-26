@@ -27,13 +27,13 @@
 
 #pragma once
 
-#include "common/compat/jsb_compat.h"
+#include "compat/jsb_compat.h"
 #include "jsb_editor_macros.h"
 
-#include "common/jsb_project_preset.h"
+#include "jsb_editor_preset.h"
 
-#include "common/internal/jsb_macros.h"
-#include "common/internal/jsb_path_util.h"
-#include "common/internal/jsb_process.h"
-#include "common/internal/jsb_settings.h"
+#include "internal/jsb_macros.h"
+#include "internal/jsb_path_util.h"
+#include "internal/jsb_process.h"
+#include "internal/jsb_settings.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>

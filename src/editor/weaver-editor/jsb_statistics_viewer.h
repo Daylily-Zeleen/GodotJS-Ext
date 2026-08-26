@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include "common/compat/jsb_compat.h"
-#include "common/impl/shared/jsb_custom_field.h"
+#include "compat/jsb_compat.h"
+#include "internal/jsb_custom_field.h"
 #include <godot_cpp/classes/timer.hpp>
 #include <godot_cpp/classes/tree.hpp>
 #include <godot_cpp/classes/v_box_container.hpp>

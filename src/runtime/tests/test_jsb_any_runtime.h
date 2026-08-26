@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "../../common/compat/string_builder.h"
+#include "../../compat/string_builder.h"
 #include "../bridge/jsb_essentials.h"
 #include "../bridge/jsb_object_db.h"
 #include "../bridge/jsb_type_convert.h"

@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_statistics.h                                                    */
+/*  jsb_bridge_table.h                                                  */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -16,8 +16,8 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -27,40 +27,19 @@
 
 #pragma once
 
-#include "../impl/shared/jsb_custom_field.h"
-#include <godot_cpp/templates/vector.hpp>
-#include <godot_cpp/variant/string.hpp>
+// Runtime-side bridge table: declaration of the singleton accessor paired
+// with its implementation TU (jsb_bridge_table.cpp, same directory).
+//
+// The cross-extension CONTRACT (function pointer typedefs + JsbBridgeTable
+// layout) lives in <internal/jsb_bridge_abi.h>; this header only adds the
+// runtime-private accessor. The editor must never include this file -- it
+// resolves the table through EditorBridge::get_bridge() instead.
+
+#include "jsb_bridge_abi.h"
+
 namespace jsb {
-struct Statistics {
-	// num of traced objects
-	int objects;
 
-	// num of registered native classes
-	int native_classes;
+/// Runtime-side singleton accessor (defined in jsb_bridge_table.cpp).
+const JsbBridgeTable *get_bridge_table();
 
-	// num of registered script classes
-	int script_classes;
-
-	int cached_string_names;
-	uint32_t persistent_objects;
-
-	// allocated num of Variants in pool (only valid in debug mode)
-	uint32_t allocated_variants;
-
-	// approximate byte usage of the object table (objects * slot size),
-	// precomputed by the runtime side so consumers never touch runtime internals
-	int64_t objects_bytes = 0;
-
-	// impl-specific fields
-	godot::Vector<impl::CustomField> custom_fields;
-
-	impl::CustomField get_custom_field(const godot::String &name) const {
-		for (const impl::CustomField &it : custom_fields) {
-			if (it.name == name) {
-				return it;
-			}
-		}
-		return {};
-	}
-};
 } //namespace jsb

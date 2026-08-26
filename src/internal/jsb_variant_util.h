@@ -27,9 +27,10 @@
 
 #pragma once
 #include "jsb_internal_pch.h"
+#include "jsb_macros.h"
 #include "jsb_naming_util.h"
-#include "jsb_string_names.h"
 
+#include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 namespace jsb::internal {
@@ -133,10 +134,9 @@ template <typename TValue>
 using ReferentialVariantMap = HashMap<Variant, TValue, VariantReferentialHasher, VariantReferentialComparator>;
 
 struct VariantUtil {
-	_FORCE_INLINE_ static StringName get_type_name(const Variant::Type p_type) {
-		return StringNames::get_singleton().get_replaced_name(Variant::get_type_name(p_type));
-	}
-
+	// NOTE: the replacement-aware type-name helper used to live here but
+	// depended on runtime-owned StringNames; it moved to
+	// src/runtime/bridge/jsb_bridge_module_loader.cpp (see get_variant_type_name).
 	_FORCE_INLINE_ static bool check_argc(bool p_is_vararg, int p_argc, int p_default_num, int p_expected_num) {
 		if (p_is_vararg) {
 			return p_argc + p_default_num >= p_expected_num;

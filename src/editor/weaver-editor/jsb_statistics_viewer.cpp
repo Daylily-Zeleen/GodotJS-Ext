@@ -28,10 +28,10 @@
 #include "jsb_statistics_viewer.h"
 #include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
-#include <common/impl/shared/jsb_statistics.h>
+#include <internal/jsb_statistics.h>
 
-#include <common/compat/editor_settings.h>
-#include <common/compat/misc.h>
+#include <compat/editor_settings.h>
+#include <compat/misc.h>
 GodotJSStatisticsViewer::GodotJSStatisticsViewer() {
 	tree = memnew(Tree);
 	tree->set_v_size_flags(SIZE_EXPAND_FILL);

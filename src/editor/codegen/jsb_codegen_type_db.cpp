@@ -24,7 +24,7 @@
 /************************************************************************/
 
 #include "jsb_codegen_type_db.h"
-#include <common/internal/jsb_class_visibility.h>
+#include <internal/jsb_class_visibility.h>
 
 #include "jsb_codegen_defs.h"
 
@@ -34,10 +34,10 @@
 #include <godot_cpp/core/class_db.hpp>
 
 // NamingUtil (member/parameter/class/enum name mapping)
-#include <common/internal/jsb_format.h>
-#include <common/internal/jsb_naming_util.h>
+#include <internal/jsb_format.h>
+#include <internal/jsb_naming_util.h>
 // VariantUtil::get_type_name (StringNames replacement aware)
-#include <common/internal/jsb_variant_util.h>
+#include <internal/jsb_variant_util.h>
 
 namespace jsb {
 namespace codegen {

@@ -29,9 +29,10 @@
 
 #include "../../internal/jsb_internal.h"
 #include "../../jsb.gen.h"
-#include "../shared/jsb_custom_field.h"
+#include "../../impl/shared/jsb_custom_field.h"
+#include "../../impl/shared/jsb_statistics.h"
 
-#include "common/compat/ring_buffer.h"
+#include "compat/ring_buffer.h"
 
 //TODO WARNING: ONLY FOR DEV, NOT SUPPORTED TO BUILD. REMOVE IT AFTER jsc.impl IS READY.
 #if !defined(API_AVAILABLE) && !defined(MACOS_ENABLED) && !defined(IOS_ENABLED)

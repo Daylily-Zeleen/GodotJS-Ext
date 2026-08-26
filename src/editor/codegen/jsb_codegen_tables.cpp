@@ -33,8 +33,8 @@
 #include <initializer_list>
 #include <utility>
 
-#include <common/internal/jsb_naming_util.h>
-#include <common/internal/jsb_settings.h>
+#include <internal/jsb_naming_util.h>
+#include <internal/jsb_settings.h>
 
 namespace jsb {
 namespace codegen {

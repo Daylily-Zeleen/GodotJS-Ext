@@ -71,7 +71,8 @@ env['SHLIBPREFIX'] = ''
 # Source root directory
 src_dir = "src"
 runtime_dir = os.path.join(src_dir, "runtime")
-common_dir = os.path.join(src_dir, "common")
+internal_dir = os.path.join(src_dir, "internal")
+compat_dir = os.path.join(src_dir, "compat")
 
 jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
 jsb_arch = env["arch"]
@@ -502,7 +503,7 @@ def try_compress(bytes):
     return result if len(result) < len(bytes) else bytes
 
 def generate_method_code(output, methodname, indent, preset_defines):
-    output.write(f"jsb::internal::PresetSource GodotJSProjectPreset::{methodname}(const String& p_filename)\n")
+    output.write(f"jsb::internal::PresetSource {methodname}(const String& p_filename)\n")
     output.write("{\n")
     output.write(indent + "static const unsigned char data[] = {\n")
     generated_sources = {}
@@ -567,10 +568,10 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     rt_output.write("\n")
     rt_output.write(generate_copyright_header_cpp("jsb_project_preset.gen.cpp", read_copyright_text()))
     rt_output.write("\n")
-    rt_output.write("#include <common/jsb_project_preset.h>\n")
+    rt_output.write("#include \"jsb_runtime_preset.h\"\n")
     rt_output.write("#include \"jsb.config.h\"\n")
     rt_output.write(version_assert)
-    generate_method_code(rt_output, "get_source_rt", indent, rt_preset_defines)
+    generate_method_code(rt_output, "GodotJSRuntimePreset::get_source", indent, rt_preset_defines)
     write_file(os.path.join(runtime_dir, "jsb_project_preset.gen.cpp"), rt_output)
 
     # editor side: embedded editor bundles + project scaffolding templates.
@@ -580,11 +581,11 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     ed_output.write("\n")
     ed_output.write(generate_copyright_header_cpp("jsb_editor_preset.gen.cpp", read_copyright_text()))
     ed_output.write("\n")
-    ed_output.write("#include <common/jsb_project_preset.h>\n")
+    ed_output.write("#include \"jsb_editor_preset.h\"\n")
     ed_output.write("#include \"jsb.config.h\"\n")
     ed_output.write(version_assert)
     ed_output.write("#ifdef TOOLS_ENABLED\n")
-    generate_method_code(ed_output, "get_source_ed", indent, ed_preset_defines)
+    generate_method_code(ed_output, "GodotJSEditorPreset::get_source", indent, ed_preset_defines)
     ed_output.write("#endif\n")
     write_file(os.path.join(src_dir, "editor", "weaver-editor", "jsb_editor_preset.gen.cpp"), ed_output)
 
@@ -689,13 +690,11 @@ if jsb_platform == "windows" and cxx_compiler_base in ("cl", "cl.exe", "clang-cl
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
-    os.path.join(root_dir, common_dir),
     os.path.join(root_dir, runtime_dir),
-    os.path.join(root_dir, common_dir, "compat"),
-    os.path.join(root_dir, common_dir, "impl", "shared"),
+    os.path.join(root_dir, compat_dir),
+    os.path.join(root_dir, internal_dir),
     os.path.join(root_dir, runtime_dir, "compat"),
     os.path.join(root_dir, runtime_dir, "internal"),
-    os.path.join(root_dir, common_dir, "internal"),
     os.path.join(root_dir, runtime_dir, "weaver"),
     os.path.join(root_dir, runtime_dir, "bridge"),
     os.path.join(root_dir, runtime_dir, "js_type_extension"),
@@ -773,7 +772,7 @@ if lws_support is not None:
 # Ownership rules (TASK_STATUS.md ch.14):
 #   runtime target: src/runtime/** + api_tool core (store/loader/payload/types)
 #   editor target:  src/editor/** + api_tool/editor orchestration
-# Shared sources (src/common/**, api_tool core copies) are compiled into BOTH
+# Shared sources (src/internal/**, src/compat/**, api_tool core copies) go into BOTH
 # targets with their own env so objects never collide.
 
 runtime_sources = []
@@ -782,8 +781,8 @@ runtime_sources += Glob(os.path.join(runtime_dir, "bridge", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "weaver", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "js_type_extension", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
-runtime_sources += Glob(os.path.join(common_dir, "internal", "*.cpp"))
-runtime_sources += Glob(os.path.join(common_dir, "compat", "*.cpp"))
+runtime_sources += Glob(os.path.join(internal_dir, "*.cpp"))
+runtime_sources += Glob(os.path.join(compat_dir, "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
 
@@ -800,11 +799,11 @@ editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map.cpp
 editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map_cache.cpp"))
 editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_reader.cpp"))
 # Shared sources compiled into BOTH extensions (independent DLLs cannot
-# resolve each other's symbols): common internals/compat plus the api_tool
+# resolve each other's symbols): shared internals/compat plus the api_tool
 # core store/loader copies.
 editor_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
-editor_sources += Glob(os.path.join(common_dir, "internal", "*.cpp"))
-editor_sources += Glob(os.path.join(common_dir, "compat", "*.cpp"))
+editor_sources += Glob(os.path.join(internal_dir, "*.cpp"))
+editor_sources += Glob(os.path.join(compat_dir, "*.cpp"))
 editor_sources += Glob(os.path.join(editor_dir, "codegen", "*.cpp"))
 # jsb_editor_preset.gen.cpp is covered by the weaver-editor glob above.
 

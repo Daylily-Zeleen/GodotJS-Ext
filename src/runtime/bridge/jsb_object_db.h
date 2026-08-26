@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "../../common/compat/jsb_compat.h"
+#include "../../compat/jsb_compat.h"
 #include "jsb_bridge_pch.h"
 #include "jsb_object_handle.h"
 

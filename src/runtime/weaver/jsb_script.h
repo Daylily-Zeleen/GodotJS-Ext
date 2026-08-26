@@ -39,7 +39,7 @@
 #include <godot_cpp/templates/vector.hpp>
 
 #include "jsb_script_language.h"
-#include <common/compat/misc.h>
+#include <compat/misc.h>
 
 class ScriptInstance;
 class PlaceholderScriptInstance;

@@ -28,7 +28,7 @@
 #pragma once
 
 #include "../internal/jsb_bridge_table.h"
-#include <common/compat/jsb_compat.h>
+#include <compat/jsb_compat.h>
 #include <runtime/bridge/jsb_bridge.h>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_language_extension.hpp>

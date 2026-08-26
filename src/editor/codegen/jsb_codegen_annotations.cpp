@@ -30,7 +30,7 @@
 
 #include "jsb_codegen_defs.h"
 
-#include <common/internal/jsb_naming_util.h>
+#include <internal/jsb_naming_util.h>
 
 #include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/variant/variant.hpp>
