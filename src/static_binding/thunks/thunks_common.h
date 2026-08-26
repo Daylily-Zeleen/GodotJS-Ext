@@ -193,6 +193,14 @@ struct ReturnSlotOf {
 	using type = godot::Variant;
 };
 
+// Native C++ value type carried by a variant slot of type VT (used by member
+// getters/setters: real_t members carry double, int members int64, ...).
+template <int VT>
+struct MemberValue { using type = typename VtSlotType<VT>::type; };
+
+template <int VT>
+using member_value_t = typename MemberValue<VT>::type;
+
 // Ret<N>: the native slot of variant type N.
 template <class RetT>
 struct ReturnSlotOf<RetT, std::void_t<decltype(RetT::vt)>> {
