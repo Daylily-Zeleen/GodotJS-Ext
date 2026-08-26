@@ -25,24 +25,23 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#include "../jsb_editor_settings.h"
 #include "jsb_editor_plugin.h"
+#include "../jsb_editor_settings.h"
 #include "api_tool/api_tool.h"
-#include "jsb_api_tool_session.h"
-#include "common/internal/jsb_settings.h"
-#include <common/internal/jsb_naming_util.h>
 #include "api_tool/editor/api_tool_editor.h"
+#include "common/internal/jsb_settings.h"
+#include "jsb_api_tool_session.h"
 #include "jsb_config_classes_dialog.h"
-#include <cstdio>
-#include "jsb_editor_bridge.h"
 #include "jsb_docked_panel.h"
-#include <codegen/jsb_codegen_generator.h>
+#include "jsb_editor_bridge.h"
 #include "jsb_editor_progress.h"
 #include "jsb_export_plugin.h"
 #include "jsb_resource_loader.h"
+#include <codegen/jsb_codegen_generator.h>
+#include <common/internal/jsb_naming_util.h>
+#include <cstdio>
 
 #include <godot_cpp/classes/config_file.hpp>
-#include <godot_cpp/classes/reg_ex.hpp>
 #include <godot_cpp/classes/confirmation_dialog.hpp>
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
@@ -51,6 +50,7 @@
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
+#include <godot_cpp/classes/reg_ex.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -136,8 +136,9 @@ static String string_join(const String &separator, const StrArray &parts) {
 } //namespace
 
 jsb::internal::PresetSource GodotJSEditorPlugin::get_preset_source(const String &p_filename) {
-	jsb::internal::PresetSource preset = GodotJSProjectPreset::get_source_rt(p_filename);
-	if (preset.is_valid()) return preset;
+	// Editor extension reads its own embedded presets only: every scaffold /
+	// type-declaration source listed in add_install_file() lives in the editor
+	// preset bundle. The runtime bundle belongs to the runtime extension.
 	return GodotJSProjectPreset::get_source_ed(p_filename);
 }
 
@@ -188,7 +189,8 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 					if (api_generate_args[i] == "--godotjs-api-generate" && i + 1 < api_generate_args.size()) {
 						const String extension_api_json = api_generate_args[i + 1];
 						callable_mp(this, &GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline)
-								.bind(extension_api_json).call_deferred();
+								.bind(extension_api_json)
+								.call_deferred();
 						break;
 					}
 				}
@@ -840,7 +842,6 @@ bool GodotJSEditorPlugin::_is_path_matchn(const PackedStringArray &p_wildcards, 
 	return false;
 }
 
-
 Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths) {
 	Vector<String> filtered_paths;
 	if (!p_include_wildcards.is_empty()) {
@@ -857,7 +858,6 @@ Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArr
 
 	return filtered_paths;
 }
-
 
 void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, bool skip_static_types) {
 	ERR_FAIL_COND_MSG(!api_tool::has_generated_data(), "Please generate api data first.");

@@ -619,6 +619,10 @@ if os.path.exists(templates_script):
 generate_jsb_gen_header()
 
 # Use absolute paths to ensure compile_commands.json has correct include paths
+if jsb_platform == "windows" and env.get("is_msvc", False):
+    # /FS: parallel CL.EXE instances share the target PDB
+    env.Append(CCFLAGS=["/FS"])
+
 root_dir = Dir('#').abspath
 
 # Enable C++20 (cross-compiler support)
@@ -675,6 +679,11 @@ else:
     reason = "embedded_natvis=no" if not env.get("embedded_natvis", True) else "linker without /NATVIS support"
     print(f"natvis: {reason}, merging into {merged_natvis}")
     subprocess.run([sys.executable, merge_script, merged_natvis, *natvis_sources], check=True)
+
+if jsb_platform == "windows":
+    # /FS: parallel CL.EXE instances share the target PDB (both extension
+    # targets and their shared objects compile concurrently).
+    env.Append(CCFLAGS=["/FS"])
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
@@ -762,63 +771,40 @@ if lws_support is not None:
 # Ownership rules (TASK_STATUS.md ch.14):
 #   runtime target: src/runtime/** + api_tool core (store/loader/payload/types)
 #   editor target:  src/editor/** + api_tool/editor orchestration
-# Shared headers (compat/, internal/ pure tools, impl/shared data structs,
-# testing/) are compiled into BOTH targets.
+# Shared sources (src/common/**, api_tool core copies) are compiled into BOTH
+# targets with their own env so objects never collide.
 
 runtime_sources = []
 runtime_sources += Glob(os.path.join(runtime_dir, "*.cpp"))
-runtime_sources += Glob(os.path.join(common_dir, "compat", "*.cpp"))
-runtime_sources += Glob(os.path.join(common_dir, "internal", "*.cpp"))
-runtime_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "bridge", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "weaver", "*.cpp"))
 runtime_sources += Glob(os.path.join(runtime_dir, "js_type_extension", "*.cpp"))
-# api_tool module: core store/loader/payload/types
+runtime_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
+runtime_sources += Glob(os.path.join(common_dir, "internal", "*.cpp"))
+runtime_sources += Glob(os.path.join(common_dir, "compat", "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 runtime_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
-
-editor_env = env.Clone()
-editor_env.variant_dir = "build_editor"
-editor_env["OBJPREFIX"] = "build_editor/"
 
 editor_sources = []
 editor_dir = os.path.join(src_dir, "editor")
 editor_sources += Glob(os.path.join(editor_dir, "*.cpp"))
 editor_sources += Glob(os.path.join(editor_dir, "weaver-editor", "*.cpp"))
-# api_tool editor-side orchestration (parser/writer/generator/docs queries)
+editor_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
 editor_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
+# Only the source-map/reader internals are shared implementations the editor
+# needs; everything else in runtime/internal (e.g. the bridge table impl)
+# is runtime-owned.
+editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map.cpp"))
+editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map_cache.cpp"))
+editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_reader.cpp"))
+# Shared sources compiled into BOTH extensions (independent DLLs cannot
+# resolve each other's symbols): common internals/compat plus the api_tool
+# core store/loader copies.
+editor_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
+editor_sources += Glob(os.path.join(common_dir, "internal", "*.cpp"))
+editor_sources += Glob(os.path.join(common_dir, "compat", "*.cpp"))
 editor_sources += Glob(os.path.join(editor_dir, "codegen", "*.cpp"))
-
-# Shared runtime utilities referenced by the editor side: stateless tools,
-# data structs, api_tool core (each side holds its own read-only store copy),
-# and string names. Compiled into BOTH targets.
-shared_utility_sources = [
-    os.path.join(common_dir, "internal", "jsb_settings.cpp"),
-    os.path.join(common_dir, "internal", "jsb_class_visibility.cpp"),
-    os.path.join(common_dir, "internal", "jsb_console_output.cpp"),
-    os.path.join(common_dir, "internal", "jsb_logger.cpp"),
-    os.path.join(common_dir, "internal", "jsb_naming_util.cpp"),
-    os.path.join(common_dir, "internal", "jsb_path_util.cpp"),
-    os.path.join(common_dir, "internal", "jsb_process.cpp"),
-    os.path.join(common_dir, "internal", "jsb_thread_util.cpp"),
-    os.path.join(common_dir, "internal", "jsb_string_names.cpp"),
-    os.path.join(common_dir, "internal", "jsb_variant_util.cpp"),
-    # api_tool core: both sides hold their own read-only store copy
-    os.path.join(src_dir, "api_tool", "api_tool.cpp"),
-    os.path.join(src_dir, "api_tool", "api_tool_types.cpp"),
-    os.path.join(src_dir, "api_tool", "core", "api_tool_loader.cpp"),
-    os.path.join(src_dir, "api_tool", "core", "api_tool_store.cpp"),
-]
-
-
-# plugin.get_preset_source consults both rt and ed preset sets; keep behavior by
-# compiling the runtime preset data into the editor target as well.
-# compat implementations used by the editor side (_GLOBAL_DEF/_EDITOR_DEF wrappers)
-for f in Glob(os.path.join(common_dir, "compat", "*.cpp")):
-    editor_sources.append(editor_env.SharedObject(
-        target=os.path.join("editor_shared", os.path.basename(str(f)).replace(".cpp", ".obj")),
-        source=f))
-
+# jsb_editor_preset.gen.cpp is covered by the weaver-editor glob above.
 
 # Engine-specific impl sources (NOTE: node mode implies JSB_WITH_V8 (libnode
 # embeds V8), so the node branch MUST be checked before the v8 branch).
@@ -840,13 +826,19 @@ if env.get("tests", False):
     runtime_sources += Glob(os.path.join(runtime_dir, "tests", "*.cpp"))
     editor_sources += Glob(os.path.join(editor_dir, "tests", "*.cpp"))
 
-godotjs_sources = runtime_sources + editor_sources
+# .dev doesn't inhibit compatibility; .universal/.simulator for macOS/iOS
+if env['platform'] in ['macos', 'ios']:
+    suffix = env['suffix'].replace(".dev", "")
+    if jsb_platform == 'ios' and env.get('ios_simulator', False):
+        suffix = suffix.replace(".universal", ".universal.simulator")
+else:
+    suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
+lib_filename = "{}{}{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
 
 # Add quickjs/quickjs-ng source files (C files) with C11 flags
 quickjs_obj = []
 if quickjs_support is not None:
     quickjs_dir = quickjs_support[1].path
-    # Create a clone environment for C compilation with C11 flags
     env_c = env.Clone()
     cc_compiler_base = os.path.basename(str(env.subst('$CC'))).lower()
     if cc_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
@@ -855,31 +847,8 @@ if quickjs_support is not None:
             env_c.Append(CCFLAGS=["/experimental:c11atomics"])
     else:
         env_c.Append(CCFLAGS=["-std=gnu11"])
-    # NOTE: use SharedObject (not Object) so the C objects are marked as PIC and
-    # can be linked into the shared library. SCons rejects plain static .o files
-    # when linking a shared library on linux/macos ("is static and is not
-    # compatible with shared target").
     for src in quickjs_support[1].sources:
         quickjs_obj.append(env_c.SharedObject(File(os.path.join(quickjs_dir, src))))
-
-
-
-# Combine all sources for compilation
-all_sources = godotjs_sources + quickjs_obj
-
-# .dev doesn't inhibit compatibility
-# Preserve .universal suffix for macOS/iOS to distinguish architectures
-# Add .simulator suffix for iOS simulator builds
-if env['platform'] in ['macos', 'ios']:
-    # macOS/iOS: preserve .universal suffix
-    suffix = env['suffix'].replace(".dev", "")
-    # iOS simulator: add .simulator suffix
-    if env['platform'] == 'ios' and env.get('ios_simulator', False):
-        suffix = suffix.replace(".universal", ".universal.simulator")
-else:
-    # Other platforms: remove .universal suffix
-    suffix = env['suffix'].replace(".dev", "").replace(".universal", "")
-lib_filename = "{}{}{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
 
 def make_target_env(base_env, pdb_name):
     target_env = base_env.Clone()
@@ -887,26 +856,14 @@ def make_target_env(base_env, pdb_name):
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
         # LNK1218. Give every intermediate a real PDB (unique per target so the
         # parallel CL.EXE instances never contend) and keep incremental off.
-        target_env.Append(CCFLAGS=["/Zi", "/FS", f"/Fd{pdb_name}.pdb"],
-                          LINKFLAGS=[f"/PDB:{pdb_name}.pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
+        target_env.Append(CCFLAGS=["/Zi", "/FS", "/Fd" + pdb_name + ".pdb"],
+                          LINKFLAGS=["/PDB:" + pdb_name + ".pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
     return target_env
 
 library = make_target_env(env, "bin/windows/godotjs-ext").SharedLibrary(
     "bin/{}/{}".format(env['platform'], lib_filename),
     source=runtime_sources + quickjs_obj,
 )
-
-# Shared utilities are compiled with the EDITOR env into distinct objects
-# (same sources as some runtime-target objects; separate object paths avoid
-# SCons target conflicts between the two environments).
-editor_env = env.Clone()
-shared_objs = []
-
-for f in shared_utility_sources:
-    # compile under a dedicated variant dir to avoid clashing with the runtime
-    # target's objects of the same basename
-    obj = editor_env.SharedObject(target=os.path.join("editor_shared", os.path.basename(f).replace(".cpp", ".obj")), source=File(f))
-    shared_objs.append(obj)
 
 copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 
@@ -915,15 +872,22 @@ default_args = [library, copy]
 if env["target"] == "editor":
     # The editor extension requires TOOLS_ENABLED headers; only built for
     # the editor target. Other targets skip it entirely.
+    # jsb_editor_preset.gen.cpp is already picked up by the weaver-editor
+    # glob above (the file is generated before SConscript parsing), so it
+    # compiles through make_target_env and gets its own /Fd PDB — do not
+    # register a second bare-env SharedObject for the same file (that was
+    # the vc140.pdb C1041 contention).
     editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-    preset_gen_obj = editor_env.SharedObject(
-        target=os.path.join("editor_shared", "jsb_project_preset.gen"),
-        source=File(os.path.join(runtime_dir, "jsb_project_preset.gen.cpp")))
-
-    editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-    editor_library = make_target_env(env, "bin/windows/godotjs-ext-editor").SharedLibrary(
+    # Distinct env for the editor extension: OBJPREFIX keeps the shared
+    # sources' objects out of the runtime target's object tree (two envs
+    # writing the same object path -> "Two environments" error), and
+    # make_target_env gives every compile its own /Fd PDB (a bare env falls
+    # back to the default vc140.pdb -> C1041 contention).
+    editor_build_env = make_target_env(env, "bin/windows/godotjs-ext-editor")
+    editor_build_env["OBJPREFIX"] = "build_editor/"
+    editor_library = editor_build_env.SharedLibrary(
         "bin/{}/{}".format(env['platform'], editor_libname),
-        source=editor_sources + shared_objs + [preset_gen_obj],
+        source=editor_sources,
     )
 
     editor_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), editor_library)

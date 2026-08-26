@@ -29,6 +29,7 @@
 
 #include "../impl/shared/jsb_custom_field.h"
 #include <godot_cpp/templates/vector.hpp>
+#include <godot_cpp/variant/string.hpp>
 namespace jsb {
 struct Statistics {
 	// num of traced objects
@@ -51,9 +52,9 @@ struct Statistics {
 	int64_t objects_bytes = 0;
 
 	// impl-specific fields
-	Vector<impl::CustomField> custom_fields;
+	godot::Vector<impl::CustomField> custom_fields;
 
-	impl::CustomField get_custom_field(const String &name) const {
+	impl::CustomField get_custom_field(const godot::String &name) const {
 		for (const impl::CustomField &it : custom_fields) {
 			if (it.name == name) {
 				return it;
