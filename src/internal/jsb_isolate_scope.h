@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "../../jsb.config.h"
+#include "../jsb.config.h"
 
 // two-level indirection so __LINE__ is expanded before token pasting
 #define JSB_CONCAT2_(a, b) a##b
