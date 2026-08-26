@@ -32,6 +32,7 @@
 // implementation TU (this file); cases are registered from the included
 // headers. See src/common/tests/jsb_test_runner.h for the --jsb-run-editor-tests
 // entry point wired into the editor extension's startup callback.
+#	include "tests/test_jsb_editor_bridge.h"
 #	include "tests/test_jsb_editor_skeleton.h"
 
 #endif // JSB_TESTS_ENABLED && TOOLS_ENABLED

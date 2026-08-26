@@ -36,6 +36,7 @@
 // (src/editor/tests/jsb_editor_test_main.cpp).
 #include "tests/jsb_test_helpers.h"
 #include "tests/test_jsb_any_runtime.h"
+#include "tests/test_jsb_bridge_table.h"
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_SHADOW_REALM_ENABLED
