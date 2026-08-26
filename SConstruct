@@ -619,9 +619,8 @@ if os.path.exists(templates_script):
 generate_jsb_gen_header()
 
 # Use absolute paths to ensure compile_commands.json has correct include paths
-if jsb_platform == "windows" and env.get("is_msvc", False):
-    # /FS: parallel CL.EXE instances share the target PDB
-    env.Append(CCFLAGS=["/FS"])
+# NOTE: no /FS here anymore. Debug-info writes go through /Z7 (see
+# make_target_env); a shared-PDB compile path would reintroduce C1041.
 
 root_dir = Dir('#').abspath
 
@@ -639,8 +638,6 @@ else:
     if '/-std=c++17' in cxx_flags:
         cxx_flags.remove('/-std=c++17')
     cxx_flags.append('-std=c++20')
-if cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
-    cxx_flags.append("/FS")
 env["CXXFLAGS"] = cxx_flags
 
 # =============================================================================
@@ -680,10 +677,15 @@ else:
     print(f"natvis: {reason}, merging into {merged_natvis}")
     subprocess.run([sys.executable, merge_script, merged_natvis, *natvis_sources], check=True)
 
-if jsb_platform == "windows":
-    # /FS: parallel CL.EXE instances share the target PDB (both extension
-    # targets and their shared objects compile concurrently).
-    env.Append(CCFLAGS=["/FS"])
+if jsb_platform == "windows" and cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
+    # /Z7 keeps debug info in the .obj; no compile-time shared-PDB writes
+    # (C1041-proof). Target-specific /Fd flags are added by make_target_env.
+    # Strip the inherited /Zi first so cl never touches a shared PDB and we
+    # don't spam D9025 override warnings.
+    for flags_name in ("CCFLAGS", "CXXFLAGS"):
+        filtered = [f for f in env[flags_name] if str(f).strip().upper() != "/ZI"]
+        env[flags_name] = filtered
+    env.Append(CCFLAGS=["/Z7"])
 
 env.Append(CPPPATH=[
     os.path.join(root_dir, src_dir),
@@ -854,9 +856,12 @@ def make_target_env(base_env, pdb_name):
     target_env = base_env.Clone()
     if jsb_platform == "windows":
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
-        # LNK1218. Give every intermediate a real PDB (unique per target so the
-        # parallel CL.EXE instances never contend) and keep incremental off.
-        target_env.Append(CCFLAGS=["/Zi", "/FS", "/Fd" + pdb_name + ".pdb"],
+        # LNK1218. Use /Z7 (debug info embedded in each .obj): parallel
+        # CL.EXE instances never write a shared PDB at compile time, which
+        # /FS could not guarantee (C1041 persisted on cold CI builds even
+        # with /FS present on every command line). The link step still
+        # produces the target's real PDB from the embedded debug info.
+        target_env.Append(CCFLAGS=["/Z7", "/Fd" + pdb_name + ".pdb"],
                           LINKFLAGS=["/PDB:" + pdb_name + ".pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
     return target_env
 
