@@ -30,6 +30,7 @@
 #include "internal/jsb_class_visibility.h"
 #include "internal/jsb_naming_util.h"
 #include "internal/jsb_settings.h"
+#include "../jsb_editor_settings.h"
 #include "jsb_editor_plugin.h"
 
 #include <compat/editor_settings.h>
@@ -243,7 +244,7 @@ void GodotJSConfigClassesDialog::_build_tree() {
 	tree_->create_item(); // hidden root
 
 	omitted_classes_ = jsb::internal::ClassVisibility::get_omitted_original_classes();
-	const PackedStringArray ignored = jsb::internal::Settings::get_ignored_classes();
+	const PackedStringArray ignored = jsb::internal::get_ignored_classes();
 	const PackedStringArray all_classes = ClassDB::get_class_list();
 
 	for (int i = 0; i < all_classes.size(); i++) {
@@ -394,7 +395,7 @@ PackedStringArray GodotJSConfigClassesDialog::_collect_unchecked() const {
 }
 
 void GodotJSConfigClassesDialog::_on_save_pressed() {
-	jsb::internal::Settings::set_ignored_classes(_collect_unchecked());
+	jsb::internal::set_ignored_classes(_collect_unchecked());
 	regenerate_dialog_->popup_centered();
 }
 

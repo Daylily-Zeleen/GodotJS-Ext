@@ -16,8 +16,8 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -27,7 +27,16 @@
 
 #pragma once
 
-#include <compat/jsb_compat.h>
+// Runtime-facing settings facade: reads ProjectSettings keys owned by the
+// runtime extension (godotjs_ext/runtime/** plus godotjs_ext/editor/script/
+// inline_uid) and, in editor builds, a couple of EditorSettings values the
+// runtime itself needs (debugger port).
+//
+// Editor-hosted settings (EditorSettings defaults + the editor/codegen/**
+// project settings consumed only by the editor extension) live in
+// src/editor/jsb_editor_settings.{h,cpp}.
+
+#include "compat/jsb_compat.h"
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
@@ -38,19 +47,10 @@ class BitField;
 namespace jsb::internal {
 
 // Register runtime-owned project settings (godotjs_ext/runtime/** keys plus
-// godotjs_ext/editor/script/inline_uid which the runtime consumes). Called once
-// from the runtime extension's SERVERS-level initializer; idempotent.
+// godotjs_ext/editor/script/inline_uid which the runtime consumes). ProjectSettings
+// exists long before SERVERS-level extension init, so this is safe here.
+// Idempotent; called once from the runtime extension's SERVERS initializer.
 void init_project_settings();
-enum SceneDTSGenerateStrategic {
-	ORIGIN_NAME_NODE = 1 << 0,
-	UNIQUE_NAME_NODE = 1 << 1,
-};
-
-enum AutoGenSettingFlags {
-	ENABLED = 1 << 0,
-	GEN_ON_SAVE = 1 << 1,
-	CHANGED_FILE_ONLY = 1 << 2,
-};
 
 class Settings {
 public:
@@ -85,35 +85,6 @@ public:
 
 	static bool get_camel_case_bindings_enabled();
 
-	static bool is_packaging_with_source_map();
-
-	static PackedStringArray get_packaging_include_files();
-
-	static PackedStringArray get_packaging_include_directories();
-
-	static bool is_packaging_referenced_node_modules();
-
-	static void set_ignored_classes(const PackedStringArray &p_ignored_classes);
-	static PackedStringArray get_ignored_classes();
-
-	static PackedStringArray get_resource_dts_include_path_wildcards();
-	static PackedStringArray get_resource_dts_exclude_path_wildcards();
-	static PackedStringArray get_scene_dts_include_path_wildcards();
-	static PackedStringArray get_scene_dts_exclude_path_wildcards();
-
-	static BitField<SceneDTSGenerateStrategic> get_scene_dts_generate_strategic();
-
 	static bool is_script_inline_resource_uid();
-
-#ifdef TOOLS_ENABLED
-	// [EDITOR ONLY]
-	static bool editor_settings_available();
-	static String get_autogen_path();
-
-	static BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
-	static BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings();
-
-	static bool get_codegen_use_project_settings();
-#endif
 };
 } //namespace jsb::internal

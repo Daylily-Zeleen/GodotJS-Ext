@@ -31,11 +31,13 @@
 #include "../internal/jsb_macros.h"
 #include "../internal/jsb_setting_keys.h"
 #include "../internal/jsb_settings.h"
+#include "jsb_editor_keys.h"
 #include <compat/project_settings.h>
 #include <internal/jsb_logger.h>
 
 #include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -225,5 +227,76 @@ void jsb::internal::init_editor_settings_defaults() {
 		_EDITOR_DEF(kEditorCodegenUseProjectSettings, true, false);
 	}
 }
+
+// ---- accessors for the editor-hosted values (moved out of shared Settings) ----
+
+namespace jsb::internal {
+
+bool editor_settings_available() {
+	return get_editor_settings().is_valid();
+}
+
+String get_autogen_path() {
+	return EDITOR_GET(kEditorAutogenPath);
+}
+
+BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings() {
+	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenSceneDTSSettings));
+}
+
+BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings() {
+	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenResourceDTSSettings));
+}
+
+bool get_codegen_use_project_settings() {
+	return EDITOR_GET(kEditorCodegenUseProjectSettings);
+}
+
+bool is_packaging_with_source_map() {
+	return GLOBAL_GET(kEdPackagingWithSourceMap);
+}
+
+PackedStringArray get_packaging_include_files() {
+	return (PackedStringArray)GLOBAL_GET(kEdPackagingIncludeFiles);
+}
+
+PackedStringArray get_packaging_include_directories() {
+	return (PackedStringArray)GLOBAL_GET(kEdPackagingIncludeDirectories);
+}
+
+bool is_packaging_referenced_node_modules() {
+	return GLOBAL_GET(kEdPackagingReferencedNodeModules);
+}
+
+PackedStringArray get_resource_dts_include_path_wildcards() {
+	return (PackedStringArray)GLOBAL_GET(kEdResourceDTSIncludePathWildcards);
+}
+
+PackedStringArray get_resource_dts_exclude_path_wildcards() {
+	return (PackedStringArray)GLOBAL_GET(kEdResourceDTSExcludePathWildcards);
+}
+
+PackedStringArray get_scene_dts_include_path_wildcards() {
+	return (PackedStringArray)GLOBAL_GET(kEdSceneDTSIncludePathWildcards);
+}
+
+PackedStringArray get_scene_dts_exclude_path_wildcards() {
+	return (PackedStringArray)GLOBAL_GET(kEdSceneDTSExcludePathWildcards);
+}
+
+BitField<SceneDTSGenerateStrategic> get_scene_dts_generate_strategic() {
+	return BitField<SceneDTSGenerateStrategic>(GLOBAL_GET(kEdSceneDTSGenerateStrategic));
+}
+
+PackedStringArray get_ignored_classes() {
+	return GLOBAL_GET(kEdIgnoredClasses);
+}
+
+void set_ignored_classes(const PackedStringArray &p_ignored_classes) {
+	ProjectSettings::get_singleton()->set_setting(kEdIgnoredClasses, p_ignored_classes);
+	ProjectSettings::get_singleton()->save();
+}
+
+} //namespace jsb::internal
 
 #endif // TOOLS_ENABLED

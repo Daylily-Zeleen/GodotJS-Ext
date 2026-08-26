@@ -34,6 +34,14 @@
 
 namespace jsb::internal {
 
+// Editor-owned ignored-classes storage. Deliberately a function-local static
+// (lazy init): a namespace-scope PackedStringArray crashed inside DllMain's
+// static-init (godot-cpp CowData ordering), Error 1114 at extension load.
+static PackedStringArray &ignored_classes_storage() {
+	static PackedStringArray storage;
+	return storage;
+}
+
 const HashSet<StringName> &ClassVisibility::get_omitted_original_classes() {
 	static const HashSet<StringName> table = {
 		"IPUnix",
@@ -57,8 +65,12 @@ const HashSet<StringName> &ClassVisibility::get_omitted_original_classes() {
 	return table;
 }
 
+void ClassVisibility::set_ignored_classes(const PackedStringArray &p_ignored_classes) {
+	ignored_classes_storage() = p_ignored_classes;
+}
+
 void ClassVisibility::get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes) {
-	const PackedStringArray ignored_classes = p_exclude_ignored_classes ? Settings::get_ignored_classes() : PackedStringArray{};
+	const PackedStringArray &ignored_classes = p_exclude_ignored_classes ? ignored_classes_storage() : PackedStringArray{};
 	const PackedStringArray all_class_names = ClassDB::get_class_list();
 
 	r_list.clear();
@@ -125,7 +137,7 @@ bool ClassVisibility::is_original_class_exposed(const StringName &p_original_nam
 	}
 
 	// ignored classs 可以指定父类，连同子类一起禁用
-	for (const String &ignored_class : (p_ignored_classes.is_empty() ? jsb::internal::Settings::get_ignored_classes() : p_ignored_classes)) {
+	for (const String &ignored_class : (p_ignored_classes.is_empty() ? ignored_classes_storage() : p_ignored_classes)) {
 		if (ignored_class == p_original_name || ClassDB::is_parent_class(p_original_name, ignored_class))
 			return false;
 	}
@@ -134,7 +146,7 @@ bool ClassVisibility::is_original_class_exposed(const StringName &p_original_nam
 }
 
 StringName ClassVisibility::find_exposed_base_class(const StringName &p_unexposed_original_class) {
-	const PackedStringArray ignored_classes = jsb::internal::Settings::get_ignored_classes();
+	const PackedStringArray &ignored_classes = ignored_classes_storage();
 	StringName base = ClassDB::get_parent_class(p_unexposed_original_class);
 	while (!base.is_empty() && !is_original_class_exposed(base, ignored_classes)) {
 		base = ClassDB::get_parent_class(base);

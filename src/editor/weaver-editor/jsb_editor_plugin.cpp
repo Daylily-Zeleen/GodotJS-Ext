@@ -27,9 +27,11 @@
 
 #include "jsb_editor_plugin.h"
 #include "../jsb_editor_settings.h"
+#include "../jsb_editor_keys.h"
 #include "jsb_editor_preset.h"
 #include "api_tool/api_tool.h"
 #include "api_tool/editor/api_tool_editor.h"
+#include "internal/jsb_class_visibility.h"
 #include "internal/jsb_settings.h"
 #include "jsb_api_tool_session.h"
 #include "jsb_config_classes_dialog.h"
@@ -366,6 +368,9 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	// project settings (packaging/codegen keys) first, then EditorSettings defaults.
 	jsb::internal::init_editor_project_settings();
 	jsb::internal::init_editor_settings_defaults();
+	// Inject the editor-owned ignored-classes list into shared ClassVisibility:
+	// the shared code must not read editor settings itself.
+	jsb::internal::ClassVisibility::set_ignored_classes(jsb::internal::get_ignored_classes());
 
 	export_plugin_.instantiate();
 
@@ -421,7 +426,7 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	add_install_file({ "package.json", "res://", jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_CREATE_ONLY });
 	add_install_file({ ".gdignore", "res://node_modules", jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_GDIGNORE | jsb::weaver::CH_NODE_MODULES });
 	add_install_file({ ".gdignore", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_GDIGNORE | jsb::weaver::CH_D_TS });
-	add_install_file({ ".gdignore", "res://" + jsb::internal::Settings::get_autogen_path(), jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_GDIGNORE | jsb::weaver::CH_D_TS });
+	add_install_file({ ".gdignore", "res://" + jsb::internal::get_autogen_path(), jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_GDIGNORE | jsb::weaver::CH_D_TS });
 
 	// type declaration files
 	// VSCode treats the directory containing the jsconfig.json file as the root of a javascript project, and reads type declarations from d.ts.
@@ -771,7 +776,7 @@ void GodotJSEditorPlugin::_on_scene_saved(const String &p_path) {
 
 	Vector<String> paths = { p_path };
 
-	BitField<SettingFlags> gen_scene_settings = jsb::internal::Settings::get_autogen_scene_dts_settings();
+	BitField<SettingFlags> gen_scene_settings = jsb::internal::get_autogen_scene_dts_settings();
 	if (gen_scene_settings.has_flag(SettingFlags::ENABLED) && gen_scene_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
 		if (!gen_scene_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(p_path)) {
 			generate_scene_nodes_types({}, paths);
@@ -781,7 +786,7 @@ void GodotJSEditorPlugin::_on_scene_saved(const String &p_path) {
 	// Curiously, the "resource_saved" signal is not emitted for scenes even though they're resources. So we implement
 	// resource saved logic here too.
 
-	BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+	BitField<SettingFlags> gen_resource_settings = jsb::internal::get_autogen_resource_dts_settings();
 	if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
 		if (!gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(p_path)) {
 			generate_resource_types({}, paths);
@@ -791,7 +796,7 @@ void GodotJSEditorPlugin::_on_scene_saved(const String &p_path) {
 
 void GodotJSEditorPlugin::_on_resource_saved(const Ref<Resource> &p_resource) {
 	using SettingFlags = jsb::internal::AutoGenSettingFlags;
-	BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+	BitField<SettingFlags> gen_resource_settings = jsb::internal::get_autogen_resource_dts_settings();
 	if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
 		Vector<String> paths = { p_resource->get_path() };
 		if (!gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(paths[0])) {
@@ -802,7 +807,7 @@ void GodotJSEditorPlugin::_on_resource_saved(const Ref<Resource> &p_resource) {
 
 void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArray &p_resources) {
 	using SettingFlags = jsb::internal::AutoGenSettingFlags;
-	BitField<SettingFlags> gen_resource_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+	BitField<SettingFlags> gen_resource_settings = jsb::internal::get_autogen_resource_dts_settings();
 	if (gen_resource_settings.has_flag(SettingFlags::ENABLED) && gen_resource_settings.has_flag(SettingFlags::GEN_ON_SAVE)) {
 		Vector<String> paths;
 		if (gen_resource_settings.has_flag(SettingFlags::CHANGED_FILE_ONLY)) {
@@ -879,7 +884,7 @@ void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, boo
 		}
 
 		// P1: pure C++ codegen, no JS runtime involved (see jsb_codegen_generator.h).
-		jsb::codegen::GodotTSDGenerator generator("./" JSB_TYPE_ROOT, jsb::internal::Settings::get_codegen_use_project_settings());
+		jsb::codegen::GodotTSDGenerator generator("./" JSB_TYPE_ROOT, jsb::internal::get_codegen_use_project_settings());
 		const bool success = generator.emit(true);
 		if (!success) {
 			if (complete) {
@@ -889,7 +894,7 @@ void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, boo
 		}
 
 		// In case the user does something strange with their get_autogen_path, don't delete their project.
-		String autogen_url = "res://" + jsb::internal::Settings::get_autogen_path();
+		String autogen_url = "res://" + jsb::internal::get_autogen_path();
 		if (autogen_url.length() > 6 && FileAccess::file_exists(autogen_url.path_join(".gdignore"))) {
 			Ref<DirAccess> dir = DirAccess::open(autogen_url);
 			if (dir.is_valid()) {
@@ -1035,7 +1040,7 @@ void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory *p_dir, Ve
 
 void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> complete, const Vector<String> &p_paths) {
 	using SettingFlags = jsb::internal::AutoGenSettingFlags;
-	BitField<SettingFlags> gen_settings = jsb::internal::Settings::get_autogen_scene_dts_settings();
+	BitField<SettingFlags> gen_settings = jsb::internal::get_autogen_scene_dts_settings();
 	if (!gen_settings.has_flag(SettingFlags::ENABLED)) {
 		if (complete) {
 			complete(true);
@@ -1051,8 +1056,8 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 		return;
 	}
 
-	PackedStringArray exclude_wildcards = jsb::internal::Settings::get_scene_dts_exclude_path_wildcards();
-	PackedStringArray include_wildcards = jsb::internal::Settings::get_scene_dts_include_path_wildcards();
+	PackedStringArray exclude_wildcards = jsb::internal::get_scene_dts_exclude_path_wildcards();
+	PackedStringArray include_wildcards = jsb::internal::get_scene_dts_include_path_wildcards();
 	Vector<String> filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
 	if (filtered_paths.is_empty()) {
 		if (complete) {
@@ -1062,7 +1067,7 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 	}
 
 	// P1: pure C++ codegen, no JS runtime involved.
-	jsb::codegen::SceneTSDGenerator generator("./" + jsb::internal::Settings::get_autogen_path(), filtered_paths);
+	jsb::codegen::SceneTSDGenerator generator("./" + jsb::internal::get_autogen_path(), filtered_paths);
 	const bool success = generator.emit();
 
 	if (!success) {
@@ -1083,7 +1088,7 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 
 void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> complete, const Vector<String> &p_paths) {
 	using SettingFlags = jsb::internal::AutoGenSettingFlags;
-	BitField<SettingFlags> gen_settings = jsb::internal::Settings::get_autogen_resource_dts_settings();
+	BitField<SettingFlags> gen_settings = jsb::internal::get_autogen_resource_dts_settings();
 	if (!gen_settings.has_flag(SettingFlags::ENABLED)) {
 		if (complete) {
 			complete(true);
@@ -1099,8 +1104,8 @@ void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> comp
 		return;
 	}
 
-	PackedStringArray exclude_wildcards = jsb::internal::Settings::get_resource_dts_exclude_path_wildcards();
-	PackedStringArray include_wildcards = jsb::internal::Settings::get_resource_dts_include_path_wildcards();
+	PackedStringArray exclude_wildcards = jsb::internal::get_resource_dts_exclude_path_wildcards();
+	PackedStringArray include_wildcards = jsb::internal::get_resource_dts_include_path_wildcards();
 	Vector<String> filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
 	if (filtered_paths.is_empty()) {
 		if (complete) {
@@ -1110,7 +1115,7 @@ void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> comp
 	}
 
 	// P1: pure C++ codegen, no JS runtime involved.
-	jsb::codegen::ResourceTSDGenerator generator("./" + jsb::internal::Settings::get_autogen_path(), filtered_paths);
+	jsb::codegen::ResourceTSDGenerator generator("./" + jsb::internal::get_autogen_path(), filtered_paths);
 	const bool success = generator.emit();
 
 	if (!success) {

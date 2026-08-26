@@ -46,6 +46,10 @@ public:
 
 	static void get_exposed_original_class_list(LocalVector<StringName> &r_list, bool p_exclude_ignored_classes = true);
 
+	/// Inject the editor-owned ignored-classes list. Called by the editor
+	/// extension at startup; shared code never reads editor settings directly.
+	static void set_ignored_classes(const PackedStringArray &p_ignored_classes);
+
 	static bool is_original_class_exposed(const StringName &p_original_name, const PackedStringArray &p_ignored_classes = {});
 
 	// Nearest exposed ancestor of an unexposed class (empty if none).

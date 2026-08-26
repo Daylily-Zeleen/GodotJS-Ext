@@ -16,8 +16,8 @@
 /*  version 2.1 of the License, or (at your option) any later version.  */
 /*                                                                      */
 /*  This library is distributed in the hope that it will be useful,     */
-/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
-/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of       */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU   */
 /*  Lesser General Public License for more details.                     */
 /*                                                                      */
 /*  You should have received a copy of the GNU Lesser General Public    */
@@ -82,80 +82,8 @@ void init_project_settings() {
 	}
 }
 
-// File-filter fragment shared by the settings registrations that hint at script files.
-static const char *jsb_settings_file_filter() {
-	static constexpr char filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
-#if JSB_USE_TYPESCRIPT
-									 ",*." JSB_TYPESCRIPT_EXT
-#endif
-			;
-	return filter;
-}
-
-// use unnecessary first category layer (runtime and editor) to make the second layer shown as sections in project settings
-
-#ifdef TOOLS_ENABLED
-bool Settings::editor_settings_available() {
-	return get_editor_settings().is_valid(); // || Engine::get_singleton()->is_editor_hint();
-}
-
-String Settings::get_autogen_path() {
-	return EDITOR_GET(kEditorAutogenPath);
-}
-
-BitField<AutoGenSettingFlags> Settings::get_autogen_scene_dts_settings() {
-	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenSceneDTSSettings));
-}
-
-BitField<AutoGenSettingFlags> Settings::get_autogen_resource_dts_settings() {
-	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenResourceDTSSettings));
-}
-
-bool Settings::get_codegen_use_project_settings() {
-	return EDITOR_GET(kEditorCodegenUseProjectSettings);
-}
-#endif // TOOLS_ENABLED
-
-bool Settings::is_packaging_with_source_map() {
-	return GLOBAL_GET(kEdPackagingWithSourceMap);
-}
-
-PackedStringArray Settings::get_packaging_include_files() {
-	// rely on auto variant convert from Array
-	return (PackedStringArray)GLOBAL_GET(kEdPackagingIncludeFiles);
-}
-
-PackedStringArray Settings::get_packaging_include_directories() {
-	// rely on auto variant convert from Array
-	return (PackedStringArray)GLOBAL_GET(kEdPackagingIncludeDirectories);
-}
-
-bool Settings::is_packaging_referenced_node_modules() {
-	return GLOBAL_GET(kEdPackagingReferencedNodeModules);
-}
-
 bool Settings::is_bridge_logging_enabled() {
 	return GLOBAL_GET(kRtBridgeLoggingEnabled);
-}
-
-PackedStringArray Settings::get_resource_dts_include_path_wildcards() {
-	return (PackedStringArray)GLOBAL_GET(kEdResourceDTSIncludePathWildcards);
-}
-
-PackedStringArray Settings::get_resource_dts_exclude_path_wildcards() {
-	return (PackedStringArray)GLOBAL_GET(kEdResourceDTSExcludePathWildcards);
-}
-
-PackedStringArray Settings::get_scene_dts_include_path_wildcards() {
-	return (PackedStringArray)GLOBAL_GET(kEdSceneDTSIncludePathWildcards);
-}
-
-PackedStringArray Settings::get_scene_dts_exclude_path_wildcards() {
-	return (PackedStringArray)GLOBAL_GET(kEdSceneDTSExcludePathWildcards);
-}
-
-BitField<SceneDTSGenerateStrategic> Settings::get_scene_dts_generate_strategic() {
-	return BitField<SceneDTSGenerateStrategic>(GLOBAL_GET(kEdSceneDTSGenerateStrategic));
 }
 
 bool Settings::is_script_inline_resource_uid() {
@@ -182,7 +110,7 @@ uint16_t Settings::get_debugger_port() {
 
 	if (debugger_port_override != 0) return debugger_port_override;
 #ifdef TOOLS_ENABLED
-	if (editor_settings_available()) {
+	if (get_editor_settings().is_valid()) {
 		return EDITOR_GET(kEditorDebuggerPort);
 	} else {
 		return 0; // 确保使用 0 无法启动调试功能
@@ -231,15 +159,6 @@ String Settings::get_entry_script_path() {
 
 bool Settings::get_camel_case_bindings_enabled() {
 	return GLOBAL_GET(kRtCamelCaseBindingsEnabled);
-}
-
-void Settings::set_ignored_classes(const PackedStringArray &p_ignored_classes) {
-	ProjectSettings::get_singleton()->set_setting(kEdIgnoredClasses, p_ignored_classes);
-	ProjectSettings::get_singleton()->save();
-}
-
-PackedStringArray Settings::get_ignored_classes() {
-	return GLOBAL_GET(kEdIgnoredClasses);
 }
 
 String Settings::get_indentation() {
