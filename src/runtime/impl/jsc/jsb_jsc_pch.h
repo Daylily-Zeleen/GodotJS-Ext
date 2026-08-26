@@ -29,8 +29,8 @@
 
 #include "../../internal/jsb_internal.h"
 #include "../../jsb.gen.h"
-#include "../../impl/shared/jsb_custom_field.h"
-#include "../../impl/shared/jsb_statistics.h"
+#include "../../internal/jsb_custom_field.h"
+#include "../../internal/jsb_statistics.h"
 
 #include "compat/ring_buffer.h"
 

@@ -56,7 +56,7 @@
 
 // JSB_ISOLATE_SCOPE: expands to v8::Locker + Isolate::Scope in node mode
 // (multi-threaded node::MultiIsolatePlatform requires the locker on every V8 entry).
-#include "../impl/shared/jsb_isolate_scope.h"
+#include <internal/jsb_isolate_scope.h>
 
 #include "../../internal/jsb_macros.h"
 #include <internal/jsb_logger.h>
