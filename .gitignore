@@ -88,3 +88,4 @@ TASK_STATUS.md
 .本地文档
 # git worktrees
 .worktrees/
+.build/

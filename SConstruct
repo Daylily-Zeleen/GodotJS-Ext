@@ -701,9 +701,10 @@ env.Append(CPPPATH=[
     os.path.join(root_dir, third_dir),
 ])
 
+editor_dir = os.path.join(src_dir, "editor")
+
 # Add editor include path for editor target
 if env["target"] == "editor":
-    editor_dir = os.path.join(src_dir, "editor")
     env.Append(CPPPATH=[os.path.join(root_dir, editor_dir)])
 
 # Add v8 include/library path
@@ -774,58 +775,57 @@ if lws_support is not None:
 #   editor target:  src/editor/** + api_tool/editor orchestration
 # Shared sources (src/internal/**, src/compat/**, api_tool core copies) go into BOTH
 # targets with their own env so objects never collide.
+#
+# Source globs (runtime_globs / editor_globs) are collected here and evaluated
+# THROUGH each target's variant env in make_target_env below, so objects land
+# under .build/<runtime|editor>/ instead of next to the sources.
 
-runtime_sources = []
-runtime_sources += Glob(os.path.join(runtime_dir, "*.cpp"))
-runtime_sources += Glob(os.path.join(runtime_dir, "bridge", "*.cpp"))
-runtime_sources += Glob(os.path.join(runtime_dir, "weaver", "*.cpp"))
-runtime_sources += Glob(os.path.join(runtime_dir, "js_type_extension", "*.cpp"))
-runtime_sources += Glob(os.path.join(runtime_dir, "internal", "*.cpp"))
-runtime_sources += Glob(os.path.join(internal_dir, "*.cpp"))
-runtime_sources += Glob(os.path.join(compat_dir, "*.cpp"))
-runtime_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
-runtime_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
+runtime_globs = [
+    os.path.join(runtime_dir, "*.cpp"),
+    os.path.join(runtime_dir, "bridge", "*.cpp"),
+    os.path.join(runtime_dir, "weaver", "*.cpp"),
+    os.path.join(runtime_dir, "js_type_extension", "*.cpp"),
+    os.path.join(runtime_dir, "internal", "*.cpp"),
+    os.path.join(internal_dir, "*.cpp"),
+    os.path.join(compat_dir, "*.cpp"),
+    os.path.join(src_dir, "api_tool", "*.cpp"),
+    os.path.join(src_dir, "api_tool", "core", "*.cpp"),
+]
 
-editor_sources = []
 editor_dir = os.path.join(src_dir, "editor")
-editor_sources += Glob(os.path.join(editor_dir, "*.cpp"))
-editor_sources += Glob(os.path.join(editor_dir, "weaver-editor", "*.cpp"))
-editor_sources += Glob(os.path.join(src_dir, "api_tool", "*.cpp"))
-editor_sources += Glob(os.path.join(src_dir, "api_tool", "editor", "*.cpp"))
-# Only the source-map/reader internals are shared implementations the editor
-# needs; everything else in runtime/internal (e.g. the bridge table impl)
-# is runtime-owned.
-editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map.cpp"))
-editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_map_cache.cpp"))
-editor_sources += Glob(os.path.join(runtime_dir, "internal", "jsb_source_reader.cpp"))
-# Shared sources compiled into BOTH extensions (independent DLLs cannot
-# resolve each other's symbols): shared internals/compat plus the api_tool
-# core store/loader copies.
-editor_sources += Glob(os.path.join(src_dir, "api_tool", "core", "*.cpp"))
-editor_sources += Glob(os.path.join(internal_dir, "*.cpp"))
-editor_sources += Glob(os.path.join(compat_dir, "*.cpp"))
-editor_sources += Glob(os.path.join(editor_dir, "codegen", "*.cpp"))
-# jsb_editor_preset.gen.cpp is covered by the weaver-editor glob above.
+editor_globs = [
+    os.path.join(editor_dir, "*.cpp"),
+    os.path.join(editor_dir, "weaver-editor", "*.cpp"),
+    os.path.join(src_dir, "api_tool", "*.cpp"),
+    os.path.join(src_dir, "api_tool", "editor", "*.cpp"),
+    # Only the source-map/reader internals are shared implementations the editor
+    # needs; everything else in runtime/internal (e.g. the bridge table impl)
+    # is runtime-owned.
+    os.path.join(runtime_dir, "internal", "jsb_source_map.cpp"),
+    os.path.join(runtime_dir, "internal", "jsb_source_map_cache.cpp"),
+    os.path.join(runtime_dir, "internal", "jsb_source_reader.cpp"),
+    # Shared sources compiled into BOTH extensions (independent DLLs cannot
+    # resolve each other's symbols): shared internals/compat plus the api_tool
+    # core store/loader copies.
+    os.path.join(src_dir, "api_tool", "core", "*.cpp"),
+    os.path.join(internal_dir, "*.cpp"),
+    os.path.join(compat_dir, "*.cpp"),
+    os.path.join(editor_dir, "codegen", "*.cpp"),
+    # jsb_editor_preset.gen.cpp is covered by the weaver-editor glob above.
+]
 
 # Engine-specific impl sources (NOTE: node mode implies JSB_WITH_V8 (libnode
 # embeds V8), so the node branch MUST be checked before the v8 branch).
-impl_sources = []
-if is_defined("JSB_WITH_NODE"):
-    impl_sources += Glob(os.path.join(runtime_dir, "impl", "node", "*.cpp"))
-elif is_defined("JSB_WITH_V8"):
-    impl_sources += Glob(os.path.join(runtime_dir, "impl", "v8", "*.cpp"))
-elif is_defined("JSB_WITH_QUICKJS"):
-    impl_sources += Glob(os.path.join(runtime_dir, "impl", "quickjs", "*.cpp"))
-elif is_defined("JSB_WITH_WEB"):
-    impl_sources += Glob(os.path.join(runtime_dir, "impl", "web", "*.cpp"))
-elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
-    impl_sources += Glob(os.path.join(runtime_dir, "impl", "jsc", "*.cpp"))
-runtime_sources += impl_sources
+runtime_globs += [os.path.join(runtime_dir, "impl", engine, "*.cpp")
+                  for engine in ("node", "v8", "quickjs", "web", "jsc")
+                  if is_defined({"node": "JSB_WITH_NODE", "v8": "JSB_WITH_V8",
+                                 "quickjs": "JSB_WITH_QUICKJS", "web": "JSB_WITH_WEB",
+                                 "jsc": "JSB_WITH_JAVASCRIPTCORE"}[engine])]
 
 if env.get("tests", False):
     env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
-    runtime_sources += Glob(os.path.join(runtime_dir, "tests", "*.cpp"))
-    editor_sources += Glob(os.path.join(editor_dir, "tests", "*.cpp"))
+    runtime_globs.append(os.path.join(runtime_dir, "tests", "*.cpp"))
+    editor_globs.append(os.path.join(src_dir, "editor", "tests", "*.cpp"))
 
 # .dev doesn't inhibit compatibility; .universal/.simulator for macOS/iOS
 if env['platform'] in ['macos', 'ios']:
@@ -851,8 +851,12 @@ if quickjs_support is not None:
     for src in quickjs_support[1].sources:
         quickjs_obj.append(env_c.SharedObject(File(os.path.join(quickjs_dir, src))))
 
-def make_target_env(base_env, pdb_name):
+def make_target_env(base_env, pdb_name, obj_root, source_globs):
     target_env = base_env.Clone()
+    # Route every object into .build/<obj_root>/ (flat: object basenames are
+    # unique across all globs -- asserted by the build itself via SCons
+    # duplicate-target errors). No .obj is ever written next to its source.
+    target_env["OBJPREFIX"] = "#/.build/" + obj_root + "/"
     if jsb_platform == "windows":
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
         # LNK1218. Use /Z7 (debug info embedded in each .obj): parallel
@@ -862,9 +866,14 @@ def make_target_env(base_env, pdb_name):
         # produces the target's real PDB from the embedded debug info.
         target_env.Append(CCFLAGS=["/Z7", "/Fd" + pdb_name + ".pdb"],
                           LINKFLAGS=["/PDB:" + pdb_name + ".pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
-    return target_env
+    sources = []
+    for pattern in source_globs:
+        sources += Glob(pattern)
+    return target_env, sources
 
-library = make_target_env(env, "bin/windows/godotjs-ext").SharedLibrary(
+target_env, runtime_sources = make_target_env(env, "bin/windows/godotjs-ext", "runtime", runtime_globs)
+
+library = target_env.SharedLibrary(
     "bin/{}/{}".format(env['platform'], lib_filename),
     source=runtime_sources + quickjs_obj,
 )
@@ -882,13 +891,12 @@ if env["target"] == "editor":
     # register a second bare-env SharedObject for the same file (that was
     # the vc140.pdb C1041 contention).
     editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-    # Distinct env for the editor extension: OBJPREFIX keeps the shared
-    # sources' objects out of the runtime target's object tree (two envs
-    # writing the same object path -> "Two environments" error), and
+    # Distinct env for the editor extension: a separate variant tree keeps the
+    # shared sources' objects out of the runtime target's object tree (two
+    # envs writing the same object path -> "Two environments" error), and
     # make_target_env gives every compile its own /Fd PDB (a bare env falls
     # back to the default vc140.pdb -> C1041 contention).
-    editor_build_env = make_target_env(env, "bin/windows/godotjs-ext-editor")
-    editor_build_env["OBJPREFIX"] = "build_editor/"
+    editor_build_env, editor_sources = make_target_env(env, "bin/windows/godotjs-ext-editor", "editor", editor_globs)
     editor_library = editor_build_env.SharedLibrary(
         "bin/{}/{}".format(env['platform'], editor_libname),
         source=editor_sources,
