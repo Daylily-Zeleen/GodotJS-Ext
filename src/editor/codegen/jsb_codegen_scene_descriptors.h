@@ -7,8 +7,6 @@
 /*                                                                      */
 /*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
-/*  Copyright (c) Contributors of GodotJS                               */
-/*                 - <https://github.com/godotjs/GodotJS>               */
 /*                                                                      */
 /*  This library is free software; you can redistribute it and/or       */
 /*  modify it under the terms of the GNU Lesser General Public          */
