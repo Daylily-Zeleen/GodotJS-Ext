@@ -815,12 +815,27 @@ editor_globs = [
 ]
 
 # Engine-specific impl sources (NOTE: node mode implies JSB_WITH_V8 (libnode
-# embeds V8), so the node branch MUST be checked before the v8 branch).
-runtime_globs += [os.path.join(runtime_dir, "impl", engine, "*.cpp")
-                  for engine in ("node", "v8", "quickjs", "web", "jsc")
-                  if is_defined({"node": "JSB_WITH_NODE", "v8": "JSB_WITH_V8",
-                                 "quickjs": "JSB_WITH_QUICKJS", "web": "JSB_WITH_WEB",
-                                 "jsc": "JSB_WITH_JAVASCRIPTCORE"}[engine])]
+# embeds V8), so when node mode is active only include node engine files;
+# v8/global_init files should not be compiled separately since libnode provides
+# the V8 implementation).
+if is_defined("JSB_WITH_NODE"):
+    # Node mode: libnode provides V8, only compile node-specific impls
+    runtime_globs += [os.path.join(runtime_dir, "impl", "node", "*.cpp")]
+    # Do NOT add v8/quickjs/jsc/web/jsc engine-specific impls
+elif is_defined("JSB_WITH_V8"):
+    # V8 monolith mode
+    runtime_globs += [os.path.join(runtime_dir, "impl", engine, "*.cpp")
+                      for engine in ("v8", "quickjs", "web", "jsc")
+                      if is_defined({"v8": "JSB_WITH_V8", "quickjs": "JSB_WITH_QUICKJS",
+                                     "web": "JSB_WITH_WEB", "jsc": "JSB_WITH_JAVASCRIPTCORE"}[engine])]
+elif is_defined("JSB_WITH_QUICKJS") or is_defined("JSB_WITH_WEB"):
+    # QuickJS or Web mode
+    runtime_globs += [os.path.join(runtime_dir, "impl", engine, "*.cpp")
+                      for engine in ("quickjs", "web")
+                      if is_defined({"quickjs": "JSB_WITH_QUICKJS", "web": "JSB_WITH_WEB"}[engine])]
+elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
+    # JavaScriptCore (macOS/iOS) mode
+    runtime_globs += [os.path.join(runtime_dir, "impl", "jsc", "*.cpp")]
 
 if env.get("tests", False):
     env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
