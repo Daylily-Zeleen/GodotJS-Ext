@@ -446,7 +446,7 @@ Environment::~Environment() {
 
 void Environment::init() {
 	jsb::DefaultModuleResolver &resolver = this->add_module_resolver<jsb::DefaultModuleResolver>();
-	resolver.add_search_path(jsb::internal::Settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/godotjs_ext' by default)
+	resolver.add_search_path(jsb::internal::settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/godotjs_ext' by default)
 	resolver.add_search_path("res://"); // use the root directory as custom lib path by default
 	resolver.add_search_path("res://node_modules"); // so far, it's the only supported path for node_modules in GodotJS
 

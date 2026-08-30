@@ -26,6 +26,8 @@
 /************************************************************************/
 
 #include "jsb_bridge_module_loader.h"
+
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_callable.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
@@ -512,7 +514,7 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 #else
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEBUG_ENABLED"), v8::Boolean::New(isolate, false)).Check();
 #endif
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::Settings::get_camel_case_bindings_enabled())).Check();
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::settings::project::is_camel_case_bindings_enabled())).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "version"), impl::Helper::new_string(isolate, JSB_STRINGIFY(JSB_MAJOR_VERSION) "." JSB_STRINGIFY(JSB_MINOR_VERSION) "." JSB_STRINGIFY(JSB_PATCH_VERSION))).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "impl"), impl::Helper::new_string(isolate, JSB_IMPL_VERSION_STRING)).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "_new_callable"), JSB_NEW_FUNCTION(context, _new_callable, {})).Check();

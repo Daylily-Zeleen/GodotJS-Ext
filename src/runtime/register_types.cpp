@@ -31,7 +31,7 @@
 #include "api_tool/api_tool.h"
 #include "weaver/jsb_weaver.h"
 #include <compat/jsb_compat.h>
-#include <internal/jsb_settings.h>
+#include <internal/jsb_runtime_settings.h>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -42,14 +42,12 @@ static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
-		// Register runtime-owned project settings before anything reads them.
-		// (SERVERS is the lowest level the engine passes to GDExtensions.)
-		jsb::internal::init_project_settings();
-	}
-
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
+			// Register runtime-owned project settings before anything reads them.
+			// (SERVERS is the lowest level the engine passes to GDExtensions.)
+			jsb::internal::settings::init_runtime_settings();
+
 			GDREGISTER_CLASS(GodotJSScript);
 			GDREGISTER_INTERNAL_CLASS(GodotJSScriptLanguage);
 

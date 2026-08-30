@@ -40,7 +40,6 @@ namespace jsb {
 namespace codegen {
 
 using internal::NamingUtil;
-using internal::Settings;
 
 // ---------------------------------------------------------------------------
 // DocCommentHelper

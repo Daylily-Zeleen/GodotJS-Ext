@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_settings.h                                                      */
+/*  jsb_runtime_settings.h                                              */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -25,35 +25,29 @@
 
 #pragma once
 
+// Runtime-only settings keys and accessors.
+// Keys are defined as static in jsb_runtime_settings.cpp.
+
 #include "compat/jsb_compat.h"
+#include <cstdint>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "jsb_macros.h"
-
 namespace jsb::internal::settings {
 
-static constexpr char kRtCamelCaseBindingsEnabled[] = JSB_MODULE_NAME_STRING "/runtime/core/camel_case_bindings_enabled";
-
-static constexpr char kEditorDebuggerPort[] = JSB_MODULE_NAME_STRING "/debugger/editor_port";
-
-String get_project_data_dir_name();
-static constexpr char js_files_filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
-#if JSB_USE_TYPESCRIPT
-										  ",*." JSB_TYPESCRIPT_EXT
-#endif
-		;
-
-String get_jsb_out_dir_name();
-String get_jsb_out_res_path();
+/// Register runtime-owned project settings.
+/// Called from register_types.cpp at MODULE_INITIALIZATION_LEVEL_SERVERS.
+void init_runtime_settings();
 
 namespace project {
-
-bool is_camel_case_bindings_enabled();
+bool is_bridge_logging_enabled();
+uint16_t get_debugger_port();
+String get_debugger_source_map_base_url();
+bool is_wait_for_debugger();
+PackedStringArray get_additional_search_paths();
+String get_entry_script_path();
+bool is_script_inline_resource_uid();
+bool is_sourcemap_enabled();
 } //namespace project
-
-namespace editor {
-String get_indentation();
-} //namespace editor
 
 } //namespace jsb::internal::settings

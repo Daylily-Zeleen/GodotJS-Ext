@@ -33,11 +33,11 @@
 //     godotjs_ext/codegen/** project settings plus EditorSettings defaults,
 //     and reads them through the accessors below
 
-#include "compat/jsb_compat.h"
+#include <compat/jsb_compat.h>
 #include <godot_cpp/core/binder_common.hpp>
-#include <godot_cpp/godot.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 
-namespace jsb::internal {
+namespace jsb::internal::settings {
 
 enum SceneDTSGenerateStrategic {
 	ORIGIN_NAME_NODE = 1 << 0,
@@ -50,30 +50,32 @@ enum AutoGenSettingFlags {
 	CHANGED_FILE_ONLY = 1 << 2,
 };
 
-/// Register editor-owned PROJECT settings (packaging + codegen/** keys).
-/// No EditorSettings dependency; idempotent.
-void init_editor_project_settings();
+void init_project_settings();
+void init_editor_settings();
 
-/// Register EditorSettings defaults (autogen paths etc.). Requires the
-/// EditorSettings singleton to exist -- call once editor plugins are being
-/// instantiated. Idempotent; retried later if it was not ready yet.
-void init_editor_settings_defaults();
+String get_tsbuildinfo_path();
 
-bool editor_settings_available();
-String get_autogen_path();
-BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
-BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings();
-bool get_codegen_use_project_settings();
+namespace project {
 bool is_packaging_with_source_map();
 PackedStringArray get_packaging_include_files();
 PackedStringArray get_packaging_include_directories();
 bool is_packaging_referenced_node_modules();
+
 PackedStringArray get_resource_dts_include_path_wildcards();
 PackedStringArray get_resource_dts_exclude_path_wildcards();
 PackedStringArray get_scene_dts_include_path_wildcards();
 PackedStringArray get_scene_dts_exclude_path_wildcards();
 BitField<SceneDTSGenerateStrategic> get_scene_dts_generate_strategic();
+
 PackedStringArray get_ignored_classes();
 void set_ignored_classes(const PackedStringArray &p_ignored_classes);
+} //namespace project
 
-} //namespace jsb::internal
+namespace editor {
+String get_autogen_path();
+BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
+BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings();
+bool is_codegen_use_project_settings();
+} //namespace editor
+
+} //namespace jsb::internal::settings

@@ -27,8 +27,8 @@
 
 #include "jsb_export_plugin.h"
 
-#include "jsb_editor_bridge.h"
 #include "../jsb_editor_settings.h"
+#include "jsb_editor_bridge.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #if JSB_WITH_NODE
@@ -134,11 +134,11 @@ void GodotJSExportPlugin::_export_begin(const PackedStringArray &p_features, boo
 	exported_paths_.clear();
 
 	// add all explicitly included file paths in settings
-	const PackedStringArray file_paths = jsb::internal::get_packaging_include_files();
+	const PackedStringArray file_paths = jsb::internal::settings::project::get_packaging_include_files();
 	export_raw_files(file_paths, true);
 
 	// add all explicitly included directory paths
-	const PackedStringArray dir_paths = jsb::internal::get_packaging_include_directories();
+	const PackedStringArray dir_paths = jsb::internal::settings::project::get_packaging_include_directories();
 	for (const String &dir_path : dir_paths) {
 		PackedStringArray script_paths;
 		get_script_resources(dir_path, script_paths);
@@ -182,7 +182,7 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 		JSB_EXPORTER_LOG(Warning, "can not export external source: %s", p_path);
 		return false;
 	}
-	if (jsb::internal::is_packaging_referenced_node_modules() && p_path.begins_with(kNodeModulesPrefix)) {
+	if (jsb::internal::settings::project::is_packaging_referenced_node_modules() && p_path.begins_with(kNodeModulesPrefix)) {
 		// Node modules may dynamically require files within themselves, and thus these modules won't end up in our
 		// module's "children" array. The kRtPackagingReferencedNodeModules setting (on by default) allows us to play
 		// it safe and export all JS scripts found in referenced packages. However, this won't cover the case where

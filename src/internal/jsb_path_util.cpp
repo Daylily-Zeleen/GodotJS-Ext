@@ -65,7 +65,7 @@ String PathUtil::convert_typescript_path(const String &p_source_path) {
 	constexpr int64_t begin = std::size("res://") - 1;
 	constexpr int64_t len_ofs = std::size("res://") - 1 + std::size(JSB_TYPESCRIPT_EXT) - 1;
 	const int64_t len = p_source_path.length() - len_ofs;
-	return Settings::get_jsb_out_res_path().path_join(
+	return jsb::internal::settings::get_jsb_out_res_path().path_join(
 			p_source_path.substr(begin, len)
 			+ String(JSB_JAVASCRIPT_EXT));
 }
@@ -74,7 +74,7 @@ String PathUtil::convert_javascript_path(const String &p_source_path) {
 	bool is_js_extension = p_source_path.ends_with("." JSB_JAVASCRIPT_EXT);
 	if (is_js_extension || p_source_path.ends_with("." JSB_COMMONJS_EXT) || p_source_path.ends_with("." JSB_MODULE_EXT)) {
 		int extension_length = is_js_extension ? 3 : 4;
-		const String root_path = Settings::get_jsb_out_res_path();
+		const String root_path = jsb::internal::settings::get_jsb_out_res_path();
 		jsb_checkf(p_source_path.begins_with(root_path + String("/")), "can not proceed javascript sources not under the project data directory");
 		const String replaced = String("res://").path_join(
 				p_source_path.substr(root_path.length() + 1, p_source_path.length() - root_path.length() - extension_length)

@@ -26,8 +26,8 @@
 #include "jsb_codegen_scene_descriptors.h"
 
 #include "../weaver-editor/jsb_api_tool_session.h"
-#include "../../editor/jsb_editor_settings.h"
 #include "../weaver-editor/jsb_editor_bridge.h"
+#include "jsb_editor_settings.h"
 #include <api_tool/api_tool.h>
 #include <internal/jsb_class_visibility.h>
 #include <internal/jsb_logger.h>
@@ -46,6 +46,8 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 namespace jsb::codegen {
+
+using SceneDTSGenerateStrategic = jsb::internal::settings::SceneDTSGenerateStrategic;
 
 namespace {
 enum class DescriptorType {
@@ -119,7 +121,7 @@ StringName _get_exposed_node_class_name(const StringName &class_name) {
 	return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
 }
 
-Dictionary _build_node_type_descriptor(const godot::BitField<jsb::internal::SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
+Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
 	jsb_check(p_strategic != 0);
 
 	Dictionary descriptor;
@@ -170,8 +172,8 @@ Dictionary _build_node_type_descriptor(const godot::BitField<jsb::internal::Scen
 			// Optionally replace children literal with SceneNodes["path/to/scene.tscn"]
 			if (const String scene_file_path = p_node->get_scene_file_path();
 					!scene_file_path.is_empty()) {
-				PackedStringArray exclude_wildcards = jsb::internal::get_scene_dts_exclude_path_wildcards();
-				PackedStringArray include_wildcards = jsb::internal::get_scene_dts_include_path_wildcards();
+				PackedStringArray exclude_wildcards = jsb::internal::settings::project::get_scene_dts_exclude_path_wildcards();
+				PackedStringArray include_wildcards = jsb::internal::settings::project::get_scene_dts_include_path_wildcards();
 				if (is_path_matchn(include_wildcards, scene_file_path)
 						&& !is_path_matchn(exclude_wildcards, scene_file_path)) {
 					Dictionary scene_nodes;
@@ -252,7 +254,7 @@ Dictionary _build_node_type_descriptor(const godot::BitField<jsb::internal::Scen
 		}
 	}
 
-	if (p_strategic.has_flag(jsb::internal::SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
+	if (p_strategic.has_flag(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
 		if (p_node->is_unique_name_in_owner()) {
 			r_unique_name_nodes["%" + p_node->get_name()] = descriptor;
 		}
@@ -313,9 +315,9 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 			return descriptor;
 		}
 
-		godot::BitField<jsb::internal::SceneDTSGenerateStrategic> strategic = jsb::internal::get_scene_dts_generate_strategic();
+		godot::BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::settings::project::get_scene_dts_generate_strategic();
 		if (strategic == 0) {
-			strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+			strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
 			JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
 		}
 
@@ -396,9 +398,9 @@ Dictionary get_scene_nodes(const String &p_path) {
 	Dictionary unique_name_nodes;
 	int child_count = instantiated_scene->get_child_count(true);
 
-	godot::BitField<jsb::internal::SceneDTSGenerateStrategic> strategic = jsb::internal::get_scene_dts_generate_strategic();
+	godot::BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::settings::project::get_scene_dts_generate_strategic();
 	if (strategic == 0) {
-		strategic.set_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
+		strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
 		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
 	}
 	for (int i = 0; i < child_count; i++) {
@@ -408,7 +410,7 @@ Dictionary get_scene_nodes(const String &p_path) {
 
 	instantiated_scene->queue_free();
 
-	if (!strategic.has_flag(jsb::internal::SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
+	if (!strategic.has_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
 		nodes.clear();
 	}
 	nodes.merge(unique_name_nodes);

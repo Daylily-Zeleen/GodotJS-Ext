@@ -27,6 +27,7 @@
 
 #include "jsb_debugger.h"
 #include "jsb_environment.h"
+#include "runtime/internal/jsb_runtime_settings.h"
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -312,7 +313,7 @@ public:
 			v8_inspector::StringView name((const uint8_t *)context_name.ptr(), context_name.length());
 			inspector_->contextCreated(v8_inspector::V8ContextInfo(p_context, kContextGroupId, name));
 
-			if (jsb::internal::Settings::get_wait_for_debugger() && !Engine::get_singleton()->is_editor_hint()) {
+			if (jsb::internal::settings::project::is_wait_for_debugger() && !Engine::get_singleton()->is_editor_hint()) {
 				Environment *environment = Environment::wrap(this->isolate_);
 				environment->wait_for_debugger();
 			}

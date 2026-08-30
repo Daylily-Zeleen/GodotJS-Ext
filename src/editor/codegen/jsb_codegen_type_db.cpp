@@ -877,7 +877,7 @@ String TypeDB::make_literal_value(const MethodDecl::DefaultValue &p_value) {
 			return "new " + type_name + "()";
 		}
 		const double x = value.get("x"), y = value.get("y"), z = value.get("z");
-		if ((x == y) == z) { // mirrors TS `(x == y) == z`
+		if (x == y && x == z) { // mirrors TS `(x == y) == z`
 			if (x == 0) return type_name + String(".ZERO");
 			if (x == 1) return type_name + String(".ONE");
 		}

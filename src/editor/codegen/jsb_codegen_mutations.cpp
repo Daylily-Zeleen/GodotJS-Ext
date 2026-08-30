@@ -35,7 +35,6 @@ namespace jsb {
 namespace codegen {
 
 using internal::NamingUtil;
-using internal::Settings;
 
 // ---------------------------------------------------------------------------
 // Line mutators
@@ -56,7 +55,7 @@ static String escape_name(const String &p_name) {
 
 LineMutator make_mutate_parameter_type(const String &p_name, const String &p_type) {
 	String name = p_name;
-	if (Settings::get_camel_case_bindings_enabled()) {
+	if (jsb::internal::settings::project::is_camel_case_bindings_enabled()) {
 		name = NamingUtil::get_parameter_name(name);
 	}
 	const String optional_pattern = name + "?:";

@@ -234,5 +234,5 @@ int64_t ResourceFormatLoaderGodotJSScript::_get_resource_uid(const String &p_pat
 }
 
 // bool ResourceFormatLoaderGodotJSScript::has_custom_uid_support() const {
-// 	return jsb::internal::Settings::is_script_inline_resource_uid();
+// 	return jsb::internal::settings::project::is_script_inline_resource_uid();
 // }

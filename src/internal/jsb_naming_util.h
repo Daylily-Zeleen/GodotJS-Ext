@@ -46,7 +46,7 @@ public:
 	// jsb_class_visibility.h -- NamingUtil is a pure string-transform utility.
 
 	static String get_class_name(const String &p_original_name) {
-		if (Settings::get_camel_case_bindings_enabled()) {
+		if (settings::project::is_camel_case_bindings_enabled()) {
 			return pascal_to_pascal_case(p_original_name);
 		}
 
@@ -66,7 +66,7 @@ public:
 	}
 
 	static String get_enum_name(const String &p_original_name) {
-		if (Settings::get_camel_case_bindings_enabled()) {
+		if (settings::project::is_camel_case_bindings_enabled()) {
 			return pascal_to_pascal_case(p_original_name);
 		}
 
@@ -74,7 +74,7 @@ public:
 	}
 
 	static String get_enum_value_name(const String &p_original_value_name) {
-		if (Settings::get_camel_case_bindings_enabled()) {
+		if (settings::project::is_camel_case_bindings_enabled()) {
 			return snake_to_pascal_case(p_original_value_name, true);
 		}
 
@@ -82,7 +82,7 @@ public:
 	}
 
 	static String get_member_name(const String &p_original_name) {
-		if (Settings::get_camel_case_bindings_enabled()) {
+		if (settings::project::is_camel_case_bindings_enabled()) {
 			return snake_to_camel_case(p_original_name);
 		}
 
@@ -90,7 +90,7 @@ public:
 	}
 
 	static String get_parameter_name(const String &p_original_name) {
-		if (Settings::get_camel_case_bindings_enabled()) {
+		if (settings::project::is_camel_case_bindings_enabled()) {
 			return snake_to_camel_case(p_original_name);
 		}
 

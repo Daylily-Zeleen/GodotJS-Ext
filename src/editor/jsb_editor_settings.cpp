@@ -25,231 +25,158 @@
 
 #include "jsb_editor_settings.h"
 
-#include "../compat/editor_settings.h"
-#include "../internal/jsb_macros.h"
-#include "../internal/jsb_setting_keys.h"
-#include "../internal/jsb_settings.h"
-#include "jsb_editor_keys.h"
+#include <compat/editor_settings.h>
 #include <compat/project_settings.h>
-#include <internal/jsb_logger.h>
-
-#include <godot_cpp/classes/editor_settings.hpp>
-#include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/core/binder_common.hpp>
-#include <godot_cpp/templates/vector.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+#include <internal/jsb_macros.h>
+#include <internal/jsb_settings.h>
 
 #define JSB_SET_RESTART(val) (val)
 #define JSB_SET_IGNORE_DOCS(val) (val)
 #define JSB_SET_BASIC(val) (val)
 #define JSB_SET_INTERNAL(val) (val)
 
-#ifdef TOOLS_ENABLED
-
-// File-filter fragment shared by the registrations that hint at script files.
-static const char *editor_settings_file_filter() {
-	static constexpr char filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
-#	if JSB_USE_TYPESCRIPT
-									 ",*." JSB_TYPESCRIPT_EXT
-#	endif
-			;
-	return filter;
-}
-
-void jsb::internal::init_editor_project_settings() {
-	static bool inited = false;
-	if (!inited) {
-		inited = true;
-		const char *filter = editor_settings_file_filter();
-
-		// The editor owns ALL godotjs_ext project-setting registrations (it hosts
-		// the settings UI). The runtime extension only reads values with local
-		// fallbacks, so exported games (no editor) still get sane defaults.
-		_GLOBAL_DEF(kRtBridgeLoggingEnabled, false, false);
-		_GLOBAL_DEF(kRtDebuggerPort, 9229, JSB_SET_RESTART(true), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(false), JSB_SET_INTERNAL(false));
-		_GLOBAL_DEF(kRtDebuggerSourceMapBaseUrl, "http://localhost:9230", JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(false), JSB_SET_INTERNAL(false));
-		_GLOBAL_DEF(kRtDebuggerWaitForDebugger, false, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		_GLOBAL_DEF(kRtSourceMapEnabled, true, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		_GLOBAL_DEF(kRtAdditionalSearchPaths, PackedStringArray(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		_GLOBAL_DEF(kRtCamelCaseBindingsEnabled, false, JSB_SET_RESTART(true), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		{
-			PropertyInfo EntryScriptPath;
-			EntryScriptPath.type = Variant::STRING;
-			EntryScriptPath.name = kRtEntryScriptPath;
-			EntryScriptPath.hint = PROPERTY_HINT_FILE;
-			EntryScriptPath.hint_string = filter;
-			_GLOBAL_DEF(EntryScriptPath, String(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-		_GLOBAL_DEF(kScriptInlineResourceUID, true, false);
-
-		_GLOBAL_DEF(kEdPackagingWithSourceMap, true, false);
-
-		{
-			PropertyInfo PackagingIncludeFiles;
-			PackagingIncludeFiles.type = Variant::ARRAY;
-			PackagingIncludeFiles.name = kEdPackagingIncludeFiles;
-			PackagingIncludeFiles.hint = PROPERTY_HINT_ARRAY_TYPE;
-			PackagingIncludeFiles.hint_string = vformat("%s/%s:%s", Variant::STRING, PROPERTY_HINT_FILE, filter);
-			_GLOBAL_DEF(PackagingIncludeFiles, Array(), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		{
-			PropertyInfo PackagingIncludeDirectories;
-			PackagingIncludeDirectories.type = Variant::ARRAY;
-			PackagingIncludeDirectories.name = kEdPackagingIncludeDirectories;
-			PackagingIncludeDirectories.hint = PROPERTY_HINT_ARRAY_TYPE;
-			PackagingIncludeDirectories.hint_string = vformat("%s/%s:%s", Variant::STRING, PROPERTY_HINT_DIR, filter);
-			_GLOBAL_DEF(PackagingIncludeDirectories, Array(), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		_GLOBAL_DEF(kEdPackagingReferencedNodeModules, true, false);
-
-		_GLOBAL_DEF(kEdIgnoredClasses, PackedStringArray(), false);
-		{
-			PropertyInfo ResourceDTSIncludePathWildcards;
-			ResourceDTSIncludePathWildcards.type = Variant::PACKED_STRING_ARRAY;
-			ResourceDTSIncludePathWildcards.name = kEdResourceDTSIncludePathWildcards;
-			ResourceDTSIncludePathWildcards.hint = PROPERTY_HINT_ARRAY_TYPE;
-			ResourceDTSIncludePathWildcards.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
-			_GLOBAL_DEF(ResourceDTSIncludePathWildcards, PackedStringArray{ "res://" }, false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		{
-			PropertyInfo ResourceDTSExcludePathWildcards;
-			ResourceDTSExcludePathWildcards.type = Variant::PACKED_STRING_ARRAY;
-			ResourceDTSExcludePathWildcards.name = kEdResourceDTSExcludePathWildcards;
-			ResourceDTSExcludePathWildcards.hint = PROPERTY_HINT_ARRAY_TYPE;
-			ResourceDTSExcludePathWildcards.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
-			_GLOBAL_DEF(ResourceDTSExcludePathWildcards, PackedStringArray(), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		{
-			PropertyInfo SceneDTSIncludePathWildcards;
-			SceneDTSIncludePathWildcards.type = Variant::PACKED_STRING_ARRAY;
-			SceneDTSIncludePathWildcards.name = kEdSceneDTSIncludePathWildcards;
-			SceneDTSIncludePathWildcards.hint = PROPERTY_HINT_ARRAY_TYPE;
-			SceneDTSIncludePathWildcards.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
-			_GLOBAL_DEF(SceneDTSIncludePathWildcards, PackedStringArray{ "res://" }, false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		{
-			PropertyInfo SceneDTSExcludePathWildcards;
-			SceneDTSExcludePathWildcards.type = Variant::PACKED_STRING_ARRAY;
-			SceneDTSExcludePathWildcards.name = kEdSceneDTSExcludePathWildcards;
-			SceneDTSExcludePathWildcards.hint = PROPERTY_HINT_ARRAY_TYPE;
-			SceneDTSExcludePathWildcards.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
-			_GLOBAL_DEF(SceneDTSExcludePathWildcards, PackedStringArray(), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-
-		{
-			using SceneDTSGenerateStrategicEnum = jsb::internal::SceneDTSGenerateStrategic;
-			PropertyInfo SceneDTSGenerateStrategic;
-			SceneDTSGenerateStrategic.type = Variant::INT;
-			SceneDTSGenerateStrategic.name = kEdSceneDTSGenerateStrategic;
-			SceneDTSGenerateStrategic.hint = PROPERTY_HINT_FLAGS;
-
-			// NOTE: Keep this map sync with std::internal::SceneDTSGenerateStrategic
-			const Pair<String, SceneDTSGenerateStrategicEnum> options[]{
-				{ "Origin Name Node", SceneDTSGenerateStrategicEnum::ORIGIN_NAME_NODE },
-				{ "Unique Name Node", SceneDTSGenerateStrategicEnum::UNIQUE_NAME_NODE }
-			};
-
-			PackedStringArray flag_hints;
-			for (const auto &[name, value] : options) {
-				flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
-			}
-
-			SceneDTSGenerateStrategic.hint_string = String(",").join(flag_hints);
-			_GLOBAL_DEF(SceneDTSGenerateStrategic, int64_t(SceneDTSGenerateStrategicEnum::ORIGIN_NAME_NODE), false, JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
-		}
-	}
-}
-
-void jsb::internal::init_editor_settings_defaults() {
-	static bool inited = false;
-	if (inited) {
-		return;
-	}
-	// check before read to avoid redundant warnings
-	if (Ref<EditorSettings> editor_settings = get_editor_settings(); editor_settings.is_valid()) {
-		inited = true;
-		_EDITOR_DEF(kEditorDebuggerPort, 9230, true);
-		_EDITOR_DEF(kEditorAutogenPath, "gen/godot", false);
-		{
-			PropertyInfo AutogenSceneDTSSettings;
-			AutogenSceneDTSSettings.type = Variant::INT;
-			AutogenSceneDTSSettings.name = kEditorAutogenSceneDTSSettings;
-			AutogenSceneDTSSettings.hint = PROPERTY_HINT_FLAGS;
-			AutogenSceneDTSSettings.usage = PROPERTY_USAGE_NONE;
-
-			// NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
-			const Pair<String, AutoGenSettingFlags> options[]{
-				{ "Enabled", AutoGenSettingFlags::ENABLED },
-				{ "Generate On Save", AutoGenSettingFlags::GEN_ON_SAVE },
-				{ "Changed Files only", AutoGenSettingFlags::CHANGED_FILE_ONLY },
-			};
-
-			PackedStringArray flag_hints;
-			for (const auto &[name, value] : options) {
-				flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
-			}
-
-			AutogenSceneDTSSettings.hint_string = String(",").join(flag_hints);
-			_EDITOR_DEF(kEditorAutogenSceneDTSSettings, int64_t(ENABLED | GEN_ON_SAVE | CHANGED_FILE_ONLY), false, JSB_SET_BASIC(true));
-			editor_settings->add_property_info(AutogenSceneDTSSettings);
-		}
-
-		{
-			PropertyInfo AutogenResourceDTSSettings;
-			AutogenResourceDTSSettings.type = Variant::INT;
-			AutogenResourceDTSSettings.name = kEditorAutogenResourceDTSSettings;
-			AutogenResourceDTSSettings.hint = PROPERTY_HINT_FLAGS;
-			AutogenResourceDTSSettings.usage = PROPERTY_USAGE_NONE;
-
-			// NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags
-			const Pair<String, AutoGenSettingFlags> options[]{
-				{ "Enabled", AutoGenSettingFlags::ENABLED },
-				{ "Generate On Save", AutoGenSettingFlags::GEN_ON_SAVE },
-				{ "Changed Files only", AutoGenSettingFlags::CHANGED_FILE_ONLY },
-			};
-
-			PackedStringArray flag_hints;
-			for (const auto &[name, value] : options) {
-				flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
-			}
-
-			AutogenResourceDTSSettings.hint_string = String(",").join(flag_hints);
-			_EDITOR_DEF(kEditorAutogenResourceDTSSettings, int64_t(ENABLED | GEN_ON_SAVE | CHANGED_FILE_ONLY), false, JSB_SET_BASIC(true));
-			editor_settings->add_property_info(AutogenResourceDTSSettings);
-		}
-		_EDITOR_DEF(kEditorCodegenUseProjectSettings, true, false);
-	}
-}
-
-// ---- accessors for the editor-hosted values (moved out of shared Settings) ----
-
 namespace jsb::internal {
+namespace settings {
 
-bool editor_settings_available() {
-	return get_editor_settings().is_valid();
+static constexpr char kEdPackagingWithSourceMap[] = JSB_MODULE_NAME_STRING "/editor/packaging/source_map_included";
+static constexpr char kEdPackagingIncludeFiles[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_files";
+static constexpr char kEdPackagingIncludeDirectories[] = JSB_MODULE_NAME_STRING "/editor/packaging/include_directories";
+static constexpr char kEdPackagingReferencedNodeModules[] = JSB_MODULE_NAME_STRING "/editor/packaging/referenced_node_modules";
+
+static constexpr char kEdIgnoredClasses[] = JSB_MODULE_NAME_STRING "/codegen/ignored_classes";
+
+static constexpr char kEdResourceDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/resource_dts/include_path_wildcards";
+static constexpr char kEdResourceDTSExcludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/resource_dts/exclude_path_wildcards";
+static constexpr char kEdSceneDTSIncludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/include_path_wildcards";
+static constexpr char kEdSceneDTSExcludePathWildcards[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/exclude_path_wildcards";
+static constexpr char kEdSceneDTSGenerateStrategic[] = JSB_MODULE_NAME_STRING "/codegen/scene_dts/generate_strategic";
+
+static constexpr char kEditorAutogenPath[] = JSB_MODULE_NAME_STRING "/codegen/autogen_path";
+static constexpr char kEditorAutogenSceneDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_scene_dts_settings";
+static constexpr char kEditorAutogenResourceDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_resource_dts_settings";
+static constexpr char kEditorCodegenUseProjectSettings[] = JSB_MODULE_NAME_STRING "/codegen/use_project_settings";
+
+void init_project_settings() {
+	// Packing
+	_GLOBAL_DEF(kEdPackagingWithSourceMap, true, JSB_SET_RESTART(false));
+	{
+		PropertyInfo pi;
+		pi.type = Variant::ARRAY;
+		pi.name = kEdPackagingIncludeFiles;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:%s", Variant::STRING, PROPERTY_HINT_FILE, js_files_filter);
+		_GLOBAL_DEF(pi, Array(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	{
+		PropertyInfo pi;
+		pi.type = Variant::ARRAY;
+		pi.name = kEdPackagingIncludeDirectories;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:%s", Variant::STRING, PROPERTY_HINT_DIR, js_files_filter);
+		_GLOBAL_DEF(pi, Array(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	_GLOBAL_DEF(kEdPackagingReferencedNodeModules, true, JSB_SET_RESTART(false));
+
+	// Ignored Classes
+	_GLOBAL_DEF(kEdIgnoredClasses, PackedStringArray(), JSB_SET_RESTART(false));
+
+	// Codegen
+	{
+		PropertyInfo pi;
+		pi.type = Variant::PACKED_STRING_ARRAY;
+		pi.name = kEdResourceDTSIncludePathWildcards;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
+		_GLOBAL_DEF(pi, PackedStringArray{ "res://" }, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	{
+		PropertyInfo pi;
+		pi.type = Variant::PACKED_STRING_ARRAY;
+		pi.name = kEdResourceDTSExcludePathWildcards;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
+		_GLOBAL_DEF(pi, PackedStringArray(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	{
+		PropertyInfo pi;
+		pi.type = Variant::PACKED_STRING_ARRAY;
+		pi.name = kEdSceneDTSIncludePathWildcards;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
+		_GLOBAL_DEF(pi, PackedStringArray{ "res://" }, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	{
+		PropertyInfo pi;
+		pi.type = Variant::PACKED_STRING_ARRAY;
+		pi.name = kEdSceneDTSExcludePathWildcards;
+		pi.hint = PROPERTY_HINT_ARRAY_TYPE;
+		pi.hint_string = vformat("%s/%s:", Variant::STRING, PROPERTY_HINT_DIR);
+		_GLOBAL_DEF(pi, PackedStringArray(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
+	{
+		PropertyInfo pi;
+		pi.type = Variant::INT;
+		pi.name = kEdSceneDTSGenerateStrategic;
+		pi.hint = PROPERTY_HINT_FLAGS;
+
+		/** NOTE: Keep this map sync with std::internal::settings::SceneDTSGenerateStrategic */
+		const Pair<String, SceneDTSGenerateStrategic> options[]{
+			{ "Origin Name Node", SceneDTSGenerateStrategic::ORIGIN_NAME_NODE },
+			{ "Unique Name Node", SceneDTSGenerateStrategic::UNIQUE_NAME_NODE },
+		};
+
+		PackedStringArray flag_hints;
+		for (const auto &[name, value] : options) flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
+		pi.hint_string = String(",").join(flag_hints);
+		_GLOBAL_DEF(pi, int64_t(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	}
 }
 
-String get_autogen_path() {
-	return EDITOR_GET(kEditorAutogenPath);
+void init_editor_settings() {
+	if (Ref<EditorSettings> es = get_editor_settings(); es.is_valid()) {
+		_EDITOR_DEF(kEditorDebuggerPort, 9230, JSB_SET_RESTART(true));
+		_EDITOR_DEF(kEditorAutogenPath, "gen/godot", JSB_SET_RESTART(false));
+
+		{
+			const auto make_autogen_settings_flags_property_info = [](const String &p_prop_name) {
+				PropertyInfo pi;
+				pi.type = Variant::INT;
+				pi.name = p_prop_name;
+				pi.hint = PROPERTY_HINT_FLAGS;
+				pi.usage = PROPERTY_USAGE_NONE;
+
+				/** NOTE: Keep this map sync with jsb::internal::AutoGenSettingFlags */
+				const Pair<String, AutoGenSettingFlags> options[]{
+					{ "Enabled", AutoGenSettingFlags::ENABLED },
+					{ "Generate On Save", AutoGenSettingFlags::GEN_ON_SAVE },
+					{ "Changed Files only", AutoGenSettingFlags::CHANGED_FILE_ONLY },
+				};
+
+				PackedStringArray flag_hints;
+				for (const auto &[name, value] : options) {
+					flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
+				}
+				pi.hint_string = String(",").join(flag_hints);
+				return pi;
+			};
+
+			const constexpr int64_t AUTO_GEN_SETTING_DEFAULT = int64_t(AutoGenSettingFlags::ENABLED | AutoGenSettingFlags::GEN_ON_SAVE | AutoGenSettingFlags::CHANGED_FILE_ONLY);
+
+			_EDITOR_DEF(kEditorAutogenSceneDTSSettings, AUTO_GEN_SETTING_DEFAULT, JSB_SET_RESTART(false), JSB_SET_BASIC(true));
+			es->add_property_info(make_autogen_settings_flags_property_info(kEditorAutogenSceneDTSSettings));
+
+			_EDITOR_DEF(kEditorAutogenResourceDTSSettings, AUTO_GEN_SETTING_DEFAULT, JSB_SET_RESTART(false), JSB_SET_BASIC(true));
+			es->add_property_info(make_autogen_settings_flags_property_info(kEditorAutogenResourceDTSSettings));
+		}
+		_EDITOR_DEF(kEditorCodegenUseProjectSettings, true, JSB_SET_RESTART(false));
+	}
 }
 
-BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings() {
-	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenSceneDTSSettings));
+String get_tsbuildinfo_path() {
+	return get_project_data_dir_name().path_join(".tsbuildinfo");
 }
 
-BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings() {
-	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenResourceDTSSettings));
-}
-
-bool get_codegen_use_project_settings() {
-	return EDITOR_GET(kEditorCodegenUseProjectSettings);
-}
-
+namespace project {
 bool is_packaging_with_source_map() {
 	return GLOBAL_GET(kEdPackagingWithSourceMap);
 }
@@ -290,11 +217,30 @@ PackedStringArray get_ignored_classes() {
 	return GLOBAL_GET(kEdIgnoredClasses);
 }
 
-void set_ignored_classes(const PackedStringArray &p_ignored_classes) {
-	ProjectSettings::get_singleton()->set_setting(kEdIgnoredClasses, p_ignored_classes);
+void set_ignored_classes(const PackedStringArray &v) {
+	ProjectSettings::get_singleton()->set_setting(kEdIgnoredClasses, v);
 	ProjectSettings::get_singleton()->save();
 }
 
-} //namespace jsb::internal
+} // namespace project
 
-#endif // TOOLS_ENABLED
+namespace editor {
+String get_autogen_path() {
+	return EDITOR_GET(kEditorAutogenPath);
+}
+
+BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings() {
+	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenSceneDTSSettings));
+}
+
+BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings() {
+	return BitField<AutoGenSettingFlags>(EDITOR_GET(kEditorAutogenResourceDTSSettings));
+}
+
+bool is_codegen_use_project_settings() {
+	return EDITOR_GET(kEditorCodegenUseProjectSettings);
+}
+} // namespace editor
+
+} // namespace settings
+} // namespace jsb::internal

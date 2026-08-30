@@ -798,12 +798,6 @@ editor_globs = [
     os.path.join(editor_dir, "weaver-editor", "*.cpp"),
     os.path.join(src_dir, "api_tool", "*.cpp"),
     os.path.join(src_dir, "api_tool", "editor", "*.cpp"),
-    # Only the source-map/reader internals are shared implementations the editor
-    # needs; everything else in runtime/internal (e.g. the bridge table impl)
-    # is runtime-owned.
-    os.path.join(runtime_dir, "internal", "jsb_source_map.cpp"),
-    os.path.join(runtime_dir, "internal", "jsb_source_map_cache.cpp"),
-    os.path.join(runtime_dir, "internal", "jsb_source_reader.cpp"),
     # Shared sources compiled into BOTH extensions (independent DLLs cannot
     # resolve each other's symbols): shared internals/compat plus the api_tool
     # core store/loader copies.

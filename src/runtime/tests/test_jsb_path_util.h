@@ -28,7 +28,9 @@
 #include "../internal/jsb_path_util.h"
 #include "../internal/jsb_settings.h"
 #include "../weaver/jsb_script_language.h"
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_test_helpers.h"
+
 
 #include <godot_cpp/classes/project_settings.hpp>
 
@@ -110,7 +112,7 @@ TEST_CASE("[runtime] [jsb.path] combine") {
 
 TEST_CASE("[runtime] [jsb.path] convert typescript/javascript paths") {
 	GodotJSScriptLanguageIniter initer;
-	const String out_root = internal::Settings::get_jsb_out_res_path();
+	const String out_root = internal::settings::get_jsb_out_res_path();
 	CHECK(out_root.begins_with("res://"));
 
 	// ts -> js

@@ -26,10 +26,11 @@
 /************************************************************************/
 
 #include "jsb_source_map_cache.h"
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_format.h"
 #include "jsb_logger.h"
 #include "jsb_path_util.h"
-#include "jsb_settings.h"
+#include "jsb_runtime_settings.h"
 
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
@@ -81,7 +82,7 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 }
 
 String SourceMapCache::process_source_position(const String &p_stacktrace, SourcePosition *r_position) {
-	if (!internal::Settings::get_sourcemap_enabled()) return p_stacktrace;
+	if (!internal::settings::project::is_sourcemap_enabled()) return p_stacktrace;
 	if (p_stacktrace.length() == 0) return p_stacktrace;
 
 	bool is_position_set = r_position == nullptr;
