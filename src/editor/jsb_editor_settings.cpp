@@ -134,7 +134,7 @@ void init_project_settings() {
 
 void init_editor_settings() {
 	if (Ref<EditorSettings> es = get_editor_settings(); es.is_valid()) {
-		_EDITOR_DEF(kEditorDebuggerPort, 9230, JSB_SET_RESTART(true));
+		_EDITOR_DEF(kEditorDebuggerPort, DEFAULT_EDITOR_DEBUGGER_PORT, JSB_SET_RESTART(true));
 		_EDITOR_DEF(kEditorAutogenPath, "gen/godot", JSB_SET_RESTART(false));
 
 		{

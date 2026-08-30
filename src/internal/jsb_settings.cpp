@@ -57,7 +57,7 @@ bool is_camel_case_bindings_enabled() {
 namespace editor {
 String get_indentation() {
 #ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint()) {
+	if (Engine::get_singleton()->is_editor_hint() && get_editor_settings().is_valid()) {
 		if (!!EDITOR_GET("text_editor/behavior/indent/type")) {
 			return String(" ").repeat(EDITOR_GET("text_editor/behavior/indent/size"));
 		}

@@ -32,11 +32,12 @@
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
 
+#include "internal/jsb_settings.h"
+
 // TODO: 摆脱 editor 依赖
 #ifdef TOOLS_ENABLED
 #	include <godot_cpp/classes/engine.hpp>
 #	include "compat/editor_settings.h"
-#	include "internal/jsb_settings.h"
 #endif // TOOLS_ENABLED
 
 #include <cstdint>
@@ -111,9 +112,7 @@ uint16_t get_debugger_port() {
 
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		if (get_editor_settings().is_valid()) {
-			return EDITOR_GET(kEditorDebuggerPort);
-		}
+		return EDITOR_GET(kEditorDebuggerPort, DEFAULT_EDITOR_DEBUGGER_PORT);
 	}
 #endif
 	return (uint16_t)GLOBAL_GET(kRtDebuggerPort);

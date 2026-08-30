@@ -37,6 +37,8 @@ static constexpr char kRtCamelCaseBindingsEnabled[] = JSB_MODULE_NAME_STRING "/r
 
 static constexpr char kEditorDebuggerPort[] = JSB_MODULE_NAME_STRING "/debugger/editor_port";
 
+static constexpr uint16_t DEFAULT_EDITOR_DEBUGGER_PORT = 9230;
+
 String get_project_data_dir_name();
 static constexpr char js_files_filter[] = "*." JSB_JAVASCRIPT_EXT ",*." JSB_COMMONJS_EXT ",*." JSB_MODULE_EXT
 #if JSB_USE_TYPESCRIPT

@@ -26,10 +26,6 @@
 #pragma once
 
 // Header-only test bootstrap shared by both suites (runtime / editor).
-// Each suite calls `jsb::testing::try_run("<flag>")` from its own startup
-// callback; when the flag is found in the engine cmdline args the doctest
-// context runs and the process exits with doctest's exit code.
-//
 // Both suites keep their own DOCTEST_CONFIG_IMPLEMENT TU, so TEST_CASE
 // registries stay module-local: the runtime suite only collects cases from
 // src/runtime/tests/*.h, the editor suite only from src/editor/tests/*.h.
@@ -45,20 +41,22 @@
 #	include <godot_cpp/classes/scene_tree.hpp>
 #	include <godot_cpp/variant/utility_functions.hpp>
 
-namespace jsb::testing {
+namespace jsb::tests {
 
-// Scan OS cmdline args for p_flag; on a hit run all TEST_CASEs registered in
-// this module and quit with doctest's exit code (SceneTree::quit when a main
-// loop exists, otherwise std::exit).
-//
-// While the build is a single extension library both suites share one doctest
-// registry, so the requested suite is selected by the leading name tag of its
-// cases ([runtime]... / [editor]...) via a -tc wildcard filter. Post P4 each
-// library gets its own registry and this filter becomes redundant scaffolding.
-inline void try_run(const char *p_flag) {
+static constexpr char EDITOR_TEST_FLAG[] = "EditorTest";
+static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
+
+/**
+Editor 与 Runtime 两个库都分别编译了自己的测试，它们不共用，状态也不直接互通。
+这里使用 godot::Engine 单例两传输两个库的测试状态，确保两者都测试完成再进行退出。
+*/
+inline void try_run(const char *p_test_type_flag) {
+	using namespace godot;
+	constexpr char CMDLINE_TEST_ARG[] = "--jsb-run-tests";
+	// Check cmdline flag.
 	bool run_tests = false;
-	for (const godot::String &arg : godot::OS::get_singleton()->get_cmdline_args()) {
-		if (arg == p_flag) {
+	for (const String &arg : OS::get_singleton()->get_cmdline_args()) {
+		if (arg == CMDLINE_TEST_ARG) {
 			run_tests = true;
 			break;
 		}
@@ -67,19 +65,34 @@ inline void try_run(const char *p_flag) {
 		return;
 	}
 
-	godot::UtilityFunctions::print("[jsb] running tests via ", p_flag);
+	// 执行测试
+	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
 	doctest::Context context;
-	const char *filter = godot::String(p_flag) == "--jsb-run-editor-tests" ? "-tc=[editor]*" : "-tc=[runtime]*";
-	const char *argv[] = { "jsb", filter };
-	context.applyCommandLine(2, argv);
-	const int exit_code = context.run();
-	if (godot::SceneTree *scene_tree = godot::Object::cast_to<godot::SceneTree>(godot::Engine::get_singleton()->get_main_loop())) {
+	int exit_code = context.run();
+
+	// 更新退出码
+	const StringName TEST_RESULT_KEY = "TestResult";
+	if ((int)Engine::get_singleton()->get_meta(TEST_RESULT_KEY, 0) == 0 && exit_code != 0) {
+		Engine::get_singleton()->set_meta(TEST_RESULT_KEY, exit_code);
+	}
+
+	// 更新完成标志
+	Engine::get_singleton()->set_meta(p_test_type_flag, true);
+
+	for (const auto flag : { EDITOR_TEST_FLAG, RUNTIME_TEST_FLAG }) {
+		if (!Engine::get_singleton()->has_meta(flag)) continue; // 跳过不存在的测试
+		if ((bool)Engine::get_singleton()->get_meta(flag) == false) return; //  等待其他未完成的测试
+	}
+
+	// 所有测试都完成后取出退出码进行退出
+	exit_code = Engine::get_singleton()->get_meta(TEST_RESULT_KEY, 0);
+	if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
 		scene_tree->quit(exit_code);
 	} else {
 		std::exit(exit_code);
 	}
 }
 
-} // namespace jsb::testing
+} //namespace jsb::tests
 
 #endif // JSB_TESTS_ENABLED

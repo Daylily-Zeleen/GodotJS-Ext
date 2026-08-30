@@ -44,6 +44,9 @@ static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
+#ifdef JSB_TESTS_ENABLED
+			Engine::get_singleton()->set_meta(jsb::tests::RUNTIME_TEST_FLAG, false);
+#endif
 			// Register runtime-owned project settings before anything reads them.
 			// (SERVERS is the lowest level the engine passes to GDExtensions.)
 			jsb::internal::settings::init_runtime_settings();
@@ -99,10 +102,7 @@ void jsb_startup() {
 	}
 
 #ifdef JSB_TESTS_ENABLED
-	// Run doctest unit tests if --jsb-run-tests is passed on command line.
-	// Cases live in src/runtime/tests/*.h; the editor suite (--jsb-run-editor-tests)
-	// lives in the editor extension's own startup callback.
-	jsb::testing::try_run("--jsb-run-tests");
+	jsb::tests::try_run(jsb::tests::RUNTIME_TEST_FLAG);
 #endif // JSB_TESTS_ENABLED
 }
 

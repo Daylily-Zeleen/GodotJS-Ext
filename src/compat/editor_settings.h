@@ -39,6 +39,6 @@ Ref<EditorSettings> get_editor_settings();
 #	define EDSCALE EditorInterface::get_singleton()->get_editor_scale()
 #endif
 
-Variant EDITOR_GET(const String &p_setting);
+Variant EDITOR_GET(const String &p_setting, const Variant &p_default = {});
 Variant _EDITOR_DEF(const String &p_setting, const Variant &p_default, bool p_restart_if_changed = false, bool p_basic = false);
 } //namespace godot

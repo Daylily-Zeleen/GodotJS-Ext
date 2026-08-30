@@ -37,6 +37,12 @@
 using namespace godot;
 
 void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
+#ifdef JSB_TESTS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		Engine::get_singleton()->set_meta(jsb::tests::EDITOR_TEST_FLAG, false);
+	}
+#endif
+
 	if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		return;
 	}
@@ -57,15 +63,8 @@ void _uninitialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 }
 
 #ifdef JSB_TESTS_ENABLED
-// Editor-side doctest entry (--jsb-run-editor-tests). While the build is a
-// single extension library this is forwarded to from the runtime's
-// jsb_startup() (the only registered startup callback); post P4 it becomes
-// the editor library's own startup callback. Must NOT be wired to the
-// MODULE_INITIALIZATION_LEVEL_EDITOR initializer: at that stage the main
-// loop does not exist yet, so SceneTree::quit() is unreachable (see
-// TASK_STATUS.md 9.3).
 void _editor_tests_startup() {
-	jsb::testing::try_run("--jsb-run-editor-tests");
+	jsb::tests::try_run(jsb::tests::EDITOR_TEST_FLAG);
 }
 #endif // JSB_TESTS_ENABLED
 
