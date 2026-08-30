@@ -23,7 +23,7 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#if defined(JSB_TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#if defined(JSB_TESTS_ENABLED)
 
 #	define DOCTEST_CONFIG_IMPLEMENT
 #	include "doctest/doctest.h"
@@ -34,4 +34,4 @@
 // entry point wired into the editor extension's startup callback.
 #	include "tests/test_jsb_editor_bridge.h"
 
-#endif // JSB_TESTS_ENABLED && TOOLS_ENABLED
+#endif // JSB_TESTS_ENABLED
