@@ -76,6 +76,7 @@ String get_autogen_path();
 BitField<AutoGenSettingFlags> get_autogen_scene_dts_settings();
 BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings();
 bool is_codegen_use_project_settings();
+bool is_use_constant_name_as_argument_default_value();
 } //namespace editor
 
 } //namespace jsb::internal::settings

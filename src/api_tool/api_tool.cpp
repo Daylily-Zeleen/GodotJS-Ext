@@ -57,7 +57,6 @@ static ApiLoader *get_loader() {
 // ============================================================================
 
 Error initialize() {
-	UtilityFunctions::print("[API Tool] initialize");
 	if (get_loader() == nullptr) {
 		memnew(ApiLoader);
 	}

@@ -55,6 +55,7 @@ static constexpr char kEditorAutogenPath[] = JSB_MODULE_NAME_STRING "/codegen/au
 static constexpr char kEditorAutogenSceneDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_scene_dts_settings";
 static constexpr char kEditorAutogenResourceDTSSettings[] = JSB_MODULE_NAME_STRING "/codegen/autogen_resource_dts_settings";
 static constexpr char kEditorCodegenUseProjectSettings[] = JSB_MODULE_NAME_STRING "/codegen/use_project_settings";
+static constexpr char kEditorCodegenUseConstantNameAsArgumentDefaultValue[] = JSB_MODULE_NAME_STRING "/codegen/use_constant_name_as_argument_default_value";
 
 void init_project_settings() {
 	// Packing
@@ -169,6 +170,7 @@ void init_editor_settings() {
 			es->add_property_info(make_autogen_settings_flags_property_info(kEditorAutogenResourceDTSSettings));
 		}
 		_EDITOR_DEF(kEditorCodegenUseProjectSettings, true, JSB_SET_RESTART(false));
+		_EDITOR_DEF(kEditorCodegenUseConstantNameAsArgumentDefaultValue, false, JSB_SET_RESTART(false));
 	}
 }
 
@@ -239,6 +241,10 @@ BitField<AutoGenSettingFlags> get_autogen_resource_dts_settings() {
 
 bool is_codegen_use_project_settings() {
 	return EDITOR_GET(kEditorCodegenUseProjectSettings);
+}
+
+bool is_use_constant_name_as_argument_default_value() {
+	return EDITOR_GET(kEditorCodegenUseConstantNameAsArgumentDefaultValue);
 }
 } // namespace editor
 

@@ -30,6 +30,8 @@
 
 #include "api_tool/api_tool.h"
 
+#include "editor/jsb_editor_settings.h"
+
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
@@ -829,7 +831,7 @@ static String format_double(double p_value) {
 }
 
 String TypeDB::make_literal_value(const MethodDecl::DefaultValue &p_value) {
-	const Variant &value = p_value.value;
+	Variant value = p_value.value;
 	const String &type_name = get_variant_to_name(p_value.type);
 
 	switch (p_value.type) {
@@ -858,16 +860,23 @@ String TypeDB::make_literal_value(const MethodDecl::DefaultValue &p_value) {
 			break;
 	}
 
+	if (jsb::internal::settings::editor::is_use_constant_name_as_argument_default_value()) {
+		if (const auto api_info = api_tool::find_builtin_class(p_value.type)) {
+			static const StringName is_equal_approx = "is_equal_approx";
+			for (const auto &api_const : api_info->constants) {
+				if (api_const.type == p_value.type && api_const.value == value || (value.has_method(is_equal_approx) && value.call(is_equal_approx, api_const.value))) {
+					return type_name + String(".") + internal::NamingUtil::get_constant_name(api_const.name);
+				}
+			}
+		}
+	}
+
 	// vector2-ish
 	if (p_value.type == Variant::VECTOR2 || p_value.type == Variant::VECTOR2I) {
 		if (value.get_type() == Variant::NIL) {
 			return "new " + type_name + "()";
 		}
 		const double x = value.get("x"), y = value.get("y");
-		if (x == y) {
-			if (x == 0) return type_name + String(".ZERO");
-			if (x == 1) return type_name + String(".ONE");
-		}
 		return "new " + type_name + "(" + format_double(x) + ", " + format_double(y) + ")";
 	}
 
@@ -877,10 +886,6 @@ String TypeDB::make_literal_value(const MethodDecl::DefaultValue &p_value) {
 			return "new " + type_name + "()";
 		}
 		const double x = value.get("x"), y = value.get("y"), z = value.get("z");
-		if (x == y && x == z) { // mirrors TS `(x == y) == z`
-			if (x == 0) return type_name + String(".ZERO");
-			if (x == 1) return type_name + String(".ONE");
-		}
 		return "new " + type_name + "(" + format_double(x) + ", " + format_double(y) + ", " + format_double(z) + ")";
 	}
 
