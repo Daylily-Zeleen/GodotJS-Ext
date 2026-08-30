@@ -128,7 +128,7 @@ void init_project_settings() {
 		PackedStringArray flag_hints;
 		for (const auto &[name, value] : options) flag_hints.push_back(vformat("%s:%s", name, int64_t(value)));
 		pi.hint_string = String(",").join(flag_hints);
-		_GLOBAL_DEF(pi, int64_t(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+		_GLOBAL_DEF(pi, int64_t(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
 	}
 }
 
