@@ -74,11 +74,15 @@ straight through UtilityFunctions::print.
 */
 class ConsoleReporter final : public doctest::IReporter {
 	static inline bool s_case_header_logged = false;
+	static inline const char *s_current_case_name = "";
 
 public:
 	explicit ConsoleReporter(const doctest::ContextOptions &) {}
 
-	void test_case_start(const doctest::TestCaseData &) override { s_case_header_logged = false; }
+	void test_case_start(const doctest::TestCaseData &p_data) override {
+		s_case_header_logged = false;
+		s_current_case_name = p_data.m_name;
+	}
 	void test_case_reenter(const doctest::TestCaseData &) override { s_case_header_logged = false; }
 
 	void log_message(const doctest::MessageData &p_msg) override {
@@ -141,7 +145,7 @@ private:
 		}
 		s_case_header_logged = true;
 		print_raw("===============================================================================");
-		print_line(p_file, p_line, "TEST CASE");
+		print_raw(vformat("[TEST CASE] %s (%s:%d)", s_current_case_name, p_file, p_line));
 	}
 
 	static void print_line(const char *p_file, int p_line, const String &p_text) {

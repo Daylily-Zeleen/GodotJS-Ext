@@ -17,7 +17,6 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 config/name="GodotJS Integration Test Suite"
 run/main_scene="res://tests/Start.tscn"
 config/features=PackedStringArray("4.7")
-run/flush_stdout_on_print=true
 
 [autoload]
 
