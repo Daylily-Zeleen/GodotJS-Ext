@@ -97,13 +97,17 @@ public:
 
 	void log_message(const doctest::MessageData &p_msg) override {
 		if (!s_sink) return;
+		godot::UtilityFunctions::print("[DBG] log_message enter: ", p_msg.m_file);
 		log_case_header(p_msg.m_file, p_msg.m_line);
 		*s_sink << p_msg.m_file << "(" << p_msg.m_line << ") MESSAGE: " << p_msg.m_string << "\n";
+		godot::UtilityFunctions::print("[DBG] log_message exit");
 	}
 
 	void log_assert(const doctest::AssertData &p_assert) override {
 		if (!s_sink) return;
+		godot::UtilityFunctions::print("[DBG] log_assert enter: ", p_assert.m_file);
 		log_case_header(p_assert.m_file, p_assert.m_line);
+		godot::UtilityFunctions::print("[DBG] log_assert header done");
 		if (p_assert.m_failed) {
 			*s_sink << "ERROR: " << p_assert.m_expr;
 			if (p_assert.m_threw) {
@@ -113,6 +117,7 @@ public:
 			}
 			*s_sink << "\n";
 		}
+		godot::UtilityFunctions::print("[DBG] log_assert exit");
 	}
 
 	void test_case_exception(const doctest::TestCaseException &p_exc) override {
