@@ -76,6 +76,7 @@ jobs:
       - name: Extract Godot
         shell: bash
         run: |
+          mkdir -p tests/bin
           unzip -o godot/godot.zip -d tests/bin/
           chmod +x tests/bin/Godot* 2>/dev/null || true
           GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
