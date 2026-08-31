@@ -32,16 +32,15 @@
 
 #include <cstdio> // fflush
 #include <cstdlib> // std::exit
-#include <iostream> // std::cout (doctest writes its output through it)
-#include <string> // std::string (doctest --out argument lifetime)
+#include <iostream> // std::cout
+#include <sstream>
+#include <string>
 
 #ifdef JSB_TESTS_ENABLED
 
 #	include "doctest/doctest.h"
 
-#	include <godot_cpp/classes/dir_access.hpp>
 #	include <godot_cpp/classes/engine.hpp>
-#	include <godot_cpp/classes/file_access.hpp>
 #	include <godot_cpp/classes/os.hpp>
 #	include <godot_cpp/classes/scene_tree.hpp>
 #	include <godot_cpp/variant/utility_functions.hpp>
@@ -50,6 +49,104 @@ namespace jsb::tests {
 
 static constexpr char EDITOR_TEST_FLAG[] = "EditorTest";
 static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
+
+/**
+Console output channel for the doctest run.
+
+doctest's own output sinks (std::cout, or a file via --out) both proved
+unreliable under the test process on Linux CI: partway through the runtime
+suite the underlying stream stops accepting bytes (strace showed the file's
+buffered write() containing only the banner and half of the first test-case
+header, while the process kept running and every later reporter write was
+silently dropped). Godot's own print path is the only channel that reliably
+reaches the CI log.
+
+This reporter mirrors the default console reporter's essential output into
+an in-memory buffer: the test-case header + its MESSAGE lines on first
+output, failing assertions, and the final run summary. try_run() replays
+the buffer through UtilityFunctions::print after context.run() returns.
+*/
+class BufferedReporter final : public doctest::IReporter {
+	// Points at the buffer owned by try_run()'s stack frame for the duration
+	// of the run. doctest constructs/destroys the reporter internally, so the
+	// instance cannot own state the caller needs to read back.
+	static inline std::ostringstream *s_sink = nullptr;
+	static inline bool s_case_header_logged = false;
+
+public:
+	explicit BufferedReporter(const doctest::ContextOptions &) {}
+
+	// Installs the caller-owned sink for the duration of a run.
+	static void begin_run(std::ostringstream &p_sink) {
+		s_sink = &p_sink;
+		s_case_header_logged = false;
+	}
+	static void end_run() { s_sink = nullptr; }
+
+	static std::string take_output(std::ostringstream &p_sink) { return std::move(p_sink).str(); }
+
+	void test_case_start(const doctest::TestCaseData &) override { s_case_header_logged = false; }
+	void test_case_reenter(const doctest::TestCaseData &) override { s_case_header_logged = false; }
+
+	void log_message(const doctest::MessageData &p_msg) override {
+		if (!s_sink) return;
+		log_case_header(p_msg.m_file, p_msg.m_line);
+		*s_sink << p_msg.m_file << "(" << p_msg.m_line << ") MESSAGE: " << p_msg.m_string << "\n";
+	}
+
+	void log_assert(const doctest::AssertData &p_assert) override {
+		if (!s_sink) return;
+		log_case_header(p_assert.m_file, p_assert.m_line);
+		if (p_assert.m_failed) {
+			*s_sink << "ERROR: " << p_assert.m_expr;
+			if (p_assert.m_threw) {
+				*s_sink << " threw: " << p_assert.m_exception.c_str();
+			} else if (p_assert.m_decomp.c_str() && *p_assert.m_decomp.c_str()) {
+				*s_sink << " values: " << p_assert.m_decomp.c_str();
+			}
+			*s_sink << "\n";
+		}
+	}
+
+	void test_case_exception(const doctest::TestCaseException &p_exc) override {
+		if (!s_sink) return;
+		*s_sink << "ERROR: test case " << (p_exc.is_crash ? "CRASHED" : "THREW exception")
+				<< ": " << p_exc.error_string << "\n";
+	}
+
+	void test_run_end(const doctest::TestRunStats &p_stats) override {
+		if (!s_sink) return;
+		*s_sink << "[doctest] test cases: " << p_stats.numTestCasesPassingFilters
+				<< " | " << (p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed)
+				<< " passed | " << p_stats.numTestCasesFailed << " failed | 0 skipped\n";
+		*s_sink << "[doctest] assertions: " << p_stats.numAsserts
+				<< " | " << (p_stats.numAsserts - p_stats.numAssertsFailed)
+				<< " passed | " << p_stats.numAssertsFailed << " failed |\n";
+		*s_sink << (p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
+						? "[doctest] Status: SUCCESS!\n"
+						: "[doctest] Status: FAILURE!\n");
+	}
+
+	// -- unused callbacks ----------------------------------------------------
+	void report_query(const doctest::QueryData &) override {}
+	void test_run_start() override {}
+	void test_case_end(const doctest::CurrentTestCaseStats &) override {}
+	void subcase_start(const doctest::SubcaseSignature &) override {}
+	void subcase_end() override {}
+	void test_case_skipped(const doctest::TestCaseData &) override {}
+
+private:
+	// The default console reporter prints the TEST_CASE header lazily, right
+	// before the first output event of the case; mirror that behaviour.
+	static void log_case_header(const char *p_file, int p_line) {
+		if (s_case_header_logged) {
+			return;
+		}
+		s_case_header_logged = true;
+		*s_sink << "===============================================================================\n";
+		*s_sink << p_file << "(" << p_line << "): TEST CASE\n";
+	}
+};
 
 /**
 Editor 与 Runtime 两个库都分别编译了自己的测试，它们不共用，状态也不直接互通。
@@ -70,67 +167,29 @@ inline void try_run(const char *p_test_type_flag) {
 		return;
 	}
 
-	// 执行测试
+	// 执行测试。BufferedReporter 代替 doctest 默认 console 输出（其输出流在
+	// Linux CI 上不可靠，见类注释），run() 结束后经 Godot print 回显。
 	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
-
-	// doctest writes through std::cout; on CI (Linux, pipe-buffered stdout)
-	// large parts of its output were silently dropped on the fast shutdown
-	// path (per-case messages, the summary), which made the run unreadable
-	// and previously masked the state of the suite entirely. Route doctest's
-	// output into a temp file and echo it back through Godot's own print
-	// (which is reliably visible in CI logs) after the run completes.
-	String doctest_out_path = OS::get_singleton()->get_user_data_dir().path_join("jsb_doctest_output.log");
-	{
-		// --out is only honored per-suite and truncated by doctest itself on
-		// open; a stale file from a previous suite must not survive.
-		Ref<DirAccess> dir = DirAccess::open(OS::get_singleton()->get_user_data_dir());
-		if (dir.is_valid() && dir->file_exists(doctest_out_path.get_file())) {
-			dir->remove(doctest_out_path.get_file());
-		}
-	}
-	const CharString doctest_out_path_utf8 = doctest_out_path.utf8();
-	const char *argv[] = { "jsb", "--out=", nullptr };
-	// doctest parses "--out=<path>" as a single argv entry.
-	std::string out_arg = std::string("--out=") + doctest_out_path_utf8.get_data();
-	argv[1] = out_arg.c_str();
-
+	doctest::registerReporter<BufferedReporter>("buffered", 0, true);
+	const char *argv[] = { "jsb", "--reporters=buffered", "--no-colors" };
 	doctest::Context context;
-	context.applyCommandLine(2, argv);
-	int exit_code = context.run();
-	argv[1] = nullptr; // out_arg keeps the buffer alive until here
+	context.applyCommandLine(3, argv);
 
-	// Echo doctest's captured output through Godot's print (unbuffered and
-	// reliably visible in CI). Diagnostics: report the echoed line count and
-	// the file size so a truncated run is distinguishable from a lost echo.
+	std::ostringstream report_buffer;
+	BufferedReporter::begin_run(report_buffer);
+	int exit_code = context.run();
+	BufferedReporter::end_run();
+
+	// Echo the buffered test output through Godot's print (reliably visible
+	// in CI logs), one line at a time.
 	{
-		int echoed_lines = 0;
-		Ref<FileAccess> f = FileAccess::open(doctest_out_path, FileAccess::READ);
-		if (f.is_valid()) {
-			while (!f->eof_reached()) {
-				const String line = f->get_line();
-				if (!line.is_empty() || !f->eof_reached()) {
-					UtilityFunctions::print(line);
-					echoed_lines++;
-				}
-			}
-			f->close();
-		} else {
-			UtilityFunctions::printerr("[jsb] failed to read doctest output file: ", doctest_out_path);
-		}
-		uint64_t file_size = 0;
-		{
-			Ref<FileAccess> size_probe = FileAccess::open(doctest_out_path, FileAccess::READ);
-			if (size_probe.is_valid()) {
-				file_size = size_probe->get_length();
-			}
-		}
-		UtilityFunctions::print("[jsb] doctest output echoed ", echoed_lines,
-				" lines, file size: ", (int64_t)file_size, " bytes (", doctest_out_path, ")");
-		Ref<DirAccess> dir = DirAccess::open(OS::get_singleton()->get_user_data_dir());
-		if (dir.is_valid()) {
-			dir->remove(doctest_out_path.get_file());
+		std::istringstream lines(BufferedReporter::take_output(report_buffer));
+		std::string line;
+		while (std::getline(lines, line)) {
+			UtilityFunctions::print(line.c_str());
 		}
 	}
+
 	// Belt and braces: flush the C/C++ standard streams as well.
 	std::cout.flush();
 	fflush(stdout);
