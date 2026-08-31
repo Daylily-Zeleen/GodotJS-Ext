@@ -793,24 +793,21 @@ runtime_globs = [
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
 ]
 
-# Static bindings: dispatch tables under src/static_binding/gen are COMMITTED
-# (same policy as godot-cpp's own gen/ tree) so CI builds need no godot binary.
-# Regenerate locally after an engine API change:
+# Static bindings: generated tables (*.gen.*) are NEVER committed.
+# Codegen needs project/extension_api.json (engine dump, also not committed):
 #   godot --headless --editor --path ./project --dump-extension-api-with-docs
-#   python tools/static_binding_codegen.py --input project/extension_api.json #       --interface third/godot-cpp/gdextension/gdextension_interface.json #       --out src/static_binding/gen
-# When project/extension_api.json exists (dev checkouts that dumped it), the
-# tables are regenerated automatically so they never go stale.
+# CI dumps it once in the api-dump job and hands it to every build job.
 if env.get("static_binding", False):
     _sb_gen_dir = os.path.join(src_dir, "static_binding", "gen")
     _sb_api_json = os.path.join(root_dir, "project", "extension_api.json")
     _sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
     _sb_codegen = os.path.join(root_dir, "tools", "static_binding_codegen.py")
-    if os.path.exists(_sb_api_json):
-        subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
-                        "--interface", _sb_interface_json,
-                        "--out", _sb_gen_dir], check=True)
-    elif not os.path.exists(os.path.join(_sb_gen_dir, "dispatch.gen.cpp")):
-        print_error("static_binding=yes requires src/static_binding/gen tables (commit them) or project/extension_api.json to regenerate. Dump the api json first:")
+    if not os.path.exists(_sb_api_json):
+        print_error("static_binding=yes requires " + _sb_api_json +
+                    ". Dump the api json first: godot --headless --editor --path ./project --dump-extension-api-with-docs")
+    subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
+                    "--interface", _sb_interface_json,
+                    "--out", _sb_gen_dir], check=True)
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "thunks", "*.cpp"))
     godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "gen", "*.cpp"))
