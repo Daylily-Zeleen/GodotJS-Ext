@@ -31,8 +31,6 @@
 // src/runtime/tests/*.h, the editor suite only from src/editor/tests/*.h.
 
 #include <cstdlib> // std::exit
-#include <sstream>
-#include <string>
 
 #ifdef JSB_TESTS_ENABLED
 
@@ -57,6 +55,9 @@ static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
 
 namespace detail {
 
+using godot::String;
+using godot::vformat;
+
 /**
 Replacement for doctest's default console reporter.
 
@@ -68,8 +69,8 @@ UtilityFunctions::print, in contrast, is proven to always reach the CI log.
 
 This reporter mirrors the default console reporter's essential output —
 lazily-printed case headers, MESSAGEs, failed assertions, exceptions, and
-the run summary — but formats every number with std::to_string and emits
-each line straight through UtilityFunctions::print.
+the run summary — building each line with Godot Strings and emitting it
+straight through UtilityFunctions::print.
 */
 class ConsoleReporter final : public doctest::IReporter {
 	static inline bool s_case_header_logged = false;
@@ -82,45 +83,41 @@ public:
 
 	void log_message(const doctest::MessageData &p_msg) override {
 		log_case_header(p_msg.m_file, p_msg.m_line);
-		std::ostringstream ss;
-		ss << p_msg.m_file << "(" << std::to_string(p_msg.m_line).c_str() << ") MESSAGE: " << p_msg.m_string << "\n";
-		print_line(ss.str().c_str());
+		print_line(p_msg.m_file, p_msg.m_line, "MESSAGE: " + String(p_msg.m_string.c_str()));
 	}
 
 	void log_assert(const doctest::AssertData &p_assert) override {
 		log_case_header(p_assert.m_file, p_assert.m_line);
 		if (p_assert.m_failed) {
-			std::ostringstream ss;
-			ss << "ERROR: " << p_assert.m_expr;
+			String text = "ERROR: " + String(p_assert.m_expr);
 			if (p_assert.m_threw) {
-				ss << " threw: " << p_assert.m_exception.c_str();
+				text += " threw: " + String(p_assert.m_exception.c_str());
 			} else if (p_assert.m_decomp.c_str() && *p_assert.m_decomp.c_str()) {
-				ss << " values: " << p_assert.m_decomp.c_str();
+				text += " values: " + String(p_assert.m_decomp.c_str());
 			}
-			ss << "\n";
-			print_line(ss.str().c_str());
+			print_line(p_assert.m_file, p_assert.m_line, text);
 		}
 	}
 
 	void test_case_exception(const doctest::TestCaseException &p_exc) override {
-		std::ostringstream ss;
-		ss << "ERROR: test case " << (p_exc.is_crash ? "CRASHED" : "THREW exception")
-				<< ": " << p_exc.error_string << "\n";
-		print_line(ss.str().c_str());
+		const String text = vformat("ERROR: test case %s: %s",
+				p_exc.is_crash ? "CRASHED" : "THREW exception", String(p_exc.error_string.c_str()));
+		print_raw(text);
 	}
 
 	void test_run_end(const doctest::TestRunStats &p_stats) override {
-		std::ostringstream ss;
-		ss << "[doctest] test cases: " << std::to_string((int64_t)p_stats.numTestCasesPassingFilters).c_str()
-				<< " | " << std::to_string((int64_t)(p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed)).c_str()
-				<< " passed | " << std::to_string((int64_t)p_stats.numTestCasesFailed).c_str() << " failed | 0 skipped\n"
-				<< "[doctest] assertions: " << std::to_string((int64_t)p_stats.numAsserts).c_str()
-				<< " | " << std::to_string((int64_t)(p_stats.numAsserts - p_stats.numAssertsFailed)).c_str()
-				<< " passed | " << std::to_string((int64_t)p_stats.numAssertsFailed).c_str() << " failed |\n"
-				<< (p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
-							? "[doctest] Status: SUCCESS!\n"
-							: "[doctest] Status: FAILURE!\n");
-		print_line(ss.str().c_str());
+		print_raw(vformat(
+				"[doctest] test cases: %d | %d passed | %d failed | 0 skipped\n"
+				"[doctest] assertions: %d | %d passed | %d failed |\n%s",
+				(int64_t)p_stats.numTestCasesPassingFilters,
+				(int64_t)(p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed),
+				(int64_t)p_stats.numTestCasesFailed,
+				p_stats.numAsserts,
+				p_stats.numAsserts - p_stats.numAssertsFailed,
+				p_stats.numAssertsFailed,
+				p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
+						? "[doctest] Status: SUCCESS!\n"
+						: "[doctest] Status: FAILURE!\n"));
 	}
 
 	// -- unused callbacks ----------------------------------------------------
@@ -132,8 +129,8 @@ public:
 	void test_case_skipped(const doctest::TestCaseData &) override {}
 
 private:
-	static void print_line(const char *p_line) {
-		godot::UtilityFunctions::print(p_line);
+	static void print_raw(const String &p_text) {
+		godot::UtilityFunctions::print(p_text);
 	}
 
 	// The default console reporter prints the TEST_CASE header lazily, right
@@ -143,11 +140,12 @@ private:
 			return;
 		}
 		s_case_header_logged = true;
-		godot::UtilityFunctions::print(
-				"===============================================================================");
-		std::ostringstream ss;
-		ss << p_file << "(" << std::to_string((int64_t)p_line).c_str() << "): TEST CASE";
-		godot::UtilityFunctions::print(ss.str().c_str());
+		print_raw("===============================================================================");
+		print_line(p_file, p_line, "TEST CASE");
+	}
+
+	static void print_line(const char *p_file, int p_line, const String &p_text) {
+		print_raw(vformat("%s(%d): %s", p_file, p_line, p_text));
 	}
 };
 
