@@ -120,7 +120,7 @@ GDExtensionBool GDE_EXPORT jsb_gdextension_init(GDExtensionInterfaceGetProcAddre
 	init_obj.register_initializer(jsb_initialize_module);
 	init_obj.register_terminator(jsb_uninitialize_module);
 	init_obj.register_shutdown_callback(jsb_shutdown);
-	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_CORE);
+	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SERVERS);
 
 	return init_obj.init();
 }

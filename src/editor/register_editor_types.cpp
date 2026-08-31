@@ -79,7 +79,7 @@ GDExtensionBool GDE_EXPORT jsb_editor_library_init(GDExtensionInterfaceGetProcAd
 
 	init_obj.register_initializer(_initialize_godotjs_editor_module);
 	init_obj.register_terminator(_uninitialize_godotjs_editor_module);
-	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_EDITOR);
+	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SERVERS);
 
 	return init_obj.init();
 }
