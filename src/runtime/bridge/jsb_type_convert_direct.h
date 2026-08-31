@@ -257,20 +257,45 @@ JSB_DIRECT_VARIANT_BACKED(godot::Color)
 JSB_DIRECT_VARIANT_BACKED(godot::RID)
 JSB_DIRECT_VARIANT_BACKED(godot::Callable)
 JSB_DIRECT_VARIANT_BACKED(godot::Signal)
-JSB_DIRECT_VARIANT_BACKED(godot::Dictionary)
-JSB_DIRECT_VARIANT_BACKED(godot::Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedByteArray)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedInt32Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedInt64Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedFloat32Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedFloat64Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedStringArray)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedVector2Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedVector3Array)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedColorArray)
-JSB_DIRECT_VARIANT_BACKED(godot::PackedVector4Array)
 
 #undef JSB_DIRECT_VARIANT_BACKED
+
+// Container-family targets: accept BOTH a variant-backed wrapper (Godot
+// Array/Dictionary/Packed*) AND raw JS values (native Array, object literal,
+// null) by falling back to the full typed dynamic converter. The strict
+// variant-backed path above would reject native JS values that the dynamic
+// path happily converts (e.g. OS.execute("sh", ["-v"], output)).
+#define JSB_DIRECT_CONTAINER(CppType, GDType)                                             \
+	template <>                                                                           \
+	struct JSToGD<CppType> {                                                              \
+		static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, \
+				const v8::Local<v8::Value> &p_jval, CppType &r_out) {                     \
+			if (extract_variant_backed(p_isolate, p_context, p_jval, r_out)) {            \
+				return true;                                                              \
+			}                                                                             \
+			godot::Variant v;                                                             \
+			if (!TypeConvert::js_to_gd_var(p_isolate, p_context, p_jval, GDType, v)) {    \
+				return false;                                                             \
+			}                                                                             \
+			r_out = v;                                                                    \
+			return true;                                                                  \
+		}                                                                                 \
+	};
+
+JSB_DIRECT_CONTAINER(godot::Array, godot::Variant::ARRAY)
+JSB_DIRECT_CONTAINER(godot::Dictionary, godot::Variant::DICTIONARY)
+JSB_DIRECT_CONTAINER(godot::PackedByteArray, godot::Variant::PACKED_BYTE_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedInt32Array, godot::Variant::PACKED_INT32_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedInt64Array, godot::Variant::PACKED_INT64_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedFloat32Array, godot::Variant::PACKED_FLOAT32_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedFloat64Array, godot::Variant::PACKED_FLOAT64_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedStringArray, godot::Variant::PACKED_STRING_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedVector2Array, godot::Variant::PACKED_VECTOR2_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedVector3Array, godot::Variant::PACKED_VECTOR3_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedColorArray, godot::Variant::PACKED_COLOR_ARRAY)
+JSB_DIRECT_CONTAINER(godot::PackedVector4Array, godot::Variant::PACKED_VECTOR4_ARRAY)
+
+#undef JSB_DIRECT_CONTAINER
 
 // entry point with Proxy unwrapping
 template <typename T>
