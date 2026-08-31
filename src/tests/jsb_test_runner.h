@@ -83,7 +83,7 @@ public:
 	void log_message(const doctest::MessageData &p_msg) override {
 		log_case_header(p_msg.m_file, p_msg.m_line);
 		std::ostringstream ss;
-		ss << p_msg.m_file << "(" << p_msg.m_line << ") MESSAGE: " << p_msg.m_string << "\n";
+		ss << p_msg.m_file << "(" << std::to_string(p_msg.m_line).c_str() << ") MESSAGE: " << p_msg.m_string << "\n";
 		print_line(ss.str().c_str());
 	}
 
@@ -111,12 +111,12 @@ public:
 
 	void test_run_end(const doctest::TestRunStats &p_stats) override {
 		std::ostringstream ss;
-		ss << "[doctest] test cases: " << p_stats.numTestCasesPassingFilters
-				<< " | " << (p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed)
-				<< " passed | " << p_stats.numTestCasesFailed << " failed | 0 skipped\n"
-				<< "[doctest] assertions: " << p_stats.numAsserts
-				<< " | " << (p_stats.numAsserts - p_stats.numAssertsFailed)
-				<< " passed | " << p_stats.numAssertsFailed << " failed |\n"
+		ss << "[doctest] test cases: " << std::to_string((int64_t)p_stats.numTestCasesPassingFilters).c_str()
+				<< " | " << std::to_string((int64_t)(p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed)).c_str()
+				<< " passed | " << std::to_string((int64_t)p_stats.numTestCasesFailed).c_str() << " failed | 0 skipped\n"
+				<< "[doctest] assertions: " << std::to_string((int64_t)p_stats.numAsserts).c_str()
+				<< " | " << std::to_string((int64_t)(p_stats.numAsserts - p_stats.numAssertsFailed)).c_str()
+				<< " passed | " << std::to_string((int64_t)p_stats.numAssertsFailed).c_str() << " failed |\n"
 				<< (p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
 							? "[doctest] Status: SUCCESS!\n"
 							: "[doctest] Status: FAILURE!\n");
@@ -146,7 +146,7 @@ private:
 		godot::UtilityFunctions::print(
 				"===============================================================================");
 		std::ostringstream ss;
-		ss << p_file << "(" << p_line << "): TEST CASE";
+		ss << p_file << "(" << std::to_string((int64_t)p_line).c_str() << "): TEST CASE";
 		godot::UtilityFunctions::print(ss.str().c_str());
 	}
 };
