@@ -8,8 +8,7 @@
 namespace jsb::static_binding::thunks {
 
 // Compile-time opaque-pointer fetch: VTC is a template parameter here, so
-// dispatching through VariantInternal::get_opaque_pointer's runtime switch
-// would be pure overhead. Mirrors that switch exactly.
+// dispatching through the runtime switch is pure overhead. Mirrors that switch.
 template <godot::Variant::Type VTC>
 _FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
 	if constexpr (VTC == godot::Variant::NIL) {
@@ -96,11 +95,9 @@ _FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
 	}
 }
 
-
 // ---------------------------------------------------------------------------
-// Fixed-arity builtin method (§4.0-A: unrolled per-parameter, no loops).
-// Parameters are marshaled into ptrcall slots (SlotOf<T> = PtrToArg<T>::EncodeT)
-// through the official encode() contract.
+// Fixed-arity builtin method (§4.0-A). Parameters marshaled into ptrcall slots
+// via a std::tuple so every slot outlives the fn() call.
 template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
 		bool IsStaticC, class RetT, class... ArgsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -115,11 +112,9 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name(VTC)
-				+ "::" + godot::String(NameLit.value));
+				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name(VTC)
-				+ "::" + godot::String(NameLit.value));
+				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
@@ -140,21 +135,19 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			jsb_throw(isolate, "no bound this");
 			return;
 		}
-		// The engine expects the OPAQUE data pointer (what the dynamic path
-		// passes via TVariantOpaquePointer), not the Variant address.
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// marshal into ptrcall slots (unrolled)
-	std::tuple<SlotOf<typename ArgsT::gd_type>...> slots;
+	// marshal into ptrcall slots (tuple outlives fn call)
+	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
 						std::get<I>(slots), provided)) &&
 				...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
-		return; // JS exception already thrown by marshal_one
+		return;
 	}
 
 	void *arg_ptrs[N > 0 ? N : 1];
@@ -162,13 +155,13 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
-	typename ReturnSlotOf<RetT>::type ret{};
+	ReturnSlotType_t<RetT> ret{};
 	fn(base_ptr, arg_ptrs, &ret, N);
 	translate_return<RetT>(isolate, context, ret, info);
 }
 
 // ---------------------------------------------------------------------------
-// Vararg builtin method (§4.0-B): fixed prefix unrolled, only the tail loops.
+// Vararg builtin method (§4.0-B).
 template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
 		bool IsStaticC, class RetT, class... ArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -183,11 +176,9 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name(VTC)
-				+ "::" + godot::String(NameLit.value));
+				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name(VTC)
-				+ "::" + godot::String(NameLit.value));
+				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
@@ -211,11 +202,11 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// fixed prefix: unrolled with type checks & defaults
-	std::tuple<SlotOf<typename ArgsT::gd_type>...> prefix_slots;
+	// fixed prefix slots
+	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> prefix_slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
 						std::get<I>(prefix_slots), provided)) &&
 				...);
 	}(std::make_index_sequence<F>{});
@@ -223,7 +214,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		return;
 	}
 
-	// vararg tail: untyped Variants (the only loop, §4.0-B)
+	// vararg tail
 	const int argc = provided > F ? provided : F;
 	godot::Variant *tail_args =
 			(godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
@@ -238,7 +229,6 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		}
 	}
 
-	// argument pointers must cover ALL argc slots
 	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix_slots)), ...);
@@ -247,10 +237,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	typename ReturnSlotOf<RetT>::type ret{};
-	// The engine reads the tail slots through its vararg path and may touch
-	// entries beyond the ones we filled; uninitialized stack garbage there
-	// crashes on dereference. Zero every slot before handing them over.
+	ReturnSlotType_t<RetT> ret{};
 	for (int _i = 0; _i < argc && _i < 64; ++_i) {
 		arg_ptrs[_i] = nullptr;
 	}

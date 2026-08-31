@@ -7,8 +7,7 @@
 namespace jsb::static_binding::thunks {
 
 // ---------------------------------------------------------------------------
-// Global utility function (§4.2). Utility functions carry no default
-// arguments today, so argc is validated strictly.
+// Global utility function (§4.2). Utility functions carry no default args.
 template <uint32_t HashC, FixedString NameLit, class RetT, class... ArgsT>
 void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
@@ -24,7 +23,6 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 
-	// strict argc gate (utility functions carry no defaults)
 	if ((int)info.Length() != N) {
 		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d",
 				godot::String(NameLit.value).utf8().get_data(), N, (int)info.Length()));
@@ -32,27 +30,29 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	const int provided = (int)info.Length();
-	std::tuple<SlotOf<typename ArgsT::gd_type>...> storage;
+	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
+	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		bool ok = true;
-		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
-				std::get<I>(storage), provided)) && ...);
-		return ok;
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
+						std::get<I>(slots), provided)) &&
+				...);
 	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return;
+	}
 
 	void *arg_ptrs[N > 0 ? N : 1];
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (void *)&std::get<I>(storage)), ...);
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
-	typename ReturnSlotOf<RetT>::type ret{};
+	ReturnSlotType_t<RetT> ret{};
 	fn(&ret, arg_ptrs, N);
 	translate_return<RetT>(isolate, context, ret, info);
 }
 
 // ---------------------------------------------------------------------------
-// Vararg utility function (§4.0-B): fixed prefix unrolled, only the tail
-// loops. Covers print/printerr/max/min/str/... (12 instances).
+// Vararg utility function (§4.0-B).
 template <uint32_t HashC, FixedString NameLit, class RetT, class... ArgsT>
 void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int F = (int)sizeof...(ArgsT);
@@ -68,7 +68,6 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		return;
 	}
 
-	// vararg gate: provided >= fixed count
 	const int provided = (int)info.Length();
 	if (provided < F) {
 		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d",
@@ -76,18 +75,17 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		return;
 	}
 
-	std::tuple<typename ArgsT::gd_type...> prefix;
+	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> prefix_slots;
+	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		bool ok = true;
-		(void)((ok = ok && marshal_one<ArgsT>(isolate, context, info, (int)I,
-				std::get<I>(prefix), provided)) && ...);
-		if (!ok) {
-			return;
-		}
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
+						std::get<I>(prefix_slots), provided)) &&
+				...);
 	}(std::make_index_sequence<F>{});
+	if (!ok) {
+		return;
+	}
 
-	// the marshaling lambda reports failure via a thrown JS exception; if we
-	// get here with F > 0 the prefix is valid.
 	const int argc = provided > F ? provided : F;
 	godot::Variant *tail_args =
 			(godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
@@ -104,13 +102,13 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix)), ...);
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix_slots)), ...);
 	}(std::make_index_sequence<F>{});
 	for (int i = F; i < argc; ++i) {
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	typename ReturnSlotOf<RetT>::type ret{};
+	ReturnSlotType_t<RetT> ret{};
 	fn(&ret, arg_ptrs, argc);
 
 	for (int i = F; i < argc; ++i) {

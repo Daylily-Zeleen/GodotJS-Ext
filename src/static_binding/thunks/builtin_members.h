@@ -102,9 +102,12 @@ _FORCE_INLINE_ static void *get_member_opaque_typed(godot::Variant *self) {
 // Vector2::x. The GDExtensionPtrGetter/Setter function pointers are resolved
 // once per instantiation via variant_get_ptr_getter/setter (magic static).
 //
-// Semantics mirror the dynamic _getter/_setter in the primitive reflect
-// binder: the base Variant is read from `this`, the value is converted with
-// the strict JS->T / GD->JS converters.
+// CRITICAL: Member getters/setters use the OPAQUE PTRCALL ABI (not full Variant).
+// The engine's variant_get_ptr_getter returns ptr_get which expects:
+//   p_base = opaque data pointer (e.g., &variant.data.vector2 for Vector2)
+//   r_value = member type's native slot (PtrToArg<MemberType>::EncodeT)
+// This mirrors VariantSetGet_*::ptr_get in variant_setget.h:
+//   PtrToArg<MemberType>::encode(PtrToArg<BaseType>::convert(p_base).member, r_value)
 // ---------------------------------------------------------------------------
 template <godot::Variant::Type VTC, FixedString NameLit>
 GDExtensionPtrGetter resolve_member_getter() {
@@ -141,22 +144,17 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	const Variant *p_self = (Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
 
-	// Both base and result are NATIVE typed slots (mirrors
-	// ApiMemberInfo::getter_validated_call: var_to_arg_ptr -> getter ->
-	// arg_ptr_to_var). Passing the Variant itself as either slot corrupts it:
-	// reference-type members deref garbage, value types read shifted data.
-	using Native = member_value_t<(int)MemberVT>;
-	VtSlotType<(int)MemberVT> base_slot{};
-	godot::PtrToArg<Native>::encode(*p_self, &base_slot);
-	VtSlotType<(int)MemberVT> ret_slot{};
-	getter((GDExtensionConstTypePtr)&base_slot, (GDExtensionTypePtr)&ret_slot);
-	{
-		const double *dbg = reinterpret_cast<const double *>(&ret_slot);
-		JSB_LOG(Warning, "DXR ret=[0]=%f", dbg[0]);
-	}
+	// Get opaque pointer to the base Variant's internal data
+	void *base_opaque = get_member_opaque_typed<VTC>(const_cast<Variant *>(p_self));
+
+	// Member getter uses OPAQUE PTRCALL ABI: base is opaque pointer, value is native encode type
+	VariantEncodeType<MemberVT> ret_slot{};
+	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_slot);
+
+	// Convert native slot back to Variant for JS
+	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_slot);
 
 	v8::Local<v8::Value> rval;
-	const godot::Variant result = godot::PtrToArg<Native>::convert(&ret_slot);
 	if (!TypeConvert::gd_var_to_js(isolate, context, result, rval)) {
 		jsb_throw(isolate, "bad translate");
 		return;
@@ -187,13 +185,14 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		jsb_throw(isolate, "bad translate");
 		return;
 	}
-	// Native slots for both sides (see the getter comment).
-	using Native = member_value_t<(int)MemberVT>;
-	VtSlotType<(int)VTC> base_slot{};
-	godot::PtrToArg<Native>::encode(*p_self, &base_slot);
-	VtSlotType<(int)MemberVT> val_slot{};
-	godot::PtrToArg<Native>::encode(value, &val_slot);
-	setter((GDExtensionTypePtr)&base_slot, (GDExtensionConstTypePtr)&val_slot);
+
+	// Get opaque pointer to the base Variant's internal data
+	void *base_opaque = get_member_opaque_typed<VTC>(p_self);
+
+	// Member setter uses OPAQUE PTRCALL ABI
+	VariantEncodeType<MemberVT> val_slot{};
+	godot::PtrToArg<VariantNativeType_t<MemberVT>>::encode(value, &val_slot);
+	setter((GDExtensionTypePtr)base_opaque, (GDExtensionConstTypePtr)&val_slot);
 }
 
 } // namespace jsb::static_binding::thunks

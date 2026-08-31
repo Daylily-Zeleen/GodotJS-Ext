@@ -118,6 +118,52 @@ def load_variant_type_map(interface_json_path):
         f"non-contiguous GDExtensionVariantType values: {values[:10]}..."
     VARIANT_TYPE_VALUES.clear()
     VARIANT_TYPE_VALUES.update(mapping)
+    # reverse mapping: value -> JSON name (for Ret<godot::Variant::NAME> emission)
+    global VARIANT_TYPE_NAMES
+    VARIANT_TYPE_NAMES = {v: k for k, v in mapping.items()}
+    # JSON name -> enum name mapping (for Ret<godot::Variant::ENUM> emission)
+    global JSON_TO_ENUM_NAME
+    JSON_TO_ENUM_NAME = {
+        "nil": "NIL",
+        "bool": "BOOL",
+        "int": "INT",
+        "float": "FLOAT",
+        "String": "STRING",
+        "StringName": "STRING_NAME",
+        "NodePath": "NODE_PATH",
+        "RID": "RID",
+        "Object": "OBJECT",
+        "Callable": "CALLABLE",
+        "Signal": "SIGNAL",
+        "Dictionary": "DICTIONARY",
+        "Array": "ARRAY",
+        "Vector2": "VECTOR2",
+        "Vector2i": "VECTOR2I",
+        "Rect2": "RECT2",
+        "Rect2i": "RECT2I",
+        "Vector3": "VECTOR3",
+        "Vector3i": "VECTOR3I",
+        "Transform2D": "TRANSFORM2D",
+        "Vector4": "VECTOR4",
+        "Vector4i": "VECTOR4I",
+        "Plane": "PLANE",
+        "Quaternion": "QUATERNION",
+        "AABB": "AABB",
+        "Basis": "BASIS",
+        "Transform3D": "TRANSFORM3D",
+        "Projection": "PROJECTION",
+        "Color": "COLOR",
+        "PackedByteArray": "PACKED_BYTE_ARRAY",
+        "PackedInt32Array": "PACKED_INT32_ARRAY",
+        "PackedInt64Array": "PACKED_INT64_ARRAY",
+        "PackedFloat32Array": "PACKED_FLOAT32_ARRAY",
+        "PackedFloat64Array": "PACKED_FLOAT64_ARRAY",
+        "PackedStringArray": "PACKED_STRING_ARRAY",
+        "PackedVector2Array": "PACKED_VECTOR2_ARRAY",
+        "PackedVector3Array": "PACKED_VECTOR3_ARRAY",
+        "PackedColorArray": "PACKED_COLOR_ARRAY",
+        "PackedVector4Array": "PACKED_VECTOR4_ARRAY",
+    }
     assert mapping.get("Nil") == 0 and mapping.get("String") == 4 \
         and mapping.get("Vector2") == 5 and mapping.get("Callable") > mapping.get("RID"), \
         "variant type anchor check failed"
@@ -570,13 +616,15 @@ def arg_template_expr(a):
 
 def ret_template_expr(t):
     if t in ('void', 'null'):
-        return 'Ret<0>'
+        return 'Ret<godot::Variant::NIL>'
     if t in VARIANT_TYPE_VALUES:
-        return 'Ret<%d>' % VARIANT_TYPE_VALUES[t]
+        # Emit enum name for C++20 NTTP (godot::Variant::VECTOR2 etc.)
+        enum_name = JSON_TO_ENUM_NAME.get(t, t.upper())
+        return 'Ret<godot::Variant::%s>' % enum_name
     if t.startswith("enum::") or t.startswith("bitfield::") or t == "Variant":
         if t == "Variant":
             return 'RetAny'
-        return 'Ret<2>'  # INT: enums/bitfields come back as integers
+        return 'Ret<godot::Variant::INT>'  # enums/bitfields come back as integers
     raise AssertionError(f"unhandled return type: {t}")
 
 
