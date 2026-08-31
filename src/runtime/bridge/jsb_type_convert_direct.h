@@ -1,5 +1,8 @@
 #pragma once
 
+#include <limits>
+#include <type_traits>
+
 // Direct JS value -> strongly-typed Godot value converters (design doc §3,
 // Level-1). Static-binding thunks call these directly, so parameters never
 // materialize as Variant; TypeConvert::js_to_gd_var delegates here as well,
@@ -78,6 +81,51 @@ struct JSToGD<int64_t> {
         return impl::Helper::to_int64(p_jval, r_out);
     }
 };
+
+// Exact-width integer targets: convert through int64 then range-check, so a
+// JS value that does not fit the declared meta width (int8..uint64) is a
+// clean conversion failure instead of a silent truncation.
+template <typename CppT>
+inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
+        const v8::Local<v8::Context> &p_context,
+        const v8::Local<v8::Value> &p_jval, CppT &r_out) {
+	int64_t wide = 0;
+	if (!JSToGD<int64_t>::convert(p_isolate, p_context, p_jval, wide)) {
+		return false;
+	}
+	if constexpr (std::is_same_v<CppT, uint64_t>) {
+		// int64 cannot represent uint64's max; validate in unsigned domain.
+		if (wide < 0) {
+			return false;
+		}
+		if (static_cast<uint64_t>(wide) > std::numeric_limits<uint64_t>::max()) {
+			return false;
+		}
+	} else if constexpr (std::is_unsigned_v<CppT>) {
+		if (wide < 0 || wide > static_cast<int64_t>(std::numeric_limits<CppT>::max())) {
+			return false;
+		}
+	} else {
+		if (wide < static_cast<int64_t>(std::numeric_limits<CppT>::min()) ||
+				wide > static_cast<int64_t>(std::numeric_limits<CppT>::max())) {
+			return false;
+		}
+	}
+	r_out = static_cast<CppT>(wide);
+	return true;
+}
+
+#define JSB_DIRECT_FIXED_INT(CppType)                                                     	template <>                                                                           	struct JSToGD<CppType> {                                                              		static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, 				const v8::Local<v8::Value> &p_jval, CppType &r_out) {                     			return js_to_fixed_width_int<CppType>(p_isolate, p_context, p_jval, r_out);   		}                                                                                 	};
+
+JSB_DIRECT_FIXED_INT(int8_t)
+JSB_DIRECT_FIXED_INT(int16_t)
+JSB_DIRECT_FIXED_INT(int32_t)
+JSB_DIRECT_FIXED_INT(uint8_t)
+JSB_DIRECT_FIXED_INT(uint16_t)
+JSB_DIRECT_FIXED_INT(uint32_t)
+JSB_DIRECT_FIXED_INT(uint64_t)
+JSB_DIRECT_FIXED_INT(char32_t)
+#undef JSB_DIRECT_FIXED_INT
 
 template <>
 struct JSToGD<godot::String> {

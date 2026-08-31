@@ -8,9 +8,11 @@
 #	include <type_traits>
 #	include <utility>
 
+#	include <godot_cpp/classes/global_constants.hpp>
 #	include <godot_cpp/variant/string_name.hpp>
 #	include <godot_cpp/variant/utility_functions.hpp>
 #	include <godot_cpp/variant/variant.hpp>
+#	include <godot_cpp/variant/variant_internal.hpp>
 
 #	include "runtime/bridge/jsb_type_convert_direct.h"
 #	include "runtime/internal/jsb_macros.h"
@@ -63,24 +65,34 @@ struct Arg {
 };
 
 // ---------------------------------------------------------------------------
-// Return descriptor: numeric hint is the GDExtensionVariantType value
-// (0 == NIL == void); RetAny converts without a type hint (json "Variant").
-struct RetAny {
-	static constexpr bool has_return = true;
-};
-
-template <godot::Variant::Type VT_ = godot::Variant::NIL>
+// Return descriptor.
+//   RetAny                json "Variant" (no type hint) -- always has a return
+//   Ret<VT>               typed return; VT == NIL means "no return value"
+//                         UNLESS the property usage carries
+//                         NIL_IS_VARIANT (a nil-typed Variant return).
+template <godot::Variant::Type VT_ = godot::Variant::NIL,
+		uint64_t Usage_ = 0>
 struct Ret {
 	static constexpr godot::Variant::Type vt = VT_;
-	static constexpr bool has_return = VT_ != godot::Variant::NIL;
+	static constexpr uint64_t usage = Usage_;
+	static constexpr bool has_return =
+			VT_ != godot::Variant::NIL ||
+			(Usage_ & PROPERTY_USAGE_NIL_IS_VARIANT) != 0;
+};
+
+struct RetAny {
+	static constexpr bool has_return = true;
+	static constexpr godot::Variant::Type vt = godot::Variant::NIL;
 };
 
 // ---------------------------------------------------------------------------
-// Variant::Type -> semantic C++ type (Vector2, double, String, int64_t, ...)
+// Semantic C++ type of a Variant-typed value (member slots, storage).
+// FLOAT follows the engine: real_t (double by default, float with
+// REAL_T_IS_DOUBLE undefined -- see godot_cpp/core/math_defs.hpp).
+// INT follows the engine Variant storage: int64_t.
 template <godot::Variant::Type VT>
 struct VariantNativeType;
 
-// Specializations mirror godot-cpp's PtrToArg<CppT> conversions
 template <>
 struct VariantNativeType<godot::Variant::NIL> {
 	using type = godot::Variant;
@@ -95,7 +107,7 @@ struct VariantNativeType<godot::Variant::INT> {
 };
 template <>
 struct VariantNativeType<godot::Variant::FLOAT> {
-	using type = double;
+	using type = godot::real_t;
 };
 template <>
 struct VariantNativeType<godot::Variant::STRING> {
@@ -241,14 +253,112 @@ struct VariantNativeType<godot::Variant::PACKED_VECTOR4_ARRAY> {
 template <godot::Variant::Type VT>
 using VariantNativeType_t = typename VariantNativeType<VT>::type;
 
-// Variant::Type -> ptrcall ABI encode type (what engine actually reads/writes)
-// This is godot::PtrToArg<CppT>::EncodeT for the corresponding CppT.
-template <godot::Variant::Type VT>
-using VariantEncodeType = typename godot::PtrToArg<VariantNativeType_t<VT>>::EncodeT;
+// ---------------------------------------------------------------------------
+// ptrcall ENCODE type (what the engine actually reads/writes through
+// GDExtensionPtrBuiltInMethod / PtrToArg<T>::EncodeT).
+//
+// The engine's variant ptrcall ABI widens unconditionally (method_ptrcall.h):
+//   bool   -> uint8_t       narrow ints -> int64_t (sign/zero extended)
+//   float  -> double        Variant::FLOAT stores double internally
+// Only POD math structs (Vector2, Color, ...) and ref-counted handles pass
+// through directly. This is INDEPENDENT from the semantic member type above:
+// e.g. Vector2::x is a real_t member, but its builtin-method arguments and
+// every Variant::FLOAT ptrcall slot are still double.
+template <typename CppT>
+using VariantEncodeType = typename godot::PtrToArg<CppT>::EncodeT;
 
 // ---------------------------------------------------------------------------
+// Compile-time opaque-pointer fetch: VTC is a template parameter, so
+// dispatching through VariantInternal::get_opaque_pointer's runtime switch
+// would be pure overhead. Mirrors that switch exactly.
+template <godot::Variant::Type VTC>
+_FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
+	if constexpr (VTC == godot::Variant::NIL) {
+		return nullptr;
+	} else if constexpr (VTC == godot::Variant::BOOL) {
+		return godot::VariantInternal::get_bool(self);
+	} else if constexpr (VTC == godot::Variant::INT) {
+		return godot::VariantInternal::get_int(self);
+	} else if constexpr (VTC == godot::Variant::FLOAT) {
+		return godot::VariantInternal::get_float(self);
+	} else if constexpr (VTC == godot::Variant::STRING) {
+		return godot::VariantInternal::get_string(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR2) {
+		return godot::VariantInternal::get_vector2(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR2I) {
+		return godot::VariantInternal::get_vector2i(self);
+	} else if constexpr (VTC == godot::Variant::RECT2) {
+		return godot::VariantInternal::get_rect2(self);
+	} else if constexpr (VTC == godot::Variant::RECT2I) {
+		return godot::VariantInternal::get_rect2i(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR3) {
+		return godot::VariantInternal::get_vector3(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR3I) {
+		return godot::VariantInternal::get_vector3i(self);
+	} else if constexpr (VTC == godot::Variant::TRANSFORM2D) {
+		return godot::VariantInternal::get_transform2d(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR4) {
+		return godot::VariantInternal::get_vector4(self);
+	} else if constexpr (VTC == godot::Variant::VECTOR4I) {
+		return godot::VariantInternal::get_vector4i(self);
+	} else if constexpr (VTC == godot::Variant::PLANE) {
+		return godot::VariantInternal::get_plane(self);
+	} else if constexpr (VTC == godot::Variant::QUATERNION) {
+		return godot::VariantInternal::get_quaternion(self);
+	} else if constexpr (VTC == godot::Variant::AABB) {
+		return godot::VariantInternal::get_aabb(self);
+	} else if constexpr (VTC == godot::Variant::BASIS) {
+		return godot::VariantInternal::get_basis(self);
+	} else if constexpr (VTC == godot::Variant::TRANSFORM3D) {
+		return godot::VariantInternal::get_transform(self);
+	} else if constexpr (VTC == godot::Variant::PROJECTION) {
+		return godot::VariantInternal::get_projection(self);
+	} else if constexpr (VTC == godot::Variant::COLOR) {
+		return godot::VariantInternal::get_color(self);
+	} else if constexpr (VTC == godot::Variant::STRING_NAME) {
+		return godot::VariantInternal::get_string_name(self);
+	} else if constexpr (VTC == godot::Variant::NODE_PATH) {
+		return godot::VariantInternal::get_node_path(self);
+	} else if constexpr (VTC == godot::Variant::RID) {
+		return godot::VariantInternal::get_rid(self);
+	} else if constexpr (VTC == godot::Variant::OBJECT) {
+		return godot::VariantInternal::get_object(self);
+	} else if constexpr (VTC == godot::Variant::CALLABLE) {
+		return godot::VariantInternal::get_callable(self);
+	} else if constexpr (VTC == godot::Variant::SIGNAL) {
+		return godot::VariantInternal::get_signal(self);
+	} else if constexpr (VTC == godot::Variant::DICTIONARY) {
+		return godot::VariantInternal::get_dictionary(self);
+	} else if constexpr (VTC == godot::Variant::ARRAY) {
+		return godot::VariantInternal::get_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_BYTE_ARRAY) {
+		return godot::VariantInternal::get_byte_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_INT32_ARRAY) {
+		return godot::VariantInternal::get_int32_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_INT64_ARRAY) {
+		return godot::VariantInternal::get_int64_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_FLOAT32_ARRAY) {
+		return godot::VariantInternal::get_float32_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_FLOAT64_ARRAY) {
+		return godot::VariantInternal::get_float64_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_STRING_ARRAY) {
+		return godot::VariantInternal::get_string_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_VECTOR2_ARRAY) {
+		return godot::VariantInternal::get_vector2_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_VECTOR3_ARRAY) {
+		return godot::VariantInternal::get_vector3_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_COLOR_ARRAY) {
+		return godot::VariantInternal::get_color_array(self);
+	} else if constexpr (VTC == godot::Variant::PACKED_VECTOR4_ARRAY) {
+		return godot::VariantInternal::get_vector4_array(self);
+	} else {
+		static_assert(VTC != godot::Variant::NIL, "unreachable");
+		return nullptr;
+	}
+}
+
 // ---------------------------------------------------------------------------
-// Return slot type trait: RetAny -> Variant, Ret<VT> -> VariantEncodeType<VT>
+// Return slot type trait: RetAny -> Variant, Ret<VT, Usage> -> encode type.
 template <class RetT>
 struct ReturnSlotType;
 
@@ -257,9 +367,9 @@ struct ReturnSlotType<RetAny> {
 	using type = godot::Variant;
 };
 
-template <godot::Variant::Type VT>
-struct ReturnSlotType<Ret<VT>> {
-	using type = VariantEncodeType<VT>;
+template <godot::Variant::Type VT, uint64_t Usage>
+struct ReturnSlotType<Ret<VT, Usage>> {
+	using type = VariantEncodeType<VariantNativeType_t<VT>>;
 };
 
 template <class RetT>
@@ -272,10 +382,13 @@ using ReturnSlotType_t = typename ReturnSlotType<RetT>::type;
 // default-fill, or error). This is the single conversion entry point shared
 // by every thunk shape.
 template <class ArgT>
-inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename ArgT::gd_type &out, int provided) {
+inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
+		typename ArgT::gd_type &out, int provided) {
 	if (i < provided) {
 		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
-			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i, TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
+			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
+					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
 			return false;
 		}
 		return true;
@@ -291,7 +404,9 @@ inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &
 // ptrcall flavor: produce the value and encode it into a raw argument slot
 // through godot-cpp's ptrcall contract.
 template <class ArgT>
-inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
+inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
+		typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
 	typename ArgT::gd_type value{};
 	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
@@ -300,8 +415,10 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 	return true;
 }
 
-// Untyped tail loop for vararg methods -- the only allowed loop (§4.0-B).
-inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, godot::Variant *tail, int from, int provided) {
+// Untyped tail loop for vararg methods -- the only allowed loop.
+inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		const v8::FunctionCallbackInfo<v8::Value> &info,
+		godot::Variant *tail, int from, int provided) {
 	for (int i = from; i < provided; ++i) {
 		if (!TypeConvert::js_to_gd_var(p_isolate, p_context, info[i], tail[i - from])) {
 			jsb_throw(p_isolate, jsb_errorf("bad argument %d", i));
@@ -313,18 +430,15 @@ inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Contex
 
 // ---------------------------------------------------------------------------
 // Return value translation.
-// Ret<VT>   : native encode type of variant type VT (ptrcall ABI)
-// RetAny    : full Variant (json "Variant" returns)
-// Ret<NIL>  : no return at all
-
-// The slot is either the native return representation (utility/builtin
-// ptrcall) or a full Variant (object_method_bind_call in class_methods).
+//   RetAny / Variant slot : the engine wrote a complete Variant
+//   Ret<VT> / native slot : decode through the ptrcall contract
+//   Ret<NIL>              : no return at all
 template <class RetT, class SlotT>
-inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
+inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if constexpr (!RetT::has_return) {
 		return true;
 	} else if constexpr (std::is_same_v<SlotT, godot::Variant>) {
-		// Variant ABI: the engine wrote a complete Variant.
 		v8::Local<v8::Value> jrval;
 		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret_slot, jrval)) {
 			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
@@ -333,8 +447,6 @@ inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context
 		info.GetReturnValue().Set(jrval);
 		return true;
 	} else if constexpr (RetT::vt != godot::Variant::NIL) {
-		// Native slot: decode through the godot-cpp ptrcall contract, then
-		// wrap for the JS translation.
 		using SlotCppT = VariantNativeType_t<RetT::vt>;
 		godot::Variant ret;
 		if constexpr (std::is_same_v<SlotCppT, uint8_t>) {

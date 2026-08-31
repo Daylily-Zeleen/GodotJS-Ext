@@ -110,9 +110,9 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
-		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing builtin method: " + godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
+				godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
 		return;
 	}
 
@@ -168,9 +168,9 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 
 	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
 	if (!fn) {
-		ERR_PRINT_ONCE("static binding: failed to load builtin method "
-				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing builtin method: " + godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
+				godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
 		return;
 	}
 
