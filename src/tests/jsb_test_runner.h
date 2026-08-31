@@ -32,6 +32,7 @@
 
 #include <cstdio> // fflush
 #include <cstdlib> // std::exit
+#include <iostream> // std::cout (doctest writes its output through it)
 
 #ifdef JSB_TESTS_ENABLED
 
@@ -114,7 +115,9 @@ inline void try_run(const char *p_test_type_flag) {
 
 	// CI (Linux, pipe-buffered stdout) may drop buffered doctest output on a
 	// hard exit path; flush right after the run so the log always shows the
-	// per-case output and the summary.
+	// per-case output and the summary. doctest writes through std::cout, and
+	// Godot's own print goes through the C stdout FILE* -- flush both.
+	std::cout.flush();
 	fflush(stdout);
 	fflush(stderr);
 
