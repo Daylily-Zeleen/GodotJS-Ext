@@ -2,9 +2,9 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include "thunks_common.h"
+#	include "thunks_common.h"
 
-#include <godot_cpp/classes/object.hpp>
+#	include <godot_cpp/classes/object.hpp>
 
 namespace jsb::static_binding::thunks {
 
@@ -13,7 +13,7 @@ namespace jsb::static_binding::thunks {
 // classdb_get_method_bind(ClassName, MethodName, hash). The StringNames are
 // one-shot temporaries -- nothing retains them.
 inline GDExtensionMethodBindPtr resolve_class_method_bind(
-        const char *p_class_name, const char *p_method_name, uint32_t p_hash) {
+		const char *p_class_name, const char *p_method_name, uint32_t p_hash) {
 	const godot::StringName cls(p_class_name);
 	const godot::StringName name(p_method_name);
 	return ::godot::gdextension_interface::classdb_get_method_bind(
@@ -31,8 +31,7 @@ GDExtensionMethodBindPtr resolve_class_method() {
 // Fixed-arity class method (§4.0-A: unrolled per-parameter, no loops).
 // Values are produced by the direct JS->T converters into a tuple, then moved
 // into the Variant array that object_method_bind_call's ABI requires.
-template <uint32_t HashC, FixedString ClassLit, FixedString NameLit,
-		bool IsStaticC, class RetT, class... ArgsT>
+template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
 void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -46,24 +45,20 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if (!method_bind) {
 		ERR_PRINT_ONCE("static binding: failed to load method bind "
 				+ godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing method bind: "
-				+ godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "missing method bind: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M || provided > N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d",
-				godot::String(ClassLit.value).utf8().get_data(),
-				godot::String(NameLit.value).utf8().get_data(), M, N, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", godot::String(ClassLit.value).utf8().get_data(), godot::String(NameLit.value).utf8().get_data(), M, N, provided));
 		return;
 	}
 
 	godot::Object *instance = nullptr;
 	if constexpr (!IsStaticC) {
 		if (!TypeConvert::js_to_gd_obj(isolate, context, info.This(), instance) || !instance) {
-			jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value)
-					+ "::" + godot::String(NameLit.value) + ". Bad this");
+			jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value) + ". Bad this");
 			return;
 		}
 	}
@@ -72,9 +67,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	std::tuple<typename ArgsT::gd_type...> storage;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && produce_value<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(storage), provided)) &&
-				...);
+		(void)((ok = ok && produce_value<ArgsT>(isolate, context, info, (int)I, std::get<I>(storage), provided)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return; // JS exception already thrown by marshal_one
@@ -92,8 +85,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, instance, (const GDExtensionConstVariantPtr *)arg_ptrs, N, &ret, &call_error);
 	if (call_error.error != GDEXTENSION_CALL_OK) {
-		jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value)
-				+ "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
 		return;
 	}
 	translate_return<RetT>(isolate, context, ret, info);
@@ -101,8 +93,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 // ---------------------------------------------------------------------------
 // Vararg class method (§4.0-B): fixed prefix unrolled, only the tail loops.
-template <uint32_t HashC, FixedString ClassLit, FixedString NameLit,
-		bool IsStaticC, class RetT, class... ArgsT>
+template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
 void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int F = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -116,24 +107,20 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	if (!method_bind) {
 		ERR_PRINT_ONCE("static binding: failed to load method bind "
 				+ godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing method bind: "
-				+ godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "missing method bind: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d",
-				godot::String(ClassLit.value).utf8().get_data(),
-				godot::String(NameLit.value).utf8().get_data(), M, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::String(ClassLit.value).utf8().get_data(), godot::String(NameLit.value).utf8().get_data(), M, provided));
 		return;
 	}
 
 	godot::Object *instance = nullptr;
 	if constexpr (!IsStaticC) {
 		if (!TypeConvert::js_to_gd_obj(isolate, context, info.This(), instance) || !instance) {
-			jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value)
-					+ "::" + godot::String(NameLit.value) + ". Bad this");
+			jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value) + ". Bad this");
 			return;
 		}
 	}
@@ -142,9 +129,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	std::tuple<typename ArgsT::gd_type...> prefix;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && produce_value<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(prefix), provided)) &&
-				...);
+		(void)((ok = ok && produce_value<ArgsT>(isolate, context, info, (int)I, std::get<I>(prefix), provided)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;
@@ -182,8 +167,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		argv[i].~Variant();
 	}
 	if (call_error.error != GDEXTENSION_CALL_OK) {
-		jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value)
-				+ "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "Failed to call: " + godot::String(ClassLit.value) + "::" + godot::String(NameLit.value));
 		return;
 	}
 	translate_return<RetT>(isolate, context, ret, info);

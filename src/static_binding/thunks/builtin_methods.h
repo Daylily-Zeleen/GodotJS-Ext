@@ -2,8 +2,8 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include "thunks_common.h"
-#include <godot_cpp/variant/variant_internal.hpp>
+#	include "thunks_common.h"
+#	include <godot_cpp/variant/variant_internal.hpp>
 
 namespace jsb::static_binding::thunks {
 
@@ -98,8 +98,7 @@ _FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
 // ---------------------------------------------------------------------------
 // Fixed-arity builtin method (§4.0-A). Parameters marshaled into ptrcall slots
 // via a std::tuple so every slot outlives the fn() call.
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
-		bool IsStaticC, class RetT, class... ArgsT>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int N = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -113,16 +112,13 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
 				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "missing builtin method: " + godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M || provided > N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d",
-				godot::Variant::get_type_name(VTC),
-				godot::String(NameLit.value).utf8().get_data(), M, N, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", godot::Variant::get_type_name(VTC), godot::String(NameLit.value).utf8().get_data(), M, N, provided));
 		return;
 	}
 
@@ -142,9 +138,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(slots), provided)) &&
-				...);
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(slots), provided)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return;
@@ -162,8 +156,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 // ---------------------------------------------------------------------------
 // Vararg builtin method (§4.0-B).
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit,
-		bool IsStaticC, class RetT, class... ArgsT>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	constexpr int F = (int)sizeof...(ArgsT);
 	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
@@ -177,16 +170,13 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	if (!fn) {
 		ERR_PRINT_ONCE("static binding: failed to load builtin method "
 				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing builtin method: "
-				+ godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
+		jsb_throw(isolate, "missing builtin method: " + godot::Variant::get_type_name(VTC) + "::" + godot::String(NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d",
-				godot::Variant::get_type_name(VTC),
-				godot::String(NameLit.value).utf8().get_data(), M, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(VTC), godot::String(NameLit.value).utf8().get_data(), M, provided));
 		return;
 	}
 
@@ -206,9 +196,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> prefix_slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(prefix_slots), provided)) &&
-				...);
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(prefix_slots), provided)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;

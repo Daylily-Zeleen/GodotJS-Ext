@@ -2,18 +2,18 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include <cstddef>
-#include <cstdint>
-#include <tuple>
-#include <type_traits>
-#include <utility>
+#	include <cstddef>
+#	include <cstdint>
+#	include <tuple>
+#	include <type_traits>
+#	include <utility>
 
-#include <godot_cpp/variant/string_name.hpp>
-#include <godot_cpp/variant/variant.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+#	include <godot_cpp/variant/string_name.hpp>
+#	include <godot_cpp/variant/utility_functions.hpp>
+#	include <godot_cpp/variant/variant.hpp>
 
-#include "runtime/internal/jsb_macros.h"
-#include "runtime/bridge/jsb_type_convert_direct.h"
+#	include "runtime/bridge/jsb_type_convert_direct.h"
+#	include "runtime/internal/jsb_macros.h"
 
 namespace jsb::static_binding {
 
@@ -81,45 +81,162 @@ template <godot::Variant::Type VT>
 struct VariantNativeType;
 
 // Specializations mirror godot-cpp's PtrToArg<CppT> conversions
-template <> struct VariantNativeType<godot::Variant::NIL>           { using type = godot::Variant; };
-template <> struct VariantNativeType<godot::Variant::BOOL>          { using type = uint8_t; };
-template <> struct VariantNativeType<godot::Variant::INT>           { using type = int64_t; };
-template <> struct VariantNativeType<godot::Variant::FLOAT>         { using type = double; };
-template <> struct VariantNativeType<godot::Variant::STRING>        { using type = godot::String; };
-template <> struct VariantNativeType<godot::Variant::VECTOR2>       { using type = godot::Vector2; };
-template <> struct VariantNativeType<godot::Variant::VECTOR2I>      { using type = godot::Vector2i; };
-template <> struct VariantNativeType<godot::Variant::RECT2>         { using type = godot::Rect2; };
-template <> struct VariantNativeType<godot::Variant::RECT2I>        { using type = godot::Rect2i; };
-template <> struct VariantNativeType<godot::Variant::VECTOR3>       { using type = godot::Vector3; };
-template <> struct VariantNativeType<godot::Variant::VECTOR3I>      { using type = godot::Vector3i; };
-template <> struct VariantNativeType<godot::Variant::TRANSFORM2D>   { using type = godot::Transform2D; };
-template <> struct VariantNativeType<godot::Variant::VECTOR4>       { using type = godot::Vector4; };
-template <> struct VariantNativeType<godot::Variant::VECTOR4I>      { using type = godot::Vector4i; };
-template <> struct VariantNativeType<godot::Variant::PLANE>         { using type = godot::Plane; };
-template <> struct VariantNativeType<godot::Variant::QUATERNION>    { using type = godot::Quaternion; };
-template <> struct VariantNativeType<godot::Variant::AABB>          { using type = godot::AABB; };
-template <> struct VariantNativeType<godot::Variant::BASIS>         { using type = godot::Basis; };
-template <> struct VariantNativeType<godot::Variant::TRANSFORM3D>   { using type = godot::Transform3D; };
-template <> struct VariantNativeType<godot::Variant::PROJECTION>    { using type = godot::Projection; };
-template <> struct VariantNativeType<godot::Variant::COLOR>         { using type = godot::Color; };
-template <> struct VariantNativeType<godot::Variant::STRING_NAME>   { using type = godot::StringName; };
-template <> struct VariantNativeType<godot::Variant::NODE_PATH>     { using type = godot::NodePath; };
-template <> struct VariantNativeType<godot::Variant::RID>           { using type = godot::RID; };
-template <> struct VariantNativeType<godot::Variant::OBJECT>        { using type = godot::Object *; };
-template <> struct VariantNativeType<godot::Variant::CALLABLE>      { using type = godot::Callable; };
-template <> struct VariantNativeType<godot::Variant::SIGNAL>        { using type = godot::Signal; };
-template <> struct VariantNativeType<godot::Variant::DICTIONARY>    { using type = godot::Dictionary; };
-template <> struct VariantNativeType<godot::Variant::ARRAY>         { using type = godot::Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_BYTE_ARRAY>     { using type = godot::PackedByteArray; };
-template <> struct VariantNativeType<godot::Variant::PACKED_INT32_ARRAY>    { using type = godot::PackedInt32Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_INT64_ARRAY>    { using type = godot::PackedInt64Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_FLOAT32_ARRAY>  { using type = godot::PackedFloat32Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_FLOAT64_ARRAY>  { using type = godot::PackedFloat64Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_STRING_ARRAY>   { using type = godot::PackedStringArray; };
-template <> struct VariantNativeType<godot::Variant::PACKED_VECTOR2_ARRAY>  { using type = godot::PackedVector2Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_VECTOR3_ARRAY>  { using type = godot::PackedVector3Array; };
-template <> struct VariantNativeType<godot::Variant::PACKED_COLOR_ARRAY>    { using type = godot::PackedColorArray; };
-template <> struct VariantNativeType<godot::Variant::PACKED_VECTOR4_ARRAY>  { using type = godot::PackedVector4Array; };
+template <>
+struct VariantNativeType<godot::Variant::NIL> {
+	using type = godot::Variant;
+};
+template <>
+struct VariantNativeType<godot::Variant::BOOL> {
+	using type = uint8_t;
+};
+template <>
+struct VariantNativeType<godot::Variant::INT> {
+	using type = int64_t;
+};
+template <>
+struct VariantNativeType<godot::Variant::FLOAT> {
+	using type = double;
+};
+template <>
+struct VariantNativeType<godot::Variant::STRING> {
+	using type = godot::String;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR2> {
+	using type = godot::Vector2;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR2I> {
+	using type = godot::Vector2i;
+};
+template <>
+struct VariantNativeType<godot::Variant::RECT2> {
+	using type = godot::Rect2;
+};
+template <>
+struct VariantNativeType<godot::Variant::RECT2I> {
+	using type = godot::Rect2i;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR3> {
+	using type = godot::Vector3;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR3I> {
+	using type = godot::Vector3i;
+};
+template <>
+struct VariantNativeType<godot::Variant::TRANSFORM2D> {
+	using type = godot::Transform2D;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR4> {
+	using type = godot::Vector4;
+};
+template <>
+struct VariantNativeType<godot::Variant::VECTOR4I> {
+	using type = godot::Vector4i;
+};
+template <>
+struct VariantNativeType<godot::Variant::PLANE> {
+	using type = godot::Plane;
+};
+template <>
+struct VariantNativeType<godot::Variant::QUATERNION> {
+	using type = godot::Quaternion;
+};
+template <>
+struct VariantNativeType<godot::Variant::AABB> {
+	using type = godot::AABB;
+};
+template <>
+struct VariantNativeType<godot::Variant::BASIS> {
+	using type = godot::Basis;
+};
+template <>
+struct VariantNativeType<godot::Variant::TRANSFORM3D> {
+	using type = godot::Transform3D;
+};
+template <>
+struct VariantNativeType<godot::Variant::PROJECTION> {
+	using type = godot::Projection;
+};
+template <>
+struct VariantNativeType<godot::Variant::COLOR> {
+	using type = godot::Color;
+};
+template <>
+struct VariantNativeType<godot::Variant::STRING_NAME> {
+	using type = godot::StringName;
+};
+template <>
+struct VariantNativeType<godot::Variant::NODE_PATH> {
+	using type = godot::NodePath;
+};
+template <>
+struct VariantNativeType<godot::Variant::RID> {
+	using type = godot::RID;
+};
+template <>
+struct VariantNativeType<godot::Variant::OBJECT> {
+	using type = godot::Object *;
+};
+template <>
+struct VariantNativeType<godot::Variant::CALLABLE> {
+	using type = godot::Callable;
+};
+template <>
+struct VariantNativeType<godot::Variant::SIGNAL> {
+	using type = godot::Signal;
+};
+template <>
+struct VariantNativeType<godot::Variant::DICTIONARY> {
+	using type = godot::Dictionary;
+};
+template <>
+struct VariantNativeType<godot::Variant::ARRAY> {
+	using type = godot::Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_BYTE_ARRAY> {
+	using type = godot::PackedByteArray;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_INT32_ARRAY> {
+	using type = godot::PackedInt32Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_INT64_ARRAY> {
+	using type = godot::PackedInt64Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_FLOAT32_ARRAY> {
+	using type = godot::PackedFloat32Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_FLOAT64_ARRAY> {
+	using type = godot::PackedFloat64Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_STRING_ARRAY> {
+	using type = godot::PackedStringArray;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_VECTOR2_ARRAY> {
+	using type = godot::PackedVector2Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_VECTOR3_ARRAY> {
+	using type = godot::PackedVector3Array;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_COLOR_ARRAY> {
+	using type = godot::PackedColorArray;
+};
+template <>
+struct VariantNativeType<godot::Variant::PACKED_VECTOR4_ARRAY> {
+	using type = godot::PackedVector4Array;
+};
 
 template <godot::Variant::Type VT>
 using VariantNativeType_t = typename VariantNativeType<VT>::type;
@@ -155,13 +272,10 @@ using ReturnSlotType_t = typename ReturnSlotType<RetT>::type;
 // default-fill, or error). This is the single conversion entry point shared
 // by every thunk shape.
 template <class ArgT>
-inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		typename ArgT::gd_type &out, int provided) {
+inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename ArgT::gd_type &out, int provided) {
 	if (i < provided) {
 		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
-			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
-					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
+			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i, TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
 			return false;
 		}
 		return true;
@@ -177,9 +291,7 @@ inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &
 // ptrcall flavor: produce the value and encode it into a raw argument slot
 // through godot-cpp's ptrcall contract.
 template <class ArgT>
-inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
+inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
 	typename ArgT::gd_type value{};
 	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
@@ -189,9 +301,7 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 }
 
 // Untyped tail loop for vararg methods -- the only allowed loop (§4.0-B).
-inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info,
-		godot::Variant *tail, int from, int provided) {
+inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, godot::Variant *tail, int from, int provided) {
 	for (int i = from; i < provided; ++i) {
 		if (!TypeConvert::js_to_gd_var(p_isolate, p_context, info[i], tail[i - from])) {
 			jsb_throw(p_isolate, jsb_errorf("bad argument %d", i));
@@ -210,8 +320,7 @@ inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Contex
 // The slot is either the native return representation (utility/builtin
 // ptrcall) or a full Variant (object_method_bind_call in class_methods).
 template <class RetT, class SlotT>
-inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
+inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if constexpr (!RetT::has_return) {
 		return true;
 	} else if constexpr (std::is_same_v<SlotT, godot::Variant>) {

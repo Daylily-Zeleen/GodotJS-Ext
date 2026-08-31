@@ -28,8 +28,8 @@
 #include "jsb_godot_module_loader.h"
 #include "jsb_environment.h"
 #include "jsb_object_bindings.h"
-#include "static_binding/dispatch.h"
 #include "jsb_type_convert.h"
+#include "static_binding/dispatch.h"
 
 #include <api_tool/api_tool.h>
 #include <api_tool/api_tool_types.h>
@@ -108,10 +108,10 @@ static void _load_godot_object_class(const v8::FunctionCallbackInfo<v8::Value> &
 		jsb_check(method_info.utility_func);
 
 #if JSB_WITH_STATIC_BINDINGS
-	if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->method.name, api_utility_function->hash)) {
-		info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
-		return;
-	}
+		if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->method.name, api_utility_function->hash)) {
+			info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
+			return;
+		}
 		JSB_LOG(Warning, "static binding not found: utility.%s [utility], falling back to dynamic binding", original_name);
 #endif
 		info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, ObjectReflectBindingUtil::_godot_utility_func, v8::Int32::New(isolate, utility_func_index)));

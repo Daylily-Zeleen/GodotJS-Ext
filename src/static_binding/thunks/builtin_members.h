@@ -2,9 +2,10 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include "thunks_common.h"
-#include <godot_cpp/variant/variant_internal.hpp>
-#include "runtime/internal/jsb_variant_util.h"
+#	include "runtime/internal/jsb_variant_util.h"
+#	include "thunks_common.h"
+#	include <godot_cpp/variant/variant_internal.hpp>
+
 
 namespace jsb::static_binding::thunks {
 
@@ -127,8 +128,7 @@ GDExtensionPtrSetter resolve_member_setter() {
 	return setter;
 }
 
-template <godot::Variant::Type VTC, godot::Variant::Type MemberVT,
-		FixedString NameLit>
+template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
 void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -162,8 +162,7 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	info.GetReturnValue().Set(rval);
 }
 
-template <godot::Variant::Type VTC, godot::Variant::Type MemberVT,
-		FixedString NameLit>
+template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
 void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
