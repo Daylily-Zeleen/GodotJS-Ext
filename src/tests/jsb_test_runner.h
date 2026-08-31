@@ -30,9 +30,7 @@
 // registries stay module-local: the runtime suite only collects cases from
 // src/runtime/tests/*.h, the editor suite only from src/editor/tests/*.h.
 
-#include <cstdio> // fflush
 #include <cstdlib> // std::exit
-#include <iostream> // std::cout
 #include <sstream>
 #include <string>
 
@@ -57,25 +55,27 @@ namespace jsb::tests {
 static constexpr char EDITOR_TEST_FLAG[] = "EditorTest";
 static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
 
+namespace detail {
+
 /**
-Console output channel for the doctest run.
+Replacement for doctest's default console reporter.
 
-doctest's own sinks are unreliable on Linux CI: std::cout is fully buffered
-into the runner's pipe and part of the buffered output never reaches the CI
-log, and even a --out file / an in-memory ostringstream lost everything past
-the first output event. Meanwhile UtilityFunctions::print is proven reliable
-under the exact same conditions (it reaches the CI log in every case).
+doctest's default output channel is unusable here on g++/Linux: its integer
+formatting (ostream's num_put/locale machinery) silently fails inside the
+runtime GDExtension, so every line containing a number (case headers, the
+run summary) is dropped mid-write — on stdout, in a --out file, everywhere.
+UtilityFunctions::print, in contrast, is proven to always reach the CI log.
 
-This reporter therefore prints the essential console-reporter output —
+This reporter mirrors the default console reporter's essential output —
 lazily-printed case headers, MESSAGEs, failed assertions, exceptions, and
-the run summary — straight through UtilityFunctions::print as the events
-happen. No intermediate stream is involved.
+the run summary — but formats every number with std::to_string and emits
+each line straight through UtilityFunctions::print.
 */
-class DirectReporter final : public doctest::IReporter {
+class ConsoleReporter final : public doctest::IReporter {
 	static inline bool s_case_header_logged = false;
 
 public:
-	explicit DirectReporter(const doctest::ContextOptions &) {}
+	explicit ConsoleReporter(const doctest::ContextOptions &) {}
 
 	void test_case_start(const doctest::TestCaseData &) override { s_case_header_logged = false; }
 	void test_case_reenter(const doctest::TestCaseData &) override { s_case_header_logged = false; }
@@ -151,6 +151,8 @@ private:
 	}
 };
 
+} //namespace detail
+
 /**
 Editor 与 Runtime 两个库都分别编译了自己的测试，它们不共用，状态也不直接互通。
 这里使用 godot::Engine 单例来传输两个库的测试状态，确保两者都测试完成再进行退出。
@@ -170,19 +172,15 @@ inline void try_run(const char *p_test_type_flag) {
 		return;
 	}
 
-	// 执行测试。DirectReporter 将 doctest 输出直接经 Godot print 落到 CI 日志
-	// （doctest 自己的输出流在 Linux CI 上不可靠，见类注释）。
+	// 执行测试。detail::ConsoleReporter 代替 doctest 默认 console 输出：
+	// 后者的整数格式化在 g++/Linux 的 runtime DLL 内静默失败导致输出断流
+	// （见 detail::ConsoleReporter 注释），这里改经 Godot print 落到日志。
 	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
-	doctest::registerReporter<DirectReporter>("direct", 0, true);
+	doctest::registerReporter<detail::ConsoleReporter>("direct", 0, true);
 	const char *argv[] = { "jsb", "--reporters=direct", "--no-colors" };
 	doctest::Context context;
 	context.applyCommandLine(2, argv);
 	int exit_code = context.run();
-
-	// Belt and braces: flush the C/C++ standard streams as well.
-	std::cout.flush();
-	fflush(stdout);
-	fflush(stderr);
 
 	// 更新退出码
 	const StringName TEST_RESULT_KEY = "TestResult";
