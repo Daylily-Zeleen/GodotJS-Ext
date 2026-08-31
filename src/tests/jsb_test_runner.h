@@ -100,20 +100,32 @@ inline void try_run(const char *p_test_type_flag) {
 	argv[1] = nullptr; // out_arg keeps the buffer alive until here
 
 	// Echo doctest's captured output through Godot's print (unbuffered and
-	// reliably visible in CI), then remove the temp file.
+	// reliably visible in CI). Diagnostics: report the echoed line count and
+	// the file size so a truncated run is distinguishable from a lost echo.
 	{
+		int echoed_lines = 0;
 		Ref<FileAccess> f = FileAccess::open(doctest_out_path, FileAccess::READ);
 		if (f.is_valid()) {
 			while (!f->eof_reached()) {
 				const String line = f->get_line();
 				if (!line.is_empty() || !f->eof_reached()) {
 					UtilityFunctions::print(line);
+					echoed_lines++;
 				}
 			}
 			f->close();
 		} else {
 			UtilityFunctions::printerr("[jsb] failed to read doctest output file: ", doctest_out_path);
 		}
+		uint64_t file_size = 0;
+		{
+			Ref<FileAccess> size_probe = FileAccess::open(doctest_out_path, FileAccess::READ);
+			if (size_probe.is_valid()) {
+				file_size = size_probe->get_length();
+			}
+		}
+		UtilityFunctions::print("[jsb] doctest output echoed ", echoed_lines,
+				" lines, file size: ", (int64_t)file_size, " bytes (", doctest_out_path, ")");
 		Ref<DirAccess> dir = DirAccess::open(OS::get_singleton()->get_user_data_dir());
 		if (dir.is_valid()) {
 			dir->remove(doctest_out_path.get_file());
