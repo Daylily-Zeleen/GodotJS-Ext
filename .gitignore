@@ -92,3 +92,4 @@ TASK_STATUS.md
 AGENTS.md
 editor_shared/
 .build/
+.ekko-tmp/
