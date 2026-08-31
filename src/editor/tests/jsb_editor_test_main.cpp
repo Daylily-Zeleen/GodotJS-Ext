@@ -25,6 +25,13 @@
 
 #if defined(JSB_TESTS_ENABLED)
 
+// Keep these in sync with src/runtime/tests/jsb_test_main.cpp and
+// src/tests/jsb_test_utils.h: every TU that includes doctest.h must see the
+// same configuration, otherwise the two extensions end up with subtly
+// different doctest internals (assertion handling, signal handlers) and
+// g++-built CI legs misbehave non-deterministically.
+#	define DOCTEST_CONFIG_NO_POSIX_SIGNALS
+#	define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #	define DOCTEST_CONFIG_IMPLEMENT
 #	include "doctest/doctest.h"
 

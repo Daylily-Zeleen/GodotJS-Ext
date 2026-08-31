@@ -38,6 +38,13 @@
 
 #ifdef JSB_TESTS_ENABLED
 
+// The CONFIG macros must be defined before the first doctest.h inclusion in
+// every TU that ends up including one. jsb_test_utils.h / jsb_test_main.cpp
+// define them for their own include chains; this header may be the FIRST
+// include of doctest.h in register_types.cpp / register_editor_types.cpp, so
+// keep the set identical here.
+#	define DOCTEST_CONFIG_NO_POSIX_SIGNALS
+#	define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #	include "doctest/doctest.h"
 
 #	include <godot_cpp/classes/engine.hpp>
