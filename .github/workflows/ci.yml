@@ -580,8 +580,6 @@ jobs:
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
-        # DIAGNOSTIC (linux): trace write() calls into the doctest output file
-        # to find where/why the captured output stream stops mid-line.
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
@@ -591,22 +589,7 @@ jobs:
           ls project/.godot/godotjs_ext | head -20 || true
             "$GODOT" --headless --path project --jsb-run-tests
           else
-            DOCTEST_LOG="$HOME/.local/share/godot/app_userdata/GodotJS Integration Test Suite/jsb_doctest_output.log"
-            strace -f -e trace=write,writev,pwrite64,openat,close,fsync -s 400 -o /tmp/strace.log \
-              timeout 120 "$GODOT" --headless --path project --jsb-run-tests
-            echo "=== doctest output file ops ==="
-            grep -F "jsb_doctest_output.log" /tmp/strace.log | tail -20 || true
-            echo "=== writes to the fd(s) opened for the doctest log ==="
-            for fd in $(grep -F "jsb_doctest_output.log" /tmp/strace.log | grep -oP '= \K[0-9]+' | sort -u); do
-              grep -E "^[0-9 ]+ write\($fd,|^[0-9 ]+ writev\($fd,|^[0-9 ]+ close\($fd\)" /tmp/strace.log | tail -30 || true
-            done
-            echo "=== exported doctest/try_run symbols from the two .so files ==="
-            SO1=$(find project/addons -name "godotjs-ext.linux.editor.x86_64.so" | head -1)
-            SO2=$(find project/addons -name "godotjs-ext-editor.linux.editor.x86_64.so" | head -1)
-            echo "--- $SO1 (runtime) ---"
-            nm -D --defined-only "$SO1" 2>/dev/null | grep -iE "try_run|g_cs|registerReporter|BufferedReporter|reporters_currently_used|_ZL.*log_case|begin_run" | head -20 || true
-            echo "--- $SO2 (editor) ---"
-            nm -D --defined-only "$SO2" 2>/dev/null | grep -iE "try_run|g_cs|registerReporter|BufferedReporter|reporters_currently_used|begin_run" | head -20 || true
+            timeout 120 "$GODOT" --headless --path project --jsb-run-tests
           fi
 
       - name: Run TypeScript integration tests
