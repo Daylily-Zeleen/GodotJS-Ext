@@ -307,7 +307,9 @@ void reload() {
 	get_loader()->reload();
 }
 bool has_generated_data() {
-	initialize();
+	if (get_loader() == nullptr) {
+		initialize();
+	}
 	return get_loader()->has_generated_data();
 }
 

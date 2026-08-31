@@ -207,17 +207,6 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 }
 
 void GodotJSEditorPlugin::_generate_types_from_cmdline() {
-	fprintf(stderr, "[DBG] generate_types_from_cmdline enter\n");
-	jsb::editor::ApiToolSession api_tool_session;
-	if (!api_tool_session.is_valid()) {
-		JSB_LOG(Error, "Type generation requires the api store. Run --godotjs-api-generate first.");
-		if (DisplayServer::get_singleton()->get_name() == "headless") {
-			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-				scene_tree->quit(EXIT_FAILURE);
-			}
-		}
-		return;
-	}
 	// The first filesystem scan starts only AFTER `init_plugins()` (i.e. after our
 	// NOTIFICATION_READY + deferred call): `_first_scan_filesystem()` runs inside
 	// `EditorFileSystem::scan()` before the background scan thread spawns. A
@@ -865,6 +854,15 @@ Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArr
 void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, bool skip_static_types) {
 	ERR_FAIL_COND_MSG(!api_tool::has_generated_data(), "Please generate api data first.");
 	jsb::editor::ApiToolSession api_tool_session;
+	if (!api_tool_session.is_valid()) {
+		JSB_LOG(Error, "Type generation requires the api store. Run --godotjs-api-generate first.");
+		if (DisplayServer::get_singleton()->get_name() == "headless") {
+			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
+				scene_tree->quit(EXIT_FAILURE);
+			}
+		}
+		return;
+	}
 
 	if (GodotJSEditorPlugin *editor_plugin = GodotJSEditorPlugin::get_singleton()) {
 		if (!skip_static_types) {
