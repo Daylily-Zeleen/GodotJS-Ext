@@ -2,11 +2,6 @@ __pycache__
 
 # generated files
 *.gen.*
-# ...except the static-binding dispatch tables, which ARE committed
-# (same policy as godot-cpp's gen/ tree; regenerate with
-#  tools/static_binding_codegen.py, see SConstruct header comment)
-!src/static_binding/gen/*.gen.cpp
-!src/static_binding/gen/*.gen.json
 
 # Ignore library files but not the gdextension file
 /bin/**
