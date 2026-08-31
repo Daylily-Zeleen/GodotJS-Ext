@@ -60,83 +60,67 @@ static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
 /**
 Console output channel for the doctest run.
 
-doctest's own output sinks (std::cout, or a file via --out) both proved
-unreliable under the test process on Linux CI: partway through the runtime
-suite the underlying stream stops accepting bytes (strace showed the file's
-buffered write() containing only the banner and half of the first test-case
-header, while the process kept running and every later reporter write was
-silently dropped). Godot's own print path is the only channel that reliably
-reaches the CI log.
+doctest's own sinks are unreliable on Linux CI: std::cout is fully buffered
+into the runner's pipe and part of the buffered output never reaches the CI
+log, and even a --out file / an in-memory ostringstream lost everything past
+the first output event. Meanwhile UtilityFunctions::print is proven reliable
+under the exact same conditions (it reaches the CI log in every case).
 
-This reporter mirrors the default console reporter's essential output into
-an in-memory buffer: the test-case header + its MESSAGE lines on first
-output, failing assertions, and the final run summary. try_run() replays
-the buffer through UtilityFunctions::print after context.run() returns.
+This reporter therefore prints the essential console-reporter output —
+lazily-printed case headers, MESSAGEs, failed assertions, exceptions, and
+the run summary — straight through UtilityFunctions::print as the events
+happen. No intermediate stream is involved.
 */
-class BufferedReporter final : public doctest::IReporter {
-	// Points at the buffer owned by try_run()'s stack frame for the duration
-	// of the run. doctest constructs/destroys the reporter internally, so the
-	// instance cannot own state the caller needs to read back.
-	static inline std::ostringstream *s_sink = nullptr;
+class DirectReporter final : public doctest::IReporter {
 	static inline bool s_case_header_logged = false;
 
 public:
-	explicit BufferedReporter(const doctest::ContextOptions &) {}
-
-	// Installs the caller-owned sink for the duration of a run.
-	static void begin_run(std::ostringstream &p_sink) {
-		s_sink = &p_sink;
-		s_case_header_logged = false;
-	}
-	static void end_run() { s_sink = nullptr; }
-
-	static std::string take_output(std::ostringstream &p_sink) { return std::move(p_sink).str(); }
+	explicit DirectReporter(const doctest::ContextOptions &) {}
 
 	void test_case_start(const doctest::TestCaseData &) override { s_case_header_logged = false; }
 	void test_case_reenter(const doctest::TestCaseData &) override { s_case_header_logged = false; }
 
 	void log_message(const doctest::MessageData &p_msg) override {
-		if (!s_sink) return;
-		godot::UtilityFunctions::print("[DBG] log_message enter: ", p_msg.m_file);
 		log_case_header(p_msg.m_file, p_msg.m_line);
-		*s_sink << p_msg.m_file << "(" << p_msg.m_line << ") MESSAGE: " << p_msg.m_string << "\n";
-		godot::UtilityFunctions::print("[DBG] log_message exit");
+		std::ostringstream ss;
+		ss << p_msg.m_file << "(" << p_msg.m_line << ") MESSAGE: " << p_msg.m_string << "\n";
+		print_line(ss.str().c_str());
 	}
 
 	void log_assert(const doctest::AssertData &p_assert) override {
-		if (!s_sink) return;
-		godot::UtilityFunctions::print("[DBG] log_assert enter: ", p_assert.m_file);
 		log_case_header(p_assert.m_file, p_assert.m_line);
-		godot::UtilityFunctions::print("[DBG] log_assert header done");
 		if (p_assert.m_failed) {
-			*s_sink << "ERROR: " << p_assert.m_expr;
+			std::ostringstream ss;
+			ss << "ERROR: " << p_assert.m_expr;
 			if (p_assert.m_threw) {
-				*s_sink << " threw: " << p_assert.m_exception.c_str();
+				ss << " threw: " << p_assert.m_exception.c_str();
 			} else if (p_assert.m_decomp.c_str() && *p_assert.m_decomp.c_str()) {
-				*s_sink << " values: " << p_assert.m_decomp.c_str();
+				ss << " values: " << p_assert.m_decomp.c_str();
 			}
-			*s_sink << "\n";
+			ss << "\n";
+			print_line(ss.str().c_str());
 		}
-		godot::UtilityFunctions::print("[DBG] log_assert exit");
 	}
 
 	void test_case_exception(const doctest::TestCaseException &p_exc) override {
-		if (!s_sink) return;
-		*s_sink << "ERROR: test case " << (p_exc.is_crash ? "CRASHED" : "THREW exception")
+		std::ostringstream ss;
+		ss << "ERROR: test case " << (p_exc.is_crash ? "CRASHED" : "THREW exception")
 				<< ": " << p_exc.error_string << "\n";
+		print_line(ss.str().c_str());
 	}
 
 	void test_run_end(const doctest::TestRunStats &p_stats) override {
-		if (!s_sink) return;
-		*s_sink << "[doctest] test cases: " << p_stats.numTestCasesPassingFilters
+		std::ostringstream ss;
+		ss << "[doctest] test cases: " << p_stats.numTestCasesPassingFilters
 				<< " | " << (p_stats.numTestCasesPassingFilters - p_stats.numTestCasesFailed)
-				<< " passed | " << p_stats.numTestCasesFailed << " failed | 0 skipped\n";
-		*s_sink << "[doctest] assertions: " << p_stats.numAsserts
+				<< " passed | " << p_stats.numTestCasesFailed << " failed | 0 skipped\n"
+				<< "[doctest] assertions: " << p_stats.numAsserts
 				<< " | " << (p_stats.numAsserts - p_stats.numAssertsFailed)
-				<< " passed | " << p_stats.numAssertsFailed << " failed |\n";
-		*s_sink << (p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
-						? "[doctest] Status: SUCCESS!\n"
-						: "[doctest] Status: FAILURE!\n");
+				<< " passed | " << p_stats.numAssertsFailed << " failed |\n"
+				<< (p_stats.numTestCasesFailed == 0 && p_stats.numAssertsFailed == 0
+							? "[doctest] Status: SUCCESS!\n"
+							: "[doctest] Status: FAILURE!\n");
+		print_line(ss.str().c_str());
 	}
 
 	// -- unused callbacks ----------------------------------------------------
@@ -148,6 +132,10 @@ public:
 	void test_case_skipped(const doctest::TestCaseData &) override {}
 
 private:
+	static void print_line(const char *p_line) {
+		godot::UtilityFunctions::print(p_line);
+	}
+
 	// The default console reporter prints the TEST_CASE header lazily, right
 	// before the first output event of the case; mirror that behaviour.
 	static void log_case_header(const char *p_file, int p_line) {
@@ -155,8 +143,11 @@ private:
 			return;
 		}
 		s_case_header_logged = true;
-		*s_sink << "===============================================================================\n";
-		*s_sink << p_file << "(" << p_line << "): TEST CASE\n";
+		godot::UtilityFunctions::print(
+				"===============================================================================");
+		std::ostringstream ss;
+		ss << p_file << "(" << p_line << "): TEST CASE";
+		godot::UtilityFunctions::print(ss.str().c_str());
 	}
 };
 
@@ -179,28 +170,14 @@ inline void try_run(const char *p_test_type_flag) {
 		return;
 	}
 
-	// 执行测试。BufferedReporter 代替 doctest 默认 console 输出（其输出流在
-	// Linux CI 上不可靠，见类注释），run() 结束后经 Godot print 回显。
+	// 执行测试。DirectReporter 将 doctest 输出直接经 Godot print 落到 CI 日志
+	// （doctest 自己的输出流在 Linux CI 上不可靠，见类注释）。
 	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
-	doctest::registerReporter<BufferedReporter>("buffered", 0, true);
-	const char *argv[] = { "jsb", "--reporters=buffered", "--no-colors" };
+	doctest::registerReporter<DirectReporter>("direct", 0, true);
+	const char *argv[] = { "jsb", "--reporters=direct", "--no-colors" };
 	doctest::Context context;
-	context.applyCommandLine(3, argv);
-
-	std::ostringstream report_buffer;
-	BufferedReporter::begin_run(report_buffer);
+	context.applyCommandLine(2, argv);
 	int exit_code = context.run();
-	BufferedReporter::end_run();
-
-	// Echo the buffered test output through Godot's print (reliably visible
-	// in CI logs), one line at a time.
-	{
-		std::istringstream lines(BufferedReporter::take_output(report_buffer));
-		std::string line;
-		while (std::getline(lines, line)) {
-			UtilityFunctions::print(line.c_str());
-		}
-	}
 
 	// Belt and braces: flush the C/C++ standard streams as well.
 	std::cout.flush();
