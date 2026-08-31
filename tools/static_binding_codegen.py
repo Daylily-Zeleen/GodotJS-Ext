@@ -627,22 +627,22 @@ def arg_template_expr(a):
     meta = a.get("meta")
     if t == "int" and meta in INT_META_TO_CPP:
         ct = INT_META_TO_CPP[meta]
+    elif t.startswith("typedarray::"):
+        # may materialize as Array or Packed*Array; the typed converter covers
+        # both (JSToGD<godot::Array> falls back to the typed dynamic path)
+        ct = "godot::Array"
     else:
         ct = PARAM_TYPE_MAP.get(t)
     if ct is None:
-        # enums/bitfields are integers at the ABI level; typedarray arguments
-        # materialize as Array or Packed*Array; bare engine class names
-        # (Button, Sprite2D, ...) behave as plain Object*.
-        if t.startswith("typedarray::"):
-            ct = "godot::Array"
-        elif t.startswith(("enum::", "bitfield::")):
+        # enums/bitfields are integers at the ABI level; bare engine class
+        # names (Button, Sprite2D, ...) behave as plain Object*.
+        if t.startswith(("enum::", "bitfield::")):
             ct = "int64_t"
         else:
             ct = "godot::Object*"
     if "default" in a:
         return 'Arg<%s, %s>' % (ct, cxx_str(a["default"]))
     return 'Arg<%s>' % ct
-
 
 def ret_template_expr(t, usage=0):
     if t in ('void', 'null'):
