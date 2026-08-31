@@ -215,10 +215,27 @@ def parse_args_list(args_json):
     out = []
     for a in args_json or []:
         entry = {"type": a.get("type", "Variant")}
+        if a.get("meta"):
+            entry["meta"] = a["meta"]
         if "default_value" in a:
             entry["default"] = a["default_value"]
         out.append(entry)
     return out
+
+
+# json "meta" on int arguments -> exact-width C type. Mirrors
+# GDExtensionClassMethodArgumentMetadata (INT_IS_INT8..UINT64).
+INT_META_TO_CPP = {
+    "int8": "int8_t",
+    "int16": "int16_t",
+    "int32": "int32_t",
+    "int64": "int64_t",
+    "uint8": "uint8_t",
+    "uint16": "uint16_t",
+    "uint32": "uint32_t",
+    "uint64": "uint64_t",
+    "char32": "char32_t",
+}
 
 
 def default_count(ent):
@@ -244,12 +261,18 @@ def collect(data, vt_map):
             if "hash" not in meth:
                 raise SystemExit(
                     f"FATAL: builtin method without hash: {name}.{meth['name']}")
+            _rt = meth.get("return_type")
+            if isinstance(_rt, dict):
+                _ret_type, _ret_usage = _rt.get("type", "void"), _rt.get("usage", 0)
+            else:
+                _ret_type, _ret_usage = (_rt or "void"), 0
             m.builtin_methods.append({
                 "vt": vt,
                 "name_id": m.pool.get(meth["name"]),
                 "hash": int(meth["hash"]),
                 "args": parse_args_list(meth.get("arguments")),
-                "ret_id": m.pool.get(meth.get("return_type", "void")),
+                "ret_id": m.pool.get(_ret_type),
+                "ret_usage": _ret_usage,
                 "is_vararg": bool(meth.get("is_vararg", False)),
                 "is_static": bool(meth.get("is_static", False)),
             })
@@ -313,12 +336,18 @@ def collect(data, vt_map):
                 m.exemptions.append(
                     f"class method (virtual/no-hash): {cls_name}.{meth['name']}")
                 continue
+            _rt = meth.get("return_value")
+            if isinstance(_rt, dict):
+                _ret_type, _ret_usage = _rt.get("type", "void"), _rt.get("usage", 0)
+            else:
+                _ret_type, _ret_usage = (_rt or "void"), 0
             m.class_methods.append({
                 "class_name_id": cls_name_id,
                 "name_id": m.pool.get(meth["name"]),
                 "hash": int(meth["hash"]),
                 "args": parse_args_list(meth.get("arguments")),
-                "ret_id": m.pool.get(meth.get("return_type", "void")),
+                "ret_id": m.pool.get(_ret_type),
+                "ret_usage": _ret_usage,
                 "is_vararg": bool(meth.get("is_vararg", False)),
                 "is_static": bool(meth.get("is_static", False)),
                 "is_const": bool(meth.get("is_const", False)),
@@ -367,11 +396,17 @@ def collect(data, vt_map):
         if "hash" not in uf:
             m.exemptions.append(f"utility function (no-hash): {uf['name']}")
             continue
+        _rt = uf.get("return_type")
+        if isinstance(_rt, dict):
+            _ret_type, _ret_usage = _rt.get("type", "void"), _rt.get("usage", 0)
+        else:
+            _ret_type, _ret_usage = (_rt or "void"), 0
         m.utility_funcs.append({
             "name_id": m.pool.get(uf["name"]),
             "hash": int(uf["hash"]),
             "args": parse_args_list(uf.get("arguments")),
-            "ret_id": m.pool.get(uf.get("return_type", "void")),
+            "ret_id": m.pool.get(_ret_type),
+            "ret_usage": _ret_usage,
             "is_vararg": bool(uf.get("is_vararg", False)),
         })
 
@@ -589,30 +624,49 @@ def emit_registry_cpp(m):
 
 def arg_template_expr(a):
     t = a["type"]
-    ct = PARAM_TYPE_MAP.get(t)
+    meta = a.get("meta")
+    if t == "int" and meta in INT_META_TO_CPP:
+        ct = INT_META_TO_CPP[meta]
+    else:
+        ct = PARAM_TYPE_MAP.get(t)
     if ct is None:
-        # enums/bitfields are integers at the ABI level; bare engine class
-        # names (Button, Sprite2D, ...) behave as plain Object* in the
-        # dynamic path as well -- same conversion semantics.
-        ct = ("int64_t" if t.startswith(("enum::", "bitfield::"))
-              else "godot::Object*")
+        # enums/bitfields are integers at the ABI level; typedarray arguments
+        # materialize as Array or Packed*Array; bare engine class names
+        # (Button, Sprite2D, ...) behave as plain Object*.
+        if t.startswith("typedarray::"):
+            ct = "godot::Array"
+        elif t.startswith(("enum::", "bitfield::")):
+            ct = "int64_t"
+        else:
+            ct = "godot::Object*"
     if "default" in a:
         return 'Arg<%s, %s>' % (ct, cxx_str(a["default"]))
     return 'Arg<%s>' % ct
 
 
-def ret_template_expr(t):
+def ret_template_expr(t, usage=0):
     if t in ('void', 'null'):
         return 'Ret<godot::Variant::NIL>'
     if t in VARIANT_TYPE_VALUES:
         # Emit enum name for C++20 NTTP (godot::Variant::VECTOR2 etc.)
         enum_name = JSON_TO_ENUM_NAME.get(t, t.upper())
-        return 'Ret<godot::Variant::%s>' % enum_name
-    if t.startswith("enum::") or t.startswith("bitfield::") or t == "Variant":
-        if t == "Variant":
+        if t == 'nil' and (usage & 131072):  # PROPERTY_USAGE_NIL_IS_VARIANT
             return 'RetAny'
+        if usage:
+            return 'Ret<godot::Variant::%s, 0x%xu>' % (enum_name, usage)
+        return 'Ret<godot::Variant::%s>' % enum_name
+    if t == "Variant":
+        return 'RetAny'
+    if t.startswith("typedarray::"):
+        # may materialize as Array or Packed*Array; no static type hint
+        return 'RetAny'
+    if t.startswith("enum::") or t.startswith("bitfield::"):
         return 'Ret<godot::Variant::INT>'  # enums/bitfields come back as integers
-    raise AssertionError(f"unhandled return type: {t}")
+    if t in ("void", "null"):
+        return 'Ret<godot::Variant::NIL>'
+    # everything else is an Object-derived engine class name (Button, ...)
+    return 'Ret<godot::Variant::OBJECT>'
+    # (unreachable) raise AssertionError(f"unhandled return type: {t}")
 
 
 def emit_dispatch_cpp(m):
@@ -643,7 +697,7 @@ def emit_dispatch_cpp(m):
         static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
         return "%s%s<%s%du, %s, %s%s%s>" % (
             "(ThunkFn)&", tmpl_name, vt_part, e["hash"], name_lit,
-            static_part, ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs)
+            static_part, ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0)), args_exprs)
 
     by_vt = collections.OrderedDict()
     for e in m.builtin_methods:
@@ -762,7 +816,7 @@ def class_entry_expr(e, cname, extra=""):
     return "%s<%du, %s, %s, %s, %s%s%s>" % (
         tmpl_name, e["hash"], cls_lit, name_lit,
         cxx_bool(e["is_static"]),
-        ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs, extra)
+        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0)), args_exprs, extra)
 
 
 def emit_class_dispatch_cpp(m):
@@ -792,7 +846,7 @@ def emit_class_dispatch_cpp(m):
         return "%s<%du, %s, %s, %s, %s%s%s>" % (
             tmpl_name, e["hash"], cls_lit, name_lit,
             cxx_bool(e["is_static"]),
-            ret_template_expr(m.pool.strings[e["ret_id"]]), args_exprs, extra)
+            ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0)), args_exprs, extra)
 
     by_cls = collections.OrderedDict()
     for e in m.class_methods:

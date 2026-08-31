@@ -18,8 +18,8 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	const GDExtensionPtrUtilityFunction fn = resolve_utility_function<HashC, NameLit>();
 	if (!fn) {
-		ERR_PRINT_ONCE("static binding: failed to load utility function " + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing utility function: " + godot::String(NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
+		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));
 		return;
 	}
 
@@ -60,8 +60,8 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	const GDExtensionPtrUtilityFunction fn = resolve_utility_function<HashC, NameLit>();
 	if (!fn) {
-		ERR_PRINT_ONCE("static binding: failed to load utility function " + godot::String(NameLit.value));
-		jsb_throw(isolate, "missing utility function: " + godot::String(NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
+		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));
 		return;
 	}
 
