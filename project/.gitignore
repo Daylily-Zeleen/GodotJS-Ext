@@ -5,10 +5,7 @@
 # Generated
 !node_modules/.gdignore
 node_modules/
-# extension_api.json is SOURCE DATA for the static-binding codegen
-# (not a build artifact) -- keep it versioned so CI can build without
-# a godot editor binary.
-!extension_api.json
+extension_api.json
 gen/
 typings/
 
