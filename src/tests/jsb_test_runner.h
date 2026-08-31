@@ -33,12 +33,15 @@
 #include <cstdio> // fflush
 #include <cstdlib> // std::exit
 #include <iostream> // std::cout (doctest writes its output through it)
+#include <string> // std::string (doctest --out argument lifetime)
 
 #ifdef JSB_TESTS_ENABLED
 
 #	include "doctest/doctest.h"
 
+#	include <godot_cpp/classes/dir_access.hpp>
 #	include <godot_cpp/classes/engine.hpp>
+#	include <godot_cpp/classes/file_access.hpp>
 #	include <godot_cpp/classes/os.hpp>
 #	include <godot_cpp/classes/scene_tree.hpp>
 #	include <godot_cpp/variant/utility_functions.hpp>
@@ -69,13 +72,54 @@ inline void try_run(const char *p_test_type_flag) {
 
 	// 执行测试
 	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
-	doctest::Context context;
-	int exit_code = context.run();
 
-	// CI (Linux, pipe-buffered stdout) may drop buffered doctest output on the
-	// fast shutdown path; flush right after the run so the log always shows
-	// the per-case output and the summary. doctest writes through std::cout,
-	// and Godot's own print goes through the C stdout FILE* -- flush both.
+	// doctest writes through std::cout; on CI (Linux, pipe-buffered stdout)
+	// large parts of its output were silently dropped on the fast shutdown
+	// path (per-case messages, the summary), which made the run unreadable
+	// and previously masked the state of the suite entirely. Route doctest's
+	// output into a temp file and echo it back through Godot's own print
+	// (which is reliably visible in CI logs) after the run completes.
+	String doctest_out_path = OS::get_singleton()->get_user_data_dir().path_join("jsb_doctest_output.log");
+	{
+		// --out is only honored per-suite and truncated by doctest itself on
+		// open; a stale file from a previous suite must not survive.
+		Ref<DirAccess> dir = DirAccess::open(OS::get_singleton()->get_user_data_dir());
+		if (dir.is_valid() && dir->file_exists(doctest_out_path.get_file())) {
+			dir->remove(doctest_out_path.get_file());
+		}
+	}
+	const CharString doctest_out_path_utf8 = doctest_out_path.utf8();
+	const char *argv[] = { "jsb", "--out=", nullptr };
+	// doctest parses "--out=<path>" as a single argv entry.
+	std::string out_arg = std::string("--out=") + doctest_out_path_utf8.get_data();
+	argv[1] = out_arg.c_str();
+
+	doctest::Context context;
+	context.applyCommandLine(2, argv);
+	int exit_code = context.run();
+	argv[1] = nullptr; // out_arg keeps the buffer alive until here
+
+	// Echo doctest's captured output through Godot's print (unbuffered and
+	// reliably visible in CI), then remove the temp file.
+	{
+		Ref<FileAccess> f = FileAccess::open(doctest_out_path, FileAccess::READ);
+		if (f.is_valid()) {
+			while (!f->eof_reached()) {
+				const String line = f->get_line();
+				if (!line.is_empty() || !f->eof_reached()) {
+					UtilityFunctions::print(line);
+				}
+			}
+			f->close();
+		} else {
+			UtilityFunctions::printerr("[jsb] failed to read doctest output file: ", doctest_out_path);
+		}
+		Ref<DirAccess> dir = DirAccess::open(OS::get_singleton()->get_user_data_dir());
+		if (dir.is_valid()) {
+			dir->remove(doctest_out_path.get_file());
+		}
+	}
+	// Belt and braces: flush the C/C++ standard streams as well.
 	std::cout.flush();
 	fflush(stdout);
 	fflush(stderr);
