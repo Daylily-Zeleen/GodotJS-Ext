@@ -592,10 +592,10 @@ jobs:
             "$GODOT" --headless --path project --jsb-run-tests
           else
             DOCTEST_LOG="$HOME/.local/share/godot/app_userdata/GodotJS Integration Test Suite/jsb_doctest_output.log"
-            strace -f -e trace=write,openat -s 200 -o /tmp/strace.log \
+            strace -f -e trace=write,writev,pwrite64,openat,close,fsync -s 400 -o /tmp/strace.log \
               timeout 120 "$GODOT" --headless --path project --jsb-run-tests
-            echo "=== doctest output file writes (last 40) ==="
-            grep -F "jsb_doctest_output.log" /tmp/strace.log | tail -40 || true
+            echo "=== doctest output file ops (last 60) ==="
+            grep -F "jsb_doctest_output.log" /tmp/strace.log | tail -60 || true
           fi
 
       - name: Run TypeScript integration tests
