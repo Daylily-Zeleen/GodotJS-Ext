@@ -2,7 +2,7 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include "thunks_common.h"
+#	include "thunks_common.h"
 
 namespace jsb::static_binding::thunks {
 
@@ -24,8 +24,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	if ((int)info.Length() != N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d",
-				godot::String(NameLit.value).utf8().get_data(), N, (int)info.Length()));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d", godot::String(NameLit.value).utf8().get_data(), N, (int)info.Length()));
 		return;
 	}
 
@@ -33,9 +32,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(slots), provided)) &&
-				...);
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(slots), provided)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return;
@@ -70,17 +67,14 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	const int provided = (int)info.Length();
 	if (provided < F) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d",
-				godot::String(NameLit.value).utf8().get_data(), F, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d", godot::String(NameLit.value).utf8().get_data(), F, provided));
 		return;
 	}
 
 	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> prefix_slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I,
-						std::get<I>(prefix_slots), provided)) &&
-				...);
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(prefix_slots), provided)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;

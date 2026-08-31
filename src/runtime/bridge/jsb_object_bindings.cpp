@@ -5,7 +5,7 @@
 /*                                GodotJS-Ext                           */
 /*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
 /*                                                                      */
-/*  Copyright (c) 2026-present å¿å¿§ã® (Daylily-Zeleen)                  */
+/*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
 /*  Copyright (c) Contributors of GodotJS                               */
 /*                 - <https://github.com/godotjs/GodotJS>               */
@@ -26,10 +26,11 @@
 /************************************************************************/
 
 #include "jsb_object_bindings.h"
-#include "static_binding/dispatch.h"
 #include "api_tool/api_tool.h"
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
+#include "static_binding/dispatch.h"
+
 // TODO: Refactor. Violates isolation of bridge.
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
@@ -45,8 +46,8 @@ static Variant::Type sanitize_return_type(const Variant::Type p_metadata_type, c
 }
 
 /** TODO:
-		ä»å¯¹ RefCounted, é¢å¤æ·»å  [Symbol.dispose] ä¸ [Symbol.asyncDispose] ä»¥æ¯æç¦»å¼ using ä½ç¨åæ¶éæ¾èµæºèµæºï¼ env->dispose_binding_object
-		æ³¨æææ¡£ä¹è¦ç¸åºçæ
+		仅对 RefCounted, 额外添加 [Symbol.dispose] 与 [Symbol.asyncDispose] 以支持离开 using 作用域时释放资源资源， env->dispose_binding_object
+		注意文档也要相应生成
  */
 NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, const godot::StringName &p_class_name, NativeClassID *r_class_id) {
 	v8::Isolate *isolate = p_env->get_isolate();
@@ -119,7 +120,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 						setter_method ? _godot_object_set2 : nullptr,
 						remap_index);
 			} else {
-				// TODO: æ¹ç¨æ´ç®åçè®¿é®å¨åè°åä»£ _godot_object_method
+				// TODO: 改用更简单的访问器回调取代 _godot_object_method
 				class_builder.Instance().Property(property_name,
 						getter_method ? _godot_object_method : nullptr,
 						(void *)getter_method,

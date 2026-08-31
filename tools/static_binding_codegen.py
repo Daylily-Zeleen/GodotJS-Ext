@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-# /************************************************************************/
-# /*  static_binding_codegen.py                                           */
-# /************************************************************************/
-# /*  This file is part of:                                               */
-# /*                                GodotJS-Ext                           */
-# /*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
-# /*                                                                      */
-# /*  Generates C++ registration tables for compile-time static bindings  */
-# /*  from extension_api.json. See docs/design/static-bindings.md.        */
-# /*                                                                      */
-# /*  Deterministic output: iteration order follows the input JSON order; */
-# /*  the same inputs always produce byte-equal output (required by the   */
-# /*  --check freshness gate in CI).                                      */
-#
+
 # P0 scope: string table + metadata registry tables + manifest reconciliation.
 # Thunk dispatch emission lands in later phases (design doc §11).
 #
