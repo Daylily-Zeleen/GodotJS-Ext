@@ -450,7 +450,7 @@ jobs:
 
       - name: Install gdb
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y gdb
+        run: sudo apt-get update && sudo apt-get install -y gdb strace
 
       # A crashing Godot process on Windows can pop up the Windows Error
       # Reporting dialog, which blocks the runner forever. Disable its UI.
@@ -580,6 +580,8 @@ jobs:
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
+        # DIAGNOSTIC (linux): trace write() calls into the doctest output file
+        # to find where/why the captured output stream stops mid-line.
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
@@ -589,7 +591,11 @@ jobs:
           ls project/.godot/godotjs_ext | head -20 || true
             "$GODOT" --headless --path project --jsb-run-tests
           else
-            timeout 120 "$GODOT" --headless --path project --jsb-run-tests
+            DOCTEST_LOG="$HOME/.local/share/godot/app_userdata/GodotJS Integration Test Suite/jsb_doctest_output.log"
+            strace -f -e trace=write,openat -s 200 -o /tmp/strace.log \
+              timeout 120 "$GODOT" --headless --path project --jsb-run-tests
+            echo "=== doctest output file writes (last 40) ==="
+            grep -F "jsb_doctest_output.log" /tmp/strace.log | tail -40 || true
           fi
 
       - name: Run TypeScript integration tests
