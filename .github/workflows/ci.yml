@@ -58,56 +58,9 @@ jobs:
           retention-days: 1
 
 
-  # Dump the extension API ONCE with the official stable editor so the build
-  # matrix can run static-binding codegen without a godot binary per platform.
-  # The json is a build-time input only -- it is NOT committed (see TASK_STATUS).
-  api-dump:
-    name: Dump extension API
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Download Godot (Linux)
-        uses: dsaltares/fetch-gh-release-asset@1.1.2
-        with:
-          repo: godotengine/godot
-          version: tags/4.7.1-stable
-          file: Godot_v4.7.1-stable_linux.x86_64.zip
-          target: godot/godot.zip
-
-      - name: Extract Godot
-        shell: bash
-        run: |
-          mkdir -p tests/bin
-          unzip -o godot/godot.zip -d tests/bin/
-          chmod +x tests/bin/Godot* 2>/dev/null || true
-          GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
-
-      # The editor may crash during its shutdown phase after the dump has been
-      # written (known 4.7.1 teardown issue, same as the test job) -- tolerate
-      # the crash and judge success by the presence of the file. Retry a few
-      # times, wiping caches between attempts.
-      - name: Dump extension API
-        shell: bash
-        run: |
-          ok=0
-          for attempt in 1 2 3; do
-            mkdir -p project
-            "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
-            if test -f project/extension_api.json; then ok=1; break; fi
-            echo "attempt $attempt did not produce the dump, retrying..."
-            rm -rf project/.godot
-          done
-          test -f project/extension_api.json || { echo "extension_api.json missing after retries"; exit 1; }
-
-      - name: Upload extension API dump
-        uses: actions/upload-artifact@v7
-        with:
-          name: extension-api-json
-          path: project/extension_api.json
-
   build:
     name: Build (${{ matrix.platform }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.engine }})
-    needs: [environment, api-dump]
+    needs: environment
     strategy:
       fail-fast: false
       matrix:
@@ -321,12 +274,6 @@ jobs:
         with:
           version: 3.1.39
           actions-cache-folder: 'emsdk-cache'
-
-      - name: Download extension API dump
-        uses: actions/download-artifact@v8
-        with:
-          name: extension-api-json
-          path: project
 
       - name: Build GDExtension
         shell: bash

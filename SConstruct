@@ -61,8 +61,12 @@ third_folder_name = "third"
 third_dir = third_folder_name
 
 # godot-cpp >= PR #2034 (require-api-version) mandates an explicit api_version.
-# The bindings are generated from gdextension/extension_api-4.7.json.
-env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": "4.7"})
+# This is the SINGLE source of truth for the api json: godot-cpp generates its
+# bindings from gdextension/extension_api-<API_VERSION>.json (tools/godotcpp.py
+# _get_api_file), and our static-binding codegen uses the very same file below.
+# Keep it in sync with the .gdextension compatibility_minimum.
+API_VERSION = "4.7"
+env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": API_VERSION})
 
 # godot-cpp sets SHLIBPREFIX="" only on Windows; on Linux/macOS the default is
 # "lib" which produces libgodotjs-ext.*.so — but our .gdextension file expects
@@ -794,17 +798,19 @@ runtime_globs = [
 ]
 
 # Static bindings: generated tables (*.gen.*) are NEVER committed.
-# Codegen needs project/extension_api.json (engine dump, also not committed):
-#   godot --headless --editor --path ./project --dump-extension-api-with-docs
-# CI dumps it once in the api-dump job and hands it to every build job.
+# Codegen consumes the extension_api json that ships INSIDE the godot-cpp
+# submodule (gdextension/extension_api-<API_VERSION>.json) -- the exact file
+# godot-cpp's own binding generator uses (tools/godotcpp.py _get_api_file).
+# It is always present, so no engine dump and no CI pre-step are needed.
 if env.get("static_binding", False):
     _sb_gen_dir = os.path.join(src_dir, "static_binding", "gen")
-    _sb_api_json = os.path.join(root_dir, "project", "extension_api.json")
+    _sb_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+            "extension_api-%s.json" % API_VERSION.replace(".", "-"))
     _sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
     _sb_codegen = os.path.join(root_dir, "tools", "static_binding_codegen.py")
     if not os.path.exists(_sb_api_json):
         print_error("static_binding=yes requires " + _sb_api_json +
-                    ". Dump the api json first: godot --headless --editor --path ./project --dump-extension-api-with-docs")
+                    " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
     subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
                     "--interface", _sb_interface_json,
                     "--out", _sb_gen_dir], check=True)

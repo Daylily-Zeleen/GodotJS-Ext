@@ -59,11 +59,11 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	void *base_opaque = get_opaque_typed<VTC>(const_cast<Variant *>(p_self));
 
 	// Member getter uses OPAQUE PTRCALL ABI: base is opaque pointer, value is native encode type
-	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_slot{};
-	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_slot);
+	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_val{};
+	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_val);
 
 	// Convert native slot back to Variant for JS
-	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_slot);
+	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_val);
 
 	v8::Local<v8::Value> rval;
 	if (!TypeConvert::gd_var_to_js(isolate, context, result, rval)) {
@@ -100,9 +100,9 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	void *base_opaque = get_opaque_typed<VTC>(p_self);
 
 	// Member setter uses OPAQUE PTRCALL ABI
-	VariantEncodeType<VariantNativeType_t<MemberVT>> val_slot{};
-	godot::PtrToArg<VariantNativeType_t<MemberVT>>::encode(value, &val_slot);
-	setter((GDExtensionTypePtr)base_opaque, (GDExtensionConstTypePtr)&val_slot);
+	VariantEncodeType<VariantNativeType_t<MemberVT>> encoded_value{};
+	godot::PtrToArg<VariantNativeType_t<MemberVT>>::encode(value, &encoded_value);
+	setter((GDExtensionTypePtr)base_opaque, (GDExtensionConstTypePtr)&encoded_value);
 }
 
 } // namespace jsb::static_binding::thunks

@@ -43,9 +43,9 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
-	ReturnSlotType_t<RetT> ret{};
-	fn(&ret, arg_ptrs, N);
-	translate_return<RetT>(isolate, context, ret, info);
+	ReturnEncodeType<RetT> ret_val{};
+	fn(&ret_val, arg_ptrs, N);
+	translate_return<RetT>(isolate, context, ret_val, info);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,13 +102,13 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	ReturnSlotType_t<RetT> ret{};
-	fn(&ret, arg_ptrs, argc);
+	ReturnEncodeType<RetT> ret_val{};
+	fn(&ret_val, arg_ptrs, argc);
 
 	for (int i = F; i < argc; ++i) {
 		tail_args[i - F].~Variant();
 	}
-	translate_return<RetT>(isolate, context, ret, info);
+	translate_return<RetT>(isolate, context, ret_val, info);
 }
 
 } // namespace jsb::static_binding::thunks
