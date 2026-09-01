@@ -753,7 +753,7 @@ def emit_builtin_dispatch_cpp(m):
     official method hash; the name participates only where signature-derived
     hashes collide within a type. Also emits the builtin member accessor
     lookups (§4.1)."""
-    L = [GENERATED_NOTE,
+    L = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/builtin_methods.h"',
          '#include "static_binding/thunks/builtin_members.h"',
@@ -840,7 +840,7 @@ def emit_builtin_dispatch_cpp(m):
 def emit_utility_dispatch_cpp(m):
     """Utility-function dispatch (§4.2): flat hash switch, the method name
     disambiguates the rare same-hash collisions."""
-    L = [GENERATED_NOTE,
+    L = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/utility_functions.h"',
          "",
@@ -916,7 +916,7 @@ def emit_class_dispatch_cpp(m):
     conversion happens ONCE, outside the loop), then delegates -- the
     per-class switch disambiguates same-hash overloads with strcmp on the
     method name. Indexed property accessors resolve BOTH sides in one lookup."""
-    L = [GENERATED_NOTE,
+    L = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/class_methods.h"',
          '#include "static_binding/thunks/indexed_properties.h"',
@@ -1142,9 +1142,10 @@ def main():
     }
     outputs = {}
     for fname, content in cpp_outputs.items():
-        # Same convention as templates.gen.h / jsb.gen.h: the standard block
-        # comment copyright header, preceded by an AUTO-GENERATED marker.
-        header = "// AUTO-GENERATED\n\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
+        # DO-NOT-EDIT marker on top (no separate AUTO-GENERATED line -- the
+        # note already says it), then the standard block-comment copyright
+        # header from misc/copyright.py, then the emitted body.
+        header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
         outputs[fname] = header + content
     # manifest.gen.json is machine-readable JSON (no comments allowed) and is
     # a build-reconciliation byproduct, not a compiled static binding file.
