@@ -1,4 +1,4 @@
-import { Node, PackedScene, ResourceLoader } from "godot";
+import { Node, OS, PackedScene, ResourceLoader } from "godot";
 import {
 	getActiveAsyncTestCount,
 	hasActiveAsyncTests,
@@ -14,7 +14,13 @@ const ASYNC_TEST_DRAIN_POLL_MS = 10;
 export default class Start extends Node {
 	async _ready() {
 		try {
-			const scenes = [
+			// `godot ... -- --bench` runs the benchmark scene exclusively (it
+			// quits the engine itself); the benchmark scene must NOT be mixed
+			// into the regular list, its quit() races the remaining loads.
+			const benchOnly = OS.get_cmdline_user_args().has("--bench");
+			const scenes = benchOnly ? [
+				"res://tests/benchmark/Benchmark.tscn",
+			] : [
 				"res://tests/resource/Resource.tscn",
 				"res://tests/singleton/Singleton.tscn",
 				"res://tests/extend/Extend.tscn",
