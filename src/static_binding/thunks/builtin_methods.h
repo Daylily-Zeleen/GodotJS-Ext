@@ -149,9 +149,9 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
-	ReturnSlotType_t<RetT> ret{};
-	fn(base_ptr, arg_ptrs, &ret, N);
-	translate_return<RetT>(isolate, context, ret, info);
+	ReturnEncodeType<RetT> ret_val{};
+	fn(base_ptr, arg_ptrs, &ret_val, N);
+	translate_return<RetT>(isolate, context, ret_val, info);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,16 +225,16 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	ReturnSlotType_t<RetT> ret{};
+	ReturnEncodeType<RetT> ret_val{};
 	for (int _i = 0; _i < argc && _i < 64; ++_i) {
 		arg_ptrs[_i] = nullptr;
 	}
-	fn(base_ptr, arg_ptrs, &ret, argc);
+	fn(base_ptr, arg_ptrs, &ret_val, argc);
 
 	for (int i = F; i < argc; ++i) {
 		tail_args[i - F].~Variant();
 	}
-	translate_return<RetT>(isolate, context, ret, info);
+	translate_return<RetT>(isolate, context, ret_val, info);
 }
 
 } // namespace jsb::static_binding::thunks

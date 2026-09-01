@@ -70,6 +70,10 @@ struct JSToGD<godot::Variant> {
 
 JSB_DIRECT_SCALAR(bool, IsBoolean(), p_jval.As<v8::Boolean>()->Value())
 JSB_DIRECT_SCALAR(double, IsNumber(), p_jval.As<v8::Number>()->Value())
+// real_t = float by default (math_defs.hpp); builtin/utility float parameters
+// follow godot-cpp's real_t convention. The engine widens the ptrcall slot to
+// double, so the narrowing here mirrors PtrToArg<float>::convert exactly.
+JSB_DIRECT_SCALAR(float, IsNumber(), (float)p_jval.As<v8::Number>()->Value())
 #undef JSB_DIRECT_SCALAR
 
 template <>

@@ -62,9 +62,9 @@ void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 	jsb_throw(isolate, jsb_errorf("Failed to get property: %s::%s. Failed to translate returned Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(ret.get_type()).utf8().get_data()));
 }
 
-template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC, int ArgVTC>
+template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC, godot::Variant::Type ArgVT>
 void indexed_property_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	constexpr auto arg_vt = (godot::Variant::Type)ArgVTC;
+	constexpr godot::Variant::Type arg_vt = ArgVT;
 
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);

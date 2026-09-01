@@ -23,6 +23,14 @@ namespace jsb::static_binding {
 
 using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 
+// A single indexed property lookup yields BOTH accessor thunks: the getter
+// and setter of one property always share the same (class, property) entry,
+// so resolving them separately would run the class search twice.
+struct IndexedPropertyThunks {
+	ThunkFn getter = nullptr;
+	ThunkFn setter = nullptr;
+};
+
 // Builtin hashes are computed from the SIGNATURE and are NOT unique within a
 // type (e.g. String's casecmp_to family all share one hash), so the method
 // name participates in the lookup. vt: GDExtensionVariantType value.
@@ -40,16 +48,15 @@ const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_has
 // Object-derived class methods: p_class is the engine class name
 // (e.g. "Node"), p_name disambiguates same-hash overloads, hash is the
 // official method hash.
-// Indexed property accessors (P3): one thunk per (property side); the
-// constant index lives on the accessor, not on the shared backing method.
-// p_name is the PROPERTY name as exposed in the api json.
-const ThunkFn find_indexed_property_getter_thunk(const godot::StringName &p_class,
-        const godot::StringName &p_name);
-const ThunkFn find_indexed_property_setter_thunk(const godot::StringName &p_class,
-        const godot::StringName &p_name);
-
 const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
         const godot::StringName &p_name, uint32_t p_hash);
+
+// Indexed property accessors (P3): one thunk per (property side); the
+// constant index lives on the accessor, not on the shared backing method.
+// p_name is the PROPERTY name as exposed in the api json. Either side may be
+// null when the api json does not provide the corresponding accessor method.
+const IndexedPropertyThunks find_indexed_property_thunk(const godot::StringName &p_class,
+        const godot::StringName &p_name);
 
 } // namespace jsb::static_binding
 

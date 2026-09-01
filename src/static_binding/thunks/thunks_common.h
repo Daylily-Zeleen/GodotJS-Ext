@@ -66,23 +66,29 @@ struct Arg {
 
 // ---------------------------------------------------------------------------
 // Return descriptor.
-//   RetAny                json "Variant" (no type hint) -- always has a return
-//   Ret<VT>               typed return; VT == NIL means "no return value"
-//                         UNLESS the property usage carries
-//                         NIL_IS_VARIANT (a nil-typed Variant return).
-template <godot::Variant::Type VT_ = godot::Variant::NIL,
-		uint64_t Usage_ = 0>
-struct Ret {
-	static constexpr godot::Variant::Type vt = VT_;
-	static constexpr uint64_t usage = Usage_;
-	static constexpr bool has_return =
-			VT_ != godot::Variant::NIL ||
-			(Usage_ & PROPERTY_USAGE_NIL_IS_VARIANT) != 0;
+//   RetVoid               json void/nil -- no return value
+//   RetAny                json "Variant" / typedarray (no static type hint)
+//   Ret<CppT>             typed return carrying the C++ semantic type the
+//                         codegen resolved from the api json: class methods
+//                         follow the argument metadata (float/double,
+//                         int8..uint64), builtin/utility follow godot-cpp
+//                         conventions (float -> real_t, int -> int64_t).
+struct RetVoid {
+	static constexpr bool has_return = false;
+	// unused (has_return == false); keeps ReturnEncodeType well-formed
+	using cpp_type = godot::Variant;
 };
 
 struct RetAny {
 	static constexpr bool has_return = true;
-	static constexpr godot::Variant::Type vt = godot::Variant::NIL;
+	using cpp_type = godot::Variant;
+};
+
+template <typename CppT_, uint64_t Usage_ = 0>
+struct Ret {
+	using cpp_type = CppT_;
+	static constexpr uint64_t usage = Usage_;
+	static constexpr bool has_return = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -358,22 +364,11 @@ _FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
 }
 
 // ---------------------------------------------------------------------------
-// Return slot type trait: RetAny -> Variant, Ret<VT, Usage> -> encode type.
+// ptrcall return-slot type: the engine reads/writes the return through
+// PtrToArg<CppT>::EncodeT (method_ptrcall.hpp widens narrow ints to int64_t,
+// float to double, bool to uint8_t). RetAny decodes from a full Variant slot.
 template <class RetT>
-struct ReturnSlotType;
-
-template <>
-struct ReturnSlotType<RetAny> {
-	using type = godot::Variant;
-};
-
-template <godot::Variant::Type VT, uint64_t Usage>
-struct ReturnSlotType<Ret<VT, Usage>> {
-	using type = VariantEncodeType<VariantNativeType_t<VT>>;
-};
-
-template <class RetT>
-using ReturnSlotType_t = typename ReturnSlotType<RetT>::type;
+using ReturnEncodeType = VariantEncodeType<typename RetT::cpp_type>;
 
 // ---------------------------------------------------------------------------
 // Marshaling helpers.
@@ -430,30 +425,27 @@ inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Contex
 
 // ---------------------------------------------------------------------------
 // Return value translation.
-//   RetAny / Variant slot : the engine wrote a complete Variant
-//   Ret<VT> / native slot : decode through the ptrcall contract
-//   Ret<NIL>              : no return at all
-template <class RetT, class SlotT>
+//   RetVoid               : no return at all
+//   class-method ABI      : ReturnBufT is godot::Variant and the engine
+//                           wrote a complete Variant (RetT is compile-time
+//                           metadata)
+//   ptrcall ABI           : ReturnBufT is the raw encode buffer; decode
+//                           through PtrToArg<RetT::cpp_type>::convert
+template <class RetT, class ReturnBufT>
 inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		SlotT &ret_slot, const v8::FunctionCallbackInfo<v8::Value> &info) {
+		ReturnBufT &ret_val, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if constexpr (!RetT::has_return) {
 		return true;
-	} else if constexpr (std::is_same_v<SlotT, godot::Variant>) {
+	} else if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
 		v8::Local<v8::Value> jrval;
-		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret_slot, jrval)) {
+		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret_val, jrval)) {
 			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
 			return false;
 		}
 		info.GetReturnValue().Set(jrval);
 		return true;
-	} else if constexpr (RetT::vt != godot::Variant::NIL) {
-		using SlotCppT = VariantNativeType_t<RetT::vt>;
-		godot::Variant ret;
-		if constexpr (std::is_same_v<SlotCppT, uint8_t>) {
-			ret = (bool)godot::PtrToArg<SlotCppT>::convert(&ret_slot);
-		} else {
-			ret = godot::PtrToArg<SlotCppT>::convert(&ret_slot);
-		}
+	} else {
+		godot::Variant ret = godot::PtrToArg<typename RetT::cpp_type>::convert(&ret_val);
 		v8::Local<v8::Value> jrval;
 		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret, jrval)) {
 			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
