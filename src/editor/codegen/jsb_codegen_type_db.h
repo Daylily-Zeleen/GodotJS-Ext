@@ -59,6 +59,9 @@ struct MethodDecl {
 	bool is_vararg = false;
 
 	LocalVector<PropertyInfo> args;
+	// per-argument GDExtensionClassMethodArgumentMetadata, aligned with `args`
+	// ( NONE when the extension_api.json entry carries no meta )
+	LocalVector<GDExtensionClassMethodArgumentMetadata> args_meta;
 	// aligned with the trailing entries of `args` (same order)
 	struct DefaultValue {
 		Variant::Type type = Variant::NIL;
@@ -68,6 +71,7 @@ struct MethodDecl {
 	LocalVector<DefaultValue> default_arguments;
 
 	PropertyInfo return_; // .type == NIL and usage without NIL_IS_VARIANT means "no return"
+	GDExtensionClassMethodArgumentMetadata return_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 
 	_FORCE_INLINE_ bool has_returns() const {
 		return return_.type != Variant::NIL || (return_.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
@@ -209,8 +213,10 @@ public:
 	bool is_valid_method_name(const String &p_name) const;
 
 	String make_classname(const String &p_class_name, bool p_internal = false);
-	String make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable);
-	String make_arg(const PropertyInfo &p_info, bool p_optional = false);
+	String make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable,
+			GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+	String make_arg(const PropertyInfo &p_info, bool p_optional = false,
+			GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
 	String make_arg_default_value(const MethodDecl &p_method, int p_index);
 	String make_args(const MethodDecl &p_method);
 	String make_return(const MethodDecl &p_method);

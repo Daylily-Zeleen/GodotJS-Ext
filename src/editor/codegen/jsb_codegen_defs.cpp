@@ -38,11 +38,18 @@ namespace codegen {
 
 const char *const kPredefinedLines[] = {
 	"type byte = number",
+	"type int8 = number",
+	"type int16 = number",
 	"type int32 = number",
 	"type int64 = number /* || bigint */",
 	"type float32 = number",
 	"type float64 = number",
+	"type uint8 = number",
+	"type uint16 = number",
 	"type uint32 = number",
+	"type uint64 = number /* || bigint */",
+	"type char16 = number",
+	"type char32 = number",
 	"type StringName = string",
 	"type unresolved = any",
 };

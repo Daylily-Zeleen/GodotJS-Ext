@@ -127,13 +127,21 @@ void TypeDB::build_method_decl(MethodDecl &r_decl, const MethodInfo &p_method) {
 		return_info.class_name = NamingUtil::get_class_name(return_info.class_name);
 		r_decl.return_ = return_info;
 	}
+	r_decl.return_meta = p_method.return_val_metadata;
 
 	r_decl.args.reserve(p_method.arguments.size());
-	for (const PropertyInfo &arg : p_method.arguments) {
+	const int arg_count = (int)p_method.arguments.size();
+	const int meta_count = (int)p_method.arguments_metadata.size();
+	for (int index = 0; index < arg_count; ++index) {
+		const PropertyInfo &arg = p_method.arguments[index];
 		PropertyInfo info = arg;
 		info.name = NamingUtil::get_parameter_name(info.name);
 		info.class_name = NamingUtil::get_class_name(info.class_name);
 		r_decl.args.push_back(info);
+		// aligned with `args`; NONE when the source list is shorter/absent
+		r_decl.args_meta.push_back(index < meta_count
+				? p_method.arguments_metadata[index]
+				: GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
 	}
 
 	// default values aligned with trailing arguments
@@ -181,12 +189,12 @@ void TypeDB::load_classes() {
 			decl->properties.push_back(prop);
 
 #if JSB_EXCLUDE_GETSET_METHODS
-			// Mirror the old pipeline (build_class_info): only INDEX-accessed
-			// properties (several properties sharing one accessor pair, e.g.
-			// BaseMaterial3D flags) drop their getter/setter *methods*.
-			// Regular named properties keep both the methods and the
-			// `static get x()/set x()` accessor declarations.
-			if (api_prop.index >= 0) {
+			// Regular named properties (index < 0) drop their getter/setter
+			// *methods* -- the `get x()/set x()` accessor declarations cover
+			// them. INDEX-accessed properties (several properties sharing one
+			// accessor pair, e.g. BaseMaterial3D flags, index >= 0) keep the
+			// methods: the accessors cannot express the index argument.
+			if (api_prop.index < 0) {
 				if (internal::VariantUtil::is_valid_name(api_prop.getter)) {
 					omitted_methods.insert(api_prop.getter);
 				}
@@ -667,7 +675,38 @@ static const char *js_object_key_types[] = {
 	"uint32",
 };
 
-String TypeDB::make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable) {
+String TypeDB::make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable,
+		GDExtensionClassMethodArgumentMetadata p_meta) {
+	// exact integer/float widths from GDExtensionClassMethodArgumentMetadata
+	switch (p_meta) {
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:
+			return "int8";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT16:
+			return "int16";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT32:
+			return "int32";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8:
+			return "uint8";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT16:
+			return "uint16";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT32:
+			return "uint32";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64:
+			return "uint64";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR16:
+			return "char16";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR32:
+			return "char32";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_REAL_IS_FLOAT:
+			return "float32";
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_REAL_IS_DOUBLE:
+			return "float64";
+		default:
+			break;
+	}
+	// NONE (or the trivial INT64/INT32 aliases already covered above): fall
+	// through to the type-name based mapping below. NOTE: INT64 maps to the
+	// default `int64` typename via the regular path, INT32 is handled above.
 	const String null_prefix =
 			(!p_non_nullable && (p_info.type == Variant::OBJECT || (p_info.usage & PROPERTY_USAGE_STORE_IF_NULL)))
 			? String("null | ")
@@ -733,8 +772,9 @@ String TypeDB::make_typename(const PropertyInfo &p_info, bool p_used_as_input, b
 // ---------------------------------------------------------------------------
 // make_arg / make_args / make_return / make_signal_type
 // ---------------------------------------------------------------------------
-String TypeDB::make_arg(const PropertyInfo &p_info, bool p_optional) {
-	return replace_var_name(p_info.name) + (p_optional ? "?" : "") + ": " + make_typename(p_info, true, true);
+String TypeDB::make_arg(const PropertyInfo &p_info, bool p_optional, GDExtensionClassMethodArgumentMetadata p_meta) {
+	return replace_var_name(p_info.name) + (p_optional ? "?" : "") + ": "
+			+ make_typename(p_info, true, true, p_meta);
 }
 
 static bool default_value_is_empty(const Variant &p_value) {
@@ -761,13 +801,25 @@ static bool default_value_is_empty(const Variant &p_value) {
 
 String TypeDB::make_arg_default_value(const MethodDecl &p_method, int p_index) {
 	const int def_index = p_index - ((int)p_method.args.size() - (int)p_method.default_arguments.size());
+	const GDExtensionClassMethodArgumentMetadata meta =
+			p_index < (int)p_method.args_meta.size() ? p_method.args_meta[p_index] : GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 
 	if (def_index < 0 || def_index >= (int)p_method.default_arguments.size()) {
-		return make_arg(p_method.args[p_index]);
+		// no default value: a NOT-REQUIRED object argument allows passing null
+		// explicitly -- keep it mandatory (no '?') but widen the type with
+		// `null | ` so the caller must spell the empty value out;
+		// OBJECT_IS_REQUIRED arguments stay exactly `name: Type`
+		const bool object_allows_null = p_method.args[p_index].type == Variant::OBJECT
+				&& meta != GDEXTENSION_METHOD_ARGUMENT_METADATA_OBJECT_IS_REQUIRED;
+		if (object_allows_null) {
+			return replace_var_name(p_method.args[p_index].name) + ": "
+					+ make_typename(p_method.args[p_index], true, true, meta) + " | null";
+		}
+		return make_arg(p_method.args[p_index], false, meta);
 	}
 
 	const MethodDecl::DefaultValue &default_argument = p_method.default_arguments[def_index];
-	const String arg_text = make_arg(p_method.args[p_index], true);
+	const String arg_text = make_arg(p_method.args[p_index], true, meta);
 	const String default_text = make_literal_value(default_argument);
 	return default_text.is_empty() ? arg_text : arg_text + String(" /* = ") + default_text + " */";
 }
@@ -793,7 +845,11 @@ String TypeDB::make_args(const MethodDecl &p_method) {
 
 String TypeDB::make_return(const MethodDecl &p_method) {
 	if (p_method.has_returns()) {
-		return make_typename(p_method.return_, false, p_method.name.begins_with("create"));
+		// a REQUIRED object return value never evaluates to null (e.g.
+		// Node.create_tween() -> Tween) -- drop the `null | ` prefix
+		const bool non_nullable = p_method.name.begins_with("create")
+				|| p_method.return_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_OBJECT_IS_REQUIRED;
+		return make_typename(p_method.return_, false, non_nullable, p_method.return_meta);
 	}
 	return "void";
 }

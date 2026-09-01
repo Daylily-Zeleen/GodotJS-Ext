@@ -69,6 +69,7 @@ GDExtensionClassMethodArgumentMetadata parse_argument_metadata(const String &p_m
 	if (s == "double") return GDEXTENSION_METHOD_ARGUMENT_METADATA_REAL_IS_DOUBLE;
 	if (s == "char16") return GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR16;
 	if (s == "char32") return GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR32;
+	if (s == "required") return GDEXTENSION_METHOD_ARGUMENT_METADATA_OBJECT_IS_REQUIRED;
 	return GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 }
 
@@ -216,7 +217,10 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 	if (d.has("return_value")) {
 		Dictionary rv = d["return_value"];
 		ami.method.return_val = parse_property_info(rv);
-		ami.method.return_val_metadata = parse_argument_metadata(d.get("meta", ""));
+		// NOTE: the meta lives INSIDE the return_value object
+		// ({"return_value": {"type": "int", "meta": "int16"}}), not at the
+		// method level.
+		ami.method.return_val_metadata = parse_argument_metadata(rv.get("meta", ""));
 	} else if (d.has("return_type")) {
 		// Builtin class methods use "return_type" directly (not nested "return_value")
 		String ret_type = d.get("return_type", "");

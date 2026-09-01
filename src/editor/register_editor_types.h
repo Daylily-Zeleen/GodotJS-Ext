@@ -28,7 +28,7 @@
 void _initialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
 void _uninitialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
 #if defined(JSB_TESTS_ENABLED) && defined(TOOLS_ENABLED)
-// Editor doctest entry (--jsb-run-editor-tests). Declared here so the single
+// Editor doctest entry (--jsb-run-tests). Declared here so the single
 // real startup callback (runtime jsb_startup) can forward to it while the
 // build is still one extension library: jsb_editor_library_init is only used
 // post P4, and godot-cpp's register_startup_callback is a single slot anyway
