@@ -26,7 +26,21 @@ interface CaseResult {
 	name: string;
 	nsPerCall: number;
 	iterations: number;
+	sample?: string;
 	error?: string;
+}
+
+// return-value fingerprint used by the CI consistency gate (static vs
+// dynamic legs must produce identical results for every case)
+function summarize(v: any): string {
+	if (v === null || v === undefined) return "null";
+	const t = typeof v;
+	if (t === "number") return "num:" + v;
+	if (t === "boolean") return "bool:" + v;
+	if (t === "string") return "str:" + v;
+	if (t === "function") return "fn";
+	const ctor = v.constructor?.name ?? "obj";
+	return "obj:" + ctor;
 }
 
 interface BenchOutcome {
@@ -69,10 +83,12 @@ function calibrate(fn: () => any): number {
 
 function benchOne(fn: () => any): BenchOutcome {
 	// probe: a throwing case is invalid for this binding configuration
+	let sample = "invalid";
 	try {
-		fn();
+		const v = fn();
+		sample = summarize(v);
 	} catch (e: any) {
-		return { nsPerCall: 0, iterations: 0, checksum: 0, error: String(e?.message ?? e) };
+		return { nsPerCall: 0, iterations: 0, checksum: 0, sample: "invalid", error: String(e?.message ?? e) };
 	}
 
 	for (let i = 0; i < WARMUP_CALLS; i++) fn();
@@ -90,7 +106,7 @@ function benchOne(fn: () => any): BenchOutcome {
 		}
 		samples.push(((nowMs() - t0) * 1e6) / iterations);
 	}
-	return { nsPerCall: Math.round(median(samples) * 10) / 10, iterations, checksum };
+	return { nsPerCall: Math.round(median(samples) * 10) / 10, iterations, checksum, sample };
 }
 
 export default class Benchmark extends Node {
@@ -120,9 +136,9 @@ export default class Benchmark extends Node {
 				const r = benchOne(() => c.fn(target));
 				checksum += r.checksum;
 				if (r.error) {
-					results.push({ name: `${group}.${c.name}`, nsPerCall: 0, iterations: 0, error: r.error });
+					results.push({ name: `${group}.${c.name}`, nsPerCall: 0, iterations: 0, sample: r.sample, error: r.error });
 				} else {
-					results.push({ name: `${group}.${c.name}`, nsPerCall: r.nsPerCall, iterations: r.iterations });
+					results.push({ name: `${group}.${c.name}`, nsPerCall: r.nsPerCall, iterations: r.iterations, sample: r.sample });
 				}
 			}
 		};
@@ -140,10 +156,9 @@ export default class Benchmark extends Node {
 		for (const g of _subset) {
 			runGroup(g.group, g.makeTarget, g.cases);
 		}
-		// BISECT-B: object cases skipped
-		// for (const g of OBJECT_CASES) {
-		// 	runGroup(g.group, g.makeTarget, g.cases);
-		// }
+		for (const g of OBJECT_CASES) {
+			runGroup(g.group, g.makeTarget, g.cases);
+		}
 
 		const report = {
 			staticBinding,

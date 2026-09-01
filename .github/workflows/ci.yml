@@ -144,6 +144,24 @@ jobs:
                   return json.load(f)
           a = load("/tmp/bench/static.json")
           b = load("/tmp/bench/dynamic.json")
+
+          # CONSISTENCY GATE: per-case result summaries must match exactly
+          # between the two binding paths before any performance number is
+          # considered valid. A mismatch fails the job outright.
+          mismatches = []
+          for ra in a["results"]:
+              rb = next((r for r in b["results"] if r["name"] == ra["name"]), None)
+              if rb is None or rb.get("error") or ra.get("error"):
+                  continue
+              if ra.get("sample") != rb.get("sample"):
+                  mismatches.append((ra["name"], ra.get("sample"), rb.get("sample")))
+          if mismatches:
+              print("RESULT MISMATCH static vs dynamic:")
+              for n, s_, d_ in mismatches:
+                  print(f"  {n}: static={s_} dynamic={d_}")
+              raise SystemExit(1)
+          print(f"consistency gate passed ({len(a['results'])} cases)")
+
           rows = []
           for name in {r["name"] for r in a["results"]} | {r["name"] for r in b["results"]}:
               ra = next((r for r in a["results"] if r["name"] == name), None)

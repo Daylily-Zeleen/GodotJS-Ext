@@ -186,6 +186,13 @@ def generate(api_path, interface_path, preferred_only=False):
          ""]
 
     for class_name in ordered:
+        if class_name == "Nil":
+            # Variant (nil) has no JS class object on either binding path and
+            # godot-cpp has no VariantInternalType<Variant> -- emitting the
+            # block would instantiate get_internal_value<Variant> and fail to
+            # compile. The operators of nil remain covered by the dynamic
+            # path (Variant::evaluate handles nil operands generically).
+            continue
         L.extend(emit_type_block(class_name, by_class[class_name], variant_ops))
         L.append("")
 
