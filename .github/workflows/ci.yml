@@ -26,6 +26,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
 
@@ -57,6 +58,129 @@ jobs:
           path: ${{github.workspace}}/scripts/out
           retention-days: 1
 
+
+
+  # Static-vs-dynamic binding benchmark (manual trigger only).
+  # Builds both variants in release (dev_build=no) with the official stable
+  # editor as the engine, runs the same TS benchmark scene against each, and
+  # publishes a comparison report. Exit codes of the bench runs are tolerated:
+  # the job judges by the presence of the BENCH_JSON line (jsb teardown can
+  # crash after a heavy scene, a known engine-side issue).
+  benchmark:
+    name: Benchmark (static vs dynamic)
+    if: github.event_name == 'workflow_dispatch'
+    needs: [environment]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: ./.github/actions/pnpm-install
+
+      - name: Build GDExtension (static_binding=yes, release)
+        shell: bash
+        run: scons platform=linuxbsd target=editor arch=x86_64 compiledb=no debug_symbols=no dev_build=no static_binding=yes -j$(nproc)
+
+      - name: Save static dll
+        shell: bash
+        run: |
+          mkdir -p /tmp/bench
+          cp project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so /tmp/bench/static.so
+
+      - name: Build GDExtension (static_binding=no, release)
+        shell: bash
+        run: scons platform=linuxbsd target=editor arch=x86_64 compiledb=no debug_symbols=no dev_build=no static_binding=no -j$(nproc)
+
+      - name: Save dynamic dll
+        shell: bash
+        run: cp project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so /tmp/bench/dynamic.so
+
+      - name: Download Godot (Linux)
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot
+          version: tags/4.7.1-stable
+          file: Godot_v4.7.1-stable_linux.x86_64.zip
+          target: godot/godot.zip
+
+      - name: Extract Godot
+        shell: bash
+        run: |
+          mkdir -p tests/bin
+          unzip -o godot/godot.zip -d tests/bin/
+          chmod +x tests/bin/Godot* 2>/dev/null || true
+          GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
+          echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
+
+      - name: Build TypeScript
+        shell: bash
+        run: |
+          pnpm install
+          pnpm exec tsc --noCheck
+        working-directory: project
+
+      - name: Run benchmark (both legs)
+        shell: bash
+        run: |
+          ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
+          for leg in static dynamic; do
+            if [ "$leg" == "static" ]; then SO=/tmp/bench/static.so; else SO=/tmp/bench/dynamic.so; fi
+            cp "$SO" "$ADDONS_SO"
+            rm -f /tmp/bench/${leg}.json
+            "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            grep '^\[JS\] BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/^\[JS\] //' > /tmp/bench/${leg}.json
+            test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
+          done
+
+      - name: Comparison report
+        shell: bash
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          def load(p):
+              with open(p) as f:
+                  return json.load(f)
+          a = load("/tmp/bench/static.json")
+          b = load("/tmp/bench/dynamic.json")
+          rows = []
+          for name in {r["name"] for r in a["results"]} | {r["name"] for r in b["results"]}:
+              ra = next((r for r in a["results"] if r["name"] == name), None)
+              rb = next((r for r in b["results"] if r["name"] == name), None)
+              if not ra or not rb or ra.get("error") or rb.get("error"):
+                  continue
+              rows.append((name, ra["nsPerCall"], rb["nsPerCall"]))
+          rows.sort(key=lambda r: r[2] / max(r[1], 1), reverse=True)
+          lines = [
+              "# Static vs Dynamic binding benchmark (ns/call, lower is better)",
+              f"engine: {a['engine']}  |  invalid cases skipped",
+              "",
+              "## Binary size",
+          ]
+          import os
+          for leg in ("dynamic", "static"):
+              sz = os.path.getsize(f"/tmp/bench/{leg}.so")
+              lines.append(f"- {leg} gdextension: {sz / 1024 / 1024:.2f} MiB")
+          lines.append("")
+              "| case | dynamic | static | ratio (dyn/stat) |",
+              "|---|---:|---:|---:|",
+          ]
+          for name, dyn, stat in rows:
+              lines.append(f"| {name} | {dyn} | {stat} | {dyn / max(stat, 0.1):.2f}x |")
+          with open("/tmp/bench/report.md", "w") as f:
+              f.write("\n".join(lines) + "\n")
+          print("\n".join(lines[:40]))
+          PYEOF
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-report
+          path: |
+            /tmp/bench/report.md
+            /tmp/bench/static.json
+            /tmp/bench/dynamic.json
 
   build:
     name: Build (${{ matrix.platform }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.engine }})
