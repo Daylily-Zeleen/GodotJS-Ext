@@ -357,6 +357,10 @@ static void console_assert_wrap(const v8::FunctionCallbackInfo<v8::Value> &info)
 // keying by isolate is exactly per-environment. Labels are compared as plain
 // utf8 strings -- the same semantics as the native console.time label
 // matching, without the isolate-bound TStrongRef<v8::String> bookkeeping.
+//
+// Lifetime: the owning NodeRuntime calls bridge_console_hook_on_isolate_
+// releasing() from its destructor, so entries never outlive their isolate
+// (mirroring the Essentials' table dying with the Environment).
 static HashMap<v8::Isolate *, HashMap<String, uint64_t>> s_timer_tags;
 
 // resolve the timer label from the first argument ('default' when undefined)
@@ -456,6 +460,13 @@ void bridge_console_hook_ensure(v8::Isolate *p_isolate, const v8::Local<v8::Cont
 	// called by NodeRuntime's constructor right after the bootstrap made the
 	// console available on the given context; the caller holds the scope
 	console_hook_install_on_context(p_isolate, p_context);
+}
+
+void bridge_console_hook_on_isolate_releasing(v8::Isolate *p_isolate) {
+	// called by NodeRuntime's destructor: drop the console hook state owned
+	// by the releasing isolate (the timer tag table), mirroring how the
+	// Essentials tag table dies with its Environment
+	s_timer_tags.erase(p_isolate);
 }
 
 namespace {

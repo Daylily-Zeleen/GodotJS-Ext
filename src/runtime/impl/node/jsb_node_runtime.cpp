@@ -127,6 +127,7 @@ NodeRuntime::NodeRuntime() {
 
 NodeRuntime::~NodeRuntime() {
 	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
+
 	// Node Environment.
 	{
 		jsb_check(node_env_);
@@ -186,6 +187,10 @@ NodeRuntime::~NodeRuntime() {
 
 	// Allocator
 	allocator_.reset();
+	
+	// drop the console hook state owned by this isolate before it goes away
+	// (see jsb_bridge_table.cpp)
+	jsb::bridge_console_hook_on_isolate_releasing(isolate_);
 }
 
 void NodeRuntime::PumpEventLoop() {

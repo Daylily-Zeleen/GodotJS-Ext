@@ -59,6 +59,11 @@ const JsbBridgeTable *get_bridge_table();
 /// (Cannot go through `Environment::wrap` here: the Environment has not yet
 /// registered itself as the isolate's embedder data at this point.)
 void bridge_console_hook_ensure(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context);
+
+/// Called by NodeRuntime's destructor before the isolate is disposed: drops
+/// the console hook state owned by this isolate (the timer tag table), so
+/// nothing outlives its environment.
+void bridge_console_hook_on_isolate_releasing(v8::Isolate *p_isolate);
 #endif
 
 } //namespace jsb
