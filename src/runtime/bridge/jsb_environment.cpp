@@ -825,6 +825,10 @@ std::shared_ptr<Environment> Environment::_access() {
 	return EnvironmentStore::get_shared().access();
 }
 
+std::vector<std::shared_ptr<Environment>> Environment::get_all_environments() {
+	return EnvironmentStore::get_shared().get_list();
+}
+
 NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref) {
 	if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(p_pointer)) {
 		if (script_instance->is_shadow()) {

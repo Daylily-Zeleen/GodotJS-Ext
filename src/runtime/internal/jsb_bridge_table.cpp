@@ -32,6 +32,13 @@
 #include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/engine.hpp>
 
+#if JSB_WITH_NODE
+#	include "../bridge/jsb_bridge_helper.h"
+#	include "../impl/node/jsb_node.h"
+#	include <internal/jsb_console_output.h>
+#	include <string_builder.h>
+#endif
+
 namespace jsb {
 
 // ---------------------------------------------------------------------------
@@ -245,12 +252,232 @@ public:
 };
 
 Vector<EditorConsoleTrampoline *> g_editor_consoles;
-int64_t g_next_console_handle = 1;
 } //namespace
+
+#if JSB_WITH_NODE
+// ---------------------------------------------------------------------------
+// node console hook.
+//
+// The node bootstrap installs its own `console` object on the global, whose
+// output goes to the node stdout and never reaches the editor console sinks
+// (registered through `bridge_add_console_output`). This hook wraps the 9
+// console methods so every call is *mirrored* into
+// `internal::IConsoleOutput::internal_write` (reaching all registered sinks)
+// and then *forwarded* to the original node implementation.
+//
+// Activation is a process-wide one-shot: the first `bridge_add_console_output`
+// call arms the hook and installs it on every live Environment; afterwards
+// every newly created Environment installs the hook by itself (one line at
+// the end of NodeRuntime's constructor). The hook is never uninstalled --
+// once the editor console capability showed up in this process, every
+// Environment keeps the wrapped console.
+//
+// Implementation notes:
+// - The original node function is attached to each wrapper as its V8 `data`
+//   payload (`info.Data()`), so no per-environment C++ state is needed.
+// - `console.assert(cond, ...)`: silent when `cond` is truthy (mirrors node
+//   semantics -- neither mirrored nor forwarded); mirrored + forwarded only
+//   when the assertion fails.
+// - `console.time/timeEnd`: fully taken over with the same JSTimerTags logic
+//   as the v8/qjs Essentials implementation (the elapsed value only exists
+//   on the C++ side; the node-native timer writes to stdout only and cannot
+//   reach the sinks). Not forwarded.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+static bool s_console_hook_active = false;
+
+// mirror one line into the editor console sinks (IConsoleOutput list)
+static void console_hook_write(internal::ELogSeverity::Type p_severity, const String &p_text) {
+	internal::IConsoleOutput::internal_write(p_severity, p_text);
+}
+
+// join "[JS] arg1 arg2 ..." with the same BridgeHelper::stringify formatting
+// as the Essentials console implementation
+template <internal::ELogSeverity::Type Severity>
+static void console_log_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+
+	StringBuilder sb;
+	sb.append("[JS]");
+	for (int index = 0; index < info.Length(); ++index) {
+		if (String str = BridgeHelper::stringify(isolate, info[index]); str.length() > 0) {
+			sb.append(" ");
+			sb.append(str);
+		}
+	}
+	console_hook_write(Severity, sb.as_string());
+
+	// forward to the original node console function (attached as `data`)
+	v8::Local<v8::Function> orig = info.Data().As<v8::Function>();
+	v8::Local<v8::Value> argv[8];
+	const int argc = info.Length() < 8 ? info.Length() : 8;
+	for (int index = 0; index < argc; ++index) {
+		argv[index] = info[index];
+	}
+	v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	jsb_unused(orig->Call(context, v8::Undefined(isolate), argc, argv));
+}
+
+// console.assert: node semantics -- silent when truthy, mirrored + forwarded
+// only on failure (the node-native implementation keeps printing/throwing)
+static void console_assert_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	if (info.Length() > 0 && info[0]->BooleanValue(isolate)) {
+		return;
+	}
+
+	StringBuilder sb;
+	sb.append("[JS] Assertion failure:");
+	for (int index = 1; index < info.Length(); ++index) {
+		if (String str = BridgeHelper::stringify(isolate, info[index]); str.length() > 0) {
+			sb.append(" ");
+			sb.append(str);
+		}
+	}
+	console_hook_write(internal::ELogSeverity::Assert, sb.as_string());
+
+	v8::Local<v8::Function> orig = info.Data().As<v8::Function>();
+	v8::Local<v8::Value> argv[8];
+	const int argc = info.Length() > 0 ? (info.Length() - 1 < 8 ? info.Length() - 1 : 8) : 0;
+	for (int index = 1; index < info.Length() && index - 1 < argc; ++index) {
+		argv[index - 1] = info[index];
+	}
+	v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	jsb_unused(orig->Call(context, v8::Undefined(isolate), argc, argv));
+}
+
+// console.time/timeEnd: fully taken over (JSTimerTags, same as Essentials).
+// NOTE: subject to revisit -- a better forwarding scheme may replace this.
+static void console_time_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	if (!info[0]->IsUndefined() && !info[0]->IsString()) {
+		jsb_throw(isolate, "bad argument");
+		return;
+	}
+	Environment *env = Environment::wrap(isolate);
+	const v8::Local<v8::String> label = info[0]->IsUndefined()
+			? impl::Helper::new_string_ascii(isolate, String("default"))
+			: info[0].As<v8::String>();
+	JSTimerTags<uint64_t> &timer_tags = env->get_timer_tags();
+	const auto res = timer_tags.tags.emplace(TStrongRef(isolate, label), Time::get_singleton()->get_ticks_usec());
+	if (!res.second) {
+		JSB_LOG(Warning, "timer tag '%s' already exists", impl::Helper::to_string(isolate, label));
+	}
+}
+
+static void console_time_end_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	if (!info[0]->IsUndefined() && !info[0]->IsString()) {
+		jsb_throw(isolate, "bad argument");
+		return;
+	}
+	const uint64_t now = Time::get_singleton()->get_ticks_usec();
+	Environment *env = Environment::wrap(isolate);
+	const v8::Local<v8::String> label = info[0]->IsUndefined()
+			? impl::Helper::new_string_ascii(isolate, String("default"))
+			: info[0].As<v8::String>();
+	JSTimerTags<uint64_t> &timer_tags = env->get_timer_tags();
+	const auto it = timer_tags.tags.find(TStrongRef(isolate, label));
+	if (it != timer_tags.tags.end()) {
+		timer_tags.tags.erase(it);
+		JSB_LOG(Info, "%s: %dms - timer ended", impl::Helper::to_string(isolate, label), (now - it->second) / 1000UL);
+	} else {
+		JSB_LOG(Warning, "timer tag '%s' not found", impl::Helper::to_string(isolate, label));
+	}
+}
+
+// install the wrapped console methods on one context. Scope contract: the
+// caller must already hold the isolate (JSB_ISOLATE_SCOPE/Locker) AND a
+// HandleScope -- `p_context` is a Local handle, so evaluating it without a
+// HandleScope would crash (V8 requires a HandleScope to create locals).
+static void console_hook_install_on_context(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context) {
+	v8::Isolate *isolate = p_isolate;
+	v8::Local<v8::Context> context = p_context;
+	v8::Context::Scope context_scope(context);
+
+	v8::Local<v8::Object> global = context->Global();
+	v8::Local<v8::Value> console_val;
+	if (!global->Get(context, impl::Helper::new_string_ascii(isolate, String("console"))).ToLocal(&console_val)
+			|| !console_val->IsObject()) {
+		return; // no console object (unexpected in node mode), nothing to hook
+	}
+	v8::Local<v8::Object> console = console_val.As<v8::Object>();
+
+	struct MethodDef {
+		const char *name;
+		v8::FunctionCallback callback;
+	};
+	static constexpr MethodDef kMethods[] = {
+		{"log", console_log_wrap<internal::ELogSeverity::Log>},
+		{"info", console_log_wrap<internal::ELogSeverity::Info>},
+		{"debug", console_log_wrap<internal::ELogSeverity::Debug>},
+		{"warn", console_log_wrap<internal::ELogSeverity::Warning>},
+		{"error", console_log_wrap<internal::ELogSeverity::Error>},
+		{"trace", console_log_wrap<internal::ELogSeverity::Trace>},
+		{"assert", console_assert_wrap},
+		{"time", console_time_wrap},
+		{"timeEnd", console_time_end_wrap},
+	};
+
+	for (const MethodDef &def : kMethods) {
+		v8::Local<v8::Value> orig_val;
+		// keep the current (node-native) function as the wrapper's `data`
+		// payload; if a previous wrapper is already installed this re-wraps
+		// (harmless: output would be mirrored twice, but installation is
+		// once-per-process by design)
+		if (!console->Get(context, impl::Helper::new_string_ascii(isolate, String(def.name))).ToLocal(&orig_val)
+				|| !orig_val->IsFunction()) {
+			continue;
+		}
+		v8::Local<v8::Function> wrapper = impl::Helper::NewFunction(
+				context, def.name, def.callback, orig_val);
+		console->Set(context, impl::Helper::new_string_ascii(isolate, String(def.name)), wrapper).Check();
+	}
+}
+
+} //namespace
+
+void bridge_console_hook_ensure(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context) {
+	if (!s_console_hook_active) {
+		return;
+	}
+	// called by NodeRuntime's constructor right after the bootstrap made the
+	// console available on the given context; the caller holds the scope
+	console_hook_install_on_context(p_isolate, p_context);
+}
+
+namespace {
+// arm the hook process-wide and install it on every live environment
+static void console_hook_activate() {
+	if (s_console_hook_active) {
+		return;
+	}
+	s_console_hook_active = true;
+	const auto environments = Environment::get_all_environments();
+	for (const auto &env : environments) {
+		// skip environments that are about to be disposed or already disposed
+		if (env->is_disposing()) continue;
+		// enter the environment's isolate + HandleScope BEFORE evaluating
+		// `get_context()` (a Local handle needs a HandleScope to be created)
+		v8::Isolate *isolate = env->get_isolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		v8::HandleScope handle_scope(isolate);
+		console_hook_install_on_context(isolate, env->get_context());
+	}
+}
+} //namespace
+#endif // JSB_WITH_NODE
 
 static int64_t bridge_add_console_output(void *p_userdata,
 		void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length)) {
 	if (!p_write) return -1;
+#if JSB_WITH_NODE
+	// first editor console sink in this process: arm the node console hook
+	// and wrap the console of every live Environment
+	console_hook_activate();
+#endif
 	EditorConsoleTrampoline *t = memnew(EditorConsoleTrampoline);
 	t->userdata = p_userdata;
 	t->write_fn = p_write;

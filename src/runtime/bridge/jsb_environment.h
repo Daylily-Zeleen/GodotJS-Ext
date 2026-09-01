@@ -43,10 +43,9 @@
 #include "jsb_string_name_cache.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
-#if JSB_WITH_ESSENTIALS
-#	include "jsb_timer_action.h"
+#if JSB_WITH_ESSENTIALS || JSB_WITH_NODE
 #	include "jsb_timer_tags.h"
-#endif // JSB_WITH_ESSENTIALS
+#endif // JSB_WITH_ESSENTIALS || JSB_WITH_NODE
 
 #if JSB_WITH_DEBUGGER
 #	include <future>
@@ -231,8 +230,10 @@ private:
 	HashMap<StringName, class IModuleLoader *> module_loaders_;
 	Vector<IModuleResolver *> module_resolvers_;
 
-#if JSB_WITH_ESSENTIALS
+#if JSB_WITH_ESSENTIALS || JSB_WITH_NODE
 	JSTimerTags<uint64_t> timer_tags_;
+#endif
+#if JSB_WITH_ESSENTIALS
 	internal::TTimerManager<JavaScriptTimerAction> timer_manager_;
 #endif
 
@@ -503,9 +504,11 @@ public:
 	_FORCE_INLINE_ Variant *alloc_variant() { return variant_allocator_.alloc(); }
 	_FORCE_INLINE_ void dealloc_variant(Variant *p_var) { variant_allocator_.free(p_var); }
 
+#if JSB_WITH_ESSENTIALS || JSB_WITH_NODE
+	_FORCE_INLINE_ JSTimerTags<uint64_t> &get_timer_tags() { return timer_tags_; }
+#endif
 #if JSB_WITH_ESSENTIALS
 	_FORCE_INLINE_ internal::TTimerManager<JavaScriptTimerAction> &get_timer_manager() { return timer_manager_; }
-	_FORCE_INLINE_ JSTimerTags<uint64_t> &get_timer_tags() { return timer_tags_; }
 #endif
 
 	_FORCE_INLINE_ StringNameCache &get_string_name_cache() { return string_name_cache_; }
@@ -701,7 +704,11 @@ public:
 	// NOTE: you can't get a shadow environment with this method
 	static std::shared_ptr<Environment> _access();
 
-private:
+	// snapshot of every live Environment (thread-safe; used by the console
+	// hook to install the node console trampoline across all environments).
+	static std::vector<std::shared_ptr<Environment>> get_all_environments();
+
+	private:
 	void exec_async_calls();
 	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
 

@@ -35,9 +35,30 @@
 
 #include "jsb_bridge_abi.h"
 
+// forward declarations only: this header is included by translation units
+// that do NOT include any V8 header (e.g. the weaver), so the node console
+// hook declaration below must not pull in <v8.h>. (jsb_bridge_table.cpp
+// includes the full V8/node headers before this file.)
+namespace v8 {
+class Isolate;
+class Context;
+template <typename T> class Local;
+}
+
 namespace jsb {
 
 /// Runtime-side singleton accessor (defined in jsb_bridge_table.cpp).
 const JsbBridgeTable *get_bridge_table();
+
+#if JSB_WITH_NODE
+/// If the bridge console capability has been activated (i.e. some editor sink
+/// was registered through `bridge_add_console_output`), install the console
+/// hook on the given isolate/context. Called by NodeRuntime's constructor
+/// right after its bootstrap made the node console available, so every
+/// Environment created after the activation gets the wrapped console.
+/// (Cannot go through `Environment::wrap` here: the Environment has not yet
+/// registered itself as the isolate's embedder data at this point.)
+void bridge_console_hook_ensure(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context);
+#endif
 
 } //namespace jsb
