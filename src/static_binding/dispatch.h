@@ -45,6 +45,11 @@ const ThunkFn find_builtin_member_setter_thunk(godot::Variant::Type p_vt, const 
 // Same for utility functions.
 const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash);
 
+// Static operator path: the generated table covers every (left type,
+// operator, right type) overload the api json defines for classes that have
+// a JS surface. Unlisted combinations stay on the dynamic path.
+const ThunkFn find_operator_thunk(godot::Variant::Type p_left, godot::Variant::Operator p_op, godot::Variant::Type p_right);
+
 // Object-derived class methods: p_class is the engine class name
 // (e.g. "Node"), p_name disambiguates same-hash overloads, hash is the
 // official method hash.
