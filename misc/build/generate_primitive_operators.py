@@ -32,6 +32,11 @@ GENERATED_NOTE = (
     "//       --interface third/godot-cpp/gdextension/gdextension_interface.json\n"
 )
 
+# Operators excluded from the generated table by decision:
+#   unary+ -> OP_POSITIVE is a pure identity copy (OperatorEvaluatorPos,
+#   variant_op.h:395 simply assigns r_ret = p_left), meaningless to expose.
+EXCLUDED_OPERATORS = {"unary+"}
+
 # json operator name -> (Variant::OP_ tail token, macro kind)
 #   kind: "cmp" -> JSB_DEFINE_COMPARATOR, "unary" -> JSB_DEFINE_UNARY,
 #         "bin" -> JSB_DEFINE_OVERLOADED_BINARY_BEGIN/END
@@ -107,6 +112,8 @@ def emit_type_block(class_name, operators, variant_ops):
     bins, unaries, cmps = [], [], []
     for op in operators:
         name = op["name"]
+        if name in EXCLUDED_OPERATORS:
+            continue
         if name not in OP_MAP:
             raise SystemExit(f"FATAL: unmapped operator name '{name}' in {class_name}")
         token, kind = OP_MAP[name]
