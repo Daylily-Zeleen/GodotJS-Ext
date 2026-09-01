@@ -37,6 +37,9 @@ GENERATED_NOTE = (
 # Name -> GDExtensionVariantType value, populated by load_variant_type_map.
 VARIANT_TYPE_VALUES = {}
 
+# Variant::OP_ tail token -> enum value, populated by load_variant_type_map.
+OPERATOR_VALUES = {}
+
 # json type name -> C++ parameter type used by the direct-conversion layer.
 PARAM_TYPE_MAP = {
     "bool": "bool",
@@ -118,6 +121,14 @@ def load_variant_type_map(interface_json_path):
     # reverse mapping: value -> JSON name (for Ret<godot::Variant::NAME> emission)
     global VARIANT_TYPE_NAMES
     VARIANT_TYPE_NAMES = {v: k for k, v in mapping.items()}
+    global OPERATOR_VALUES
+    with open(interface_json_path, encoding="utf-8") as f:
+        iface = json.load(f)
+    op_enum = next(t for t in iface["types"] if t.get("name") == "GDExtensionVariantOperator")
+    OPERATOR_VALUES = {
+        v["name"].replace("GDEXTENSION_VARIANT_OP_", ""): int(v["value"])
+        for v in op_enum["values"]
+    }
     # JSON name -> enum name mapping (for Ret<godot::Variant::ENUM> emission)
     global JSON_TO_ENUM_NAME
     JSON_TO_ENUM_NAME = {
@@ -246,6 +257,69 @@ INT_META_TO_CPP = {
     "uint64": "uint64_t",
     "char32": "char32_t",
 }
+
+# json operator symbol -> (Variant::OP_ tail token, kind)
+#   kind: "cmp" -> comparator-shaped overloads, "unary" -> single-operand,
+#         "bin" -> everything else
+OPERATOR_NAME_MAP = {
+    "==": ("EQUAL", "cmp"),
+    "!=": ("NOT_EQUAL", "cmp"),
+    "<": ("LESS", "cmp"),
+    "<=": ("LESS_EQUAL", "cmp"),
+    ">": ("GREATER", "cmp"),
+    ">=": ("GREATER_EQUAL", "cmp"),
+    "unary-": ("NEGATE", "unary"),
+    "unary+": ("POSITIVE", "unary"),
+    "not": ("NOT", "unary"),
+    "~": ("BIT_NEGATE", "unary"),
+    "+": ("ADD", "bin"),
+    "-": ("SUBTRACT", "bin"),
+    "*": ("MULTIPLY", "bin"),
+    "/": ("DIVIDE", "bin"),
+    "%": ("MODULE", "bin"),
+    "**": ("POWER", "bin"),
+    "<<": ("SHIFT_LEFT", "bin"),
+    ">>": ("SHIFT_RIGHT", "bin"),
+    "&": ("BIT_AND", "bin"),
+    "|": ("BIT_OR", "bin"),
+    "^": ("BIT_XOR", "bin"),
+    "and": ("AND", "bin"),
+    "or": ("OR", "bin"),
+    "xor": ("XOR", "bin"),
+    "in": ("IN", "bin"),
+}
+
+# json operand/return type -> C++ token for the operator thunk templates.
+# None means the combination has no engine ptr evaluator (right=Variant /
+# right=Object) and stays on the dynamic path.
+OPERAND_CPP_MAP = {
+    "bool": "bool",
+    "int": "int64_t",
+    "float": "double",
+    "String": "godot::String",
+    "StringName": "godot::StringName",
+    "NodePath": "godot::NodePath",
+    "RID": "godot::RID",
+    "Callable": "godot::Callable",
+    "Signal": "godot::Signal",
+    "Array": "godot::Array",
+    "Dictionary": "godot::Dictionary",
+    "Variant": None,
+    "Object": None,
+}
+for _t in ("Vector2", "Vector2i", "Rect2", "Rect2i", "Vector3", "Vector3i",
+           "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB",
+           "Basis", "Transform3D", "Projection", "Color",
+           "PackedByteArray", "PackedInt32Array", "PackedInt64Array",
+           "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray",
+           "PackedVector2Array", "PackedVector3Array", "PackedColorArray",
+           "PackedVector4Array"):
+    OPERAND_CPP_MAP[_t] = "godot::" + _t
+
+
+def operand_cpp(json_name):
+    return OPERAND_CPP_MAP.get(json_name)
+
 
 # json "meta" on float arguments/returns -> exact C type. Mirrors
 # GDExtensionClassMethodArgumentMetadata (REAL_IS_FLOAT / REAL_IS_DOUBLE).
@@ -1077,6 +1151,83 @@ def emit_class_dispatch_cpp(m):
     return "\n".join(L)
 
 
+def emit_operator_dispatch_cpp(m):
+    """(left type, operator, right type) -> thunk lookup table for the static
+    operator path. Unary rows carry right type NIL. Rows whose right operand
+    is Variant/Object stay on the dynamic path (the engine registers no ptr
+    evaluator with a VARIANT/Object right operand)."""
+    L = [
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/operator_methods.h"',
+         '#include <iterator>',
+         "",
+         "namespace jsb::static_binding {",
+         ""]
+    entries = []
+    for op in m.operators:
+        left_vt = op["left_vt"]
+        op_name = m.pool.strings[op["op_name_id"]]
+        if op_name not in OPERATOR_NAME_MAP:
+            raise SystemExit(f"FATAL: unmapped operator symbol '{op_name}'")
+        token, kind = OPERATOR_NAME_MAP[op_name]
+        op_value = OPERATOR_VALUES.get(token)
+        if op_value is None:
+            raise SystemExit(f"FATAL: operator token {token} missing from GDExtensionVariantOperator")
+        right_name = m.pool.strings[op["right_type_id"]]
+        ret_name = m.pool.strings[op["ret_type_id"]]
+        ret_cpp = operand_cpp(ret_name)
+        if ret_cpp is None:
+            raise SystemExit(f"FATAL: operator {op_name} return type '{ret_name}' is not statically addressable")
+        left_name = m.vt_names[left_vt]
+        if left_name == "Nil":
+            # nil has no JS class object on either path -- its rows would be
+            # dead entries; the dynamic path covers nil operands generically
+            continue
+        l_cpp = operand_cpp(left_name)
+        if l_cpp is None:
+            raise SystemExit(f"FATAL: operator left type '{left_name}' is not statically addressable")
+        if kind == "unary":
+            key = (left_vt << 11) | (op_value << 6) | 0  # right = NIL
+            thunk = f"&operator_unary_thunk<Variant::OP_{token}, {l_cpp}, {ret_cpp}>"
+        else:
+            right_name_c = operand_cpp(right_name)
+            if right_name_c is None:
+                continue  # dynamic path
+            right_vt = VARIANT_TYPE_VALUES.get(right_name)
+            if right_vt is None:
+                raise SystemExit(f"FATAL: unknown right operand type '{right_name}'")
+            key = (left_vt << 11) | (op_value << 6) | right_vt
+            thunk = f"&operator_thunk<Variant::OP_{token}, {l_cpp}, {right_name_c}, {ret_cpp}>"
+        entries.append((key, thunk, left_name, op_name, right_name, ret_name))
+
+    entries.sort(key=lambda e: e[0])
+    keys = [e[0] for e in entries]
+    if len(set(keys)) != len(keys):
+        dups = sorted({k for k in keys if keys.count(k) > 1})
+        raise SystemExit(f"FATAL: duplicate operator dispatch keys {dups}")
+
+    L.append("struct OperatorEntry { uint32_t key; ThunkFn thunk; };")
+    L.append("static const OperatorEntry k_entries[] = {")
+    for key, thunk, left_name, op_name, right_name, ret_name in entries:
+        L.append(f"\t{{{key}u, {thunk}}},")
+    L.append("};")
+    L.append("")
+    L.append("const ThunkFn find_operator_thunk(Variant::Type p_left, Variant::Operator p_op, Variant::Type p_right) {")
+    L.append("\tconst uint32_t key = ((uint32_t)p_left << 11) | ((uint32_t)p_op << 6) | (uint32_t)p_right;")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tif (k_entries[mid].key == key) return k_entries[mid].thunk;")
+    L.append("\t\tif (k_entries[mid].key < key) lo = mid + 1; else hi = mid - 1;")
+    L.append("\t}")
+    L.append("\treturn nullptr;")
+    L.append("}")
+    L.append("")
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
 def emit_manifest(m, input_path, interface_path):
     uniq_defaults = set()
     for lst in (m.builtin_methods, m.class_methods, m.utility_funcs):
@@ -1139,6 +1290,7 @@ def main():
         "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
+        "dispatch_operator.gen.cpp": emit_operator_dispatch_cpp(m),
     }
     outputs = {}
     for fname, content in cpp_outputs.items():

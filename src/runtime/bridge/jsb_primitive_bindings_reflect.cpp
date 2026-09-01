@@ -30,6 +30,7 @@
 #include "../internal/jsb_variant_info.h"
 #include "../internal/jsb_variant_util.h"
 #include <godot_cpp/variant/variant_internal.hpp>
+#include "static_binding/thunks/operator_methods.h"
 #include "api_tool/api_tool_types.h"
 #include "jsb_bridge_helper.h"
 #include "jsb_class_info.h"
@@ -39,21 +40,17 @@
 #include "jsb_type_convert.h"
 
 #define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
-		{ \
-				auto &_op_dispatch = OperatorDispatch<Variant::OP_##op_code, CurrentType>::get(); \
-				_op_dispatch.register_method(class_builder, JSB_OPERATOR_NAME(op_code));
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
 #define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) \
-				_op_dispatch.template add_overload<Ret, TRight>();
-#define JSB_DEFINE_OVERLOADED_BINARY_END() \
-		}
+		(void)sizeof(Ret); (void)sizeof(TLeft); (void)sizeof(TRight); // overloads live in the generated table
+#define JSB_DEFINE_OVERLOADED_BINARY_END()
 #define JSB_DEFINE_UNARY(op_code, ret_type) \
-		OperatorDispatchUnary<Variant::OP_##op_code, CurrentType, ret_type>::get().register_method(class_builder, JSB_OPERATOR_NAME(op_code));
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+				jsb::static_binding::operator_dispatch_unary<Variant::OP_##op_code, CurrentType>);
 #define JSB_DEFINE_COMPARATOR(op_code) \
-		{ \
-				auto &_op_dispatch = OperatorDispatch<Variant::OP_##op_code, CurrentType>::get(); \
-				_op_dispatch.register_method(class_builder, JSB_OPERATOR_NAME(op_code)); \
-				_op_dispatch.template add_overload<bool, CurrentType>(); \
-		}
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
 
 #	if JSB_FAST_REFLECTION
 #		define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr)   \
@@ -91,267 +88,6 @@
 		;
 
 namespace jsb {
-
-// ---------------------------------------------------------------------------
-// Operator dispatch (static path).
-//
-// One dispatcher per (operator, left type); the overload candidates (right
-// type + return type) come from the generated operator table at compile
-// time. The JS callback takes both operands straight from the v8 values into
-// ptrcall slots -- the runtime right-operand shape (IsInt32 -> INT,
-// IsNumber -> FLOAT, wrapper -> its backing type) selects the overload -- and
-// calls the engine's registered operator evaluator directly. Combinations
-// without an engine evaluator (or with a left operand outside this class's
-// table) fall back to Variant::evaluate, matching the dynamic path exactly.
-//
-// The dispatcher instance is process-wide: the overload list is type-level
-// data and add_overload() is idempotent across environments, while
-// register_method() runs once per environment as the register walk re-runs
-// per isolate.
-
-static const Variant *left_backing_of(const v8::Local<v8::Value> &val) {
-	if (!val->IsObject()) return nullptr;
-	const v8::Local<v8::Object> obj = val.As<v8::Object>();
-	if (obj->InternalFieldCount() != IF_VariantFieldCount) return nullptr;
-	return (const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer);
-}
-
-static Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
-	if (val->IsInt32()) return Variant::INT;
-	if (val->IsNumber()) return Variant::FLOAT;
-	if (val->IsBoolean()) return Variant::BOOL;
-	if (val->IsString()) return Variant::STRING;
-	if (val->IsNullOrUndefined()) return Variant::NIL;
-	if (val->IsObject()) {
-		const v8::Local<v8::Object> obj = val.As<v8::Object>();
-		if (obj->InternalFieldCount() == IF_VariantFieldCount) {
-			return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
-		}
-		if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
-	}
-	return Variant::VARIANT_MAX;
-}
-
-template <Variant::Operator OpC, typename L, typename R, typename Ret>
-bool eval_op_thunk(const void *left_opaque, v8::Isolate *isolate,
-		const v8::Local<v8::Value> &right_val, Variant &r_ret) {
-	static GDExtensionPtrOperatorEvaluator eval = [] {
-		return ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
-				(GDExtensionVariantOperator)OpC,
-				(GDExtensionVariantType)GetTypeInfo<L>::VARIANT_TYPE,
-				(GDExtensionVariantType)GetTypeInfo<R>::VARIANT_TYPE);
-	}();
-	if (!eval) {
-		return false;
-	}
-
-	typename godot::PtrToArg<R>::EncodeT r_slot{};
-	if constexpr (std::is_same_v<R, int64_t>) {
-		// probe_vt matched INT only for IsInt32 values
-		r_slot = (int64_t)right_val.As<v8::Int32>()->Value();
-	} else if constexpr (std::is_same_v<R, double>) {
-		r_slot = right_val.As<v8::Number>()->Value();
-	} else if constexpr (std::is_same_v<R, bool>) {
-		r_slot = right_val.As<v8::Boolean>()->Value();
-	} else if constexpr (std::is_same_v<R, godot::String>) {
-		r_slot = impl::Helper::to_string(isolate, right_val);
-	} else if constexpr (std::is_same_v<R, godot::Variant>) {
-		// right="Variant" overloads (String % Variant etc.): the engine has no
-		// ptr evaluator registered for a VARIANT right operand -- dynamic path
-		return false;
-	} else {
-		// builtin struct / container: copy R out of the wrapper's backing Variant
-		const v8::Local<v8::Object> obj = right_val.As<v8::Object>();
-		const Variant *bv = (const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (bv->get_type() != (Variant::Type)GetTypeInfo<R>::VARIANT_TYPE) {
-			return false;
-		}
-		r_slot = *godot::VariantInternal::get_internal_value<R>((Variant *)bv);
-	}
-
-	typename godot::PtrToArg<Ret>::EncodeT ret_slot{};
-	eval(left_opaque, &r_slot, &ret_slot);
-	r_ret = godot::PtrToArg<Ret>::convert(&ret_slot);
-	return true;
-}
-
-template <Variant::Operator OpC, typename LeftT>
-class OperatorDispatch {
-public:
-	using Evaluator = bool (*)(const void *, v8::Isolate *, const v8::Local<v8::Value> &, Variant &);
-
-	static OperatorDispatch &get() {
-		static OperatorDispatch instance;
-		return instance;
-	}
-
-	void register_method(impl::ClassBuilder &cb, const char *name) {
-		cb.Static().Method(name, &OperatorDispatch::js_call, (void *)this);
-	}
-
-	template <typename Ret, typename R>
-	void add_overload() {
-		const Variant::Type rvt = (Variant::Type)GetTypeInfo<R>::VARIANT_TYPE;
-		for (const Overload &o : overloads_) {
-			if (o.right_vt == rvt) return; // idempotent across environments
-		}
-		overloads_.push_back({rvt, &eval_op_thunk<OpC, LeftT, R, Ret>});
-	}
-
-private:
-	struct Overload {
-		Variant::Type right_vt;
-		Evaluator eval_thunk;
-	};
-
-	std::vector<Overload> overloads_;
-
-	static void fallback(const v8::FunctionCallbackInfo<v8::Value> &info, Variant::Operator op) {
-		v8::Isolate *isolate = info.GetIsolate();
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		Variant left, right;
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		Variant ret;
-		bool r_valid = false;
-		Variant::evaluate(op, left, right, ret, r_valid);
-		if (!r_valid) {
-			jsb_throw(isolate, jsb_format("bad operation between %s and %s.",
-					Variant::get_type_name(left.get_type()),
-					Variant::get_type_name(right.get_type())));
-			return;
-		}
-		v8::Local<v8::Value> rval;
-		if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		info.GetReturnValue().Set(rval);
-	}
-
-	static void js_call(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		v8::HandleScope handle_scope(isolate);
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		if (info.Length() != 2) {
-			jsb_throw(isolate, "bad param");
-			return;
-		}
-		const Variant *left_var = left_backing_of(info[0]);
-		if (!left_var || left_var->get_type() != (Variant::Type)GetTypeInfo<LeftT>::VARIANT_TYPE) {
-			fallback(info, OpC);
-			return;
-		}
-		void *left_opaque = godot::VariantInternal::get_internal_value<LeftT>((Variant *)left_var);
-		auto *self = (OperatorDispatch *)info.Data().As<v8::External>()->Value();
-		const Variant::Type rvt = probe_vt(info[1]);
-		if (rvt == Variant::VARIANT_MAX) {
-			fallback(info, OpC);
-			return;
-		}
-		for (const Overload &o : self->overloads_) {
-			if (o.right_vt != rvt) {
-				continue;
-			}
-			Variant ret;
-			if (!o.eval_thunk(left_opaque, isolate, info[1], ret)) {
-				fallback(info, OpC);
-				return;
-			}
-			v8::Local<v8::Value> rval;
-			if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-				jsb_throw(isolate, "bad translation");
-				return;
-			}
-			info.GetReturnValue().Set(rval);
-			return;
-		}
-		fallback(info, OpC);
-	}
-};
-
-template <Variant::Operator OpC, typename LeftT, typename Ret>
-bool eval_unary_thunk(const void *left_opaque, Variant &r_ret) {
-	static GDExtensionPtrOperatorEvaluator eval = [] {
-		return ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
-				(GDExtensionVariantOperator)OpC,
-				(GDExtensionVariantType)GetTypeInfo<LeftT>::VARIANT_TYPE,
-				GDEXTENSION_VARIANT_TYPE_NIL);
-	}();
-	if (!eval) {
-		return false;
-	}
-	typename godot::PtrToArg<Ret>::EncodeT ret_slot{};
-	eval(left_opaque, nullptr, &ret_slot);
-	r_ret = godot::PtrToArg<Ret>::convert(&ret_slot);
-	return true;
-}
-
-template <Variant::Operator OpC, typename LeftT, typename Ret>
-class OperatorDispatchUnary {
-public:
-	static OperatorDispatchUnary &get() {
-		static OperatorDispatchUnary instance;
-		return instance;
-	}
-
-	void register_method(impl::ClassBuilder &cb, const char *name) {
-		cb.Static().Method(name, &OperatorDispatchUnary::js_call, (void *)this);
-	}
-
-private:
-	static void fallback(const v8::FunctionCallbackInfo<v8::Value> &info, Variant::Operator op) {
-		v8::Isolate *isolate = info.GetIsolate();
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		Variant left, right; // right unused by unary evaluators
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		Variant ret;
-		bool r_valid = false;
-		Variant::evaluate(op, left, right, ret, r_valid);
-		if (!r_valid) {
-			jsb_throw(isolate, "bad operation");
-			return;
-		}
-		v8::Local<v8::Value> rval;
-		if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		info.GetReturnValue().Set(rval);
-	}
-
-	static void js_call(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		v8::HandleScope handle_scope(isolate);
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		if (info.Length() != 1) {
-			jsb_throw(isolate, "bad param");
-			return;
-		}
-		const Variant *left_var = left_backing_of(info[0]);
-		if (!left_var || left_var->get_type() != (Variant::Type)GetTypeInfo<LeftT>::VARIANT_TYPE) {
-			fallback(info, OpC);
-			return;
-		}
-		void *left_opaque = godot::VariantInternal::get_internal_value<LeftT>((Variant *)left_var);
-		Variant ret;
-		if (eval_unary_thunk<OpC, LeftT, Ret>(left_opaque, ret)) {
-			v8::Local<v8::Value> rval;
-			if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-				jsb_throw(isolate, "bad translation");
-				return;
-			}
-			info.GetReturnValue().Set(rval);
-			return;
-		}
-		fallback(info, OpC);
-	}
-};
 
 struct UnaryOperator {
 	static void invoke(const v8::FunctionCallbackInfo<v8::Value> &info) {
