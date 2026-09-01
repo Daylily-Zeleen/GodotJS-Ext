@@ -46,6 +46,9 @@
 #if JSB_WITH_ESSENTIALS || JSB_WITH_NODE
 #	include "jsb_timer_tags.h"
 #endif // JSB_WITH_ESSENTIALS || JSB_WITH_NODE
+#if JSB_WITH_ESSENTIALS
+#	include "jsb_timer_action.h"
+#endif // JSB_WITH_ESSENTIALS
 
 #if JSB_WITH_DEBUGGER
 #	include <future>
