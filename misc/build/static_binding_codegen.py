@@ -18,13 +18,20 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+
+# Allow importing misc/copyright.py from this sub-directory (same pattern as
+# misc/build/generate_templates_header.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from copyright import read_copyright_text, generate_copyright_header_cpp
 
 HEADER_GUARD_PREFIX = "GODOTJS_EXT_STATIC_BINDING_GEN_"
 GENERATED_NOTE = (
     "// GENERATED FILE - DO NOT EDIT.\n"
-    "// Regenerate with: scons static_binding_gen\n"
-    "//   (or: python tools/static_binding_codegen.py"
-    " --input <extension_api.json> --out src/static_binding/gen)\n"
+    "// SCons regenerates these on every static_binding=yes build;\n"
+    "//   manual run: python misc/build/static_binding_codegen.py"
+    " --input third/godot-cpp/gdextension/extension_api-4-7.json"
+    " --out src/static_binding/gen\n"
 )
 
 # Name -> GDExtensionVariantType value, populated by load_variant_type_map.
@@ -1128,12 +1135,20 @@ def main():
         data = json.load(f)
 
     m = collect(data, vt_map)
-    outputs = {
+    cpp_outputs = {
         "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
-        "manifest.gen.json": emit_manifest(m, ns.input, ns.interface),
     }
+    outputs = {}
+    for fname, content in cpp_outputs.items():
+        # Same convention as templates.gen.h / jsb.gen.h: the standard block
+        # comment copyright header, preceded by an AUTO-GENERATED marker.
+        header = "// AUTO-GENERATED\n\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
+        outputs[fname] = header + content
+    # manifest.gen.json is machine-readable JSON (no comments allowed) and is
+    # a build-reconciliation byproduct, not a compiled static binding file.
+    outputs["manifest.gen.json"] = emit_manifest(m, ns.input, ns.interface)
 
     if ns.check:
         stale = []
