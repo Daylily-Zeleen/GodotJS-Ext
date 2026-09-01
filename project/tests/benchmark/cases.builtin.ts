@@ -23,10 +23,10 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Vector2i ----
     {
         group: "Vector2i",
-        makeTarget: () => new Vector2i(3, 3),
+        makeTarget: () => new Vector2i(0, 0),
         cases: [
             { name: "aspect(0)", fn: (t: any) => t["aspect"]() },
-            { name: "clampi(2)", fn: (t: any) => t["clampi"](3, 3) },
+            { name: "clampi(2)", fn: (t: any) => t["clampi"](0, 0) },
             { name: "distance_to(1)", fn: (t: any) => t["distance_to"](new Vector2i(1, 2)) },
         ],
     },
@@ -43,10 +43,10 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Rect2i ----
     {
         group: "Rect2i",
-        makeTarget: () => new Rect2i(3, 3, 3, 3),
+        makeTarget: () => new Rect2i(0, 0, 0, 0),
         cases: [
             { name: "get_center(0)", fn: (t: any) => t["get_center"]() },
-            { name: "grow(1)", fn: (t: any) => t["grow"](3) },
+            { name: "grow(1)", fn: (t: any) => t["grow"](0) },
             { name: "has_point(1)", fn: (t: any) => t["has_point"](new Vector2i(1, 2)) },
         ],
     },
@@ -63,10 +63,10 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Vector3i ----
     {
         group: "Vector3i",
-        makeTarget: () => new Vector3i(3, 3, 3),
+        makeTarget: () => new Vector3i(0, 0, 0),
         cases: [
             { name: "min_axis_index(0)", fn: (t: any) => t["min_axis_index"]() },
-            { name: "clampi(2)", fn: (t: any) => t["clampi"](3, 3) },
+            { name: "clampi(2)", fn: (t: any) => t["clampi"](0, 0) },
             { name: "distance_to(1)", fn: (t: any) => t["distance_to"](new Vector3i(1, 2, 3)) },
         ],
     },
@@ -93,10 +93,10 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Vector4i ----
     {
         group: "Vector4i",
-        makeTarget: () => new Vector4i(3, 3, 3, 3),
+        makeTarget: () => new Vector4i(0, 0, 0, 0),
         cases: [
             { name: "min_axis_index(0)", fn: (t: any) => t["min_axis_index"]() },
-            { name: "clampi(2)", fn: (t: any) => t["clampi"](3, 3) },
+            { name: "clampi(2)", fn: (t: any) => t["clampi"](0, 0) },
             { name: "clamp(2)", fn: (t: any) => t["clamp"](new Vector4i(1, 2, 3, 4), new Vector4i(1, 2, 3, 4)) },
         ],
     },
@@ -115,7 +115,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         makeTarget: () => new Quaternion(1.5, 1.5, 1.5, 1.5),
         cases: [
             { name: "length(0)", fn: (t: any) => t["length"]() },
-            { name: "get_euler(1)", fn: (t: any) => t["get_euler"](3) },
+            { name: "get_euler(1)", fn: (t: any) => t["get_euler"](0) },
             { name: "is_equal_approx(1)", fn: (t: any) => t["is_equal_approx"](new Quaternion(0, 0, 0, 1)) },
         ],
     },
@@ -135,7 +135,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         makeTarget: () => new Basis(new Vector3(1, 2, 3), new Vector3(1, 2, 3), new Vector3(1, 2, 3)),
         cases: [
             { name: "inverse(0)", fn: (t: any) => t["inverse"]() },
-            { name: "get_euler(1)", fn: (t: any) => t["get_euler"](3) },
+            { name: "get_euler(1)", fn: (t: any) => t["get_euler"](0) },
             { name: "rotated(2)", fn: (t: any) => t["rotated"](new Vector3(1, 2, 3), 1.5) },
         ],
     },
@@ -174,7 +174,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         makeTarget: () => new NodePath(new NodePath("abc")),
         cases: [
             { name: "is_absolute(0)", fn: (t: any) => t["is_absolute"]() },
-            { name: "get_name(1)", fn: (t: any) => t["get_name"](3) },
+            { name: "get_name(1)", fn: (t: any) => t["get_name"](0) },
         ],
     },
     // ---- RID ----
@@ -191,7 +191,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         makeTarget: () => new Callable(new Callable()),
         cases: [
             { name: "is_null(0)", fn: (t: any) => t["is_null"]() },
-            { name: "unbind(1)", fn: (t: any) => t["unbind"](3) },
+            { name: "unbind(1)", fn: (t: any) => t["unbind"](0) },
         ],
     },
     // ---- Signal ----
@@ -217,7 +217,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         makeTarget: () => new GArray(new GArray()),
         cases: [
             { name: "size(0)", fn: (t: any) => t["size"]() },
-            { name: "get(1)", fn: (t: any) => t["get"](3) },
+            { name: "get(1)", fn: (t: any) => t["get"](0) },
         ],
     },
 ];

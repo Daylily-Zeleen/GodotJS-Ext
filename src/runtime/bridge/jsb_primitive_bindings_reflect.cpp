@@ -29,6 +29,7 @@
 #include "static_binding/dispatch.h"
 #include "../internal/jsb_variant_info.h"
 #include "../internal/jsb_variant_util.h"
+#include <godot_cpp/variant/variant_internal.hpp>
 #include "api_tool/api_tool_types.h"
 #include "jsb_bridge_helper.h"
 #include "jsb_class_info.h"
@@ -37,12 +38,16 @@
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
 
-#define JSB_DEFINE_OPERATOR2(op_code)                                                                                  \
+#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
-
-#define JSB_DEFINE_OPERATOR1(op_code)                                                                                 \
+#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
+#define JSB_DEFINE_OVERLOADED_BINARY_END()
+#define JSB_DEFINE_UNARY(op_code, ret_type) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
+#define JSB_DEFINE_COMPARATOR(op_code) \
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 
 #	if JSB_FAST_REFLECTION
@@ -66,12 +71,7 @@
 #		define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName) (void)0
 #	endif
 
-#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) JSB_DEFINE_OPERATOR2(op_code)
-#define JSB_DEFINE_OVERLOADED_BINARY_END()
 
-#define JSB_DEFINE_BINARY_OVERLOAD(R, A, B)
-#define JSB_DEFINE_UNARY(op_code) JSB_DEFINE_OPERATOR1(op_code)
-#define JSB_DEFINE_COMPARATOR(op_code) JSB_DEFINE_OPERATOR2(op_code)
 
 #define JSB_TYPE_BEGIN(InType)                                    \
 		template <>                                                   \
@@ -86,6 +86,7 @@
 		;
 
 namespace jsb {
+
 struct BinaryOperator {
 	static void invoke(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
