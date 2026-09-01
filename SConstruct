@@ -807,7 +807,7 @@ if env.get("static_binding", False):
     _sb_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
             "extension_api-%s.json" % API_VERSION.replace(".", "-"))
     _sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
-    _sb_codegen = os.path.join(root_dir, "tools", "static_binding_codegen.py")
+    _sb_codegen = os.path.join(root_dir, "misc", "build", "static_binding_codegen.py")
     if not os.path.exists(_sb_api_json):
         print_error("static_binding=yes requires " + _sb_api_json +
                     " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
