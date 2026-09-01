@@ -197,30 +197,53 @@ The repository must allow GitHub Actions to write repository contents and pull r
 
 ```
 .
-├── src/                    # C++ source code
-│   ├── bridge/             # JavaScript bridge implementation
-│   ├── compat/             # Compatibility layer
-│   ├── internal/           # Internal utilities
-│   ├── tests/              # C++ unit tests (doctest)
-│   ├── weaver/             # Script language implementation
-│   ├── weaver-editor/      # Editor plugins
-│   ├── register_types.cpp  # GDExtension entry point
-│   └── jsb.config.h        # Configuration header
-├── scripts/                # JavaScript/TypeScript toolchain
-│   ├── jsb.runtime/        # Runtime TypeScript package
-│   ├── jsb.editor/         # Editor TypeScript package
-│   ├── out/                 # Built JS output (gitignored)
-│   └── typings/            # TypeScript type definitions
-├── third/                  # Third-party dependencies
-│   ├── godot-cpp/          # godot-cpp binding library
-│   ├── v8/                 # V8 engine (prebuilt)
-│   ├── quickjs/            # QuickJS engine
-│   ├── quickjs-ng/         # QuickJS-NG engine
-│   └── doctest/            # C++ test framework
-├── project/                # Godot test project (integration tests)
-├── GodotJS/                # Original GodotJS module (submodule)
-├── SConstruct              # SCons build script
+├── src/                        # C++ source code
+│   ├── runtime/                # Runtime extension: Script/ScriptLanguage, bridge,
+│   │   │                       # module loading, Environment, engine impls (v8/quickjs/node/jsc/web)
+│   │   ├── bridge/             # godot bridge + module loaders
+│   │   ├── impl/               # Per-engine layers (v8 / quickjs / node / jsc / web)
+│   │   ├── internal/           # Runtime-internal utilities (bridge table, settings, logger)
+│   │   └── tests/              # Runtime doctest suite (--jsb-run-tests)
+│   ├── editor/                 # Editor extension: EditorPlugin, REPL, export plugin,
+│   │   ├── codegen/            #   C++ code generator (api_tool -> gen/ + typings/)
+│   │   ├── weaver-editor/      #   Editor plugin / dock / REPL UI
+│   │   └── tests/              # Editor doctest suite (same --jsb-run-tests flag)
+│   ├── api_tool/               # API data tooling (parse extension_api.json -> binary store)
+│   ├── compat/                 # Compatibility layer
+│   ├── internal/               # Shared internal utilities
+│   └── tests/                  # Test infrastructure shared by both suites
+├── scripts/                    # JavaScript/TypeScript toolchain
+│   ├── jsb.runtime/            # Runtime TypeScript package
+│   ├── jsb.editor/             # Editor TypeScript package
+│   ├── out/                     # Built JS output (gitignored)
+│   └── typings/                # TypeScript type definitions
+├── third/                      # Third-party dependencies
+│   ├── godot-cpp/              # godot-cpp binding library
+│   ├── v8/                     # V8 engine (prebuilt)
+│   ├── quickjs/                # QuickJS engine
+│   ├── quickjs-ng/             # QuickJS-NG engine
+│   └── doctest/                # C++ test framework
+├── project/                    # Godot test project (integration tests)
+├── GodotJS/                    # Original GodotJS module (submodule)
+└── SConstruct                  # SCons build script
 ```
+
+### Dual GDExtension layout
+
+The project ships **two independent GDExtensions** (see the two `.gdextension`
+files under `project/addons/godotjs-ext.daylily-zeleen/`):
+
+- **`godotjs-ext.gdextension`** (runtime): the script language, bridge and
+  module loading — required both in the editor and in exported games.
+- **`godotjs-ext-editor.gdextension`** (editor-only): `EditorPlugin`, REPL,
+  export plugin and the C++ code generator. Its library map only registers
+  `*.editor` targets, so it never loads in exported games.
+
+The editor extension holds no runtime types: it talks to the runtime through a
+C ABI function-pointer table (`src/runtime/internal/jsb_bridge_table.cpp`)
+whose inert address is resolved via ClassDB at editor startup. Both extensions
+are built by the same `SConstruct` invocation (`target=editor` builds both;
+`target=template_release` builds only the runtime).
 
 ## Contributing
 
