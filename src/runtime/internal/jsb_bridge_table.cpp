@@ -32,7 +32,6 @@
 #include <internal/jsb_statistics.h>
 #include <godot_cpp/classes/engine.hpp>
 
-
 #if JSB_WITH_NODE
 #	include "../bridge/jsb_bridge_helper.h"
 #	include "../impl/node/jsb_node.h"
@@ -352,10 +351,13 @@ static void console_assert_wrap(const v8::FunctionCallbackInfo<v8::Value> &info)
 // console.time/timeEnd: fully taken over (subject to revisit -- a better
 // forwarding scheme may replace this). The tag table lives here in the bridge
 // table TU (an editor-specific capability; NOT on Environment, which must stay
-// engine-only in the node build). Labels are compared as plain utf8 strings --
-// the same semantics as the native console.time label matching, without the
-// isolate-bound TStrongRef<v8::String> bookkeeping.
-static HashMap<String, uint64_t> s_timer_tags;
+// engine-only in the node build), but keeps the Essentials semantics of one
+// tag table per Environment: in node mode Environment and Isolate are 1:1
+// (each Environment owns a NodeRuntime which creates its own isolate), so
+// keying by isolate is exactly per-environment. Labels are compared as plain
+// utf8 strings -- the same semantics as the native console.time label
+// matching, without the isolate-bound TStrongRef<v8::String> bookkeeping.
+static HashMap<v8::Isolate *, HashMap<String, uint64_t>> s_timer_tags;
 
 // resolve the timer label from the first argument ('default' when undefined)
 static String console_time_label(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -370,8 +372,9 @@ static void console_time_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 	const String label = console_time_label(info);
-	if (!s_timer_tags.has(label)) {
-		s_timer_tags.insert(label, Time::get_singleton()->get_ticks_usec());
+	HashMap<String, uint64_t> &tags = s_timer_tags[isolate];
+	if (!tags.has(label)) {
+		tags.insert(label, Time::get_singleton()->get_ticks_usec());
 	} else {
 		JSB_LOG(Warning, "timer tag '%s' already exists", label);
 	}
@@ -385,9 +388,10 @@ static void console_time_end_wrap(const v8::FunctionCallbackInfo<v8::Value> &inf
 	}
 	const uint64_t now = Time::get_singleton()->get_ticks_usec();
 	const String label = console_time_label(info);
-	if (const uint64_t *start = s_timer_tags.getptr(label)) {
+	HashMap<String, uint64_t> &tags = s_timer_tags[isolate];
+	if (const uint64_t *start = tags.getptr(label)) {
 		const uint64_t elapsed_ms = (now - *start) / 1000UL;
-		s_timer_tags.erase(label);
+		tags.erase(label);
 		JSB_LOG(Info, "%s: %dms - timer ended", label, (int64_t)elapsed_ms);
 	} else {
 		JSB_LOG(Warning, "timer tag '%s' not found", label);
