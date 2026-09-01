@@ -140,11 +140,12 @@ def emit_type_block(class_name, operators, variant_ops):
     # comparator/unary token (e.g. Nil == Nil and Nil == Object); the macro
     # registers the JS method itself, so repeating the line would collide.
     seen_unary, seen_cmp = set(), set()
-    for token, _op in unaries:
+    for token, op in unaries:
         if token in seen_unary:
             continue
         seen_unary.add(token)
-        L.append(f"    JSB_DEFINE_UNARY({token})")
+        ret = cpp_type(op["return_type"])
+        L.append(f"    JSB_DEFINE_UNARY({token}, {ret})")
     for token, _op in cmps:
         if token in seen_cmp:
             continue

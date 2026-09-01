@@ -12,7 +12,7 @@
  * Results are printed as a single line prefixed with BENCH_JSON for the CI
  * benchmark job to collect.
  */
-import { Engine, Node, Time, Vector2 } from "godot";
+import { Engine, Node, OS, Time, Vector2 } from "godot";
 import { BUILTIN_CASES } from "./cases.builtin";
 import { OBJECT_CASES } from "./cases.object";
 
@@ -39,6 +39,8 @@ interface BenchOutcome {
 // jsb's v8 environment has no global `performance`; use the engine
 // monotonic microsecond clock instead (finer grained anyway).
 const nowMs = (): number => Time.get_ticks_usec() / 1000;
+
+const _args_user = OS.get_cmdline_user_args();
 
 const WARMUP_CALLS = 200;
 const ROUNDS = 7;
@@ -114,6 +116,7 @@ export default class Benchmark extends Node {
 				return;
 			}
 			for (const c of cases) {
+				console.error("BENCH_CASE " + group + "." + c.name);
 				const r = benchOne(() => c.fn(target));
 				checksum += r.checksum;
 				if (r.error) {
@@ -124,12 +127,23 @@ export default class Benchmark extends Node {
 			}
 		};
 
-		for (const g of BUILTIN_CASES) {
+		// BISECT-C: temporary slice
+		// diagnostic: --only=<group> runs a single class group
+		let _only: string | undefined;
+		const _args = OS.get_cmdline_user_args();
+		for (let i = 0; i < _args.size(); i++) {
+			const a = _args.get(i);
+			if (a.startsWith("--only=")) _only = a.split("=")[1];
+		}
+		let _subset = BUILTIN_CASES;
+		if (_only) _subset = BUILTIN_CASES.filter((g: any) => g.group === _only);
+		for (const g of _subset) {
 			runGroup(g.group, g.makeTarget, g.cases);
 		}
-		for (const g of OBJECT_CASES) {
-			runGroup(g.group, g.makeTarget, g.cases);
-		}
+		// BISECT-B: object cases skipped
+		// for (const g of OBJECT_CASES) {
+		// 	runGroup(g.group, g.makeTarget, g.cases);
+		// }
 
 		const report = {
 			staticBinding,
@@ -139,6 +153,7 @@ export default class Benchmark extends Node {
 			results,
 		};
 		console.log("BENCH_JSON " + JSON.stringify(report));
-		this.get_tree()?.quit(0);
+		// no self-quit: under `-- --bench` the start flow completes right
+		// after this scene and exits through the regular (race-free) path.
 	}
 }

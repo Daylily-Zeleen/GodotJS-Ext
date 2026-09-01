@@ -46,7 +46,7 @@ def exposed(json_name):
 # json argument type -> TS expression producing that value.
 FACTORY = {
     "bool": "true",
-    "int": "3",
+    "int": "0",   # 0 keeps index-ish arguments in range
     "float": "1.5",
     "String": '"abc"',
     "StringName": '"abc"',   # godot.StringName is not exported; typed calls accept JS strings
