@@ -142,6 +142,16 @@
 // [EXPERIMENTAL] use optimized wrapper function calls if possible
 #define JSB_FAST_REFLECTION 1
 
+// [TODO] 隐式数组转换的影响范围说明：
+// 该开关仅作用于「带类型提示」的转换路径（TypeConvert::js_to_gd_var 带
+// Variant::Type 参数的重载，即方法签名/属性类型/构造参数等已声明目标类型
+// 的场景），且只覆盖 Packed 系数组与 godot::Array 两类目标。
+// 注意：无类型提示的转换路径（TypeConvert::js_to_gd_var 无 Variant::Type
+// 参数的重载）不受此开关控制，也没有任何数组转换分支——可变参数（vararg）
+// 尾参、运算符操作数、Dictionary 键值、JS 回调返回值等无类型场景传入
+// JS 原生数组会直接转换失败，需要显式使用 godot.Array 包装对象。
+// 这是上游的有意设计（无类型上下文无法选择 Packed 目标类型），维持现状，
+// 不要为可变参数补隐式转换。
 // implicitly convert a javascript array as godot Vector<T> which is convenient but less performant if massively used
 #define JSB_IMPLICIT_PACKED_ARRAY_CONVERSION 1
 

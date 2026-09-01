@@ -155,7 +155,7 @@ struct OperatorRegister {
 };
 
 #define Number double
-#include "../internal/jsb_primitive_operators.def.h"
+#include "../internal/jsb_primitive_operators.def.gen.h"
 #undef Number
 
 struct VariantBindFallbacks {

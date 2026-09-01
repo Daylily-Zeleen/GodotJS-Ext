@@ -797,6 +797,21 @@ runtime_globs = [
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
 ]
 
+# Primitive-operator registration table (jsb_primitive_operators.def.gen.h):
+# generated from the same godot-cpp api json as the static-binding codegen.
+# Runs unconditionally -- the dynamic binding path consumes it too.
+_sb_ops_gen = os.path.join(src_dir, "runtime", "internal", "jsb_primitive_operators.def.gen.h")
+_sb_ops_codegen = os.path.join(root_dir, "misc", "build", "generate_primitive_operators.py")
+_sb_ops_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+        "extension_api-%s.json" % API_VERSION.replace(".", "-"))
+if not os.path.exists(_sb_ops_api_json):
+    print_error("primitive-operator codegen requires " + _sb_ops_api_json +
+                " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
+subprocess.run([sys.executable, _sb_ops_codegen, "--input", _sb_ops_api_json,
+                "--interface", os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+                                            "gdextension_interface.json"),
+                "--out", _sb_ops_gen], check=True)
+
 # Static bindings: generated tables (*.gen.*) are NEVER committed.
 # Codegen consumes the extension_api json that ships INSIDE the godot-cpp
 # submodule (gdextension/extension_api-<API_VERSION>.json) -- the exact file
