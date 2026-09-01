@@ -98,4 +98,3 @@ private:
 	Isolate *isolate_ = nullptr;
 };
 } //namespace v8
-

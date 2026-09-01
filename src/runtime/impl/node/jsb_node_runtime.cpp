@@ -32,6 +32,7 @@
 #include "jsb_node_bridge.h"
 #include "jsb_node_global_init.h"
 #include "jsb_node_helper.h"
+#include "internal/jsb_bridge_table.h"
 
 namespace jsb::impl {
 NodeRuntime::NodeRuntime() {
@@ -109,10 +110,24 @@ NodeRuntime::NodeRuntime() {
 	// drive the event loop once so the bootstrap finishes (installs timers/console etc.)
 	isolate_->PerformMicrotaskCheckpoint();
 	uv_run(loop_, UV_RUN_ONCE);
+
+#if JSB_WITH_NODE
+	// if the editor bridge console capability was already activated in this
+	// process, wrap the freshly bootstrapped node console right away (see
+	// jsb_bridge_table.cpp for the hook implementation). `get_node_context()`
+	// creates a Local handle, so the isolate scope + HandleScope must be held
+	// here before evaluating it.
+	{
+		JSB_ISOLATE_SCOPE(isolate_);
+		v8::HandleScope hook_handle_scope(isolate_);
+		jsb::bridge_console_hook_ensure(isolate_, get_node_context());
+	}
+#endif
 }
 
 NodeRuntime::~NodeRuntime() {
 	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
+
 	// Node Environment.
 	{
 		jsb_check(node_env_);
@@ -172,6 +187,10 @@ NodeRuntime::~NodeRuntime() {
 
 	// Allocator
 	allocator_.reset();
+	
+	// drop the console hook state owned by this isolate before it goes away
+	// (see jsb_bridge_table.cpp)
+	jsb::bridge_console_hook_on_isolate_releasing(isolate_);
 }
 
 void NodeRuntime::PumpEventLoop() {

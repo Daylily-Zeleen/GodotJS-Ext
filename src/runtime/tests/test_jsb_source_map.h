@@ -40,7 +40,7 @@
 // NOTE: these tests are self-contained and must NOT depend on the tsc-compiled artifacts under `project/`
 //       (C++ tests run before the TS integration tests in CI).
 namespace jsb::tests {
-TEST_CASE("[jsb.sourcemap] parse and find") {
+TEST_CASE("[runtime] [jsb.sourcemap] parse and find") {
 	// hand-written source map json: a single segment on generated line 0, mapping
 	// generated column 0 -> sources[0], source line 1, source column 3 (all zero-based)
 	// segment 'AACG' decodes as [gen_col_delta=0, source_index_delta=0, source_line_delta=1, source_col_delta=3]
@@ -91,8 +91,8 @@ TEST_CASE("[jsb.sourcemap] parse and find") {
 	}
 }
 
-#if !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
-TEST_CASE("[jsb.sourcemap] match one-based to zero-based") {
+#	if !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
 
@@ -125,8 +125,8 @@ TEST_CASE("[jsb.sourcemap] match one-based to zero-based") {
 		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:1:0)", result));
 	}
 }
-#else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
-TEST_CASE("[jsb.sourcemap] classic quickjs match without column") {
+#	else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
 
@@ -138,9 +138,9 @@ TEST_CASE("[jsb.sourcemap] classic quickjs match without column") {
 
 	CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:0)", result));
 }
-#endif // JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
+#	endif // JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
 
-TEST_CASE("[jsb.sourcemap] process_source_position rewrites stacktrace") {
+TEST_CASE("[runtime] [jsb.sourcemap] process_source_position rewrites stacktrace") {
 	GodotJSScriptLanguageIniter initer;
 
 	// a temporary generated `.js` with a hand-written `.js.map` next to it
@@ -192,7 +192,7 @@ TEST_CASE("[jsb.sourcemap] process_source_position rewrites stacktrace") {
 	DirAccess::remove_absolute(map_path);
 }
 
-TEST_CASE("[jsb.sourcemap] chinese path filename in stacktrace") {
+TEST_CASE("[runtime] [jsb.sourcemap] chinese path filename in stacktrace") {
 	// regression for the utf-8 byte-length bug in `impl::Helper::compile_function`:
 	// the generated filename was truncated when it contained non-ascii characters
 	// (e.g. 'testScript.js' became 'cardDefin'), which also broke the `.js.map` lookup.

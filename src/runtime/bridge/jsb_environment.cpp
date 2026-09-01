@@ -49,7 +49,7 @@
 #include "../internal/jsb_path_util.h"
 #include "../internal/jsb_settings.h"
 #include "../internal/jsb_variant_util.h"
-#include "../jsb_project_preset.h"
+#include "../jsb_runtime_preset.h"
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
 //TODO remove this
@@ -446,26 +446,23 @@ Environment::~Environment() {
 
 void Environment::init() {
 	jsb::DefaultModuleResolver &resolver = this->add_module_resolver<jsb::DefaultModuleResolver>();
-	resolver.add_search_path(jsb::internal::Settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/godotjs_ext' by default)
+	resolver.add_search_path(jsb::internal::settings::get_jsb_out_res_path()); // default path of js source (results of compiled ts, at '.godot/godotjs_ext' by default)
 	resolver.add_search_path("res://"); // use the root directory as custom lib path by default
 	resolver.add_search_path("res://node_modules"); // so far, it's the only supported path for node_modules in GodotJS
 
-	// load internal scripts (jsb.core, jsb.editor.main, jsb.editor.codegen)
+	// load internal scripts (jsb.core, jsb.editor.main)
 	static constexpr char kRuntimeBundleFile[] = "jsb.runtime.bundle.js";
-	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSProjectPreset::get_source_rt(kRuntimeBundleFile)) == OK,
+	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSRuntimePreset::get_source(kRuntimeBundleFile)) == OK,
 			"the embedded '%s' not found, run 'scons' again to refresh all *.gen.cpp sources",
 			kRuntimeBundleFile);
 	static constexpr char kEditorBundleFile[] = "jsb.editor.bundle.js";
-#ifdef TOOLS_ENABLED
-	jsb_ensuref(AMDModuleLoader::load_source(this, GodotJSProjectPreset::get_source_ed(kEditorBundleFile)) == OK,
-			"the embedded '%s' not found, run 'scons' again to refresh all *.gen.cpp sources",
-			kEditorBundleFile);
-#else
-	// Users may consume editor APIs in codegen functions. However, we want to permit regular ES6 import syntax.
-	// We provide a dummy module that can be imported (but not used) in runtime-only builds.
-	static constexpr char kDummyModule[] = "(function(define){define('jsb.editor.codegen',[],function(){return{}})})";
+	// The editor bundle is owned by the editor extension; it loads
+	// `jsb.editor.main` on demand via require (idempotent). Here we only
+	// register an empty placeholder module so user scripts importing this id in
+	// a process without the editor extension don't crash. (P1 removed the TS
+	// codegen; jsb.editor.codegen stays as an empty compatibility shim.)
+	static constexpr char kDummyModule[] = "(function(define){define('jsb.editor.main',[],function(){return{}});define('jsb.editor.codegen',[],function(){return{}})})";
 	AMDModuleLoader::load_source(this, kDummyModule, sizeof(kDummyModule) - 1, kEditorBundleFile);
-#endif
 }
 
 void Environment::dispose() {
@@ -828,6 +825,10 @@ std::shared_ptr<Environment> Environment::_access() {
 	return EnvironmentStore::get_shared().access();
 }
 
+std::vector<std::shared_ptr<Environment>> Environment::get_all_environments() {
+	return EnvironmentStore::get_shared().get_list();
+}
+
 NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref) {
 	if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(p_pointer)) {
 		if (script_instance->is_shadow()) {
@@ -1065,6 +1066,7 @@ void Environment::get_statistics(Statistics &r_stats) const {
 	r_stats.cached_string_names = string_name_cache_.size();
 	r_stats.persistent_objects = persistent_object_count_;
 	r_stats.allocated_variants = variant_allocator_.get_allocated_num();
+	r_stats.objects_bytes = (int64_t)r_stats.objects * (int64_t)internal::SArray<jsb::ObjectHandle>::get_slot_size();
 }
 
 ObjectCacheID Environment::get_cached_function(const v8::Local<v8::Function> &p_func) {

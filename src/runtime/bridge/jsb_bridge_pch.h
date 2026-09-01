@@ -29,14 +29,14 @@
 
 #include <cstdint>
 
+#include "../compat/jsb_compat.h"
 #include "../jsb.config.h"
 #include "../jsb.gen.h"
 #include "../jsb_version.h"
-#include "../compat/jsb_compat.h"
 #if JSB_WITH_WEB
 #	include "../impl/web/jsb_web.h"
 #elif JSB_WITH_NODE
-	// node mode also defines JSB_WITH_V8=1 (libnode bundles V8), keep this branch first
+// node mode also defines JSB_WITH_V8=1 (libnode bundles V8), keep this branch first
 #	include "../impl/node/jsb_node.h"
 #elif JSB_WITH_V8
 #	include "../impl/v8/jsb_v8.h"
@@ -48,5 +48,5 @@
 #	error unknown javascript runtime
 #endif
 
-#include "../impl/shared/jsb_isolate_scope.h"
+#include <internal/jsb_isolate_scope.h>
 #include "../internal/jsb_internal.h"

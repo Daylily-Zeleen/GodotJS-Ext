@@ -1,3 +1,4 @@
+// uid://dxeepjb1uqdr7 This line is generated, don't modify or remove it.
 import { Node } from "godot";
 
 /**

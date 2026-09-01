@@ -49,7 +49,7 @@ class ApiStoreReader;
 
 using MethodHash = uint32_t;
 
-const godot::String &get_variant_operator_name(godot::Variant::Operator p_op);
+godot::String get_variant_operator_name(godot::Variant::Operator p_op);
 
 // ============================================================================
 // Directory/file name constants

@@ -27,7 +27,8 @@
 
 #include "jsb_export_plugin.h"
 
-#include "runtime/weaver/jsb_script.h"
+#include "../jsb_editor_settings.h"
+#include "jsb_editor_bridge.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #if JSB_WITH_NODE
@@ -35,7 +36,7 @@
 #	include <godot_cpp/classes/project_settings.hpp>
 #endif // JSB_WITH_NODE
 
-#include <runtime/compat/misc.h>
+#include <compat/misc.h>
 
 #include "api_tool/editor/api_tool_editor.h"
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
@@ -72,8 +73,6 @@ const HashSet<String> &GodotJSExportPlugin::get_ignored_paths() {
 }
 
 GodotJSExportPlugin::GodotJSExportPlugin() {
-	env_ = GodotJSScriptLanguage::get_singleton()->get_environment();
-	jsb_check(env_);
 }
 
 PackedStringArray GodotJSExportPlugin::_get_export_features(const Ref<EditorExportPlatform> &p_export_platform, bool p_debug) const {
@@ -119,7 +118,7 @@ void GodotJSExportPlugin::get_script_resources(const String &p_dir, PackedString
 
 		if (dir->current_is_dir()) {
 			get_script_resources(path, r_list, p_is_node_module);
-		} else if (ResourceLoader::get_singleton()->exists(path, GodotJSScript::get_class_static()) && !get_ignored_paths().has(path)) {
+		} else if (ResourceLoader::get_singleton()->exists(path, "GodotJSScript") && !get_ignored_paths().has(path)) {
 			r_list.push_back(path);
 		}
 
@@ -135,11 +134,11 @@ void GodotJSExportPlugin::_export_begin(const PackedStringArray &p_features, boo
 	exported_paths_.clear();
 
 	// add all explicitly included file paths in settings
-	const PackedStringArray file_paths = jsb::internal::Settings::get_packaging_include_files();
+	const PackedStringArray file_paths = jsb::internal::settings::project::get_packaging_include_files();
 	export_raw_files(file_paths, true);
 
 	// add all explicitly included directory paths
-	const PackedStringArray dir_paths = jsb::internal::Settings::get_packaging_include_directories();
+	const PackedStringArray dir_paths = jsb::internal::settings::project::get_packaging_include_directories();
 	for (const String &dir_path : dir_paths) {
 		PackedStringArray script_paths;
 		get_script_resources(dir_path, script_paths);
@@ -173,26 +172,6 @@ bool GodotJSExportPlugin::export_raw_file(const String &p_path, bool p_remap) {
 	return true;
 }
 
-bool GodotJSExportPlugin::export_module_files(const jsb::JavaScriptModule &p_module, bool p_remap) {
-	if (!export_raw_file(p_module.source_info.source_filepath, p_remap)) {
-		JSB_EXPORTER_LOG(Error, "can't read JS source from %s, please ensure that 'tsc' has being executed properly.", p_module.source_info.source_filepath);
-		return false;
-	}
-
-	if (jsb::internal::Settings::is_packaging_with_source_map()) {
-		const String source_map_path = p_module.source_info.source_filepath + String(".map");
-		if (!export_raw_file(source_map_path, false)) {
-			JSB_EXPORTER_LOG(Verbose, "can't read the sourcemap from %s, please ensure that 'tsc' has being executed properly.", source_map_path);
-		}
-	}
-
-	if (!p_module.source_info.package_filepath.is_empty() && !export_raw_file(p_module.source_info.package_filepath, false)) {
-		JSB_EXPORTER_LOG(Error, "can't read the package.json from %s", p_module.source_info.package_filepath);
-		return false;
-	}
-	return true;
-}
-
 bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_remap) {
 	static constexpr char kNodeModulesPrefix[] = "res://node_modules/";
 
@@ -203,7 +182,7 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 		JSB_EXPORTER_LOG(Warning, "can not export external source: %s", p_path);
 		return false;
 	}
-	if (jsb::internal::Settings::is_packaging_referenced_node_modules() && p_path.begins_with(kNodeModulesPrefix)) {
+	if (jsb::internal::settings::project::is_packaging_referenced_node_modules() && p_path.begins_with(kNodeModulesPrefix)) {
 		// Node modules may dynamically require files within themselves, and thus these modules won't end up in our
 		// module's "children" array. The kRtPackagingReferencedNodeModules setting (on by default) allows us to play
 		// it safe and export all JS scripts found in referenced packages. However, this won't cover the case where
@@ -231,33 +210,35 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 
 	// export dependent files.
 	// force module loading. ensure the module hierarchy available.
-	if (jsb::JavaScriptModule *module; env_->load(p_path, &module) == OK) {
-		v8::Isolate *isolate = env_->get_isolate();
-		JSB_ISOLATE_SCOPE(isolate);
-		v8::HandleScope handle_scope(isolate);
-		const v8::Local<v8::Context> context = env_->get_context();
-		v8::Context::Scope context_scope(context);
+	if (const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+			bridge != nullptr && bridge->get_module_source_info != nullptr) {
+		// source + optional package.json of THIS module
+		Variant source_info;
+		const CharString path_utf8 = p_path.utf8();
+		godot::Error qerr = bridge->get_module_source_info(path_utf8.get_data(), path_utf8.length(), source_info._native_ptr());
+		if (qerr == OK && source_info.get_type() == Variant::DICTIONARY) {
+			Dictionary info = source_info;
+			export_raw_file(info.get("source", String()), p_remap);
+			const String package_path = info.get("package", String());
+			if (!package_path.is_empty()) {
+				export_raw_file(package_path, false);
+			}
+		}
 
-		export_module_files(*module, p_remap);
-		jsb::Environment *environment = jsb::Environment::wrap(isolate);
-		const v8::Local<v8::Object> module_obj = module->module.Get(isolate);
-		if (v8::Local<v8::Value> temp; module_obj->Get(context, jsb_name(environment, children)).ToLocal(&temp) && temp->IsArray()) {
-			const v8::Local<v8::Array> children = temp.As<v8::Array>();
-			const int32_t len = (int32_t)children->Length();
-			for (int i = 0; i < len; i++) {
-				if (children->Get(context, i).ToLocal(&temp) && temp->IsObject()) {
-					const v8::Local<v8::Object> child = temp.As<v8::Object>();
-					if (child->Get(context, jsb_name(environment, filename)).ToLocal(&temp)) {
-						const String filename = jsb::impl::Helper::to_string(isolate, temp);
-						if (export_compiled_script(filename, false)) {
-							JSB_EXPORTER_LOG(Verbose, "export dependent source: %s", filename);
-						}
+		// one-level dependencies (recursion happens through this very function)
+		if (bridge->get_module_direct_dependencies != nullptr) {
+			Variant deps_var;
+			qerr = bridge->get_module_direct_dependencies(path_utf8.get_data(), path_utf8.length(), deps_var._native_ptr());
+			if (qerr == OK && deps_var.get_type() == Variant::PACKED_STRING_ARRAY) {
+				for (const String &filename : (PackedStringArray)deps_var) {
+					if (export_compiled_script(filename, false)) {
+						JSB_EXPORTER_LOG(Verbose, "export dependent source: %s", filename);
 					}
 				}
 			}
 		}
 	} else {
-		JSB_EXPORTER_LOG(Warning, "failed to include module: %s", p_path);
+		JSB_EXPORTER_LOG(Warning, "runtime bridge is not available for module: %s", p_path);
 	}
 	return true;
 }

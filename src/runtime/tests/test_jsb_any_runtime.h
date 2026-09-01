@@ -27,10 +27,10 @@
 
 #pragma once
 
+#include "../../compat/string_builder.h"
 #include "../bridge/jsb_essentials.h"
 #include "../bridge/jsb_object_db.h"
 #include "../bridge/jsb_type_convert.h"
-#include "../compat/string_builder.h"
 #include "jsb_test_helpers.h"
 
 #include <godot_cpp/classes/weak_ref.hpp>
@@ -99,7 +99,7 @@ struct TimerFunction {
 	explicit operator bool() const { return true; }
 };
 
-TEST_CASE("[jsb] timer manager - simple") {
+TEST_CASE("[runtime] [jsb] timer manager - simple") {
 	typedef internal::TTimerManager<TimerFunction, 12, 6> JSTimerManager;
 	JSTimerManager tm;
 	// static constexpr size_t kSize = sizeof(JSTimerManager);
@@ -138,7 +138,7 @@ TEST_CASE("[jsb] timer manager - simple") {
 	CHECK(ctx.counter == 12);
 }
 
-TEST_CASE("[jsb] BindingObjectDB remove while handle alive") {
+TEST_CASE("[runtime] [jsb] BindingObjectDB remove while handle alive") {
 	BindingObjectDB object_db(4);
 	int native_object = 0;
 	void *native_pointer = &native_object;
@@ -167,7 +167,7 @@ TEST_CASE("[jsb] BindingObjectDB remove while handle alive") {
 
 // TODO: Build with Node has different path to create isolate and context.
 #if !JSB_WITH_NODE
-TEST_CASE("[jsb] raw isolate essential tests") {
+TEST_CASE("[runtime] [jsb] raw isolate essential tests") {
 	ArrayBufferAllocator allocator;
 	v8::Isolate::CreateParams create_params;
 	create_params.array_buffer_allocator = &allocator;
@@ -297,11 +297,11 @@ return 1+1;
 }
 #endif // !JSB_WITH_NODE
 
-TEST_CASE("[jsb] GodotJSScriptLanguage Init/Finish") {
+TEST_CASE("[runtime] [jsb] GodotJSScriptLanguage Init/Finish") {
 	GodotJSScriptLanguageIniter initer;
 }
 
-TEST_CASE("[jsb] StringNameCache") {
+TEST_CASE("[runtime] [jsb] StringNameCache") {
 	GodotJSScriptLanguageIniter initer;
 	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
 	{
@@ -319,7 +319,7 @@ TEST_CASE("[jsb] StringNameCache") {
 	env.reset();
 }
 
-TEST_CASE("[jsb] Godot Object Class prototype checks") {
+TEST_CASE("[runtime] [jsb] Godot Object Class prototype checks") {
 	GodotJSScriptLanguageIniter initer;
 
 	{
@@ -406,7 +406,7 @@ return 1+1;
 	}
 }
 
-TEST_CASE("[jsb] Node new/free/instanceof") {
+TEST_CASE("[runtime] [jsb] Node new/free/instanceof") {
 	GodotJSScriptLanguageIniter initer;
 
 	{
@@ -460,7 +460,7 @@ console.assert(!gd.is_instance_valid(node));
 	CHECK(err == OK);
 }
 
-TEST_CASE("[jsb] Scripts: test_01") {
+TEST_CASE("[runtime] [jsb] Scripts: test_01") {
 	GodotJSScriptLanguageIniter initer;
 
 	Error err;
@@ -480,7 +480,7 @@ console.assert(!gd.is_instance_valid(inst));
 	CHECK(err == OK);
 }
 
-TEST_CASE("[jsb] load stub module") {
+TEST_CASE("[runtime] [jsb] load stub module") {
 	GodotJSScriptLanguageIniter initer;
 
 	std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
@@ -494,7 +494,7 @@ TEST_CASE("[jsb] load stub module") {
 	}
 }
 
-TEST_CASE("[jsb] load module") {
+TEST_CASE("[runtime] [jsb] load module") {
 	GodotJSScriptLanguageIniter initer;
 
 	std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
@@ -505,7 +505,7 @@ TEST_CASE("[jsb] load module") {
 	}
 }
 
-TEST_CASE("[jsb] v8 types") {
+TEST_CASE("[runtime] [jsb] v8 types") {
 	GodotJSScriptLanguageIniter initer;
 
 	std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
@@ -519,7 +519,7 @@ TEST_CASE("[jsb] v8 types") {
 	}
 }
 
-TEST_CASE("[jsb] RefCounted objects") {
+TEST_CASE("[runtime] [jsb] RefCounted objects") {
 	Ref<WeakRef> weak_ref;
 	weak_ref.instantiate();
 	{

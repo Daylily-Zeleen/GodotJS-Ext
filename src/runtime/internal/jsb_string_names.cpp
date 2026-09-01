@@ -26,10 +26,22 @@
 /************************************************************************/
 
 #include "jsb_string_names.h"
+#include "jsb_string_names.def.h"
+
+#include "compat/jsb_compat.h"
+#include "jsb_macros.h"
+#include "jsb_naming_util.h"
+
 namespace jsb::internal {
 StringNames *StringNames::singleton_ = nullptr;
 
 StringNames &StringNames::get_singleton() {
+	// Lazy-create: the editor extension compiles this TU too but never runs the
+	// runtime's language bootstrap, so its copy must self-initialize. The
+	// replacement table stays empty on that side (pure identifier names only).
+	if (singleton_ == nullptr) {
+		create();
+	}
 	return *singleton_;
 }
 

@@ -30,7 +30,7 @@
 #include "jsb_internal_pch.h"
 #include "jsb_macros.h"
 
-#include <runtime/compat/paged_allocator.h>
+#include <compat/paged_allocator.h>
 #include <godot_cpp/templates/spin_lock.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/variant/variant.hpp>
@@ -122,4 +122,3 @@ private:
 #endif
 };
 } //namespace jsb::internal
-

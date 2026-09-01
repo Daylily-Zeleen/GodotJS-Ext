@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include <runtime/compat/jsb_compat.h>
-#include <runtime/bridge/jsb_statistics.h>
+#include <compat/jsb_compat.h>
+#include <internal/jsb_statistics.h>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
@@ -59,4 +59,3 @@ public:
 	static void register_monitors();
 	static void unregister_monitors();
 };
-

@@ -81,4 +81,3 @@ struct InlineAllocator {
 	};
 };
 } //namespace jsb::internal
-

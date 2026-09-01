@@ -29,6 +29,7 @@
 #include "jsb_environment.h"
 
 #include "../internal/jsb_path_util.h"
+#include "runtime/internal/jsb_runtime_settings.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/json.hpp>
 
@@ -37,9 +38,9 @@ namespace {
 // the cost of copy return is acceptable since Vector copy constructor is by-reference under the hood
 PackedStringArray get_dynamic_search_paths() {
 #ifdef TOOLS_ENABLED
-	return jsb::internal::Settings::get_additional_search_paths();
+	return jsb::internal::settings::project::get_additional_search_paths();
 #else
-	static PackedStringArray dynamic_search_paths = jsb::internal::Settings::get_additional_search_paths();
+	static PackedStringArray dynamic_search_paths = jsb::internal::settings::project::get_additional_search_paths();
 	return dynamic_search_paths;
 #endif
 }

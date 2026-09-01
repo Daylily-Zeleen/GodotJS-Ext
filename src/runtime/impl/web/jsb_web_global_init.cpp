@@ -29,8 +29,9 @@
 #include "../../bridge/jsb_environment.h"
 #include "../../bridge/jsb_type_convert.h"
 #include "../../bridge/jsb_worker.h"
-#include "../../internal/jsb_logger.h"
 #include "../../internal/jsb_variant_util.h"
+#include "internal/jsb_runtime_settings.h"
+#include <internal/jsb_logger.h>
 
 #include <cstdint>
 
@@ -207,7 +208,7 @@ void GlobalInitialize::init() {
 				JSNI_FUNC(on_worker_message_from_pthread),
 				JSNI_FUNC(worker_get_or_add_native_transfer),
 				(bool)JSB_DEBUG,
-				internal::Settings::is_bridge_logging_enabled());
+				internal::settings::project::is_bridge_logging_enabled());
 	}
 }
 

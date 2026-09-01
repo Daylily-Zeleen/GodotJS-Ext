@@ -27,18 +27,14 @@
 
 #pragma once
 
+// Runtime-suite test fixtures (engine-dependent). Engine-independent shared
+// utilities live in src/tests/jsb_test_utils.h.
+
 #include "../weaver/jsb_script_language.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
-#define DOCTEST_CONFIG_NO_POSIX_SIGNALS
-#define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
-#include "doctest/doctest.h"
-
-#include <chrono>
-#include <thread>
-
-#define JSB_TESTS_EXECUTION_SCOPE(env) const jsb::tests::V8ContextScope JSB_CONCAT(unique_, __COUNTER__)(env)
+#include "../tests/jsb_test_utils.h" // doctest config macros + shared utils
 
 namespace jsb::tests {
 struct StubBindings {
@@ -117,7 +113,7 @@ public:
 		// 清除
 		GodotJSScriptLanguage::get_singleton()->_finish();
 		// 确保每个测试结束后环境恢复
-		GodotJSScriptLanguage::get_singleton()->_init(); 
+		GodotJSScriptLanguage::get_singleton()->_init();
 	}
 
 private:

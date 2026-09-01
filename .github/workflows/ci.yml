@@ -450,7 +450,7 @@ jobs:
 
       - name: Install gdb
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y gdb
+        run: sudo apt-get update && sudo apt-get install -y gdb strace
 
       # A crashing Godot process on Windows can pop up the Windows Error
       # Reporting dialog, which blocks the runner forever. Disable its UI.

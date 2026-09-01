@@ -413,4 +413,3 @@ namespace bind {
 } //namespace bind
 
 } //namespace jsb
-

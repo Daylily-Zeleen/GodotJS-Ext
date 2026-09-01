@@ -167,7 +167,7 @@ Local<String> Symbol::Description(Isolate *isolate) const {
 		}
 		return Local<String>();
 	}
-	const JSValueRef self = (JSValueRef)*this;
+	const JSValueRef self = (JSValueRef) * this;
 	const JSValueRef desc = JSObjectCallAsFunction(ctx, (JSObjectRef)getter, nullptr, 1, &self, &error);
 	if (jsb_unlikely(error) || !desc) {
 		if (error) {

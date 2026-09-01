@@ -271,4 +271,3 @@ public:
 	}
 };
 } //namespace jsb::impl
-

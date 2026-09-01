@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include <internal/jsb_statistics.h>
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_async_module_manager.h"
@@ -39,7 +40,6 @@
 #include "jsb_module_resolver.h"
 #include "jsb_object_db.h"
 #include "jsb_object_handle.h"
-#include "jsb_statistics.h"
 #include "jsb_string_name_cache.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
@@ -52,7 +52,7 @@
 #	include <future>
 #endif // JSB_WITH_DEBUGGER
 
-#include <runtime/compat/thread.h>
+#include <compat/thread.h>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -701,7 +701,11 @@ public:
 	// NOTE: you can't get a shadow environment with this method
 	static std::shared_ptr<Environment> _access();
 
-private:
+	// snapshot of every live Environment (thread-safe; used by the console
+	// hook to install the node console trampoline across all environments).
+	static std::vector<std::shared_ptr<Environment>> get_all_environments();
+
+	private:
 	void exec_async_calls();
 	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
 

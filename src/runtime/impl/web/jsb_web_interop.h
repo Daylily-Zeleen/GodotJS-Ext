@@ -211,4 +211,3 @@ JSBROWSER_API jsb::impl::ResultValue jsbi_SetAdd(jsb::impl::JSRuntime engine_id,
 
 JSBROWSER_API int jsbi_PostMessage(uintptr_t pthread_id, jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition data_sp, uint32_t native_message_id, jsb::impl::StackPosition transfer_sp);
 JSBROWSER_API bool jsbi_RegisterWorkerOwner(uintptr_t pthread_id, jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition worker_owner_sp);
-

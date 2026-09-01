@@ -34,51 +34,52 @@ using namespace godot;
 
 namespace api_tool {
 
-const godot::String &get_variant_operator_name(godot::Variant::Operator p_op) {
-#define __VAR_OP_TO_TEXT(op) ret[godot::Variant::op] = #op;
-	static auto search = [] {
-		std::array<String, Variant::OP_MAX> ret;
+godot::String get_variant_operator_name(godot::Variant::Operator p_op) {
+// Operator names as plain literals: the lookup table must NOT hold godot::String
+// objects. Function-local statics holding engine-heap data are destroyed during
+// DLL unload / static deinit - which can happen AFTER the engine has torn down
+// its variant allocator at process exit, and the late CowData::_unref crashes.
+#define __VAR_OP_TO_TEXT(op) #op
+	static const char *kNames[Variant::OP_MAX] = {
 		// comparison
-		__VAR_OP_TO_TEXT(OP_EQUAL)
-		__VAR_OP_TO_TEXT(OP_NOT_EQUAL)
-		__VAR_OP_TO_TEXT(OP_LESS)
-		__VAR_OP_TO_TEXT(OP_LESS_EQUAL)
-		__VAR_OP_TO_TEXT(OP_GREATER)
-		__VAR_OP_TO_TEXT(OP_GREATER_EQUAL)
+		__VAR_OP_TO_TEXT(OP_EQUAL),
+		__VAR_OP_TO_TEXT(OP_NOT_EQUAL),
+		__VAR_OP_TO_TEXT(OP_LESS),
+		__VAR_OP_TO_TEXT(OP_LESS_EQUAL),
+		__VAR_OP_TO_TEXT(OP_GREATER),
+		__VAR_OP_TO_TEXT(OP_GREATER_EQUAL),
 		// mathematic
-		__VAR_OP_TO_TEXT(OP_ADD)
-		__VAR_OP_TO_TEXT(OP_SUBTRACT)
-		__VAR_OP_TO_TEXT(OP_MULTIPLY)
-		__VAR_OP_TO_TEXT(OP_DIVIDE)
-		__VAR_OP_TO_TEXT(OP_NEGATE)
-		__VAR_OP_TO_TEXT(OP_POSITIVE)
-		__VAR_OP_TO_TEXT(OP_MODULE)
-		__VAR_OP_TO_TEXT(OP_POWER)
+		__VAR_OP_TO_TEXT(OP_ADD),
+		__VAR_OP_TO_TEXT(OP_SUBTRACT),
+		__VAR_OP_TO_TEXT(OP_MULTIPLY),
+		__VAR_OP_TO_TEXT(OP_DIVIDE),
+		__VAR_OP_TO_TEXT(OP_NEGATE),
+		__VAR_OP_TO_TEXT(OP_POSITIVE),
+		__VAR_OP_TO_TEXT(OP_MODULE),
+		__VAR_OP_TO_TEXT(OP_POWER),
 		// bitwise
-		__VAR_OP_TO_TEXT(OP_SHIFT_LEFT)
-		__VAR_OP_TO_TEXT(OP_SHIFT_RIGHT)
-		__VAR_OP_TO_TEXT(OP_BIT_AND)
-		__VAR_OP_TO_TEXT(OP_BIT_OR)
-		__VAR_OP_TO_TEXT(OP_BIT_XOR)
-		__VAR_OP_TO_TEXT(OP_BIT_NEGATE)
+		__VAR_OP_TO_TEXT(OP_SHIFT_LEFT),
+		__VAR_OP_TO_TEXT(OP_SHIFT_RIGHT),
+		__VAR_OP_TO_TEXT(OP_BIT_AND),
+		__VAR_OP_TO_TEXT(OP_BIT_OR),
+		__VAR_OP_TO_TEXT(OP_BIT_XOR),
+		__VAR_OP_TO_TEXT(OP_BIT_NEGATE),
 		// logic
-		__VAR_OP_TO_TEXT(OP_AND)
-		__VAR_OP_TO_TEXT(OP_OR)
-		__VAR_OP_TO_TEXT(OP_XOR)
-		__VAR_OP_TO_TEXT(OP_NOT)
+		__VAR_OP_TO_TEXT(OP_AND),
+		__VAR_OP_TO_TEXT(OP_OR),
+		__VAR_OP_TO_TEXT(OP_XOR),
+		__VAR_OP_TO_TEXT(OP_NOT),
 		// containment
-		__VAR_OP_TO_TEXT(OP_IN)
-		__VAR_OP_TO_TEXT(OP_MAX)
-		return ret;
-	}();
+		__VAR_OP_TO_TEXT(OP_IN),
+		// no entry for OP_MAX: it is the count sentinel, not a valid operator
+	};
 	if (p_op < 0 || p_op >= Variant::OP_MAX) {
 		// Malformed/out-of-range operator codes must never crash the
-		// editor (std::array::operator[] is unchecked).
+		// editor (raw array indexing is unchecked).
 		ERR_PRINT(vformat("[API Tool] invalid variant operator code: %d", (int)p_op));
-		static const String invalid;
-		return invalid;
+		return godot::String();
 	}
-	return search[p_op];
+	return godot::String(kNames[p_op]);
 }
 
 void ApiBuiltInMethod::try_load_compatible_func_ptr() const {

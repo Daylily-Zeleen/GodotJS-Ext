@@ -26,7 +26,7 @@
 /************************************************************************/
 
 #pragma once
-#include "../internal/jsb_preset_source.h"
+#include <internal/jsb_preset_source.h>
 #include "jsb_bridge_pch.h"
 #include "jsb_module_loader.h"
 

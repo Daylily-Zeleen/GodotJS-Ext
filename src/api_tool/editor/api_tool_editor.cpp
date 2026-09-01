@@ -207,7 +207,6 @@ std::unique_ptr<ApiClassDocument> find_document(const Variant::Type &p_type) {
 // Cache is invalidated internally at start of generate() (req 10)
 // ============================================================================
 
-#ifdef TOOLS_ENABLED
 void full_generate_and_reboot() {
 	const String project_dir = ProjectSettings::get_singleton()->globalize_path("res://");
 	const String godot_executable_path = OS::get_singleton()->get_executable_path();
@@ -357,9 +356,9 @@ Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_
 					 DIR_GLOBAL_CONSTANTS,
 					 DIR_SINGLETONS,
 					 DIR_NATIVE_STRUCTURES,
-#	ifndef DISABLED_DEPRECATED
+#ifndef DISABLED_DEPRECATED
 					 DIR_COMPAT_HASHES,
-#	endif // DISABLED_DEPRECATED
+#endif // DISABLED_DEPRECATED
 			 }) {
 			const String dir_path = base_dir.path_join(folder);
 			for (const String &file : DirAccess::get_files_at(classes_dir_path)) {
@@ -374,5 +373,5 @@ Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_
 
 	return result;
 }
-#endif // TOOLS_ENABLED
+
 } //namespace api_tool

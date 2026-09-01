@@ -34,7 +34,7 @@
 #include "godot_cpp/core/math.hpp"
 #include "godot_cpp/variant/vector2i.hpp"
 
-#include "runtime/compat/editor_settings.h"
+#include "compat/editor_settings.h"
 namespace godot {
 
 // ========= EditorProgress ===========

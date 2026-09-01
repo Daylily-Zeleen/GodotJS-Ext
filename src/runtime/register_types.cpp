@@ -25,36 +25,32 @@
 
 #include "register_types.h"
 
+#ifdef JSB_TESTS_ENABLED
+#	include "../tests/jsb_test_runner.h"
+#endif
 #include "api_tool/api_tool.h"
-#include "compat/jsb_compat.h"
 #include "weaver/jsb_weaver.h"
+#include <compat/jsb_compat.h>
+#include <internal/jsb_runtime_settings.h>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
-
-#ifdef JSB_TESTS_ENABLED
-#	include "doctest/doctest.h"
-#	include <godot_cpp/classes/scene_tree.hpp>
-#	include <godot_cpp/classes/window.hpp>
-#endif
-
-#ifdef TOOLS_ENABLED
-// TODO: 仅临时实现，后续需要拆分库 Editor 库
-#	include "editor/register_editor_types.h"
-#endif // TOOLS_ENABLED
+#include <godot_cpp/variant/utility_functions.hpp>
 
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	_initialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
-#endif // TOOLS_ENABLED
-
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
+#ifdef JSB_TESTS_ENABLED
+			Engine::get_singleton()->set_meta(jsb::tests::RUNTIME_TEST_FLAG, false);
+#endif
+			// Register runtime-owned project settings before anything reads them.
+			// (SERVERS is the lowest level the engine passes to GDExtensions.)
+			jsb::internal::settings::init_runtime_settings();
+
 			GDREGISTER_CLASS(GodotJSScript);
 			GDREGISTER_INTERNAL_CLASS(GodotJSScriptLanguage);
 
@@ -78,10 +74,6 @@ void jsb_initialize_module(ModuleInitializationLevel p_level) {
 }
 
 void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
-#ifdef TOOLS_ENABLED
-	_uninitialize_godotjs_editor_module(p_level); // TODO: 仅临时实现，后续需要拆分库 Editor 库
-#endif // TOOLS_ENABLED
-
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
 			GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
@@ -110,26 +102,7 @@ void jsb_startup() {
 	}
 
 #ifdef JSB_TESTS_ENABLED
-	// Run doctest unit tests if --jsb-run-tests is passed on command line
-	{
-		const PackedStringArray &args = OS::get_singleton()->get_cmdline_args();
-		bool run_tests = false;
-		for (int i = 0; i < args.size(); i++) {
-			if (args[i] == "--jsb-run-tests") {
-				run_tests = true;
-				break;
-			}
-		}
-		if (run_tests) {
-			doctest::Context context;
-			int exit_code = context.run();
-			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-				scene_tree->quit(exit_code);
-			} else {
-				std::exit(exit_code);
-			}
-		}
-	}
+	jsb::tests::try_run(jsb::tests::RUNTIME_TEST_FLAG);
 #endif // JSB_TESTS_ENABLED
 }
 
@@ -147,7 +120,7 @@ GDExtensionBool GDE_EXPORT jsb_gdextension_init(GDExtensionInterfaceGetProcAddre
 	init_obj.register_initializer(jsb_initialize_module);
 	init_obj.register_terminator(jsb_uninitialize_module);
 	init_obj.register_shutdown_callback(jsb_shutdown);
-	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_CORE);
+	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SERVERS);
 
 	return init_obj.init();
 }

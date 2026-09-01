@@ -28,8 +28,11 @@ pnpm install
 
 ### Building
 
+`target=editor` builds **both extensions** (runtime + editor, two DLLs);
+`target=template_release`/`template_debug` build only the runtime extension.
+
 ```bash
-# Build the GDExtension (Windows)
+# Build both GDExtensions (Windows)
 scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=yes -j10
 
 # Build for Linux
@@ -55,15 +58,18 @@ This outputs to `scripts/out/` and is automatically embedded into the GDExtensio
 
 ```
 .
-├── src/                    # C++ source code
-│   ├── bridge/             # JavaScript bridge implementation
-│   ├── compat/             # Compatibility layer
-│   ├── internal/           # Internal utilities
-│   ├── tests/              # C++ unit tests (doctest)
-│   ├── weaver/             # Script language implementation
-│   ├── weaver-editor/      # Editor plugins
-│   ├── register_types.cpp  # GDExtension entry point
-│   └── jsb.config.h        # Configuration header
+├── src/                        # C++ source code
+│   ├── runtime/                # Runtime extension (script language, bridge, impls)
+│   │   ├── internal/           #   Bridge table / settings / logger
+│   │   └── tests/              #   Runtime doctest suite
+│   ├── editor/                 # Editor extension (plugin, REPL, codegen)
+│   │   ├── codegen/            #   C++ code generator (api_tool -> gen/ + typings/)
+│   │   ├── weaver-editor/      #   Editor plugin / dock / REPL UI
+│   │   └── tests/              #   Editor doctest suite
+│   ├── api_tool/               # API data tooling (extension_api.json -> binary store)
+│   ├── compat/                 # Compatibility layer
+│   ├── internal/               # Shared internal utilities
+│   └── tests/                  # Test infrastructure shared by both suites
 ├── scripts/                # JavaScript/TypeScript toolchain
 │   ├── jsb.runtime/        # Runtime TypeScript package
 │   ├── jsb.editor/         # Editor TypeScript package
@@ -84,11 +90,16 @@ This outputs to `scripts/out/` and is automatically embedded into the GDExtensio
 
 ### C++ Unit Tests
 
-C++ unit tests use [doctest](https://github.com/doctest/doctest) and run automatically when the GDExtension is loaded in debug mode:
+C++ unit tests use [doctest](https://github.com/doctest/doctest). A single
+`--jsb-run-tests` flag runs **both suites** (runtime + editor); the two
+extensions synchronize through engine metadata and quit with a shared exit code:
 
 ```bash
-# Build with tests enabled
+# Build with tests enabled (both extensions)
 scons platform=windows target=editor dev_build=yes tests=yes -j10
+
+# Run both C++ test suites (requires a Godot editor binary)
+Godot_v4.7.1-stable_win64.exe --headless --path project --jsb-run-tests
 ```
 
 ### TypeScript Integration Tests

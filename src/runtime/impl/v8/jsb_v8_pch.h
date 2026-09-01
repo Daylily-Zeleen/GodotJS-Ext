@@ -38,8 +38,8 @@
 #	include <v8-cppgc.h>
 #endif
 
-#include "../../internal/jsb_logger.h"
 #include "../../internal/jsb_macros.h"
+#include <internal/jsb_logger.h>
 
-#include "../shared/jsb_custom_field.h"
-
+#include <internal/jsb_custom_field.h>
+#include <internal/jsb_statistics.h>

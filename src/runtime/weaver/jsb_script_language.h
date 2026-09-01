@@ -27,8 +27,9 @@
 
 #pragma once
 
+#include "../internal/jsb_bridge_table.h"
+#include <compat/jsb_compat.h>
 #include <runtime/bridge/jsb_bridge.h>
-#include <runtime/compat/jsb_compat.h>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_language_extension.hpp>
 #include <godot_cpp/classes/thread.hpp>
@@ -163,6 +164,11 @@ public:
 	}
 
 	void scan_external_changes();
+
+	/** Neutral bridge-table access for the editor extension (see jsb_bridge_table.h).
+	 *  Returns the address of the runtime-owned JsbBridgeTable as an integer.
+	 *  Intentionally inert from scripts: a raw integer cannot be called. */
+	uint64_t get_bridge() const { return (uint64_t)jsb::get_bridge_table(); }
 
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
 

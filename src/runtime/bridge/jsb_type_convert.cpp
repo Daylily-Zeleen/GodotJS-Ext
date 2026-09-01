@@ -409,7 +409,7 @@ bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context
 			r_jval = v8::Null(isolate);
 			return true;
 		default: {
-			JSB_LOG(Error, "unhandled type %s", Variant::get_type_name(p_type));
+			JSB_LOG(Error, "unhandled type %s (enum=%d, var_type=%d)", Variant::get_type_name(p_type), (int)p_type, (int)p_cvar.get_type());
 			return false;
 		}
 	}

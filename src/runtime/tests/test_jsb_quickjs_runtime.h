@@ -41,7 +41,7 @@ struct QuickJSBindings {
 	}
 };
 
-TEST_CASE("[jsb] quickjs.minimal") {
+TEST_CASE("[runtime] [jsb] quickjs.minimal") {
 	JSRuntime *rt = JS_NewRuntime();
 	JSContext *ctx = JS_NewContext(rt);
 	{
@@ -65,4 +65,3 @@ TEST_CASE("[jsb] quickjs.minimal") {
 }
 } //namespace jsb::tests
 #endif
-

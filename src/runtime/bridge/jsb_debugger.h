@@ -51,4 +51,3 @@ protected:
 };
 } //namespace jsb
 #endif // JSB_WITH_DEBUGGER
-

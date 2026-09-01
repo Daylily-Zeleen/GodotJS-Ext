@@ -26,12 +26,14 @@
 /************************************************************************/
 
 #include "jsb_script_language.h"
+#include "../internal/jsb_class_visibility.h"
+#include "internal/jsb_runtime_settings.h"
 
 #include <iterator>
 
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_internal.h"
-#include "../jsb_project_preset.h"
+#include "../jsb_runtime_preset.h"
 #include "jsb_monitor.h"
 
 #if JSB_SHADOW_REALM_ENABLED
@@ -140,14 +142,14 @@ void GodotJSScriptLanguage::_init() {
 	params.initial_class_slots = (int)ClassDBSingleton::get_singleton()->get_class_list().size() + JSB_MASTER_INITIAL_CLASS_EXTRA_SLOTS;
 	params.initial_object_slots = JSB_MASTER_INITIAL_OBJECT_SLOTS;
 	params.initial_script_slots = JSB_MASTER_INITIAL_SCRIPT_SLOTS;
-	params.debugger_port = jsb::internal::Settings::get_debugger_port();
+	params.debugger_port = jsb::internal::settings::project::get_debugger_port();
 	params.thread_id = ThreadEx::get_caller_id();
 
 	// main environment
 	environment_ = std::make_shared<jsb::Environment>(params);
 	environment_->init();
 
-	if (const String entry_script_path = jsb::internal::Settings::get_entry_script_path();
+	if (const String entry_script_path = jsb::internal::settings::project::get_entry_script_path();
 			!entry_script_path.is_empty()) {
 		environment_->load(jsb::internal::PathUtil::convert_typescript_path(entry_script_path));
 	}
@@ -345,7 +347,7 @@ Ref<Script> GodotJSScriptLanguage::_make_template(const String &p_template, cons
 	processed_template = processed_template.replace("_BASE_", p_base_class_name)
 								 .replace("_CLASS_SNAKE_CASE_", jsb::internal::VariantUtil::to_snake_case_id(p_class_name))
 								 .replace("_CLASS_", jsb::internal::VariantUtil::to_pascal_case_id(p_class_name))
-								 .replace("_TS_", jsb::internal::Settings::get_indentation());
+								 .replace("_TS_", jsb::internal::settings::editor::get_indentation());
 	spt->_set_source_code(processed_template);
 	return spt;
 }
@@ -845,6 +847,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 }
 
 void GodotJSScriptLanguage::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_bridge"), &GodotJSScriptLanguage::get_bridge);
 }
 
 void GodotJSScriptLanguage::populate_string_names_replacements() {
@@ -853,7 +856,7 @@ void GodotJSScriptLanguage::populate_string_names_replacements() {
 
 	LocalVector<StringName> exposed_class_list;
 	// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
-	jsb::internal::NamingUtil::get_exposed_original_class_list(exposed_class_list, false);
+	jsb::internal::ClassVisibility::get_exposed_original_class_list(exposed_class_list, false);
 
 	for (const StringName &class_name : exposed_class_list) {
 		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(class_name);

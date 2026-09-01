@@ -76,4 +76,3 @@ struct ObjectHandle {
 };
 
 } //namespace jsb
-

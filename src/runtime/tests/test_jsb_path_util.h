@@ -28,12 +28,14 @@
 #include "../internal/jsb_path_util.h"
 #include "../internal/jsb_settings.h"
 #include "../weaver/jsb_script_language.h"
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_test_helpers.h"
+
 
 #include <godot_cpp/classes/project_settings.hpp>
 
 namespace jsb::tests {
-TEST_CASE("[jsb.path] dirname and get_last_component") {
+TEST_CASE("[runtime] [jsb.path] dirname and get_last_component") {
 	// godot virtual paths
 	CHECK(internal::PathUtil::dirname("res://main.js") == "res://");
 	CHECK(internal::PathUtil::dirname("res://dir/main.js") == "res://dir");
@@ -61,7 +63,7 @@ TEST_CASE("[jsb.path] dirname and get_last_component") {
 	CHECK(internal::PathUtil::get_last_component("main.js") == "main.js");
 }
 
-TEST_CASE("[jsb.path] extract normalization") {
+TEST_CASE("[runtime] [jsb.path] extract normalization") {
 	String out;
 
 	// resolve `.` and `..` while preserving the protocol root
@@ -85,7 +87,7 @@ TEST_CASE("[jsb.path] extract normalization") {
 	CHECK(out == "res://../x");
 }
 
-TEST_CASE("[jsb.path] is_absolute_path") {
+TEST_CASE("[runtime] [jsb.path] is_absolute_path") {
 	CHECK(internal::PathUtil::is_absolute_path("res://x"));
 	CHECK(internal::PathUtil::is_absolute_path("user://x"));
 	CHECK(internal::PathUtil::is_absolute_path("F:/x"));
@@ -98,7 +100,7 @@ TEST_CASE("[jsb.path] is_absolute_path") {
 	CHECK(!internal::PathUtil::is_absolute_path(""));
 }
 
-TEST_CASE("[jsb.path] combine") {
+TEST_CASE("[runtime] [jsb.path] combine") {
 	CHECK(internal::PathUtil::combine("res://", "main.js") == "res://main.js");
 	CHECK(internal::PathUtil::combine("res://dir", "main.js") == "res://dir/main.js");
 	CHECK(internal::PathUtil::combine("res://dir/", "main.js") == "res://dir/main.js");
@@ -108,9 +110,9 @@ TEST_CASE("[jsb.path] combine") {
 	CHECK(internal::PathUtil::combine("res://a", "b", "c.js") == "res://a/b/c.js");
 }
 
-TEST_CASE("[jsb.path] convert typescript/javascript paths") {
+TEST_CASE("[runtime] [jsb.path] convert typescript/javascript paths") {
 	GodotJSScriptLanguageIniter initer;
-	const String out_root = internal::Settings::get_jsb_out_res_path();
+	const String out_root = internal::settings::get_jsb_out_res_path();
 	CHECK(out_root.begins_with("res://"));
 
 	// ts -> js
@@ -127,7 +129,7 @@ TEST_CASE("[jsb.path] convert typescript/javascript paths") {
 	CHECK(internal::PathUtil::convert_javascript_path("res://test.ts") == "res://test.ts");
 }
 
-TEST_CASE("[jsb.path] to_platform_specific_path") {
+TEST_CASE("[runtime] [jsb.path] to_platform_specific_path") {
 	GodotJSScriptLanguageIniter initer;
 
 	// a file that exists on disk (inside the project) is globalized into a platform path

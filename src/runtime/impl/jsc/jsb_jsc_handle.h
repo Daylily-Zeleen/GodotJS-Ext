@@ -364,4 +364,3 @@ bool Local<T>::operator!=(const Global<S> &other) const {
 }
 
 } //namespace v8
-

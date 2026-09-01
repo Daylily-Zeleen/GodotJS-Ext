@@ -96,9 +96,10 @@ private:
 	void _on_resource_saved(const Ref<Resource> &p_resource);
 	void _generate_imported_resource_dts(const PackedStringArray &p_resources);
 	void _generate_types_from_cmdline();
+	// per-frame callback while waiting for the first filesystem scan to finish
+	// (see _generate_types_from_cmdline); disconnects itself once scanning ends.
+	void _await_scan_then_generate_from_cmdline();
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
-
-	static void _on_generate_completed(const v8::FunctionCallbackInfo<v8::Value> &info);
 
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
 	static Vector<String> _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths);
@@ -178,4 +179,3 @@ private:
 	static void _update_progress_task(const String &p_task_name, const String &p_state, int p_step);
 	static void _finish_progress_task(const String &p_task_name);
 };
-

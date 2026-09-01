@@ -26,7 +26,8 @@
 /************************************************************************/
 
 #include "jsb_repl.h"
-#include "runtime/compat/jsb_compat.h"
+#include "compat/jsb_compat.h"
+#include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
 
@@ -45,13 +46,21 @@
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
-#include <runtime/compat/editor_settings.h>
-#include <runtime/compat/misc.h>
+#include <compat/editor_settings.h>
+#include <compat/misc.h>
 void GodotJSREPL::_bind_methods() {
 }
 
 GodotJSREPL::GodotJSREPL() {
 	//TODO list all created realm instances in REPL, interact with the currently selected one.
+
+	// Register this REPL as a console output sink through the runtime bridge.
+	{
+		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+		if (bridge != nullptr && bridge->add_console_output != nullptr) {
+			console_handle_ = bridge->add_console_output(this, &console_write_trampoline);
+		}
+	}
 
 	input_submitting_ = false;
 	VBoxContainer *vbox = memnew(VBoxContainer);
@@ -158,8 +167,13 @@ GodotJSREPL::GodotJSREPL() {
 }
 
 GodotJSREPL::~GodotJSREPL() {
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge != nullptr && bridge->remove_console_output != nullptr && console_handle_ >= 0) {
+		bridge->remove_console_output(console_handle_);
+		console_handle_ = -1;
+	}
+
 	// ensure self removed before any member destruction to avoid deadlock
-	remove_from_output_list();
 
 	// avoid warning due to unhandled strings
 	output_backlog_.swap().clear();
@@ -225,8 +239,14 @@ void GodotJSREPL::check_install() {
 }
 
 void GodotJSREPL::_gc_pressed() {
-	jsb::Environment::gc();
-	add_line("Explicit GC requested");
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->request_gc == nullptr) {
+		JSB_LOG(Error, "runtime bridge is not available.");
+		return;
+	}
+	if (bridge->request_gc() == OK) {
+		add_line("Explicit GC requested");
+	}
 }
 
 void GodotJSREPL::_clear_pressed() {
@@ -260,7 +280,7 @@ void GodotJSREPL::_input_changed(const String &p_text) {
 	//TODO we haven't implemented the js function invocation from outside of Realm, just temporarily call as source code eval
 	const PackedStringArray results =
 			is_auto_complete_allowed(p_text)
-			? (PackedStringArray)eval_source(jsb_format("require('jsb.editor.main').auto_complete('%s')", encode_string(p_text))).to_variant()
+			? (PackedStringArray)(Variant)eval_source(jsb_format("require('jsb.editor.main').auto_complete('%s')", encode_string(p_text)))
 			: PackedStringArray();
 	_show_candidates(results);
 }
@@ -326,17 +346,25 @@ void GodotJSREPL::_input_submitted(const String &p_text) {
 	input_submitting_ = true;
 	add_line(p_text);
 	input_box_->clear();
-	const jsb::JSValueMove value = eval_source(p_text);
-	add_string(value.to_string());
+	const Variant value = eval_source(p_text);
+	add_string(value.get_type() == Variant::NIL ? String("undefined") : value.stringify());
 	add_history(p_text);
 	input_submitting_ = false;
 }
 
-jsb::JSValueMove GodotJSREPL::eval_source(const String &p_code) {
-	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
-	jsb_check(lang);
-	Error err;
-	return lang->eval_source(p_code, err);
+Variant GodotJSREPL::eval_source(const String &p_code) {
+	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+	if (bridge == nullptr || bridge->eval == nullptr) {
+		JSB_LOG(Error, "runtime bridge is not available.");
+		return {};
+	}
+	const CharString code_utf8 = p_code.utf8();
+	Variant result;
+	const godot::Error err = bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr());
+	if (err != OK) {
+		return {};
+	}
+	return result;
 }
 
 void GodotJSREPL::add_line(const String &p_line) {
@@ -360,9 +388,13 @@ void GodotJSREPL::_backlog_flush() {
 	backlog.clear();
 }
 
-void GodotJSREPL::write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) {
-	output_backlog_.add(p_text);
+void GodotJSREPL::on_console_write(int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
+	output_backlog_.add(String::utf8(p_text_utf8, (int)p_length));
 	callable_mp(this, &GodotJSREPL::_backlog_flush).call_deferred();
+}
+
+void GodotJSREPL::console_write_trampoline(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
+	static_cast<GodotJSREPL *>(p_userdata)->on_console_write(p_severity, p_text_utf8, p_length);
 }
 
 void GodotJSREPL::add_history(const String &p_text) {

@@ -27,6 +27,7 @@
 
 #pragma once
 #include "jsb_editor_pch.h"
+#include <internal/jsb_double_buffered.h>
 
 #include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/h_box_container.hpp>
@@ -35,7 +36,7 @@
 #include <godot_cpp/classes/line_edit.hpp>
 #include <godot_cpp/classes/rich_text_label.hpp>
 
-class GodotJSREPL : public HBoxContainer, public jsb::internal::IConsoleOutput {
+class GodotJSREPL : public HBoxContainer {
 	struct OutputLine {
 		String text;
 	};
@@ -60,6 +61,10 @@ private:
 	PackedStringArray history_;
 
 	jsb::internal::DoubleBuffered<String> output_backlog_;
+
+	// editor-side console sink registered with the runtime via the bridge
+	int64_t console_handle_ = -1;
+	static void console_write_trampoline(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length);
 
 private:
 	Ref<Texture2D> get_editor_theme_icon(const StringName &p_name) const;
@@ -88,7 +93,8 @@ protected:
 	void add_string(const String &p_str);
 	void add_line(const String &p_line);
 	void add_history(const String &p_text);
-	jsb::JSValueMove eval_source(const String &p_code);
+	Variant eval_source(const String &p_code);
+	void on_console_write(int32_t p_severity, const char *p_text_utf8, int64_t p_length);
 	String encode_string(const String &p_text);
 	void check_install();
 	void check_tsc();
@@ -96,6 +102,4 @@ protected:
 public:
 	GodotJSREPL();
 	virtual ~GodotJSREPL() override;
-
-	void write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) override;
 };

@@ -28,6 +28,7 @@
 #pragma once
 
 #include "../../internal/jsb_settings.h"
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_v8_pch.h"
 
 #define V8_VERSION_NEWER_THAN(major, minor, patch) VERSION_COMPARE(V8_MAJOR_VERSION, major, VERSION_COMPARE(V8_MINOR_VERSION, minor, VERSION_COMPARE(V8_BUILD_VERSION, patch, false)))
@@ -195,7 +196,7 @@ public:
 #	endif
 #endif
 
-			String source_map_base_url = jsb::internal::Settings::get_debugger_source_map_base_url();
+			String source_map_base_url = jsb::internal::settings::project::get_debugger_source_map_base_url();
 
 			const CharString filename_utf8 = filename.utf8();
 			v8::Local<v8::Value> filename_value = v8::String::NewFromUtf8(isolate, filename_utf8.get_data(), v8::NewStringType::kNormal, filename_utf8.length()).ToLocalChecked();
@@ -260,4 +261,3 @@ public:
 	_FORCE_INLINE_ static void set_as_interruptible(v8::Isolate *isolate) {}
 };
 } //namespace jsb::impl
-

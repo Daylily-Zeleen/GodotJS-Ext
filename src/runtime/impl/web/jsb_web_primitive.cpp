@@ -115,7 +115,7 @@ Local<String> Symbol::Description(Isolate *isolate) const {
 	}
 	const jsb::impl::StackPosition desc_sp = jsbi_GetProperty(rt, stack_pos_, key_sp);
 	if (desc_sp == jsb::impl::StackBase::Error || desc_sp == jsb::impl::StackBase::Undefined
-		|| desc_sp == jsb::impl::StackBase::Null || !jsbi_IsString(rt, desc_sp)) {
+			|| desc_sp == jsb::impl::StackBase::Null || !jsbi_IsString(rt, desc_sp)) {
 		return Local<String>();
 	}
 	return Local<String>(Data(isolate_, desc_sp));

@@ -28,26 +28,27 @@
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
-#include "weaver-editor/jsb_weaver_editor.h"
+#include "../tests/jsb_test_runner.h"
 #include "api_tool/api_tool.h"
+#include "internal/jsb_class_visibility.h"
+#include "internal/jsb_settings.h"
+#include "weaver-editor/jsb_weaver_editor.h"
 
 using namespace godot;
 
-namespace jsb {
-// Defined in weaver-editor/jsb_editor_utility_funcs.cpp: installs the real
-// `jsb.editor` implementation into the runtime's EditorUtilityFuncs dispatcher.
-void EditorUtilityFuncs_register_impl();
-} // namespace jsb
-
-
 void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
+#ifdef JSB_TESTS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		Engine::get_singleton()->set_meta(jsb::tests::EDITOR_TEST_FLAG, false);
+	}
+#endif
+
 	if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		return;
 	}
 
-	jsb::EditorUtilityFuncs_register_impl();
-
-	GDREGISTER_INTERNAL_CLASS(GodotJSEditorHelper);
+	// P1 之后 codegen 为纯 C++（jsb::codegen），GodotJSEditorHelper 已删除，
+	// 无需再为 api store 的 JS 反射注册 exposed 类。
 	GDREGISTER_INTERNAL_CLASS(GodotJSExportPlugin);
 	GDREGISTER_INTERNAL_CLASS(GodotJSEditorPlugin);
 	EditorPlugins::add_by_type<GodotJSEditorPlugin>();
@@ -61,14 +62,24 @@ void _uninitialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 	EditorPlugins::remove_by_type<GodotJSEditorPlugin>();
 }
 
+#ifdef JSB_TESTS_ENABLED
+void _editor_tests_startup() {
+	jsb::tests::try_run(jsb::tests::EDITOR_TEST_FLAG);
+}
+#endif // JSB_TESTS_ENABLED
 
 extern "C" {
 GDExtensionBool GDE_EXPORT jsb_editor_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
 	GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
 
+#ifdef JSB_TESTS_ENABLED
+	// Editor doctest suite entry (see _editor_tests_startup above).
+	init_obj.register_startup_callback(_editor_tests_startup);
+#endif
+
 	init_obj.register_initializer(_initialize_godotjs_editor_module);
 	init_obj.register_terminator(_uninitialize_godotjs_editor_module);
-	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_EDITOR);
+	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SERVERS);
 
 	return init_obj.init();
 }

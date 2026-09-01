@@ -30,11 +30,13 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest/doctest.h"
 
-#include <cstdio>
-
-// Include all test headers to register TEST_CASE macros
+// Include all test headers to register TEST_CASE macros.
+//
+// The editor extension has its own doctest implementation TU
+// (src/editor/tests/jsb_editor_test_main.cpp).
 #include "tests/jsb_test_helpers.h"
 #include "tests/test_jsb_any_runtime.h"
+#include "tests/test_jsb_bridge_table.h"
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_SHADOW_REALM_ENABLED
@@ -43,9 +45,6 @@
 #include "tests/test_jsb_source_map.h"
 #if JSB_WITH_QUICKJS
 #	include "tests/test_jsb_quickjs_runtime.h"
-#endif
-#if JSB_WITH_V8
-#	include "tests/test_jsb_v8_runtime.h"
 #endif
 
 // doctest will automatically collect all TEST_CASE and run them in main()

@@ -28,7 +28,7 @@
 #pragma once
 
 #include "jsb_bridge.h"
-#include <runtime/compat/misc.h>
+#include <compat/misc.h>
 namespace jsb {
 class JSCallable : public CallableCustom {
 private:
@@ -72,4 +72,3 @@ public:
 	virtual uint32_t hash() const override { return callback_id_.hash(); }
 };
 } //namespace jsb
-

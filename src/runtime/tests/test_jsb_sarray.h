@@ -79,7 +79,7 @@ struct Slot {
 	Slot &operator=(const Slot &other) = default;
 };
 
-TEST_CASE("[jsb.internal] SArray move_to_back") {
+TEST_CASE("[runtime] [jsb.internal] SArray move_to_back") {
 	internal::SArray<Movable> sarray;
 	static constexpr int kCount = 10;
 	for (int i = 0; i < kCount; ++i) {
@@ -105,7 +105,7 @@ TEST_CASE("[jsb.internal] SArray move_to_back") {
 	CHECK(sarray.size() == dc);
 }
 
-TEST_CASE("[jsb.internal] SArray Movable test") {
+TEST_CASE("[runtime] [jsb.internal] SArray Movable test") {
 	internal::SArray<Movable> sarray;
 	MESSAGE("STEP ----");
 	{
@@ -121,7 +121,7 @@ TEST_CASE("[jsb.internal] SArray Movable test") {
 	sarray.add(4);
 }
 
-TEST_CASE("[jsb.internal] SArray StringName test") {
+TEST_CASE("[runtime] [jsb.internal] SArray StringName test") {
 	internal::SArray<Slot> sarray;
 	{
 		const StringName name = get_test_name();
@@ -137,4 +137,3 @@ TEST_CASE("[jsb.internal] SArray StringName test") {
 	}
 }
 } //namespace jsb::tests
-

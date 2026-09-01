@@ -1,0 +1,115 @@
+/************************************************************************/
+/*  jsb_bridge_abi.h                                                    */
+/************************************************************************/
+/*  This file is part of:                                               */
+/*                                GodotJS-Ext                           */
+/*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
+/*                                                                      */
+/*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
+/*                 - Contact: daylily-zeleen@foxmail.com                */
+/*                                                                      */
+/*  This library is free software; you can redistribute it and/or       */
+/*  modify it under the terms of the GNU Lesser General Public          */
+/*  License as published by the Free Software Foundation; either        */
+/*  version 2.1 of the License, or (at your option) any later version.  */
+/*                                                                      */
+/*  This library is distributed in the hope that it will be useful,     */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  Lesser General Public License for more details.                     */
+/*                                                                      */
+/*  You should have received a copy of the GNU Lesser General Public    */
+/*  License along with this library; if not,                            */
+/*  see <https://www.gnu.org/licenses/>.                                */
+/************************************************************************/
+
+#pragma once
+
+// C ABI bridge contract between the editor and runtime extensions.
+//
+// This header is the ONLY thing the two extensions share about the bridge:
+// pure type definitions (function pointer signatures + table layout). There
+// are deliberately NO function declarations here -- every symbol declared in
+// a shared header must be resolvable by BOTH extensions, and only the runtime
+// implements the bridge.
+//
+// Threat model / rationale (TASK_STATUS.md 14.2):
+//  - Nothing that can execute JS may be reachable through ClassDB: project
+//    scripts must not be able to trigger arbitrary evaluation.
+//  - A raw integer (function pointer address) handed to a script is inert:
+//    scripts cannot dereference or call it. Native extensions are inside the
+//    trust boundary anyway.
+//
+// Contract:
+//  - The runtime extension owns the single table instance and exposes its
+//    address through a neutral ClassDB method (`get_bridge` on
+//    GodotJSScriptLanguage). Callers convert the returned integer back to
+//    `JsbBridgeTable*` after checking `struct_size`.
+//  - Variant results are written through `GDExtensionVariantPtr`: the CALLER
+//    owns the variant storage; the callee constructs into it using its own
+//    godot-cpp copy. This mirrors how the engine itself hands variants across
+//    extension boundaries.
+//  - All pointers are valid for the duration of the call only.
+
+#include <cstdint>
+#include <godot_cpp/classes/global_constants.hpp>
+#include <godot_cpp/core/method_bind.hpp>
+#include <godot_cpp/variant/variant.hpp>
+
+namespace jsb {
+
+// All bridge functions return godot::Error directly; only the Variant RESULT
+// is passed through an out-parameter (GDExtensionVariantPtr).
+using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
+
+/// Evaluate source with one argument Variant exposed as the `__jsb_arg` global.
+using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
+		GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
+
+using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length,
+		GDExtensionVariantPtr r_result_variant);
+
+using JsbFillStatsFn = godot::Error (*)(void *p_statistics_raw);
+
+using JsbVoidFn = godot::Error (*)();
+
+/// Register an editor-side console output sink. `p_userdata` is passed back on
+/// every write; returns an opaque handle used to remove the sink later.
+using JsbAddConsoleFn = int64_t (*)(void *p_userdata,
+		void (*p_write)(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length));
+/// Remove a previously registered console sink. Returns OK even if unknown.
+using JsbRemoveConsoleFn = godot::Error (*)(int64_t p_handle);
+
+struct JsbBridgeTable {
+	/// sizeof(JsbBridgeTable) at the time the runtime built it. Reject tables
+	/// whose size differs from the local struct definition.
+	uint64_t struct_size = 0;
+
+	JsbEvalFn eval = nullptr;
+
+	/// eval with a single argument Variant (available as global `__jsb_arg`)
+	JsbEvalArgFn eval_with_arg = nullptr;
+
+	/// arg = module path; result = Dictionary {source: String, package: String}
+	JsbQueryFn get_module_source_info = nullptr;
+
+	/// arg = module path; result = PackedStringArray (one-level children)
+	JsbQueryFn get_module_direct_dependencies = nullptr;
+
+	/// arg = raw pointer to a caller-allocated Statistics structure
+	JsbFillStatsFn fill_statistics = nullptr;
+
+	/// rescan external file changes
+	JsbVoidFn scan_external_changes = nullptr;
+
+	/// arg = script path; result = bool (whether the global class is generic)
+	JsbQueryFn is_global_class_generic = nullptr;
+
+	/// request a full garbage collection pass
+	JsbVoidFn request_gc = nullptr;
+
+	JsbAddConsoleFn add_console_output = nullptr;
+	JsbRemoveConsoleFn remove_console_output = nullptr;
+};
+
+} //namespace jsb

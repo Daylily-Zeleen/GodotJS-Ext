@@ -1,0 +1,14 @@
+# Files excluded from clang-format (batch I accidentally reformatted these).
+#
+# _NOT_FOR_INCLUDE_: vendored Apple JavaScriptCore headers kept purely as IDE
+# reference; they are never compiled and must stay byte-identical to upstream.
+_NOT_FOR_INCLUDE_/
+
+# X-macro definition tables: column alignment is part of the table's
+# readability contract; reformatting destroys the row structure.
+*.def.h
+
+# Generated files are rewritten by the build; formatting them guarantees a
+# permanent diff churn on every scons run.
+*.gen.h
+*.gen.cpp

@@ -32,7 +32,7 @@
 #include "jsb_environment.h"
 #include "jsb_type_convert.h"
 
-#include <runtime/compat/thread.h>
+#include <compat/thread.h>
 #include <mutex>
 
 #if JSB_WITH_WEB
@@ -164,4 +164,3 @@ private:
 #endif
 };
 } //namespace jsb
-

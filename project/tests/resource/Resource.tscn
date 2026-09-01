@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://dsb0sy5lahg1l"]
 
 [ext_resource type="Script" path="res://tests/resource/test-resource.ts" id="1_l2ela"]
 [ext_resource type="Resource" path="res://tests/resource/warrior.tres" id="2_g5y8w"]

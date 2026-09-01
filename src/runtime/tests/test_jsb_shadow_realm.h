@@ -44,7 +44,7 @@ namespace jsb::tests {
 // 注意：由于 godot-cpp HashSet 按插入顺序迭代（主环境永远先插入），修复前的线程扫描
 // 恰好也返回主环境，因此本用例无法区分修复前后——它验证的是修复后行为不回归，
 // Fix 2 的"排除 ShadowRealm 环境"语义由代码审查保证。
-TEST_CASE("[jsb] ShadowRealm: cold Environment::_access resolves the main environment") {
+TEST_CASE("[runtime] [jsb] ShadowRealm: cold Environment::_access resolves the main environment") {
 	GodotJSScriptLanguageIniter initer;
 	jsb::Environment *main_env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
 	REQUIRE(main_env != nullptr);
@@ -80,7 +80,7 @@ globalThis.__realm2 = new JSShadowRealm();
 //   -> JSEnvironment -> Environment::_access()
 // 修复前：_access() 按线程扫描返回主环境 -> 实例被错误绑定到主环境（跨 isolate 使用句柄）；
 // 修复后：_access() 按"当前正在执行的 isolate"返回 ShadowRealm 环境。
-TEST_CASE("[jsb] ShadowRealm: Environment::_access during guest JS execution resolves the shadow realm environment") {
+TEST_CASE("[runtime] [jsb] ShadowRealm: Environment::_access during guest JS execution resolves the shadow realm environment") {
 	GodotJSScriptLanguageIniter initer;
 	jsb::Environment *main_env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
 	REQUIRE(main_env != nullptr);

@@ -194,4 +194,3 @@ private:
 	}
 };
 } //namespace v8
-

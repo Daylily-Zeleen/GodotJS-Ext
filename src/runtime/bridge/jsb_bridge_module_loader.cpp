@@ -26,8 +26,9 @@
 /************************************************************************/
 
 #include "jsb_bridge_module_loader.h"
+
+#include "internal/jsb_runtime_settings.h"
 #include "jsb_callable.h"
-#include "jsb_editor_utility_funcs.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
 
@@ -172,9 +173,12 @@ void _get_parameter_name(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 void _get_variant_type_name(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	// Replacement-aware type name (moved out of shared VariantUtil: StringNames
+	// is runtime-owned; this is the only consumer of the replaced variant of it).
 	Variant type;
 	_return_result(info, Variant::INT, type, [](const Variant &type) {
-		return internal::VariantUtil::get_type_name((Variant::Type)(int)type);
+		return internal::StringNames::get_singleton().get_replaced_name(
+				Variant::get_type_name((Variant::Type)(int)type));
 	});
 }
 
@@ -510,7 +514,7 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 #else
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEBUG_ENABLED"), v8::Boolean::New(isolate, false)).Check();
 #endif
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::Settings::get_camel_case_bindings_enabled())).Check();
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::settings::project::is_camel_case_bindings_enabled())).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "version"), impl::Helper::new_string(isolate, JSB_STRINGIFY(JSB_MAJOR_VERSION) "." JSB_STRINGIFY(JSB_MINOR_VERSION) "." JSB_STRINGIFY(JSB_PATCH_VERSION))).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "impl"), impl::Helper::new_string(isolate, JSB_IMPL_VERSION_STRING)).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "_new_callable"), JSB_NEW_FUNCTION(context, _new_callable, {})).Check();
@@ -553,9 +557,6 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 				names_obj->Set(context, impl::Helper::new_string_ascii(isolate, "get_variant_type"), JSB_NEW_FUNCTION(context, _get_variant_type_name, {})).Check();
 			}
 		}
-
-		// internal 'jsb.editor'
-		EditorUtilityFuncs::expose(isolate, context, jsb_obj);
 	}
 
 	p_module.exports.Reset(isolate, jsb_obj);
