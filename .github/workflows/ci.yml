@@ -134,6 +134,17 @@ jobs:
             test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
           done
 
+      - name: Crash diagnosis (gdb backtrace on the teardown SEGV)
+        if: always()
+        shell: bash
+        run: |
+          sudo apt-get install -y gdb
+          ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
+          cp /tmp/bench/static.so "$ADDONS_SO"
+          gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project -- --bench \
+            > /tmp/bench/gdb_static.log 2>&1 || true
+          tail -60 /tmp/bench/gdb_static.log || true
+
       - name: Comparison report
         shell: bash
         run: |
@@ -199,6 +210,7 @@ jobs:
             /tmp/bench/report.md
             /tmp/bench/static.json
             /tmp/bench/dynamic.json
+            /tmp/bench/gdb_static.log
 
   build:
     name: Build (${{ matrix.platform }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.engine }})

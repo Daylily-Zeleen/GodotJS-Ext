@@ -39,6 +39,10 @@
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
 
+
+#if JSB_WITH_STATIC_BINDINGS
+// static path: dispatch callbacks probe the operand shapes and call the
+// engine's operator evaluator straight through the generated table
 #define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
@@ -51,6 +55,20 @@
 #define JSB_DEFINE_COMPARATOR(op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
+#else
+// dynamic path: generic callbacks evaluate through Variant::evaluate
+#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
+#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
+#define JSB_DEFINE_OVERLOADED_BINARY_END()
+#define JSB_DEFINE_UNARY(op_code, ret_type) \
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
+#define JSB_DEFINE_COMPARATOR(op_code) \
+		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
+#endif
 
 #	if JSB_FAST_REFLECTION
 #		define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr)   \
@@ -88,6 +106,41 @@
 		;
 
 namespace jsb {
+
+#if !JSB_WITH_STATIC_BINDINGS
+// dynamic path callbacks: generic evaluation through Variant::evaluate
+struct BinaryOperator {
+	static void invoke(const v8::FunctionCallbackInfo<v8::Value> &info) {
+		v8::Isolate *isolate = info.GetIsolate();
+		v8::Local<v8::Context> context = isolate->GetCurrentContext();
+		const Variant::Operator op = (Variant::Operator)info.Data().As<v8::Int32>()->Value();
+		if (info.Length() != 2) {
+			jsb_throw(isolate, "bad param");
+			return;
+		}
+		Variant left, right;
+		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
+			jsb_throw(isolate, "bad translation");
+			return;
+		}
+		Variant ret;
+		bool r_valid = false;
+		Variant::evaluate(op, left, right, ret, r_valid);
+		if (!r_valid) {
+			jsb_throw(isolate, jsb_format("bad operation(%s) between %s and %s.", api_tool::get_variant_operator_name(op), Variant::get_type_name(left.get_type()), Variant::get_type_name(right.get_type())));
+			return;
+		}
+
+		v8::Local<v8::Value> rval;
+		if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
+			jsb_throw(isolate, "bad translation");
+			return;
+		}
+		info.GetReturnValue().Set(rval);
+	}
+};
+
+#endif // !JSB_WITH_STATIC_BINDINGS
 
 struct UnaryOperator {
 	static void invoke(const v8::FunctionCallbackInfo<v8::Value> &info) {
