@@ -28,9 +28,10 @@
 
 #include "../bridge/jsb_environment.h"
 #include "../bridge/jsb_type_convert.h"
-#include <internal/jsb_statistics.h>
 #include "../weaver/jsb_script_language.h"
+#include <internal/jsb_statistics.h>
 #include <godot_cpp/classes/engine.hpp>
+
 
 #if JSB_WITH_NODE
 #	include "../bridge/jsb_bridge_helper.h"
@@ -348,22 +349,31 @@ static void console_assert_wrap(const v8::FunctionCallbackInfo<v8::Value> &info)
 	jsb_unused(orig->Call(context, v8::Undefined(isolate), argc, argv));
 }
 
-// console.time/timeEnd: fully taken over (JSTimerTags, same as Essentials).
-// NOTE: subject to revisit -- a better forwarding scheme may replace this.
+// console.time/timeEnd: fully taken over (subject to revisit -- a better
+// forwarding scheme may replace this). The tag table lives here in the bridge
+// table TU (an editor-specific capability; NOT on Environment, which must stay
+// engine-only in the node build). Labels are compared as plain utf8 strings --
+// the same semantics as the native console.time label matching, without the
+// isolate-bound TStrongRef<v8::String> bookkeeping.
+static HashMap<String, uint64_t> s_timer_tags;
+
+// resolve the timer label from the first argument ('default' when undefined)
+static String console_time_label(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	return info[0]->IsUndefined() ? String("default") : impl::Helper::to_string(isolate, info[0]);
+}
+
 static void console_time_wrap(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	if (!info[0]->IsUndefined() && !info[0]->IsString()) {
 		jsb_throw(isolate, "bad argument");
 		return;
 	}
-	Environment *env = Environment::wrap(isolate);
-	const v8::Local<v8::String> label = info[0]->IsUndefined()
-			? impl::Helper::new_string_ascii(isolate, String("default"))
-			: info[0].As<v8::String>();
-	JSTimerTags<uint64_t> &timer_tags = env->get_timer_tags();
-	const auto res = timer_tags.tags.emplace(TStrongRef(isolate, label), Time::get_singleton()->get_ticks_usec());
-	if (!res.second) {
-		JSB_LOG(Warning, "timer tag '%s' already exists", impl::Helper::to_string(isolate, label));
+	const String label = console_time_label(info);
+	if (!s_timer_tags.has(label)) {
+		s_timer_tags.insert(label, Time::get_singleton()->get_ticks_usec());
+	} else {
+		JSB_LOG(Warning, "timer tag '%s' already exists", label);
 	}
 }
 
@@ -374,17 +384,13 @@ static void console_time_end_wrap(const v8::FunctionCallbackInfo<v8::Value> &inf
 		return;
 	}
 	const uint64_t now = Time::get_singleton()->get_ticks_usec();
-	Environment *env = Environment::wrap(isolate);
-	const v8::Local<v8::String> label = info[0]->IsUndefined()
-			? impl::Helper::new_string_ascii(isolate, String("default"))
-			: info[0].As<v8::String>();
-	JSTimerTags<uint64_t> &timer_tags = env->get_timer_tags();
-	const auto it = timer_tags.tags.find(TStrongRef(isolate, label));
-	if (it != timer_tags.tags.end()) {
-		timer_tags.tags.erase(it);
-		JSB_LOG(Info, "%s: %dms - timer ended", impl::Helper::to_string(isolate, label), (now - it->second) / 1000UL);
+	const String label = console_time_label(info);
+	if (const uint64_t *start = s_timer_tags.getptr(label)) {
+		const uint64_t elapsed_ms = (now - *start) / 1000UL;
+		s_timer_tags.erase(label);
+		JSB_LOG(Info, "%s: %dms - timer ended", label, (int64_t)elapsed_ms);
 	} else {
-		JSB_LOG(Warning, "timer tag '%s' not found", impl::Helper::to_string(isolate, label));
+		JSB_LOG(Warning, "timer tag '%s' not found", label);
 	}
 }
 
@@ -399,7 +405,7 @@ static void console_hook_install_on_context(v8::Isolate *p_isolate, const v8::Lo
 
 	v8::Local<v8::Object> global = context->Global();
 	v8::Local<v8::Value> console_val;
-	if (!global->Get(context, impl::Helper::new_string_ascii(isolate, String("console"))).ToLocal(&console_val)
+	if (!global->Get(context, impl::Helper::new_string(isolate, "console")).ToLocal(&console_val)
 			|| !console_val->IsObject()) {
 		return; // no console object (unexpected in node mode), nothing to hook
 	}
@@ -410,15 +416,15 @@ static void console_hook_install_on_context(v8::Isolate *p_isolate, const v8::Lo
 		v8::FunctionCallback callback;
 	};
 	static constexpr MethodDef kMethods[] = {
-		{"log", console_log_wrap<internal::ELogSeverity::Log>},
-		{"info", console_log_wrap<internal::ELogSeverity::Info>},
-		{"debug", console_log_wrap<internal::ELogSeverity::Debug>},
-		{"warn", console_log_wrap<internal::ELogSeverity::Warning>},
-		{"error", console_log_wrap<internal::ELogSeverity::Error>},
-		{"trace", console_log_wrap<internal::ELogSeverity::Trace>},
-		{"assert", console_assert_wrap},
-		{"time", console_time_wrap},
-		{"timeEnd", console_time_end_wrap},
+		{ "log", console_log_wrap<internal::ELogSeverity::Log> },
+		{ "info", console_log_wrap<internal::ELogSeverity::Info> },
+		{ "debug", console_log_wrap<internal::ELogSeverity::Debug> },
+		{ "warn", console_log_wrap<internal::ELogSeverity::Warning> },
+		{ "error", console_log_wrap<internal::ELogSeverity::Error> },
+		{ "trace", console_log_wrap<internal::ELogSeverity::Trace> },
+		{ "assert", console_assert_wrap },
+		{ "time", console_time_wrap },
+		{ "timeEnd", console_time_end_wrap },
 	};
 
 	for (const MethodDef &def : kMethods) {
@@ -427,13 +433,13 @@ static void console_hook_install_on_context(v8::Isolate *p_isolate, const v8::Lo
 		// payload; if a previous wrapper is already installed this re-wraps
 		// (harmless: output would be mirrored twice, but installation is
 		// once-per-process by design)
-		if (!console->Get(context, impl::Helper::new_string_ascii(isolate, String(def.name))).ToLocal(&orig_val)
+		if (!console->Get(context, impl::Helper::new_string(isolate, def.name)).ToLocal(&orig_val)
 				|| !orig_val->IsFunction()) {
 			continue;
 		}
 		v8::Local<v8::Function> wrapper = impl::Helper::NewFunction(
 				context, def.name, def.callback, orig_val);
-		console->Set(context, impl::Helper::new_string_ascii(isolate, String(def.name)), wrapper).Check();
+		console->Set(context, impl::Helper::new_string(isolate, def.name), wrapper).Check();
 	}
 }
 
