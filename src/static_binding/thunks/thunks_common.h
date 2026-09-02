@@ -14,8 +14,8 @@
 #	include <godot_cpp/variant/variant.hpp>
 #	include <godot_cpp/variant/variant_internal.hpp>
 
-#	include "runtime/bridge/jsb_type_convert_direct.h"
-#	include "runtime/internal/jsb_macros.h"
+#	include "bridge/jsb_type_convert_direct.h"
+#	include "internal/jsb_macros.h"
 
 namespace jsb::static_binding {
 

@@ -33,4 +33,3 @@ class Environment;
 
 void register_primitive_bindings_reflect(Environment *p_env);
 } //namespace jsb
-#endif

@@ -829,9 +829,11 @@ if env.get("static_binding", False):
     subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
                     "--interface", _sb_interface_json,
                     "--out", _sb_gen_dir], check=True)
-    godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "*.cpp"))
-    godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "thunks", "*.cpp"))
-    godotjs_sources += Glob(os.path.join(src_dir, "static_binding", "gen", "*.cpp"))
+    runtime_globs += [
+        os.path.join(src_dir, "static_binding", "*.cpp"),
+        os.path.join(src_dir, "static_binding", "thunks", "*.cpp"),
+        os.path.join(_sb_gen_dir, "*.cpp"),
+    ]
     cc_compiler_base = os.path.basename(str(env.subst('$CC'))).lower()
     if cc_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get("use_mingw", False):
         # the class dispatch TU instantiates ~15k thunks and overflows the
