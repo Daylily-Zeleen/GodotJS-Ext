@@ -2,7 +2,7 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#	include "runtime/internal/jsb_variant_util.h"
+#	include "internal/jsb_variant_util.h"
 #	include "thunks_common.h"
 #	include <godot_cpp/variant/variant_internal.hpp>
 
