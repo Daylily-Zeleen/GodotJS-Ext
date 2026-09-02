@@ -142,6 +142,13 @@ export default class Benchmark extends Node {
 				}
 			}
 		};
+			// release Object-derived targets (value types have no free method)
+			try {
+				if (target && typeof target.free === "function") {
+					target.free();
+				}
+			} catch {
+			}
 
 		// BISECT-C: temporary slice
 		// diagnostic: --only=<group> runs a single class group
