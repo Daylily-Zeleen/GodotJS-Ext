@@ -56,9 +56,9 @@ const nowMs = (): number => Time.get_ticks_usec() / 1000;
 
 const _args_user = OS.get_cmdline_user_args();
 
-const WARMUP_CALLS = 200;
-const ROUNDS = 7;
-const TARGET_MS_PER_ROUND = 120;
+const WARMUP_CALLS = 100;
+const ROUNDS = 5;
+const TARGET_MS_PER_ROUND = 30;
 const MAX_ITERATIONS = 1 << 22;
 
 function median(samples: number[]): number {
@@ -132,7 +132,6 @@ export default class Benchmark extends Node {
 				return;
 			}
 			for (const c of cases) {
-				console.error("BENCH_CASE " + group + "." + c.name);
 				const r = benchOne(() => c.fn(target));
 				checksum += r.checksum;
 				if (r.error) {
@@ -142,15 +141,7 @@ export default class Benchmark extends Node {
 				}
 			}
 		};
-			// release Object-derived targets (value types have no free method)
-			try {
-				if (target && typeof target.free === "function") {
-					target.free();
-				}
-			} catch {
-			}
 
-		// BISECT-C: temporary slice
 		// diagnostic: --only=<group> runs a single class group
 		let _only: string | undefined;
 		const _args = OS.get_cmdline_user_args();
@@ -161,10 +152,10 @@ export default class Benchmark extends Node {
 		let _subset = BUILTIN_CASES;
 		if (_only) _subset = BUILTIN_CASES.filter((g: any) => g.group === _only);
 		for (const g of _subset) {
-			runGroup(g.group, g.makeTarget, g.cases);
+			await runGroup(g.group, g.makeTarget, g.cases);
 		}
 		for (const g of OBJECT_CASES) {
-			runGroup(g.group, g.makeTarget, g.cases);
+			await runGroup(g.group, g.makeTarget, g.cases);
 		}
 
 		const report = {
