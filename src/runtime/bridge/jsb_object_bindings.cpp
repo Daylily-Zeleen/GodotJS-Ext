@@ -137,14 +137,10 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 		// class: methods
 		for (const api_tool::ApiClassMethod &method_info : api_class->methods) {
 			if (method_info.is_virtual()) continue; // 虚函数不需要绑定
-			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
 #if JSB_EXCLUDE_GETSET_METHODS
-			// MUST run before the static-binding hook below: getter/setter
-			// methods backing an exposed property are omitted from BOTH
-			// binding paths, so the static path must not expose them as
-			// callable methods either.
 			if (omitted_methods.has(method_info.method.name)) continue;
 #endif
+			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
 #if JSB_WITH_STATIC_BINDINGS
 			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_name, method_info.hash)) {
 				if (method_info.method.flags & METHOD_FLAG_STATIC) {
@@ -154,8 +150,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 				}
 				continue;
 			}
-			JSB_LOG(Warning, "static binding not found: %s.%s [class], falling back to dynamic binding",
-					p_class_name, method_name);
+			JSB_LOG(Warning, "static binding not found: %s.%s [class], falling back to dynamic binding", p_class_name, method_name);
 #endif
 
 			if (method_info.method.flags & METHOD_FLAG_STATIC) {

@@ -129,7 +129,7 @@ jobs:
             if [ "$leg" == "static" ]; then SO=/tmp/bench/static.so; else SO=/tmp/bench/dynamic.so; fi
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
-            "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            "$GODOT" --audio-driver Dummy --headless --path project --bench > /tmp/bench/${leg}.log 2>&1 || true
             grep '^\[JS\] BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/^\[JS\] //' > /tmp/bench/${leg}.json
             test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
           done
@@ -141,7 +141,7 @@ jobs:
           sudo apt-get install -y gdb
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
           cp /tmp/bench/static.so "$ADDONS_SO"
-          gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project -- --bench \
+          gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project --bench \
             > /tmp/bench/gdb_static.log 2>&1 || true
           tail -60 /tmp/bench/gdb_static.log || true
 

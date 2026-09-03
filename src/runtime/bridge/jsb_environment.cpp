@@ -226,7 +226,10 @@ private:
 				//       do this work on the environment's thread, because another Godot object may be allocated at
 				//       the same address before our message is handled. This is not hypothetical, it was observed
 				//       in practice several times.
+				jsb_check(!env->in_engine_binding_callback_);
+				env->in_engine_binding_callback_ = true;
 				env->free_object(p_binding, FinalizationType::None);
+				env->in_engine_binding_callback_ = false;
 			}
 		}
 	}
@@ -903,6 +906,17 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 	return object_id;
 }
 
+void Environment::remove_object_binding(ObjectHandlePtr &p_object_handle_ptr, void *p_pointer) {
+	const bool gd_obj = p_object_handle_ptr->is_gd_obj();
+	object_db_.remove_object(p_object_handle_ptr, p_pointer);
+	// When invoked from the engine's free_instance_binding callback the engine holds
+	// `_instance_binding_mutex` and removes our binding entry itself; re-entering
+	// `object_free_instance_binding` here would deadlock on the non-recursive mutex.
+	if (gd_obj && !in_engine_binding_callback_) {
+		InstanceBindingCallbacks::free_instance_bindings(this, (Object *)p_pointer);
+	}
+}
+
 void Environment::mark_as_persistent_object(void *p_pointer) {
 	ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
 	jsb_ensure(handle);
@@ -999,9 +1013,7 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 
 	// erase from godot::ObjectDB before clearing the ref to avoid exposing a transient state
 	// with an empty `ref_` in the godot::ObjectDB, which can race with reference callbacks.
-	object_db_.remove_object(object_handle, p_pointer);
-
-	// TODO: Look into if we ought to be calling obj->free_instance_binding(this)
+	remove_object_binding(object_handle, p_pointer);
 
 	//TODO do not clear the internal field if calling from JS GC
 	// if (p_finalize != FinalizationType::None)
@@ -1317,7 +1329,8 @@ NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, 
 		JSB_LOG(Verbose, "crossbinding on previously bound object %d (addr:%d), rebind it to script class %d", object_id, (uintptr_t)p_this, p_class_id);
 
 		auto handler = object_db_.try_get_object(p_this);
-		object_db_.remove_object(handler, p_this);
+		object_db_.remove_object(handler, p_this); // 不需要移除绑定
+
 		// //TODO may not work in this way
 		// _rebind(isolate, context, p_this, p_class_id);
 		// return object_id;
