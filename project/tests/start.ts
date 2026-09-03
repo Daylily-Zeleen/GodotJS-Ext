@@ -17,10 +17,10 @@ export default class Start extends Node {
 	async _ready() {
 		test_paths_in_tsconfig_json();
 		try {
-			// `godot ... -- --bench` runs the benchmark scene exclusively (it
+			// `godot ... --bench` runs the benchmark scene exclusively (it
 			// quits the engine itself); the benchmark scene must NOT be mixed
 			// into the regular list, its quit() races the remaining loads.
-			const benchOnly = OS.get_cmdline_user_args().has("--bench");
+			const benchOnly = OS.get_cmdline_args().has("--bench");
 			const scenes = benchOnly ? [
 				"res://tests/benchmark/Benchmark.tscn",
 			] : [

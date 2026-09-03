@@ -477,12 +477,12 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		return true;
 	}
 	if (p_jval->IsString()) {
-		// directly return from cached StringName only if it exists
-		StringName sn;
-		if (Environment::wrap(isolate)->get_string_name_cache().try_get_string_name(isolate, p_jval, sn)) {
-			r_cvar = sn;
-			return true;
-		}
+		// NOTE: do NOT route through the StringName cache here. Its per-hit
+		// `TStrongRef` construction (a live v8::Global allocation) both leaks
+		// an orphan StringName reference per call on vararg paths like
+		// `Object.call("method_name", ...)` and is measurably slower than a
+		// plain string conversion. The engine-side StringName table is a
+		// global hash map anyway, so the cache saves almost nothing.
 		r_cvar = impl::Helper::to_string(isolate, p_jval);
 		return true;
 	}

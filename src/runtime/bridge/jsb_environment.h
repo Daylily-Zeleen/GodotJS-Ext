@@ -27,7 +27,6 @@
 
 #pragma once
 
-#include <internal/jsb_statistics.h>
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_async_module_manager.h"
@@ -43,6 +42,8 @@
 #include "jsb_string_name_cache.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
+#include <internal/jsb_statistics.h>
+
 #if JSB_WITH_ESSENTIALS
 #	include "jsb_timer_action.h"
 #	include "jsb_timer_tags.h"
@@ -520,6 +521,14 @@ private:
 	// p_pointer must be 2-byte aligned (v8 requirement)
 	NativeObjectID bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak = false);
 
+	void remove_object_binding(ObjectHandlePtr &p_object_handle_ptr, void *p_pointer);
+
+	// true while we are inside the engine's `Object::free_instance_binding` callback
+	// chain (the engine holds `_instance_binding_mutex` and removes the binding entry
+	// itself; calling `object_free_instance_binding` again would deadlock on the
+	// non-recursive mutex).
+	bool in_engine_binding_callback_ = false;
+
 public:
 	NativeObjectID bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref = false);
 	// Bind a C++ `p_pointer` with a JS `p_object`, they have same lifecycle.
@@ -705,7 +714,7 @@ public:
 	// hook to install the node console trampoline across all environments).
 	static std::vector<std::shared_ptr<Environment>> get_all_environments();
 
-	private:
+private:
 	void exec_async_calls();
 	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
 
