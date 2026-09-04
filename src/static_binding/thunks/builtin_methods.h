@@ -210,7 +210,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		memnew_placement(&tail_args[i - F], godot::Variant);
 		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], tail_args[i - F])) {
 			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
-			for (int j = F; j < i; ++j) {
+			for (int j = F; j <= i; ++j) {
 				tail_args[j - F].~Variant();
 			}
 			return;
