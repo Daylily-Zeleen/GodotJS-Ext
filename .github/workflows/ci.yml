@@ -130,7 +130,7 @@ jobs:
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
             "$GODOT" --audio-driver Dummy --headless --path project --bench > /tmp/bench/${leg}.log 2>&1 || true
-            grep '^\[JS\] BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/^\[JS\] //' > /tmp/bench/${leg}.json
+            grep 'BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/.*BENCH_JSON //' > /tmp/bench/${leg}.json
             test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
           done
 
