@@ -57,7 +57,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         cases: [
             { name: "min_axis_index(0)", fn: (t: any) => t["min_axis_index"]() },
             { name: "limit_length(1)", fn: (t: any) => t["limit_length"](1.5) },
-            { name: "angle_to(1)", fn: (t: any) => t["angle_to"](new Vector3(1, 2, 3)) },
+            { name: "angle_to(1)", fn: (t: any) => t["angle_to"](new Vector3(0, 0, 1)) },
         ],
     },
     // ---- Vector3i ----
@@ -73,7 +73,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Transform2D ----
     {
         group: "Transform2D",
-        makeTarget: () => new Transform2D(1.5, new Vector2(1.5, 2.5), 1.5, new Vector2(1.5, 2.5)),
+        makeTarget: () => new Transform2D(),
         cases: [
             { name: "inverse(0)", fn: (t: any) => t["inverse"]() },
             { name: "rotated(1)", fn: (t: any) => t["rotated"](1.5) },
@@ -112,7 +112,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- Quaternion ----
     {
         group: "Quaternion",
-        makeTarget: () => new Quaternion(1.5, 1.5, 1.5, 1.5),
+        makeTarget: () => new Quaternion(0, 0, 0, 1),
         cases: [
             { name: "length(0)", fn: (t: any) => t["length"]() },
             { name: "get_euler(1)", fn: (t: any) => t["get_euler"](0) },
@@ -122,30 +122,30 @@ export const BUILTIN_CASES: BuiltinCase[] = [
     // ---- AABB ----
     {
         group: "AABB",
-        makeTarget: () => new AABB(new Vector3(1, 2, 3), new Vector3(1, 2, 3)),
+        makeTarget: () => new AABB(new Vector3(0, 0, 1), new Vector3(0, 0, 1)),
         cases: [
             { name: "abs(0)", fn: (t: any) => t["abs"]() },
             { name: "grow(1)", fn: (t: any) => t["grow"](1.5) },
-            { name: "has_point(1)", fn: (t: any) => t["has_point"](new Vector3(1, 2, 3)) },
+            { name: "has_point(1)", fn: (t: any) => t["has_point"](new Vector3(0, 0, 1)) },
         ],
     },
     // ---- Basis ----
     {
         group: "Basis",
-        makeTarget: () => new Basis(new Vector3(1, 2, 3), new Vector3(1, 2, 3), new Vector3(1, 2, 3)),
+        makeTarget: () => new Basis(),
         cases: [
             { name: "inverse(0)", fn: (t: any) => t["inverse"]() },
             { name: "get_euler(1)", fn: (t: any) => t["get_euler"](0) },
-            { name: "rotated(2)", fn: (t: any) => t["rotated"](new Vector3(1, 2, 3), 1.5) },
+            { name: "rotated(2)", fn: (t: any) => t["rotated"](new Vector3(0, 0, 1), 1.5) },
         ],
     },
     // ---- Transform3D ----
     {
         group: "Transform3D",
-        makeTarget: () => new Transform3D(new Vector3(1, 2, 3), new Vector3(1, 2, 3), new Vector3(1, 2, 3), new Vector3(1, 2, 3)),
+        makeTarget: () => new Transform3D(),
         cases: [
             { name: "inverse(0)", fn: (t: any) => t["inverse"]() },
-            { name: "rotated(2)", fn: (t: any) => t["rotated"](new Vector3(1, 2, 3), 1.5) },
+            { name: "rotated(2)", fn: (t: any) => t["rotated"](new Vector3(0, 0, 1), 1.5) },
         ],
     },
     // ---- Projection ----

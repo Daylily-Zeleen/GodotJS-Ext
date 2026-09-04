@@ -62,10 +62,24 @@ FACTORY = {
 # NOTE: non-zero values -- zero vectors/planes trip engine assertions
 # (e.g. Basis::set_axis_angle requires a normalized axis) and would turn the
 # probe/timed calls into thousands of engine ERROR prints.
+
+# Explicit makeTarget overrides. pick_ctor() prefers the constructor with the
+# most arguments and arg_factory fills scalars with 1.5 / Vector3(1,2,3),
+# which is NOT a valid instance for a few types:
+#   Quaternion(x,y,z,w) with all-1.5 is unnormalized -> get_euler() prints
+#     an engine ERROR per call (and poisons the measurement with log I/O);
+#   Basis(Vector3(1,2,3), Vector3(1,2,3), Vector3(1,2,3)) has linearly
+#     dependent columns -> det == 0 -> inverse() prints errors.
+# The bench probe only filters cases that THROW; engine ERR_FAIL prints are
+# not throws, so these must be overridden at the source.
 FACTORY.update({
     "Vector2": "new Vector2(1.5, 2.5)",
     "Vector2i": "new Vector2i(1, 2)",
-    "Vector3": "new Vector3(1, 2, 3)",
+    # unit-length +0z: Vector3-typed parameters include axis arguments
+    # (Basis.rotated / Transform3D.rotated) that the engine requires to be
+    # normalized; (1,2,3) would print an engine ERROR per timed call and
+    # poison the measurement with log I/O
+    "Vector3": "new Vector3(0, 0, 1)",
     "Vector3i": "new Vector3i(1, 2, 3)",
     "Vector4": "new Vector4(1, 2, 3, 4)",
     "Vector4i": "new Vector4i(1, 2, 3, 4)",
@@ -77,6 +91,14 @@ FACTORY.update({
     "Plane": "new Plane(0, 0, 1, 0)",                 # normalized normal
     # Basis() / Transform3D() / Projection() are valid identity defaults
 })
+
+# makeTarget overrides (see rationale above)
+CTOR_OVERRIDE = {
+    "Quaternion": "new Quaternion(0, 0, 0, 1)",
+    "Basis": "new Basis()",
+    "Transform3D": "new Transform3D()",
+    "Transform2D": "new Transform2D()",
+}
 
 
 def arg_factory(a):
@@ -199,9 +221,12 @@ def main():
             continue
         if name in UNSAFE_CLASSES:
             continue
-        ctor = pick_ctor(cls)
-        ctor_args = [arg_factory(a) for a in (ctor.get("arguments", []) if ctor else [])]
-        ctor_expr = f"new {exposed(name)}({', '.join(ctor_args)})" if ctor else f"new {exposed(name)}()"
+        if name in CTOR_OVERRIDE:
+            ctor_expr = CTOR_OVERRIDE[name]
+        else:
+            ctor = pick_ctor(cls)
+            ctor_args = [arg_factory(a) for a in (ctor.get("arguments", []) if ctor else [])]
+            ctor_expr = f"new {exposed(name)}({', '.join(ctor_args)})" if ctor else f"new {exposed(name)}()"
         L.append(f"    // ---- {name} ----")
         L.append("    {")
         L.append(f'        group: "{name}",')
