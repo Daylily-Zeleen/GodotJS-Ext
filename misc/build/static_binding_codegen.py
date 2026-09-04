@@ -831,6 +831,8 @@ def emit_builtin_dispatch_cpp(m):
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/builtin_methods.h"',
          '#include "static_binding/thunks/builtin_members.h"',
+         '#include "static_binding/thunks/builtin_operators.h"',
+         '#include <iterator>',
          "",
          "namespace jsb::static_binding {",
          "namespace {",
@@ -906,6 +908,10 @@ def emit_builtin_dispatch_cpp(m):
     emit_member_lookup("find_builtin_member_getter_thunk", "g")
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
 
+    # operator dispatch rows share this TU: operators only exist on builtin
+    # types, so their lookup table lives with the builtin dispatch instead of
+    # a separate dispatch_operator.gen.cpp
+    L.extend(emit_operator_dispatch_rows(m))
     L.append("} // namespace jsb::static_binding")
     L.append("")
     return "\n".join(L)
@@ -993,7 +999,7 @@ def emit_class_dispatch_cpp(m):
     L = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/class_methods.h"',
-         '#include "static_binding/thunks/indexed_properties.h"',
+         '#include "static_binding/thunks/class_indexed_properties.h"',
          "",
          "#include <cstring>",
          "",
@@ -1151,18 +1157,14 @@ def emit_class_dispatch_cpp(m):
     return "\n".join(L)
 
 
-def emit_operator_dispatch_cpp(m):
-    """(left type, operator, right type) -> thunk lookup table for the static
-    operator path. Unary rows carry right type NIL. Rows whose right operand
-    is Variant/Object stay on the dynamic path (the engine registers no ptr
-    evaluator with a VARIANT/Object right operand)."""
-    L = [
-         '#include "static_binding/dispatch.h"',
-         '#include "static_binding/thunks/operator_methods.h"',
-         '#include <iterator>',
-         "",
-         "namespace jsb::static_binding {",
-         ""]
+def emit_operator_dispatch_rows(m):
+    """(left type, operator, right type) -> thunk lookup rows for the static
+    operator path, inlined into the builtin dispatch TU. Unary rows carry
+    right type NIL. Rows whose right operand is Variant/Object stay on the
+    dynamic path (the engine registers no ptr evaluator with a VARIANT/Object
+    right operand). Includes and the namespace wrapper belong to the caller
+    (emit_builtin_dispatch_cpp)."""
+    L = []
     entries = []
     for op in m.operators:
         left_vt = op["left_vt"]
@@ -1223,9 +1225,7 @@ def emit_operator_dispatch_cpp(m):
     L.append("\treturn nullptr;")
     L.append("}")
     L.append("")
-    L.append("} // namespace jsb::static_binding")
-    L.append("")
-    return "\n".join(L)
+    return L
 
 
 def emit_manifest(m, input_path, interface_path):
@@ -1290,7 +1290,6 @@ def main():
         "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
-        "dispatch_operator.gen.cpp": emit_operator_dispatch_cpp(m),
     }
     outputs = {}
     for fname, content in cpp_outputs.items():

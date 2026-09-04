@@ -428,18 +428,6 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 	return true;
 }
 
-// Untyped tail loop for vararg methods -- the only allowed loop.
-inline bool marshal_tail_args(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info,
-		godot::Variant *tail, int from, int provided) {
-	for (int i = from; i < provided; ++i) {
-		if (!TypeConvert::js_to_gd_var(p_isolate, p_context, info[i], tail[i - from])) {
-			jsb_throw(p_isolate, jsb_errorf("bad argument %d", i));
-			return false;
-		}
-	}
-	return true;
-}
 
 // ---------------------------------------------------------------------------
 // Return value translation.
