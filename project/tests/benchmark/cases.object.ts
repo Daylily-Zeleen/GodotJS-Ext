@@ -58,7 +58,7 @@ export const OBJECT_CASES: BuiltinCase[] = [
 		group: "ResourceLoader",
 		makeTarget: () => null,
 		cases: [
-			{ name: "load(defaults)", fn: () => ResourceLoader.load("res://project.godot") },
+			{ name: "load(defaults)", fn: () => ResourceLoader.load("res://tests/benchmark/Benchmark.tscn") },
 			{ name: "exists(1)", fn: () => ResourceLoader.exists("res://project.godot") },
 		],
 	},
