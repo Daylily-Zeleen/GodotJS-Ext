@@ -30,7 +30,7 @@
 #include "../internal/jsb_variant_info.h"
 #include "../internal/jsb_variant_util.h"
 #include <godot_cpp/variant/variant_internal.hpp>
-#include "static_binding/thunks/operator_methods.h"
+#include "static_binding/thunks/builtin_operators.h"
 #include "api_tool/api_tool_types.h"
 #include "jsb_bridge_helper.h"
 #include "jsb_class_info.h"
