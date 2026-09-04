@@ -396,6 +396,24 @@ inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &
 	return false;
 }
 
+// Variant-slot flavor: typed conversion into a local gd_type first, then a
+// convert-assign into the Variant slot. godot-cpp's Variant(T) constructors
+// always copy on the engine side (from_type_constructor takes the native
+// pointer), so move semantics change nothing here; the point of this flavor
+// is that the slot itself is a plain RAII Variant and needs no hand-rolled
+// destruction on failure paths.
+template <class ArgT>
+inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
+		godot::Variant &out, int provided) {
+	typename ArgT::gd_type value{};
+	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
+		return false;
+	}
+	out = std::move(value);
+	return true;
+}
+
 // ptrcall flavor: produce the value and encode it into a raw argument slot
 // through godot-cpp's ptrcall contract.
 template <class ArgT>
