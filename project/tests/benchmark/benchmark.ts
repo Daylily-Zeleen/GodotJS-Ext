@@ -165,7 +165,7 @@ export default class Benchmark extends Node {
 			invalid: results.filter((r) => r.error).length,
 			results,
 		};
-		console.log("BENCH_JSON " + JSON.stringify(report));
+		console.warn("BENCH_JSON " + JSON.stringify(report));
 		// no self-quit: under `-- --bench` the start flow completes right
 		// after this scene and exits through the regular (race-free) path.
 	}

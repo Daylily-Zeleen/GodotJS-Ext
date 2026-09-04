@@ -55,5 +55,5 @@ export function reportTestCompleted(): void {
 	if (firstFailureContext !== null) {
 		return;
 	}
-	console.log(TEST_COMPLETION_SENTINEL);
+	console.warn(TEST_COMPLETION_SENTINEL);
 }
