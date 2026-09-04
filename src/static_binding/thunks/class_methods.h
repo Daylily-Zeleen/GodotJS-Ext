@@ -4,6 +4,7 @@
 
 #	include "thunks_common.h"
 
+#	include <array>
 #	include <godot_cpp/classes/object.hpp>
 
 namespace jsb::static_binding::thunks {
@@ -139,42 +140,45 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		}
 	}
 
-	// fixed prefix: marshal only the provided ones (no extension-side defaults)
-	std::tuple<typename ArgsT::gd_type...> prefix;
+	// fixed prefix: Variant slots (the MethodBind ABI takes const Variant*),
+	// held in an RAII tuple so failure paths need no hand-rolled cleanup.
+	// Typed conversion goes to a local gd_type inside produce_variant, then
+	// converts into the slot.
+	std::array<godot::Variant, F> prefix;
 	const int fixed_count = provided < F ? provided : F;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		(void)((ok = ok && ((int)I < fixed_count
-				? produce_value<ArgsT>(isolate, context, info, (int)I, std::get<I>(prefix), provided)
+				? produce_variant<ArgsT>(isolate, context, info, (int)I, prefix[I], provided)
 				: true)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;
 	}
 
-	// vararg tail: untyped Variants beyond the fixed prefix
+	// vararg tail: untyped Variants beyond the fixed prefix -- the only part
+	// living in raw stack memory (count is runtime-bounded), hence the only
+	// part needing placement-new / hand destruction
 	const int argc = provided;
-	godot::Variant *argv = (godot::Variant *)jsb_stackalloc(godot::Variant, argc > 0 ? argc : 1);
+	godot::Variant *tail_args = (godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
 	const godot::Variant **arg_ptrs =
 			(const godot::Variant **)jsb_stackalloc(const godot::Variant *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)((int)I < fixed_count
-				? (void)(memnew_placement(&argv[I], godot::Variant(std::get<I>(prefix))))
+				? (void)(arg_ptrs[I] = &prefix[I])
 				: (void)0), ...);
 	}(std::make_index_sequence<F>{});
-	for (int i = 0; i < fixed_count && i < argc; ++i) {
-		arg_ptrs[i] = &argv[i];
-	}
 	for (int i = F; i < argc; ++i) {
-		memnew_placement(&argv[i], godot::Variant);
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], argv[i])) {
+		memnew_placement(&tail_args[i - F], godot::Variant);
+		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], tail_args[i - F])) {
 			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
-			for (int j = 0; j <= i; ++j) {
-				argv[j].~Variant();
+			// constructed tail slots form the contiguous [0, i - F]
+			for (int j = 0; j <= i - F; ++j) {
+				tail_args[j].~Variant();
 			}
 			return;
 		}
-		arg_ptrs[i] = &argv[i];
+		arg_ptrs[i] = &tail_args[i - F];
 	}
 
 	godot::Variant ret;
@@ -182,8 +186,11 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, IsStaticC ? nullptr : instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, argc, &ret, &call_error);
 
-	for (int i = 0; i < argc; ++i) {
-		argv[i].~Variant();
+	// prefix slots are RAII tuple members (destroyed at scope exit); only the
+	// raw-memory tail slots need hand destruction -- their constructed range
+	// is the contiguous [0, argc - F)
+	for (int i = F; i < argc; ++i) {
+		tail_args[i - F].~Variant();
 	}
 	if (call_error.error != GDEXTENSION_CALL_OK) {
 		jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. engine error %d", ClassLit.value, NameLit.value, (int)call_error.error));
