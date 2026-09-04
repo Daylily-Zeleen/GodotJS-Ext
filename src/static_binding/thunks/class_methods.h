@@ -71,24 +71,24 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		}
 	}
 
-	// marshal ONLY the caller-provided arguments; the engine fills defaults
-	std::tuple<typename ArgsT::gd_type...> storage;
+	// marshal ONLY the caller-provided arguments straight into the Variant
+	// slots (RAII stack array; no separate typed-storage pass). The engine
+	// fills defaults. A failed produce_variant leaves the slot untouched
+	// (still NIL), so scope exit cleans everything up automatically.
+	godot::Variant argv[N > 0 ? N : 1];
+	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		(void)((ok = ok && (sizeof...(ArgsT) <= (size_t)provided
 				|| (int)I < provided
-				? produce_value<ArgsT>(isolate, context, info, (int)I, std::get<I>(storage), provided)
+				? produce_variant<ArgsT>(isolate, context, info, (int)I, argv[I], provided)
 				: true)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
-		return; // JS exception already thrown by produce_value
+		return; // JS exception already thrown by produce_variant
 	}
-
-	// move the provided arguments into the Variant array required by the ABI
-	godot::Variant argv[N > 0 ? N : 1];
-	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)((argv[I] = std::get<I>(storage), arg_ptrs[I] = &argv[I])), ...);
+		((void)(arg_ptrs[I] = &argv[I]), ...);
 	}(std::make_index_sequence<N>{});
 
 	godot::Variant ret;
