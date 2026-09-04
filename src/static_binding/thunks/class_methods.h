@@ -169,7 +169,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		memnew_placement(&argv[i], godot::Variant);
 		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], argv[i])) {
 			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
-			for (int j = F; j <= i; ++j) {
+			for (int j = 0; j <= i; ++j) {
 				argv[j].~Variant();
 			}
 			return;
@@ -182,7 +182,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, IsStaticC ? nullptr : instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, argc, &ret, &call_error);
 
-	for (int i = F; i < argc; ++i) {
+	for (int i = 0; i < argc; ++i) {
 		argv[i].~Variant();
 	}
 	if (call_error.error != GDEXTENSION_CALL_OK) {
