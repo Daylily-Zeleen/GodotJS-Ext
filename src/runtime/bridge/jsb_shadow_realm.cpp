@@ -812,7 +812,7 @@ public:
 };
 
 /** NOTE: 将在 p_host_env 中创建对象，注意提前创建 HandleScope */
-static _FORCE_INLINE_ v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
+static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
 	v8::Isolate *host_isolate = p_host_env->get_isolate();
 
 	JSB_ISOLATE_SCOPE(p_guest_isolate);
