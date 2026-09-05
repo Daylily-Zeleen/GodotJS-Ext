@@ -79,6 +79,13 @@ jobs:
       - name: Setup pnpm
         uses: ./.github/actions/pnpm-install
 
+      - name: Setup python + scons
+        shell: bash
+        run: |
+          python3 --version || { sudo apt-get update && sudo apt-get install -y python3 python3-pip; }
+          python3 -m pip install --quiet scons
+          scons --version
+
       - name: Build GDExtension (static_binding=yes, release)
         shell: bash
         run: scons platform=linuxbsd target=editor arch=x86_64 compiledb=no debug_symbols=no dev_build=no static_binding=yes -j$(nproc)
