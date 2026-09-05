@@ -153,7 +153,7 @@ public:
 		ERR_FAIL_NULL_MSG(func_ptr, "Call on missing built-in function: " + Variant::get_type_name(variant_type) + "::" + method.name);
 
 		// base
-		void *base_ptr{ stack_alloc(Variant, 1) };
+		void *base_ptr{ stack_alloc(internal::MaxSizeEncodeArgType, 1) };
 		if (!is_static_) {
 			ERR_FAIL_COND_MSG(!base, "Call to non-static method without base object! (missing base argument)");
 			internal::var_to_arg_ptr(*base, base_ptr, variant_type);
@@ -168,7 +168,7 @@ public:
 		const uint32_t missing = method_argcount - (uint32_t)p_argcount;
 		int argcount = MAX(p_argcount, method_argcount);
 
-		Variant *var_args = stack_alloc(Variant, argcount);
+		internal::MaxSizeEncodeArgType *var_args = stack_alloc(internal::MaxSizeEncodeArgType, argcount);
 		GDExtensionTypePtr *ptr_args = stack_alloc(GDExtensionTypePtr, argcount);
 		Variant::Type *args_type = stack_alloc(Variant::Type, argcount);
 		for (int i = 0; i < argcount; i++) {
@@ -190,13 +190,13 @@ public:
 			GDExtensionClassMethodArgumentMetadata meta = i < meta_list.size() ? meta_list[i] : GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 
 			// ArgPtr
-			Variant *arg_ptr_ = var_args + i;
+			internal::MaxSizeEncodeArgType *arg_ptr_ = var_args + i;
 			internal::var_to_arg_ptr(*arg, arg_ptr_, args_type[i], meta);
 
 			ptr_args[i] = arg_ptr_;
 		}
 
-		void *ret_ptr = stack_alloc(Variant, 1);
+		void *ret_ptr = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		if (has_returns_) {
 			internal::ctor_arg_ptr(ret_ptr, method.return_val.type);
 			CRASH_COND_MSG(ret_ptr == nullptr, "???");
@@ -306,7 +306,7 @@ public:
 		const uint32_t missing = method_argcount - (uint32_t)p_argcount;
 		int argcount = MAX(p_argcount, method_argcount);
 
-		Variant *var_args = stack_alloc(Variant, argcount);
+		internal::MaxSizeEncodeArgType *var_args = stack_alloc(internal::MaxSizeEncodeArgType, argcount);
 		void **ptr_args = stack_alloc(void *, argcount);
 		Variant::Type *args_type = stack_alloc(Variant::Type, argcount);
 		for (int i = 0; i < argcount; i++) {
@@ -328,13 +328,13 @@ public:
 			GDExtensionClassMethodArgumentMetadata meta = i < meta_list.size() ? meta_list[i] : GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 
 			// ArgPtr
-			Variant *arg_ptr_ = var_args + i;
+			internal::MaxSizeEncodeArgType *arg_ptr_ = var_args + i;
 			internal::var_to_arg_ptr(*arg, arg_ptr_, args_type[i], meta);
 
 			ptr_args[i] = arg_ptr_;
 		}
 
-		void *ret_ptr = stack_alloc(Variant, 1);
+		void *ret_ptr = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		if (has_returns_) {
 			internal::ctor_arg_ptr(ret_ptr, method.return_val.type);
 			CRASH_COND_MSG(ret_ptr == nullptr, "???");
@@ -443,12 +443,12 @@ public:
 	_FORCE_INLINE_ GDExtensionPtrOperatorEvaluator get_op_evaluator_ptr() const { return op_evaluator; }
 	_FORCE_INLINE_ godot::Variant evaluate(const godot::Variant &p_left, const godot::Variant &p_right) const {
 		using namespace godot;
-		void *left = stack_alloc(Variant, 1);
-		void *right = stack_alloc(Variant, 1);
+		void *left = stack_alloc(internal::MaxSizeEncodeArgType, 1);
+		void *right = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_left, left, left_type);
 		internal::var_to_arg_ptr(p_right, right, right_type);
 
-		void *result = stack_alloc(Variant, 1);
+		void *result = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::ctor_arg_ptr(result, return_type);
 
 		op_evaluator(left, right, result);
@@ -488,7 +488,7 @@ public:
 		ERR_FAIL_COND_V(p_argcount != arguments.size(), {});
 
 		// arguments
-		Variant *var_args = stack_alloc(Variant, p_argcount);
+		internal::MaxSizeEncodeArgType *var_args = stack_alloc(internal::MaxSizeEncodeArgType, p_argcount);
 		GDExtensionTypePtr *ptr_args = stack_alloc(GDExtensionTypePtr, p_argcount);
 		Variant::Type *args_type = stack_alloc(Variant::Type, p_argcount);
 		for (int i = 0; i < p_argcount; i++) {
@@ -498,7 +498,7 @@ public:
 			args_type[i] = arg_ptr->get_type();
 		}
 
-		void *ret_ptr = stack_alloc(Variant, 1);
+		void *ret_ptr = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		constructor(ret_ptr, ptr_args);
 
 		Variant ret;
@@ -537,8 +537,8 @@ public:
 	_FORCE_INLINE_ void setter_validated_call(godot::Variant &p_base, const godot::Variant &p_value) const {
 		using namespace godot;
 		ERR_FAIL_NULL(setter_func);
-		void *base = stack_alloc(Variant, 1);
-		void *value = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
+		void *value = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base);
 		internal::var_to_arg_ptr(p_value, value, type);
 		setter_func(base, value);
@@ -549,8 +549,8 @@ public:
 	_FORCE_INLINE_ void getter_validated_call(const godot::Variant &p_base, godot::Variant &r_value) const {
 		using namespace godot;
 		ERR_FAIL_NULL(getter_func);
-		void *base = stack_alloc(Variant, 1);
-		void *value = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
+		void *value = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base);
 		internal::ctor_arg_ptr(value, type);
 		getter_func(base, value);
@@ -605,8 +605,8 @@ public:
 			}
 		}
 
-		void *base = stack_alloc(Variant, 1);
-		void *value = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
+		void *value = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base, type);
 		internal::ctor_arg_ptr(value, indexing_type);
 		indexed_getter(base, (GDExtensionInt)p_index, value);
@@ -626,8 +626,8 @@ public:
 			}
 		}
 
-		void *base = stack_alloc(Variant, 1);
-		void *value = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
+		void *value = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base, type);
 		internal::var_to_arg_ptr(p_value, value, indexing_type);
 		indexed_setter(base, (GDExtensionInt)p_index, value);
@@ -648,7 +648,7 @@ public:
 			}
 		}
 
-		void *base = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base, type);
 		keyed_getter(base, &p_key, &r_value);
 	}
@@ -664,7 +664,7 @@ public:
 			}
 		}
 
-		void *base = stack_alloc(Variant, 1);
+		void *base = stack_alloc(internal::MaxSizeEncodeArgType, 1);
 		internal::var_to_arg_ptr(p_base, base, type);
 		keyed_setter(base, &p_key, &p_value);
 	}

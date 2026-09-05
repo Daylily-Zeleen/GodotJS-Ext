@@ -187,7 +187,7 @@ struct InstanceBindingCallbacks {
 			: callbacks_{ create_callback, free_callback, reference_callback } {}
 
 	/**
-	 * @brief 解除 Godot 对象上的 jsb instance binding 槽。
+	 * @brief 解除 Godot 对象上的 jsb instance binding。
 	 */
 	static void free_instance_bindings(Environment *p_env, Object *p_binding_object) {
 		jsb_ensure(p_binding_object && p_binding_object->_owner);
