@@ -4,7 +4,7 @@ Batch format C/C++ source files under src/ using clang-format.
 
 Uses the project root .clang-format configuration. Excludes:
   - src/impl/jsc/_NOT_FOR_INCLUDE_/   (third-party JavaScriptCore headers)
-  - *.gen.* files                     (build-generated files, see .github/instructions)
+  - *.gen.* files                     (build-generated files, see .trellis/spec/godotjs-ext/cpp/generated-files.md)
   - *.def.* files                     (special definition files)
 
 Usage:

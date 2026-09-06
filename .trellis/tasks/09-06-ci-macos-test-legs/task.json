@@ -1,0 +1,28 @@
+{
+  "id": "ci-macos-test-legs",
+  "name": "ci-macos-test-legs",
+  "title": "补 macos 测试 leg",
+  "description": "test job 补 macos 的 host-v8(arm64) 与 host-jsc 测试 leg：构建产物已产出且 macos runner 可跑编辑器测试，当前完全无测试覆盖",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-ci-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "ci"
+  }
+}

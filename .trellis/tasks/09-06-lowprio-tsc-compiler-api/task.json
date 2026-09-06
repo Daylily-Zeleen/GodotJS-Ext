@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-tsc-compiler-api",
+  "name": "lowprio-tsc-compiler-api",
+  "title": "TypeScript Compiler API 替代外部 tsc",
+  "description": "评估并用 TypeScript Compiler API 替代外部 tsc 进程调用（消除 project/ 下 tsc 子进程与 .tsbuildinfo 缓存陷阱）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "editor"
+  }
+}

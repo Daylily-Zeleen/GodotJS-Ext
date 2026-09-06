@@ -24,6 +24,9 @@ For full documentation, visit [godotjs.github.io](https://godotjs.github.io/docu
 
 See [Breaking Changes](https://godotjs.github.io/misc/breaking-changes/) if upgrading from old versions.
 
+> [!IMPORTANT]
+> 本项目要求 **Godot 4.7 及以上版本**（godot-cpp 绑定按 `API_VERSION = "4.7"` 生成；更旧的引擎因 godot-cpp ABI 不匹配无法加载本扩展）。
+
 > [!NOTE]
 > The core functionality is implemented and essentially usable but still under testing.
 
@@ -110,7 +113,7 @@ pnpm install
 npx tsc --noCheck
 
 # 3. Run the test project headlessly
-& "godot.windows.editor.x86_64.exe" --audio-driver Dummy --headless --path . --verbose --debug
+& godot --audio-driver Dummy --headless --path . --verbose --debug
 ```
 
 The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).

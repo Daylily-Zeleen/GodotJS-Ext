@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-node-orphan-stringname",
+  "name": "lowprio-node-orphan-stringname",
+  "title": "排查 node 构建 Orphan StringName 泄漏",
+  "description": "node 模式独有 Orphan StringName 泄漏（v8/quickjs 无），bench --verbose 可复现；定位泄漏源（疑与 libnode 的 StringName 生命周期或引用方式相关）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "node"
+  }
+}

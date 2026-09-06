@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "dynamic 路径 ptrcall 调用约定与已修溢出背景"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "GDExtension 生命周期与副本加载机制"}

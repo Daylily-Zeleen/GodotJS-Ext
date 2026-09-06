@@ -1,0 +1,28 @@
+{
+  "id": "ci-release-packaging",
+  "name": "ci-release-packaging",
+  "title": "发布打包收尾",
+  "description": "jsc/node 无 upload job（verify-release-artifacts 守卫自认 not in merge flow）；zip 名 godotjs-ext-v8-windows-linux-macos 与实际内容（已 merge android/ios/web）不符，需改名或按平台分包",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-ci-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "ci"
+  }
+}

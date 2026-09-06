@@ -1,0 +1,28 @@
+{
+  "id": "libnode-typeinfo-symbols",
+  "name": "libnode-typeinfo-symbols",
+  "title": "libnode V8 Delegate typeinfo 符号缺失",
+  "description": "上游 moluopro/libnode 的 libnode.a 未编入 v8::Value{Serializer,Deserializer}::Delegate 的 RTTI typeinfo，导致 node 模式 macos/linux 链接失败、CI 矩阵注释禁用这些 leg；需上游修复（不对 V8 用 -fno-rtti 或强制保留 typeinfo），可提 issue；修复后解除 node macos/linux 构建与测试",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-ci-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "node"
+  }
+}

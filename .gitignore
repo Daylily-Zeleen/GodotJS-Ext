@@ -84,12 +84,10 @@ CMakeUserPresets.json
 
 *.bak/
 
-TASK_STATUS.md
-.本地文档
 # git worktrees
 .worktrees/
-# local AI collaboration context (never commit)
-AGENTS.md
-editor_shared/
 .build/
 .ekko-tmp/
+
+# codegen 黄金基线（本地自持，不入库）
+.codegen-baseline/

@@ -1,0 +1,28 @@
+{
+  "id": "ci-ios-infoplist",
+  "name": "ci-ios-infoplist",
+  "title": "iOS xcframework Info.plist 核查",
+  "description": "核对 SConstruct 合成的 iOS xcframework 是否带正确 Info.plist（缺失时 Xcode 集成告警）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-ci-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "ci"
+  }
+}

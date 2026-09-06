@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-lws-pic",
+  "name": "lowprio-lws-pic",
+  "title": "自建 PIC 版 lws 恢复 Linux websocket",
+  "description": "自建 -fPIC 编译的 lws（官方 CMake 默认 PIC，是 GodotJS-Dependencies 打包丢失该选项），发布 lws_4.3_pic 后恢复 SConstruct linux 链接分支；当前 Linux v8 debugger websocket 功能缺失",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "build"
+  }
+}
