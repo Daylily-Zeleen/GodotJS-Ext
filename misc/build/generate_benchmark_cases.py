@@ -98,6 +98,19 @@ CTOR_OVERRIDE = {
     "Basis": "new Basis()",
     "Transform3D": "new Transform3D()",
     "Transform2D": "new Transform2D()",
+    # pick_ctor() prefers Array's copy constructor (from: Array) and
+    # arg_factory fills it with an empty array, so the Array.get(0) case ran
+    # out-of-bounds and printed an engine ERROR on every call (the probe only
+    # filters cases that throw; ERR_FAIL prints are not throws). Give the
+    # target one element instead.
+    "Array": "(() => { const a = new GArray(); a.append(1); return a; })()",
+}
+
+# Per-case argument overrides. The generic int factory emits 0, which the
+# engine rejects for Callable.unbind (argcount must be >= 1, ERR_FAIL_COND at
+# core/variant/callable.cpp) -- same probe-blindness as above; override here.
+METHOD_ARG_OVERRIDE = {
+    ("Callable", "unbind"): ["1"],
 }
 
 
@@ -234,7 +247,11 @@ def main():
         L.append("        cases: [")
         cases = []
         for m in sample_methods(cls):
-            args = ", ".join(arg_factory(a) for a in m.get("arguments", []))
+            override = METHOD_ARG_OVERRIDE.get((name, m["name"]))
+            if override is not None:
+                args = ", ".join(override)
+            else:
+                args = ", ".join(arg_factory(a) for a in m.get("arguments", []))
             cases.append((f"{m['name']}({len(m.get('arguments', []))})",
                           f'(t: any) => t["{m["name"]}"]({args})'))
         mem = pick_member(cls)

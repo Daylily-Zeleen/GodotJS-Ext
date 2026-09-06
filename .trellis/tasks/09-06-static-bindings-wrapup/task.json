@@ -3,7 +3,7 @@
   "name": "static-bindings-wrapup",
   "title": "静态绑定分支收尾（父任务）",
   "description": "承载静态绑定分支的收尾待办地图：bench 扩展、构造 thunk、C1 崩溃专项、CI 双腿、缓冲区适用性确认；父任务负责整合验收，不含直接实现",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": "godotjs-ext",
@@ -11,7 +11,7 @@
   "creator": "'忘忧の-Daylily_Zeleen'",
   "assignee": "'忘忧の-Daylily_Zeleen'",
   "createdAt": "2026-09-06",
-  "completedAt": null,
+  "completedAt": "2026-09-06",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -28,5 +28,7 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "status": "planning"
+  }
 }

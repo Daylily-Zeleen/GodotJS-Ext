@@ -41,4 +41,4 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 - C++ 测试（需 `tests=yes` 构建）：`godot --path ./project --jsb-run-tests`（editor 构建同时跑 runtime + editor 两套件）
 - TS 编译：`cd project && node_modules/.bin/tsc --noCheck`
 - TS 集成测试：先生成 api 数据并编译 TS，再 `godot --path ./project --verbose`
-- Benchmark：`godot --headless --path ./project -- --bench [--only=<组>] [--calls=<N>]`（`--bench` 是引擎参数不带 `--`；`--only`/`--calls` 是 user args 在 `--` 之后——混用位置参数不生效）
+- Benchmark：`godot --headless --bench --path ./project [-- --only=<组>]`——`--bench` 是**引擎参数**（`start.ts` 用 `OS.get_cmdline_args()` 读取），必须放在 `--` **之前**；`--only`/`--calls` 是 user args（`benchmark.ts` 用 `OS.get_cmdline_user_args()` 读取），必须放在 `--` **之后**。误写 `-- --bench` 会静默跑全量 TS 测试而非 benchmark（判别：日志出现 `Loading scene` 即全量）
