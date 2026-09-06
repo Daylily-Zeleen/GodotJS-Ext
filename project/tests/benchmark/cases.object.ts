@@ -76,23 +76,6 @@ export const OBJECT_CASES: BuiltinCase[] = [
 		makeTarget: () => null,
 		cases: [
 			{ name: "get_frames_drawn(0)", fn: () => Engine.get_frames_drawn() },
-			{ name: "get_process_frames(0)", fn: () => Engine.get_process_frames() },
-		],
-	},
-	{
-		group: "Input",
-		makeTarget: () => null,
-		cases: [
-			{ name: "is_action_pressed(1)", fn: () => Input.is_action_pressed("ui_accept") },
-		],
-	},
-	{
-		group: "Operators",
-		makeTarget: () => ({ a: new Vector2(1, 2), b: new Vector2(3, 4) }),
-		cases: [
-			{ name: "Vector2.ADD", fn: (t: any) => t.a.constructor.ADD(t.a, t.b) },
-			{ name: "Vector2.SUBTRACT", fn: (t: any) => t.a.constructor.SUBTRACT(t.a, t.b) },
-			{ name: "Vector2.EQUAL", fn: (t: any) => t.a.constructor.EQUAL(t.a, t.b) },
 		],
 	},
 	{

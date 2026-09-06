@@ -38,6 +38,38 @@ BOUND_CLASSES = [
 # Array/Dictionary to avoid colliding with the JS built-ins)
 EXPOSED_NAME = {"Array": "GArray", "Dictionary": "GDictionary"}
 
+# api json operator symbol -> the runtime JS method name (JSB_OPERATOR_NAME
+# stringifies the bare def token in jsb_primitive_operators.def.gen.h, e.g.
+# ADD -- no OP_ prefix)
+OP_TOKEN = {
+    "==": "EQUAL", "!=": "NOT_EQUAL", "<": "LESS", "<=": "LESS_EQUAL",
+    ">": "GREATER", ">=": "GREATER_EQUAL", "+": "ADD", "-": "SUBTRACT",
+    "*": "MULTIPLY", "/": "DIVIDE", "%": "MODULE", "**": "POWER",
+    "not": "NOT", "and": "AND", "or": "OR", "xor": "XOR", "in": "IN",
+    "~": "BIT_NEGATE", "<<": "SHIFT_LEFT", ">>": "SHIFT_RIGHT",
+    "&": "BIT_AND", "|": "BIT_OR", "^": "BIT_XOR",
+}
+
+# Operator case sampling per class: which (operator symbol, right type)
+# overloads to emit. Covers the struct-arg dispatch paths whose ptrcall
+# stack-slot overflow (a5f0db9) was first observed on these types, plus a
+# scalar-arg counterpart (int/float have no bound operator surface of their
+# own; scalar * struct exercises the same OP dispatch with a different
+# argument encoding).
+OP_CASE_PICKS = {
+    "Vector2": [("==", None), ("+", None), ("*", "Vector2"), ("*", "int")],
+    "Vector2i": [("<", "Vector2i")],
+    "Vector3": [("+", None), ("*", "Vector3")],
+    "Transform2D": [("*", "Transform2D"), ("*", "Vector2")],
+    "Quaternion": [("*", "Quaternion")],
+    "AABB": [("*", "Transform3D")],
+    "Plane": [("*", "Transform3D")],
+    "Basis": [("*", "Basis"), ("*", "Vector3"), ("*", "float"), ("==", "Basis")],
+    "Transform3D": [("*", "Transform3D"), ("*", "Vector3"), ("*", "Plane")],
+    "Projection": [("*", "Projection"), ("*", "Vector4")],
+    "Color": [("+", None), ("*", "Color")],
+}
+
 
 def exposed(json_name):
     return EXPOSED_NAME.get(json_name, json_name)
@@ -264,8 +296,69 @@ def main():
             L.append(f'            {{ name: "{case_name}", fn: {fn} }},')
         L.append("        ],")
         L.append("    },")
+
+    # Operators group: per-class op overloads drawn from the api json.
+    # Operators are class-level statics (t.OP-name(left, right)), so they
+    # share one synthetic target carrying one instance of every operand
+    # type; `--only=Operators` filters via the group name like any other.
+    op_total = 0
+    op_picks = []
+    for name, picks in OP_CASE_PICKS.items():
+        cls = classes.get(name)
+        if not cls:
+            continue
+        ops = cls.get("operators", [])
+        for sym, right_filter in picks:
+            token = OP_TOKEN.get(sym)
+            if not token:
+                continue
+            for op in ops:
+                if op["name"] != sym:
+                    continue
+                rt = op.get("right_type")
+                if right_filter is None:
+                    # first overload of a symbol that has exactly one
+                    # interesting form (equality etc.); "Variant" right type
+                    # is the untyped fallback (left-operand-only dispatch)
+                    # -- skip it when a concrete sibling exists
+                    if rt == "Variant" and any(o["name"] == sym and o.get("right_type") != "Variant" for o in ops):
+                        continue
+                elif rt != right_filter:
+                    continue
+                # struct right operand -> reference the shared target field
+                # (bare class names have no arg_factory entry; null would
+                # print an engine ERROR on every call and poison the timing)
+                if rt in OP_CASE_PICKS:
+                    right_expr = f"t.{rt.lower()}"
+                else:
+                    right_expr = arg_factory({"type": rt}) if rt else ""
+                label = f"{name}.{token}" + (f"({rt})" if rt else "(unary)")
+                if rt:
+                    fn = f'(t: any) => {exposed(name)}.{token}(t.lhs, {right_expr})'
+                else:
+                    fn = f'(t: any) => {exposed(name)}.{token}(t.lhs)'
+                op_picks.append((label, fn))
+                break
+    if op_picks:
+        op_target_types = sorted({n for n, _ in OP_CASE_PICKS.items()})
+        # one lhs instance per participating class, keyed by json name
+        target_parts = ", ".join(f"{n.lower()}: new {exposed(n)}()" for n in op_target_types)
+        L.append("    // ---- Operators ----")
+        L.append("    {")
+        L.append('        group: "Operators",')
+        L.append(f"        makeTarget: () => ({{ {target_parts} }}),")
+        L.append("        cases: [")
+        for label, fn in op_picks:
+            op_total += 1
+            fn2 = fn.replace("t.lhs", "t." + label.split(".")[0].lower())
+            L.append(f'            {{ name: "{label}", fn: {fn2} }},')
+        L.append("        ],")
+        L.append("    },")
+    total += op_total
+    L.append(f"// {op_total} operator cases (Operators group)")
     L.append("];")
     L.append(f"// {total} method/member cases over {len(BOUND_CLASSES)} classes")
+    L.append("")
 
     Path(out_path).write_text("\n".join(L) + "\n", encoding="utf-8")
     print(f"wrote {out_path} ({total} cases)")

@@ -220,5 +220,37 @@ export const BUILTIN_CASES: BuiltinCase[] = [
             { name: "get(1)", fn: (t: any) => t["get"](0) },
         ],
     },
+    // ---- Operators ----
+    {
+        group: "Operators",
+        makeTarget: () => ({ aabb: new AABB(), basis: new Basis(), color: new Color(), plane: new Plane(), projection: new Projection(), quaternion: new Quaternion(), transform2d: new Transform2D(), transform3d: new Transform3D(), vector2: new Vector2(), vector2i: new Vector2i(), vector3: new Vector3() }),
+        cases: [
+            { name: "Vector2.EQUAL(Vector2)", fn: (t: any) => Vector2.EQUAL(t.vector2, t.vector2) },
+            { name: "Vector2.ADD(Vector2)", fn: (t: any) => Vector2.ADD(t.vector2, t.vector2) },
+            { name: "Vector2.MULTIPLY(Vector2)", fn: (t: any) => Vector2.MULTIPLY(t.vector2, t.vector2) },
+            { name: "Vector2.MULTIPLY(int)", fn: (t: any) => Vector2.MULTIPLY(t.vector2, 0) },
+            { name: "Vector2i.LESS(Vector2i)", fn: (t: any) => Vector2i.LESS(t.vector2i, t.vector2i) },
+            { name: "Vector3.ADD(Vector3)", fn: (t: any) => Vector3.ADD(t.vector3, t.vector3) },
+            { name: "Vector3.MULTIPLY(Vector3)", fn: (t: any) => Vector3.MULTIPLY(t.vector3, t.vector3) },
+            { name: "Transform2D.MULTIPLY(Transform2D)", fn: (t: any) => Transform2D.MULTIPLY(t.transform2d, t.transform2d) },
+            { name: "Transform2D.MULTIPLY(Vector2)", fn: (t: any) => Transform2D.MULTIPLY(t.transform2d, t.vector2) },
+            { name: "Quaternion.MULTIPLY(Quaternion)", fn: (t: any) => Quaternion.MULTIPLY(t.quaternion, t.quaternion) },
+            { name: "AABB.MULTIPLY(Transform3D)", fn: (t: any) => AABB.MULTIPLY(t.aabb, t.transform3d) },
+            { name: "Plane.MULTIPLY(Transform3D)", fn: (t: any) => Plane.MULTIPLY(t.plane, t.transform3d) },
+            { name: "Basis.MULTIPLY(Basis)", fn: (t: any) => Basis.MULTIPLY(t.basis, t.basis) },
+            { name: "Basis.MULTIPLY(Vector3)", fn: (t: any) => Basis.MULTIPLY(t.basis, t.vector3) },
+            { name: "Basis.MULTIPLY(float)", fn: (t: any) => Basis.MULTIPLY(t.basis, 1.5) },
+            { name: "Basis.EQUAL(Basis)", fn: (t: any) => Basis.EQUAL(t.basis, t.basis) },
+            { name: "Transform3D.MULTIPLY(Transform3D)", fn: (t: any) => Transform3D.MULTIPLY(t.transform3d, t.transform3d) },
+            { name: "Transform3D.MULTIPLY(Vector3)", fn: (t: any) => Transform3D.MULTIPLY(t.transform3d, t.vector3) },
+            { name: "Transform3D.MULTIPLY(Plane)", fn: (t: any) => Transform3D.MULTIPLY(t.transform3d, t.plane) },
+            { name: "Projection.MULTIPLY(Projection)", fn: (t: any) => Projection.MULTIPLY(t.projection, t.projection) },
+            { name: "Projection.MULTIPLY(Vector4)", fn: (t: any) => Projection.MULTIPLY(t.projection, new Vector4(1, 2, 3, 4)) },
+            { name: "Color.ADD(Color)", fn: (t: any) => Color.ADD(t.color, t.color) },
+            { name: "Color.MULTIPLY(Color)", fn: (t: any) => Color.MULTIPLY(t.color, t.color) },
+        ],
+    },
+// 23 operator cases (Operators group)
 ];
-// 56 method/member cases over 32 classes
+// 79 method/member cases over 32 classes
+
