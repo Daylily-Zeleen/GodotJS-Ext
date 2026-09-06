@@ -33,7 +33,7 @@
 // a shared header must be resolvable by BOTH extensions, and only the runtime
 // implements the bridge.
 //
-// Threat model / rationale (TASK_STATUS.md 14.2):
+// Threat model / rationale:
 //  - Nothing that can execute JS may be reachable through ClassDB: project
 //    scripts must not be able to trigger arbitrary evaluation.
 //  - A raw integer (function pointer address) handed to a script is inert:

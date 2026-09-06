@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-tree-sitter-ast",
+  "name": "lowprio-tree-sitter-ast",
+  "title": "tree-sitter 解析 AST 替代正则",
+  "description": "用 tree-sitter 与 tree-sitter-typescript 解析 TypeScript AST，替代当前基于正则的解析（脚本/场景类型提取等处）",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "editor"
+  }
+}

@@ -344,7 +344,8 @@ jobs:
             engine: node
           # NOTE: node builds on macos/linux are temporarily disabled:
           # libnode.a lacks the typeinfo symbols of v8::Value{Serializer,Deserializer}::Delegate,
-          # which our delegate subclasses reference (see 低优先级.md).
+          # which our delegate subclasses reference (tracked in the local
+          # backlog; see the libnode typeinfo entry in the worktree docs).
           # - platform: linux
           #   os: ubuntu-22.04
           #   arch: x86_64

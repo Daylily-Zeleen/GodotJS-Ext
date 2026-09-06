@@ -775,7 +775,7 @@ if lws_support is not None:
 
 # Add GodotJS source files, split into the runtime and editor extension targets.
 #
-# Ownership rules (TASK_STATUS.md ch.14):
+# Ownership rules (project structure: .trellis/spec/godotjs-ext/index.md):
 #   runtime target: src/runtime/** + api_tool core (store/loader/payload/types)
 #   editor target:  src/editor/** + api_tool/editor orchestration
 # Shared sources (src/internal/**, src/compat/**, api_tool core copies) go into BOTH

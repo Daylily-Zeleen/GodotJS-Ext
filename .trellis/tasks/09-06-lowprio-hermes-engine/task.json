@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-hermes-engine",
+  "name": "lowprio-hermes-engine",
+  "title": "添加 Hermes 引擎与 NAPI",
+  "description": "新增 Hermes JS 引擎实现（impl/hermes）及对应 NAPI 适配层，与其他 impl（v8/quickjs-ng/jsc）并列",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "runtime"
+  }
+}

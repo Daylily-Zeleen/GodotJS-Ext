@@ -1,3 +1,4 @@
+// uid://dxbhcskd6lnrf This line is generated, don't modify or remove it.
 /**
  * Benchmark harness: measures JS -> Godot call overhead per case.
  *

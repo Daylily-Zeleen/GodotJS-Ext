@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-uint64-bigint-codegen",
+  "name": "lowprio-uint64-bigint-codegen",
+  "title": "补 uint64/bigint 静态绑定 codegen",
+  "description": "静态绑定 codegen 的 Variant INT 映射只走 int64_t，JS BigInt 超 INT64_MAX 有损（js_to_gd_var 只调 Int64Value()）；评估 BigInt/uint64 的完整映射或明确记录限制",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}

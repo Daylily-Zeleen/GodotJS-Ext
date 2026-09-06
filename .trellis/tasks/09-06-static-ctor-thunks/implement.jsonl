@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "ptrcall 参数内存分配强制规则"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "构造 thunk 属 codegen 产物，改生成逻辑不改 gen 文件"}

@@ -1,3 +1,4 @@
+// uid://dx0rgqdq7lv3c This line is generated, don't modify or remove it.
 /**
  * Handwritten object-layer benchmark cases: high-frequency Object-derived
  * classes, singletons, vararg calls and operator methods. Only APIs present

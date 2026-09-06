@@ -1,0 +1,31 @@
+{
+  "id": "ci-improvements",
+  "name": "ci-improvements",
+  "title": "CI 改进收尾",
+  "description": "CI 缺口归组父任务：测试矩阵补齐、发布打包收尾、iOS Info.plist 核查；均低优先级（P3），来源为 .本地文档/ci改进.md 2026-09-06 现状核查",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-06-ci-macos-test-legs",
+    "09-06-ci-release-packaging",
+    "09-06-ci-ios-infoplist",
+    "09-06-libnode-typeinfo-symbols"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

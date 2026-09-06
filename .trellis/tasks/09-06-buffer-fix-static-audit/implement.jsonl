@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "17 处分配点与 MaxSizeEncodeArgType 强制规则"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "static_binding/gen 为生成产物"}
