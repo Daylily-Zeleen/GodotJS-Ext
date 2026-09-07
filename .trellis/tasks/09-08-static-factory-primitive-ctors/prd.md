@@ -1,0 +1,19 @@
+# static-factory-primitive-ctors
+
+## Goal
+
+以静态工厂函数实现 String/StringName/int/float/bool 的各种构造（绑定与编辑器代码生成）：JS 原生基础类型的构造不从 new 出发，而以 godot 提供的静态工厂形式暴露（如 godot.str(...)），绑定侧走静态绑定 thunk，编辑器 d.ts 同步生成静态工厂签名。
+
+## Requirements
+
+- TBD
+
+## Acceptance Criteria
+
+- [ ] TBD
+
+## Notes
+
+- Keep `prd.md` focused on requirements, constraints, and acceptance criteria.
+- Lightweight tasks can remain PRD-only.
+- For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.

@@ -47,9 +47,11 @@ namespace jsb::static_binding {
 
 using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 
-// Generated per-(left, operator) pair-table declarations carry their own
-// jsb::static_binding namespace; ThunkFn above must precede them.
+// Generated per-(left, operator) pair-table and per-type constructor
+// dispatch declarations carry their own jsb::static_binding namespace;
+// ThunkFn above must precede them.
 #include "gen/operator_tables.gen.h"
+#include "gen/ctor_tables.gen.h"
 
 // A single indexed property lookup yields BOTH accessor thunks: the getter
 // and setter of one property always share the same (class, property) entry,

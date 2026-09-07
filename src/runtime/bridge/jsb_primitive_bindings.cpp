@@ -579,6 +579,19 @@ public:
 	}
 
 	static impl::ClassBuilder get_class_builder(const ClassRegister &p_env, const NativeClassID p_class_id, const StringName &p_class_name) {
+#if JSB_WITH_STATIC_BINDINGS
+		// static-first: the generated per-type constructor dispatch probes
+		// argc/arg types at runtime and calls the matching builtin_ctor_thunk,
+		// which constructs in place through the engine's
+		// variant_get_ptr_constructor. All builtin types with constructors in
+		// the api json are covered -- no hand-written per-type list here.
+		fprintf(stderr, "CTOR-REGISTRY name=%s adapter=%p\n",
+				godot::String(p_class_name).utf8().get_data(),
+				(void*)jsb::static_binding::find_ctor_adapter(p_class_name));
+		if (const jsb::static_binding::ThunkFn ctor_adapter = jsb::static_binding::find_ctor_adapter(p_class_name)) {
+			return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, p_class_name, ctor_adapter, *(p_class_id));
+		}
+#endif
 		JSB_DEFINE_FAST_CONSTRUCTOR(Vector2, p_class_id, p_class_name);
 		JSB_DEFINE_FAST_CONSTRUCTOR(Vector2i, p_class_id, p_class_name);
 		JSB_DEFINE_FAST_CONSTRUCTOR(Vector3, p_class_id, p_class_name);

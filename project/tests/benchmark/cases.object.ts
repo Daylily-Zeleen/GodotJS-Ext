@@ -87,16 +87,6 @@ export const OBJECT_CASES: BuiltinCase[] = [
         cases: [{ name: "get_frames_drawn(0)", fn: () => Engine.get_frames_drawn() }],
     },
     {
-        group: "Constructors",
-        makeTarget: () => null,
-        cases: [
-            { name: "new Vector2(x, y)", fn: () => new Vector2(1, 2) },
-            { name: "new Color(r, g, b, a)", fn: () => new Color(0.1, 0.2, 0.3, 0.4) },
-            { name: "new GArray()", fn: () => new GArray() },
-        ],
-    },
-
-    {
         group: "Image",
         makeTarget: () => Image.create(4, 4, false, 5),
         cases: [
