@@ -32,7 +32,8 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 - addons 有两个 gdextension：`godotjs-ext.gdextension`（主，v8）与 `godotjs-ext-editor.gdextension`（editor），各自指向 `bin/windows/` 下不同 dll——**替换验证时两份都要换**，只换主 dll 会被 editor dll 的旧行为干扰
 - **进程残留锁 dll**：编译成功但 cp 报 "Device or resource busy" = 有 godot 进程未退出（含 SEGV 残留）。先 `taskkill /F /IM godot*` 再 cp；cp 后用 md5sum 确认两处一致
 - 引擎加载的是 `project/addons/godotjs-ext.daylily-zeleen/bin/` 下的产物——改代码后必须 scons 再验证
-- `staticBinding` 字段（benchmark.ts 的 `Vector2.IN !== undefined`）**不能用于区分 dll 版本**——dynamic path 也注册 IN。可靠信号：det==0 flood 的有无（dynamic+未修复 485 条 vs 修复后 0 条）
+- **dll 身份只认 md5 + 构建命令**：采数/验证前 `md5sum` 两处部署位；`staticBinding` 字段不可信，`det==0 flood` 只对 dynamic 有效。跨腿采数后切回另一腿必须重新 `scons`（两腿产物字节不同），并重新核对 md5——凭记忆判断当前部署的是哪条腿必然出错
+- benchmark 采数对比必须固定同一 dll 做 A/B（如 `--gc` on/off）；dll 一变，所有旧数据作废
 
 ## 本地测试命令（速查）
 

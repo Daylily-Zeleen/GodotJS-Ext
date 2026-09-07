@@ -61,8 +61,7 @@
 #	include "../impl/web/jsb_web_interop.h"
 #endif
 
-#include "jsb_primitive_bindings_reflect.h"
-#define register_primitive_bindings(param) register_primitive_bindings_reflect(param)
+#include "jsb_primitive_bindings.h"
 
 #if JSB_USE_JS_TYPE_EXTENSION
 #	include "js_type_extension/string_ext.h"
@@ -368,6 +367,9 @@ Environment::Environment(const CreateParams &p_params)
 				require_func->Set(context, impl::Helper::new_string_ascii(isolate, "moduleId"), v8::String::Empty(isolate)).Check();
 				global->Set(context, impl::Helper::new_string_ascii(isolate, "require"), require_func).Check();
 				global->Set(context, impl::Helper::new_string_ascii(isolate, "define"), JSB_NEW_FUNCTION(context, Builtins::_define, {})).Check();
+				// JS-callable GC entry for the benchmark harness (--gc): forwards
+				// to Environment::gc(). Synchronous by contract.
+				global->Set(context, impl::Helper::new_string_ascii(isolate, "gc"), JSB_NEW_FUNCTION(context, Builtins::_gc, {})).Check();
 				module_cache_.init(isolate, cache_obj);
 			}
 

@@ -10,8 +10,11 @@
 
 ## Benchmark 专项注意
 
-- 命令：`cd project && godot --audio-driver Dummy --headless --path . --bench [--only=<组>] [--calls=<N>]`
-- `--bench` 是**引擎参数**（不带 `--` 分隔符；start.ts 用 `get_cmdline_args()` 判断）；`--only=<组>` / `--calls=<N>` 是 user args（在 `--` 之后，benchmark.ts 用 `get_cmdline_user_args()` 解析）。混用位置会导致参数不生效（全量跑或过滤失效）
+- 命令：`cd project && godot --audio-driver Dummy --headless --path . -- --bench [--gc] [--only=<组>]`
+- **所有开关都是 user args**（在 `--` 之后）：`--bench`（start.ts 用 `get_cmdline_user_args()` 判断，选择只跑 benchmark 场景）、`--gc`、`--only=<组>`（benchmark.ts 用 `get_cmdline_user_args()` 解析）。引擎参数区（`--` 之前）不放任何 bench 开关——把 `--bench` 写在 `--` 之前会让引擎试图解析它而测试项目收不到
+- `cases.builtin.ts` 为**手维护**（原 `generate_benchmark_cases.py` 生成器已移除，新增 case 直接编辑该文件）；改动后 `cd project && node node_modules/typescript/bin/tsc --noCheck` 重编
+- `--gc`：每个 case 计时前请求一次全量 GC，消除前序组遗留 wrapper Variant 的 GC 压力污染。GC 入口为 JS 全局 `gc()`（`jsb_environment.cpp` 挂载 → `Builtins::_gc` → `Environment::gc()` → `LowMemoryNotification`，**同步语义**：返回即收集完成，禁止用 sleep/定时器等待）。未暴露 gc 入口的构建上自动降级 no-op + 一次性 WARNING；报告 JSON 有 `gcRequested` 字段供采数脚本核验 `--gc` 确实生效
+- **采数纪律**：用 `python misc/bench_matrix.py --rounds 4 --out .agent_tmp/matrix` 固化流程——脚本自动执行 dll md5 前后双查（后台 scons 中途完成会即时拦截）、按日志指纹（"static binding not found" 回退警告数）验证腿身份、`gcRequested` 字段验证 `--gc` 生效、COMPLETED/exit/invalid 逐轮核验，最后产出 `report.md` 中位数表。双腿/双开关对比必须各采 ≥3 轮取中位数，且全程同一 dll；报告 JSON 的 `staticBinding` 字段不可信，dll 身份只认 md5 + 构建命令
 - 验收：exit code == 0 且无 Orphan StringName（`--verbose` 下 grep Orphan）
 - 已知遗留（不视为失败）：remove_child / queue_free / add_child 各 1 个 orphan（start.ts 的 call_deferred 方法名字面量）
 

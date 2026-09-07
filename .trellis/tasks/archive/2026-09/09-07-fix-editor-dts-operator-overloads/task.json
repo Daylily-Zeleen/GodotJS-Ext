@@ -1,0 +1,28 @@
+{
+  "id": "fix-editor-dts-operator-overloads",
+  "name": "fix-editor-dts-operator-overloads",
+  "title": "fix-editor-dts-operator-overloads",
+  "description": "编辑器 d.ts 生成器把双元运算符的 right=Variant(NIL) 重载输出为缺少右参的一元签名（如 static OP_EQUAL(left)），与实际双参调用语义不符。修正 jsb_codegen_writer.cpp 的 operator_ 输出逻辑：区分一元（NEGATE/POSITIVE/NOT/BIT_NEGATE）与双元运算符，双元一律带 right 参数（right=NIL 输出 right: Variant | null）。低优先级；重跑编辑器代码生成并全量校验 typings。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P2",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-07",
+  "completedAt": "2026-09-07",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "priority": "low"
+  }
+}

@@ -32,5 +32,9 @@ class Builtins {
 public:
 	static void _require(const v8::FunctionCallbackInfo<v8::Value> &info);
 	static void _define(const v8::FunctionCallbackInfo<v8::Value> &info);
+	// JS-callable GC entry (mounted as global `gc`): forwards to
+	// Environment::gc(). Synchronous by contract -- returns after the
+	// collection finished, so the benchmark harness can rely on it.
+	static void _gc(const v8::FunctionCallbackInfo<v8::Value> &info);
 };
 } //namespace jsb

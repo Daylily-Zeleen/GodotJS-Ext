@@ -96,7 +96,6 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 template <Variant::Operator OpC, typename L, typename R, typename Ret>
 void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
-	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
 	const Variant *left_var = left_backing_of<L>(info[0]);
@@ -105,6 +104,20 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 	void *left_opaque = left_opaque_of<L>((Variant *)left_var);
+
+	// equality against null/undefined: the engine's api json emits a
+	// right=NIL row for ==/!= whose evaluator is ALWAYS-FALSE/ALWAYS-TRUE
+	// ("comparing against an uninitialized Variant", variant_op.cpp:487/571).
+	// Short-circuit here so `vec == null` returns false without hitting the
+	// evaluator at all. Applies to every concrete R -- the engine rules are:
+	// X == nil is always false, X != nil is always true.
+	if constexpr (OpC == Variant::OP_EQUAL || OpC == Variant::OP_NOT_EQUAL) {
+		if (info.Length() < 2 || info[1]->IsNullOrUndefined()) {
+			const bool equal = OpC == Variant::OP_EQUAL;
+			info.GetReturnValue().Set(v8::Boolean::New(isolate, equal));
+			return;
+		}
+	}
 
 	static GDExtensionPtrOperatorEvaluator eval = [] {
 		return ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
@@ -117,15 +130,21 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 
-	typename godot::PtrToArg<R>::EncodeT r_slot{};
+	typename godot::PtrToArg<R>::EncodeT right_slot{};
 	if constexpr (std::is_same_v<R, int64_t>) {
-		r_slot = (int64_t)info[1].As<v8::Int32>()->Value();
+		right_slot = (int64_t)info[1].As<v8::Int32>()->Value();
 	} else if constexpr (std::is_same_v<R, double>) {
-		r_slot = info[1].As<v8::Number>()->Value();
+		right_slot = info[1].As<v8::Number>()->Value();
 	} else if constexpr (std::is_same_v<R, bool>) {
-		r_slot = info[1].As<v8::Boolean>()->Value();
+		right_slot = info[1].As<v8::Boolean>()->Value();
 	} else if constexpr (std::is_same_v<R, godot::String>) {
-		r_slot = impl::Helper::to_string(isolate, info[1]);
+		right_slot = impl::Helper::to_string(isolate, info[1]);
+	} else if constexpr (std::is_same_v<R, godot::Variant>) {
+		// nil-payload rows (e.g. String % null): the right operand IS the
+		// uninitialized Variant itself -- nothing to unbox, right_slot stays
+		// value-initialized and the evaluator reads it as NIL. The dispatch
+		// probe keyed this case on Variant::NIL.
+		(void)info;
 	} else {
 		// builtin struct / container / StringName / NodePath wrapper: copy R
 		// out of its backing Variant (the dispatch probe already matched the
@@ -136,11 +155,11 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			jsb_throw(isolate, "operator: right operand type changed");
 			return;
 		}
-		r_slot = *godot::VariantInternal::get_internal_value<R>((Variant *)bv);
+		right_slot = *godot::VariantInternal::get_internal_value<R>((Variant *)bv);
 	}
 
 	typename godot::PtrToArg<Ret>::EncodeT ret_slot{};
-	eval(left_opaque, &r_slot, &ret_slot);
+	eval(left_opaque, &right_slot, &ret_slot);
 
 	Variant ret_val = godot::PtrToArg<Ret>::convert(&ret_slot);
 	v8::Local<v8::Value> rval;
@@ -188,46 +207,11 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	info.GetReturnValue().Set(rval);
 }
 
-// mounted callback for binary operators: probes both operands and looks the
-// matching thunk up in the generated table; a miss falls back to the dynamic
-// evaluation (Variant::evaluate), matching the dynamic path exactly.
-template <Variant::Operator OpC, typename LeftT>
-void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	v8::Isolate *isolate = info.GetIsolate();
-	v8::HandleScope handle_scope(isolate);
-	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-
-	const Variant::Type left_vt = probe_vt<godot::Variant>(info[0]);
-	const Variant::Type right_vt = probe_vt<godot::Variant>(info[1]);
-	if (left_vt == Variant::VARIANT_MAX || right_vt == Variant::VARIANT_MAX) {
-		// dynamic path: same marshal + Variant::evaluate
-		Variant left, right;
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		Variant ret;
-		bool r_valid = false;
-		Variant::evaluate(OpC, left, right, ret, r_valid);
-		if (!r_valid) {
-			jsb_throw(isolate, jsb_format("bad operation between %s and %s.",
-					Variant::get_type_name(left.get_type()),
-					Variant::get_type_name(right.get_type())));
-			return;
-		}
-		v8::Local<v8::Value> rval;
-		if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-			jsb_throw(isolate, "bad translation");
-			return;
-		}
-		info.GetReturnValue().Set(rval);
-		return;
-	}
-	if (const ThunkFn thunk = find_operator_thunk(left_vt, OpC, right_vt)) {
-		thunk(info);
-		return;
-	}
-	// no thunk for this (left, op, right): dynamic evaluation
+// shared dynamic fallback: marshal both operands into Variants and evaluate
+// through the engine's generic operator table -- identical to the dynamic
+// binding path's behavior.
+static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &info,
+		v8::Isolate *isolate, const v8::Local<v8::Context> &context, Variant::Operator op) {
 	Variant left, right;
 	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
 		jsb_throw(isolate, "bad translation");
@@ -235,7 +219,7 @@ void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 	Variant ret;
 	bool r_valid = false;
-	Variant::evaluate(OpC, left, right, ret, r_valid);
+	Variant::evaluate(op, left, right, ret, r_valid);
 	if (!r_valid) {
 		jsb_throw(isolate, jsb_format("bad operation between %s and %s.",
 				Variant::get_type_name(left.get_type()),
@@ -250,40 +234,34 @@ void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	info.GetReturnValue().Set(rval);
 }
 
-// mounted callback for unary operators (single argument)
-template <Variant::Operator OpC, typename LeftT>
-void operator_dispatch_unary(const v8::FunctionCallbackInfo<v8::Value> &info) {
+// mounted callback for binary operators: probes both operand types (JS
+// argument types are only known at runtime), then takes the thunk from the
+// pair-local table emitted by generate_primitive_operators.py -- a switch
+// over the right operand's Variant type covering every overload of
+// (OpC, LeftT). A miss falls back to the dynamic evaluation
+// (Variant::evaluate), matching the dynamic path exactly.
+template <Variant::Operator OpC, typename LeftT, ThunkFn (*FindTable)(godot::Variant::Type)>
+void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
 	const Variant::Type left_vt = probe_vt<godot::Variant>(info[0]);
-	if (left_vt != Variant::VARIANT_MAX) {
-		if (const ThunkFn thunk = find_operator_thunk(left_vt, OpC, Variant::NIL)) {
+	const Variant::Type right_vt = probe_vt<godot::Variant>(info[1]);
+	if (left_vt == Variant::VARIANT_MAX || right_vt == Variant::VARIANT_MAX) {
+		evaluate_dynamic_binary(info, isolate, context, OpC);
+		return;
+	}
+	if (left_vt == (Variant::Type)GetTypeInfo<LeftT>::VARIANT_TYPE) {
+		if (const ThunkFn thunk = FindTable(right_vt)) {
 			thunk(info);
 			return;
 		}
 	}
-	// dynamic fallback
-	Variant left, right;
-	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left)) {
-		jsb_throw(isolate, "bad translation");
-		return;
-	}
-	Variant ret;
-	bool r_valid = false;
-	Variant::evaluate(OpC, left, right, ret, r_valid);
-	if (!r_valid) {
-		jsb_throw(isolate, "bad operation");
-		return;
-	}
-	v8::Local<v8::Value> rval;
-	if (!TypeConvert::gd_var_to_js(isolate, context, ret, rval)) {
-		jsb_throw(isolate, "bad translation");
-		return;
-	}
-	info.GetReturnValue().Set(rval);
+	// no thunk for this (left, op, right): dynamic evaluation
+	evaluate_dynamic_binary(info, isolate, context, OpC);
 }
+
 
 } // namespace jsb::static_binding
 

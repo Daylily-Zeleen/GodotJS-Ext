@@ -305,7 +305,10 @@ OPERAND_CPP_MAP = {
     "Array": "godot::Array",
     "Dictionary": "godot::Dictionary",
     "Variant": None,
-    "Object": None,
+    # bare Object has no GetTypeInfo, but the T* specialization does
+    # (type_info.hpp: GetTypeInfo<T *, EnableIf<TypeInherits<Object, T>>>) --
+    # same convention as generate_primitive_operators.py's CPP_TYPE_MAP.
+    "Object": "Object *",
 }
 for _t in ("Vector2", "Vector2i", "Rect2", "Rect2i", "Vector3", "Vector3i",
            "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB",
@@ -819,10 +822,9 @@ def builtin_entry_expr(m, e, is_utility=False):
     static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
     ret_expr = ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta"))
     return "(ThunkFn)&%s<%s%du, %s, %s%s%s>" % (
-        tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, args_exprs)
+                tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, args_exprs)
 
-
-def emit_builtin_dispatch_cpp(m):
+def emit_builtin_dispatch_cpp(m, op_tables=""):
     """Builtin-method dispatch: one resolver per Variant type, keyed by the
     official method hash; the name participates only where signature-derived
     hashes collide within a type. Also emits the builtin member accessor
@@ -908,10 +910,12 @@ def emit_builtin_dispatch_cpp(m):
     emit_member_lookup("find_builtin_member_getter_thunk", "g")
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
 
-    # operator dispatch rows share this TU: operators only exist on builtin
-    # types, so their lookup table lives with the builtin dispatch instead of
-    # a separate dispatch_operator.gen.cpp
-    L.extend(emit_operator_dispatch_rows(m))
+
+    # Per-(left, op) operator pair tables are appended by main()
+    # (emit_operator_pair_tables) INSIDE the jsb::static_binding namespace:
+    # they share this TU because operators only exist on builtin types.
+    L.append("")
+    L.append(op_tables)
     L.append("} // namespace jsb::static_binding")
     L.append("")
     return "\n".join(L)
@@ -1157,75 +1161,121 @@ def emit_class_dispatch_cpp(m):
     return "\n".join(L)
 
 
-def emit_operator_dispatch_rows(m):
-    """(left type, operator, right type) -> thunk lookup rows for the static
-    operator path, inlined into the builtin dispatch TU. Unary rows carry
-    right type NIL. Rows whose right operand is Variant/Object stay on the
-    dynamic path (the engine registers no ptr evaluator with a VARIANT/Object
-    right operand). Includes and the namespace wrapper belong to the caller
-    (emit_builtin_dispatch_cpp)."""
-    L = []
-    entries = []
+def emit_operator_pair_tables(m):
+    """Per-(left type, operator) thunk tables for the static operator path:
+    one find_op_<Left>_<Token>(godot::Variant::Type) switch per pair, keyed by
+    the right operand's Variant type. The JS static method's dispatch callback
+    (operator_dispatch_binary, mounted by the JSB_DEFINE_OVERLOADED_BINARY_BEGIN
+    / COMPARATOR macros in jsb_primitive_bindings_reflect.cpp) calls the pair's
+    function with the probed right type -- no global binary search at call
+    time. The declarations are emitted alongside (emit_operator_tables_h) so
+    the mounting macros can take the function address; this TU holds the
+    definitions, exactly like the find_builtin_thunk split. The table-name
+    segments (json class name + operator token) MUST stay in lockstep with
+    generate_primitive_operators.py's macro invocations: the macro ##-pastes
+    its first argument into find_op_##type_lit##_##op_code.
+    right=Object rows ARE emitted: operator_thunk<R=Object *> is fully
+    addressable (GetTypeInfo<T*> / PtrToArg<T*> / VariantInternalType<Object*>
+    specializations) and bool/int/float/String/StringName logical ops rely on
+    them. right=Variant stays off (untyped fallback, concrete overloads cover
+    it -- same rule as the def-file emission).
+    Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
+    groups = {}
     for op in m.operators:
         left_vt = op["left_vt"]
-        op_name = m.pool.strings[op["op_name_id"]]
-        if op_name not in OPERATOR_NAME_MAP:
-            raise SystemExit(f"FATAL: unmapped operator symbol '{op_name}'")
-        token, kind = OPERATOR_NAME_MAP[op_name]
-        op_value = OPERATOR_VALUES.get(token)
-        if op_value is None:
-            raise SystemExit(f"FATAL: operator token {token} missing from GDExtensionVariantOperator")
-        right_name = m.pool.strings[op["right_type_id"]]
-        ret_name = m.pool.strings[op["ret_type_id"]]
-        ret_cpp = operand_cpp(ret_name)
-        if ret_cpp is None:
-            raise SystemExit(f"FATAL: operator {op_name} return type '{ret_name}' is not statically addressable")
         left_name = m.vt_names[left_vt]
         if left_name == "Nil":
-            # nil has no JS class object on either path -- its rows would be
-            # dead entries; the dynamic path covers nil operands generically
-            continue
-        l_cpp = operand_cpp(left_name)
-        if l_cpp is None:
-            raise SystemExit(f"FATAL: operator left type '{left_name}' is not statically addressable")
+            continue  # no JS class object on either path; dynamic covers nil
+        sym = m.pool.strings[op["op_name_id"]]
+        mapped = OPERATOR_NAME_MAP.get(sym)
+        if mapped is None:
+            raise SystemExit(f"FATAL: unmapped operator symbol '{sym}'")
+        token, kind = mapped
         if kind == "unary":
-            key = (left_vt << 11) | (op_value << 6) | 0  # right = NIL
-            thunk = f"&operator_unary_thunk<Variant::OP_{token}, {l_cpp}, {ret_cpp}>"
-        else:
-            right_name_c = operand_cpp(right_name)
-            if right_name_c is None:
-                continue  # dynamic path
+            continue  # unary ops mount operator_unary_thunk directly; no table
+        groups.setdefault((left_vt, token), []).append(op)
+
+    order = sorted(groups, key=lambda k: (k[0], OPERATOR_VALUES[k[1]]))
+    fn_names = [f"find_op_{m.vt_names[vt]}_{token}" for vt, token in order]
+
+    L = []
+    for (vt, token), entries, in zip(order, [groups[k] for k in order]):
+        left_name = m.vt_names[vt]
+        left_cpp = operand_cpp(left_name)
+        if left_cpp is None:
+            raise SystemExit(f"FATAL: operator left type '{left_name}' is not statically addressable")
+        fn_name = f"find_op_{left_name}_{token}"
+        L.append(f"ThunkFn {fn_name}(godot::Variant::Type p_right) {{")
+        L.append("\tswitch (p_right) {")
+        seen = set()
+        for op in entries:
+            right_name = m.pool.strings[op["right_type_id"]]
+            if right_name == "Variant":
+                # right=NIL row from the api json. Three distinct meanings
+                # (verified against the engine source, variant_op.cpp):
+                #   ==/!=  : comparison against nil -- ALWAYS-FALSE/ALWAYS-TRUE
+                #            evaluators; handled by the null/undefined
+                #            short-circuit inside operator_thunk, no table row.
+                #   and/or/xor: nil in logic ops; JS uses native &&/||/^, the
+                #            static method is never called -- no table row
+                #            (dynamic Variant::evaluate covers it anyway).
+                #   % (String/StringName): real sprintf with a single-element
+                #            array ("fmt" % null); KEPT as a dedicated nil
+                #            overload below.
+                if token in ("EQUAL", "NOT_EQUAL", "AND", "OR", "XOR"):
+                    continue
+                # functional nil-row: emit a case keyed by Variant::NIL whose
+                # thunk takes the right operand as godot::Variant (sprintf's
+                # single-element array payload for %).
+                right_vt = VARIANT_TYPE_VALUES["Variant"] if "Variant" in VARIANT_TYPE_VALUES else 0
+                ret_name = m.pool.strings[op["ret_type_id"]]
+                ret_cpp = operand_cpp(ret_name)
+                if ret_cpp is None:
+                    raise SystemExit(f"FATAL: operator {left_name}.{token} nil-row return '{ret_name}' is not statically addressable")
+                L.append(f"\t\tcase godot::Variant::NIL:")
+                L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{token}, {left_cpp}, godot::Variant, {ret_cpp}>;")
+                continue
             right_vt = VARIANT_TYPE_VALUES.get(right_name)
             if right_vt is None:
                 raise SystemExit(f"FATAL: unknown right operand type '{right_name}'")
-            key = (left_vt << 11) | (op_value << 6) | right_vt
-            thunk = f"&operator_thunk<Variant::OP_{token}, {l_cpp}, {right_name_c}, {ret_cpp}>"
-        entries.append((key, thunk, left_name, op_name, right_name, ret_name))
+            if right_vt in seen:
+                continue
+            seen.add(right_vt)
+            ret_name = m.pool.strings[op["ret_type_id"]]
+            ret_cpp = operand_cpp(ret_name)
+            right_cpp = operand_cpp(right_name)
+            if ret_cpp is None or right_cpp is None:
+                raise SystemExit(f"FATAL: operator {left_name}.{token} operand type '{right_name}'/'{ret_name}' is not statically addressable")
+            L.append(f"\t\tcase {vt_value_to_enum(right_vt)}:")
+            L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{token}, {left_cpp}, {right_cpp}, {ret_cpp}>;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
 
-    entries.sort(key=lambda e: e[0])
-    keys = [e[0] for e in entries]
-    if len(set(keys)) != len(keys):
-        dups = sorted({k for k in keys if keys.count(k) > 1})
-        raise SystemExit(f"FATAL: duplicate operator dispatch keys {dups}")
-
-    L.append("struct OperatorEntry { uint32_t key; ThunkFn thunk; };")
-    L.append("static const OperatorEntry k_entries[] = {")
-    for key, thunk, left_name, op_name, right_name, ret_name in entries:
-        L.append(f"\t{{{key}u, {thunk}}},")
-    L.append("};")
-    L.append("")
-    L.append("const ThunkFn find_operator_thunk(Variant::Type p_left, Variant::Operator p_op, Variant::Type p_right) {")
-    L.append("\tconst uint32_t key = ((uint32_t)p_left << 11) | ((uint32_t)p_op << 6) | (uint32_t)p_right;")
-    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
-    L.append("\twhile (lo <= hi) {")
-    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
-    L.append("\t\tif (k_entries[mid].key == key) return k_entries[mid].thunk;")
-    L.append("\t\tif (k_entries[mid].key < key) lo = mid + 1; else hi = mid - 1;")
-    L.append("\t}")
-    L.append("\treturn nullptr;")
-    L.append("}")
-    L.append("")
-    return L
+    H = [
+         "// GENERATED FILE - DO NOT EDIT.",
+         "// SCons regenerates this on every static_binding=yes build; manual run:",
+         "//   python misc/build/static_binding_codegen.py \\",
+         "//       --input third/godot-cpp/gdextension/extension_api-4-7.json \\",
+         "//       --out src/static_binding/gen",
+         "//",
+         "// Per-(left, operator) thunk-table declarations consumed by the",
+         "// JSB_DEFINE_OVERLOADED_BINARY_BEGIN/COMPARATOR macros in",
+         "// jsb_primitive_bindings_reflect.cpp (## pastes find_op_##type_lit##_##op_code).",
+         "// Definitions live in dispatch_builtin.gen.cpp.",
+         "//",
+         "// NO namespace wrapper here: this header is included INSIDE",
+         "// namespace jsb::static_binding (dispatch.h) so the declarations use",
+         "// the ThunkFn alias defined there; wrapping it again would nest the",
+         "// namespace and hide every symbol.",
+         "",
+         "#pragma once",
+         "",
+    ]
+    for fn_name in fn_names:
+        H.append(f"ThunkFn {fn_name}(godot::Variant::Type p_right);")
+    H += [""]
+    return "\n".join(L), "\n".join(H)
 
 
 def emit_manifest(m, input_path, interface_path):
@@ -1286,8 +1336,9 @@ def main():
         data = json.load(f)
 
     m = collect(data, vt_map)
+    op_tables, op_tables_h = emit_operator_pair_tables(m)
     cpp_outputs = {
-        "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m),
+        "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
     }
@@ -1300,6 +1351,9 @@ def main():
         outputs[fname] = header + content
     # manifest.gen.json is machine-readable JSON (no comments allowed) and is
     # a build-reconciliation byproduct, not a compiled static binding file.
+    for fname, content in {"operator_tables.gen.h": op_tables_h}.items():
+        header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
+        outputs[fname] = header + content
     outputs["manifest.gen.json"] = emit_manifest(m, ns.input, ns.interface)
 
     if ns.check:

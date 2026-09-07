@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_primitive_bindings_reflect.h                                    */
+/*  jsb_primitive_bindings.h                                    */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -31,5 +31,5 @@
 namespace jsb {
 class Environment;
 
-void register_primitive_bindings_reflect(Environment *p_env);
+void register_primitive_bindings(Environment *p_env);
 } //namespace jsb

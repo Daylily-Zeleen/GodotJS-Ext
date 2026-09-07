@@ -42,6 +42,29 @@ Godot **不会**原地加载构建出的扩展 DLL。对 `.gdextension` 里每�
 
 引用仓库里既有的"接缝"前，先问它是否依赖进程级单例或"本会成为另一个扩展"中的可变静态状态——此类模式在 `~` 副本模型下是**设计性损坏**，不得引为可行先例。
 
+## 静态绑定运算符双层分发（定形依据）
+
+JS 运算符静态方法（统一命名 `OP_XXX`，由 `JSB_OPERATOR_NAME` 加前缀，jsb_macros.h）的调用路径分两层，均在**注册期/生成期定形**，调用时零查表：
+
+1. **一元运算符**（NEGATE/POSITIVE/NOT/BIT_NEGATE）：无"右参重载"概念，注册期直挂 `operator_unary_thunk<OpCode, LeftType, RetType>`（`JSB_DEFINE_UNARY`，`jsb_primitive_bindings_reflect.cpp` static 分支宏）。没有 dispatch 层。
+2. **二元运算符**：实参类型运行时才可知，**probe 不可消除，可消除的是查表**。生成器（`misc/build/static_binding_codegen.py` `emit_operator_pair_tables`）按 (left, op) 预展开全部 right 重载，每对生成一个 `find_op_<Left>_<Op>(Variant::Type)` 紧凑 switch 函数：定义发射进 `dispatch_builtin.gen.cpp`，声明发射进 `operator_tables.gen.h`（由 `dispatch.h` 在 `jsb::static_binding` 内 include）；`JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)` 宏用 `##` 把**宏实参**（类型字面量）拼成表函数名，挂 `operator_dispatch_binary<Op, Left, &find_op_...>`——dispatch 退化为"probe right 类型 → switch 取 thunk"，miss 回退 `Variant::evaluate`（与 dynamic 路径一致）。
+   `def.gen`（`generate_primitive_operators.py`）只发两腿共用的宏调用声明（`JSB_TYPE_BEGIN`/`JSB_DEFINE_OVERLOADED_BINARY_BEGIN` 等），不含任何 C++ 实现。
+3. **`==`/`!=` 对 null/undefined 的短路**：`operator_thunk` 内 constexpr 分支（`OpC == OP_EQUAL || OP_NOT_EQUAL` 且右参 `IsNullOrUndefined`）直接返回 false/true，不进引擎求值器。
+
+### right=Nil 行的语义（引擎源码查证，勿再误写为"无类型回退"）
+
+api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL 档（extension_api_dump.cpp:749，`get_builtin_or_variant_type_name` 把 NIL 改名 "Variant"）。引擎里每条都有具体求值器，分三类：
+
+- `==`/`!=` × NIL：恒 false/true（`OperatorEvaluatorAlwaysTrue/False`，variant_op.cpp:487/571-585）——`nil==nil`、`X==nil` 的比较规则。静态绑定由 thunk 短路覆盖，**不发表行**。
+- `and`/`or`/`xor` × NIL：nil 参与逻辑运算（`NilXBoolOr` 等，variant_op.cpp:795-804）。JS 用原生 `&&/||/^`，静态方法不会被调用——**不发表行**，dynamic 兜底。
+- `%` × (String/StringName, NIL)：**真实功能**——字符串格式化 `"fmt" % null` 即 `sprintf([null])`（`register_string_modulo_op(void, Variant::NIL)`，variant_op.h:771 void 特化）。**保留**，发 `case godot::Variant::NIL` 行，thunk 以 `R = godot::Variant` 直传未初始化 Variant。
+
+定形约束（改动前必读）：
+- **宏 `##` 只能拼接宏实参**：表函数名靠 `JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)` 的类型字面量实参拼接；不能拼接宏体内引用的宏名（MSVC 展开顺序不可靠，C2162）。表函数定义在 `dispatch_builtin.gen.cpp`（static 腿专用），声明头 `operator_tables.gen.h` 由 `dispatch.h` include——def.gen（两腿共用）内不得出现任何 C++ 实现。
+- **比较器与二元运算符同构**：并入同一 bin_groups 生成 switch；每个 token 只发一个 `JSB_DEFINE_OVERLOADED_BINARY_BEGIN` 块（json 每 overload 一条，多 right 重载共享一块）——重复注册同名 JS 方法会触发 V8 name collision 崩溃。
+- **`right=Variant` 行按三类分治**（见上节）：`==`/`!=`、`and`/`or`/`xor` 不发表行；`%` 发 `Variant::NIL` case。不得笼统跳过——`%` 的 nil 行是真实功能。
+- 旧全局二分表 `find_operator_thunk` 已从 `dispatch_builtin.gen.cpp` 移除，`dispatch.h` 中亦无声明；新代码不得再引入每调用查表。
+
 ## 其他陷阱
 
 - 目录搬迁时散落在源码树的陈旧 `.obj` 会被基于 Glob 的 SCons 脚本误收——同一变更里清理干净
