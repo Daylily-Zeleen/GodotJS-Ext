@@ -1291,21 +1291,11 @@ def emit_ctor_dispatch(m):
     to dispatch_builtin.gen.cpp (inside jsb::static_binding); declarations
     go to ctor_tables.gen.h (included by dispatch.h).
     Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
-    # JS-native primitive types: bool/int/float/String/StringName map to
-    # JS boolean/number/string -- their constructors are never exposed as
-    # `new X(...)` static bindings (primitive wrappers are created through
-    # the ReflectConstructorCall / conversion layer instead). See
-    # 09-08-static-factory-primitive-ctors for the future static-factory form.
-    JS_NATIVE_PRIMITIVES = {"bool", "int", "float", "String", "StringName"}
-
     groups = collections.OrderedDict()
     for c in m.constructors:
-        vt_name = m.vt_names[c["vt"]]
-        if vt_name == "Nil":
+        if m.vt_names[c["vt"]] == "Nil":
             continue  # nil has no JS class object; its "constructors" are
                       # covered by dynamic Variant::evaluate paths
-        if vt_name in JS_NATIVE_PRIMITIVES:
-            continue  # JS-native primitives: no `new X()` constructor surface
         groups.setdefault(c["vt"], []).append(c)
 
     L = []
@@ -1319,10 +1309,7 @@ def emit_ctor_dispatch(m):
         adapter_name = f"ctor_adapter_{type_name}"
         H.append(f"ThunkFn {fn_name}(const v8::FunctionCallbackInfo<v8::Value> &info);")
         H.append(f"void {adapter_name}(const v8::FunctionCallbackInfo<v8::Value> &info);")
-        L.append(f"void {adapter_name}(const v8::FunctionCallbackInfo<v8::Value> &info) {{")
-        L.append(f"\tif (const ThunkFn thunk = {fn_name}(info)) thunk(info);")
-        L.append(f"\telse jsb_throw(info.GetIsolate(), \"no suitable constructor\");")
-        L.append("}")
+        L.append(f"void {adapter_name}(const v8::FunctionCallbackInfo<v8::Value> &info) {{ {fn_name}(info); }}")
 
         # dedupe identical overloads (json sometimes lists a same-shape ctor
         # twice with different indices -- first index wins, matching the
@@ -1358,28 +1345,14 @@ def emit_ctor_dispatch(m):
                         probe_checks.append(f"info[{i}]->IsNumber()")
                     elif t == "bool":
                         probe_checks.append(f"info[{i}]->IsBoolean()")
-                    elif t == "String":
-                        # JS string maps directly to godot::String -- no wrapper
-                        probe_checks.append(f"info[{i}]->IsString()")
-                    elif t == "Variant":
-                        # untyped parameter: no static probe possible, the
-                        # thunk's js_to_gd_var handles any JS value
-                        probe_checks.append("true")
                     else:
-                        # struct/container/StringName/NodePath wrapper: internal
-                        # field type check. JS string is also accepted for
-                        # StringName/NodePath params (mirrors try_js_to_gd's
-                        # direct-conversion fallback). info[i] may not be an
-                        # Object at all -- probe before converting the handle.
+                        # struct/container wrapper: internal field type check.
+                        # info[i] may not be an Object at all (e.g. int ctor
+                        # given a String) -- probe before converting the
+                        # handle, mirroring probe_vt's ordering.
                         vt_val = VARIANT_TYPE_VALUES.get(t)
                         if vt_val is None:
                             probe_checks.append("false")
-                        elif t in ("StringName", "NodePath"):
-                            probe_checks.append(
-                                f"(info[{i}]->IsString() || "
-                                f"(info[{i}]->IsObject() && "
-                                f"TypeConvert::is_variant(info[{i}].As<v8::Object>()) "
-                                f"&& ((godot::Variant *)info[{i}].As<v8::Object>()->GetAlignedPointerFromInternalField(IF_Pointer))->get_type() == {vt_value_to_enum(vt_val)}))")
                         else:
                             probe_checks.append(f"info[{i}]->IsObject() && "
                                                 f"TypeConvert::is_variant(info[{i}].As<v8::Object>()) "
