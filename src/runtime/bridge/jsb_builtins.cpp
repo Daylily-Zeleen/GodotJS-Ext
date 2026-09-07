@@ -113,4 +113,10 @@ void Builtins::_require(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	JSB_LOG(Error, "can not load module '%s' (with parent '%s')", module_id, parent_id);
 }
 
-} //namespace jsb
+void Builtins::_gc(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	Environment::wrap(context)->gc();
+}
+
+ } //namespace jsb

@@ -25,7 +25,7 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#include "jsb_primitive_bindings_reflect.h"
+#include "jsb_primitive_bindings.h"
 #include "static_binding/dispatch.h"
 #include "../internal/jsb_variant_info.h"
 #include "../internal/jsb_variant_util.h"
@@ -41,23 +41,34 @@
 
 
 #if JSB_WITH_STATIC_BINDINGS
-// static path: dispatch callbacks probe the operand shapes and call the
-// engine's operator evaluator straight through the generated table
-#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
+// static path: the overload set of every (left type, operator) pair is
+// known at codegen time -- generate_primitive_operators.py emits one
+// find_op_<Left>_<Op>() switch per pair right above the JSB_TYPE_BEGIN
+// block that mounts the JS method, and passes the type literal into every
+// *_BEGIN/COMPARATOR invocation so the macro can paste the table function
+// name directly (## pasting of macro ARGUMENTS is reliable; pasting of a
+// macro name referenced inside another macro's body is not).
+// The dispatch callback probes the operands (JS argument types are only
+// known at runtime) and calls the pair-local switch; a miss falls back to
+// Variant::evaluate, matching the dynamic path exactly. No global table
+// lookup at call time.
+#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
-				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
-#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) \
-		(void)sizeof(Ret); (void)sizeof(TLeft); (void)sizeof(TRight); // overloads live in the generated table
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, \
+						&jsb::static_binding::find_op_##type_lit##_##op_code>);
+#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) // overloads live in the pair-local switch emitted above
 #define JSB_DEFINE_OVERLOADED_BINARY_END()
 #define JSB_DEFINE_UNARY(op_code, ret_type) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
-				jsb::static_binding::operator_dispatch_unary<Variant::OP_##op_code, CurrentType>);
-#define JSB_DEFINE_COMPARATOR(op_code) \
+				jsb::static_binding::operator_unary_thunk<Variant::OP_##op_code, CurrentType, ret_type>);
+#define JSB_DEFINE_COMPARATOR(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
-				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType>);
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, \
+						&jsb::static_binding::find_op_##type_lit##_##op_code>);
 #else
 // dynamic path: generic callbacks evaluate through Variant::evaluate
-#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(op_code) \
+// (def.gen passes the type literal as the first arg on both paths; unused here)
+#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 #define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
@@ -65,7 +76,7 @@
 #define JSB_DEFINE_UNARY(op_code, ret_type) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
-#define JSB_DEFINE_COMPARATOR(op_code) \
+#define JSB_DEFINE_COMPARATOR(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 #endif
@@ -957,7 +968,7 @@ public:
 	}
 };
 
-void register_primitive_bindings_reflect(Environment *p_env) {
+void register_primitive_bindings(Environment *p_env) {
 #pragma push_macro("DEF")
 #undef DEF
 #define DEF(TypeName) p_env->add_class_register(static_cast<Variant::Type>(GetTypeInfo<TypeName>::VARIANT_TYPE), &VariantBind<TypeName>::reflect_bind);

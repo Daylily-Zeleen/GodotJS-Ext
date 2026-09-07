@@ -105,7 +105,7 @@ def cpp_type(json_name):
 
 
 def emit_type_block(class_name, operators, variant_ops):
-    L = [f"JSB_TYPE_BEGIN({cpp_type(class_name)})"]
+    L = []
     bins, unaries, cmps = [], [], []
     for op in operators:
         name = op["name"]
@@ -121,41 +121,44 @@ def emit_type_block(class_name, operators, variant_ops):
         else:
             cmps.append((token, op))
 
-    # group by token: ONE BEGIN/END block per operator token (the BEGIN macro
-    # registers the JS method; json lists one entry per overload, so e.g.
-    # Vector2's `*` yields int/float/Vector2 entries that must share a block)
+    left_cpp = cpp_type(class_name)
+
+    # Per-(left, op) thunk table: the overload set is fully known at codegen
+    # time, so the (op, left) -> overloads mapping collapses into a plain
+    # switch over the right operand's Variant type. The JS static method's
+    # dispatch callback (operator_dispatch_binary) calls this function with
+    # the probed right type -- no global binary search at call time.
     bin_groups = {}
     for token, op in bins:
         bin_groups.setdefault(token, []).append(op)
+    for token, op in cmps:
+        bin_groups.setdefault(token, []).append(op)
+
+    # The static-binding pair-local switch tables referenced by the BEGIN
+    # macro's ## paste (find_op_<Left>_<Op>) live in dispatch_builtin.gen.cpp,
+    # emitted by static_binding_codegen.py -- this file only declares the
+    # two-leg-shared operator surface via the macros below.
+    L.append(f"JSB_TYPE_BEGIN({left_cpp})")
+    # ONE BEGIN/END block per operator token (the BEGIN macro registers the
+    # JS method; json lists one entry per overload, so e.g. Vector2's `*`
+    # yields int/float/Vector2 entries that must share a block)
     for token, entries in bin_groups.items():
-        L.append(f"    JSB_DEFINE_OVERLOADED_BINARY_BEGIN({token})")
+        L.append(f"    JSB_DEFINE_OVERLOADED_BINARY_BEGIN({class_name}, {token})")
         for op in entries:
             ret = cpp_type(op["return_type"])
-            left = cpp_type(class_name)
             right = cpp_type(op.get("right_type", "Variant"))
-            L.append(f"        JSB_DEFINE_BINARY_OVERLOAD({ret}, {left}, {right})")
+            L.append(f"        JSB_DEFINE_BINARY_OVERLOAD({ret}, {left_cpp}, {right})")
         L.append("    JSB_DEFINE_OVERLOADED_BINARY_END()")
-    # one line per token: unlike the BINARY groups (where every overload of an
-    # operator shares the block), json can list several entries for the same
-    # comparator/unary token (e.g. Nil == Nil and Nil == Object); the macro
-    # registers the JS method itself, so repeating the line would collide.
-    seen_unary, seen_cmp = set(), set()
+    seen_unary = set()
     for token, op in unaries:
         if token in seen_unary:
             continue
         seen_unary.add(token)
         ret = cpp_type(op["return_type"])
         L.append(f"    JSB_DEFINE_UNARY({token}, {ret})")
-    for token, _op in cmps:
-        if token in seen_cmp:
-            continue
-        seen_cmp.add(token)
-        L.append(f"    JSB_DEFINE_COMPARATOR({token})")
 
     L.append("JSB_TYPE_END()")
     return L
-
-
 def generate(api_path, interface_path, preferred_only=False):
     with open(api_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -179,11 +182,16 @@ def generate(api_path, interface_path, preferred_only=False):
          "",
          "// Operators for ALL builtin classes that define them in the api json.",
          "// NOTE: classes outside the primitive-binding registration list (bool,",
-         "// float, int, Nil, StringName...) still get their OperatorRegister<>"
+         "// float, int, Nil, StringName...) still get their OperatorRegister<>",
          "",
          "// specializations emitted so the table stays complete; their generate()",
          "// is simply never invoked today.",
-         ""]
+         "",
+         "// Per-(left, op) thunk tables: one switch per (left type, operator) pair;",
+         "// operator_dispatch_binary calls the matching one with the probed right",
+         "// operand type -- no global binary search at call time.",
+         "",
+    ]
 
     for class_name in ordered:
         if class_name == "Nil":

@@ -35,7 +35,7 @@
 #define JSB_CONCAT_IMPL(a, b) a##b
 #define JSB_CONCAT(a, b) JSB_CONCAT_IMPL(a, b)
 
-#define JSB_OPERATOR_NAME(op_code) #op_code
+#define JSB_OPERATOR_NAME(op_code) "OP_" #op_code
 
 #define JSB_MODULE_NAME_STRING JSB_STRINGIFY(JSB_MODULE_NAME)
 
