@@ -281,10 +281,10 @@ if (JSWorkerParent) {
 						if (!(transferredChild instanceof Node)) {
 							fail('scriptedNodeWithExport child was not a Node in worker');
 						}
-						if ((transferredChild as unknown as { get_name(): string }).get_name() !== 'implicit-child') {
-							fail(`scriptedNodeWithExport child name mismatch in worker: ${(transferredChild as unknown as { get_name(): string }).get_name()}`);
+						if (transferredChild.get_name() !== 'implicit-child') {
+							fail(`scriptedNodeWithExport child name mismatch in worker: ${transferredChild.get_name()}`);
 						}
-						(transferredChild as unknown as { set_name(n: string): void }).set_name('implicit-child-worker');
+						transferredChild.set_name('implicit-child-worker');
 					}
 					payload.scriptedNodeWithExport.exportInt = 456;
 					payload.scriptedNodeWithExport.exportText = 'worker-mutated';
