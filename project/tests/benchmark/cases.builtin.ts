@@ -1,3 +1,4 @@
+// uid://dtsfbiuf60r16 This line is generated, don't modify or remove it.
 /**
  * Builtin-type benchmark cases -- hand-maintained. The former generator
  * misc/build/generate_benchmark_cases.py was removed; extend this file

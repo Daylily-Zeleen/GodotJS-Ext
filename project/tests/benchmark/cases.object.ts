@@ -18,7 +18,7 @@ import {
     ResourceLoader,
     Vector2,
 } from "godot";
-import { BuiltinCase } from "./bench";
+import { BuiltinCase } from "./benchmark";
 
 export const OBJECT_CASES: BuiltinCase[] = [
     {

@@ -1356,6 +1356,9 @@ def emit_ctor_dispatch(m):
                     continue
                 arg_exprs = [arg_template_expr(a) for a in args]
                 probe_checks = []
+                dbg_probe = type_name == "Array" and arity == 4
+                if dbg_probe:
+                    L.append(f"\t\tfprintf(stderr, \"PROBE-ARRAY4 enter, argc=%d\\n\", argc); fflush(stderr);")
                 for i, a in enumerate(args):
                     t = a["type"]
                     # probe conditions mirror probe_vt/thunks_common semantics
@@ -1407,6 +1410,10 @@ def emit_ctor_dispatch(m):
     for vt, ctors in sorted(groups.items()):
         type_name = m.vt_names[vt]
         L.append(f"\tif (p_class_name == godot::StringName({cxx_str(type_name)})) return {f'ctor_adapter_{type_name}'};")
+        if type_name == "Array":
+            L.append(f"\tif (p_class_name == godot::StringName({cxx_str('GArray')})) return {f'ctor_adapter_{type_name}'};")
+        if type_name == "Dictionary":
+            L.append(f"\tif (p_class_name == godot::StringName({cxx_str('GDictionary')})) return {f'ctor_adapter_{type_name}'};")
     L.append("\treturn nullptr;")
     L.append("}")
     L.append("")
