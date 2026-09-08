@@ -1491,8 +1491,8 @@ def main():
         outputs[fname] = header + content
     # manifest.gen.json is machine-readable JSON (no comments allowed) and is
     # a build-reconciliation byproduct, not a compiled static binding file.
-    for fname, content in {"operator_tables.gen.h": op_tables_h,
-                           "ctor_tables.gen.h": ctor_tables_h}.items():
+    for fname, content in {"builtin_operator_tables.gen.h": op_tables_h,
+                           "builtin_ctor_tables.gen.h": ctor_tables_h}.items():
         header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
         outputs[fname] = header + content
     outputs["manifest.gen.json"] = emit_manifest(m, ns.input, ns.interface)
