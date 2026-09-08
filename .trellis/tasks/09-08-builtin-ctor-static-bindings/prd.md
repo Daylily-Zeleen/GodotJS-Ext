@@ -46,13 +46,14 @@ bool/int/float/String/StringName 在 JS 中即 boolean/number/string 原生类�
 7. 全量 121 ctor case 验证：0 errors 目标，待最终跑
 
 
-## 当前卡点（2026-09-08）
+## 当前状态（2026-09-08 最终）
 
-`.godot/.api_dumping/*.capi` 数据缺失（此前清理 .godot 时丢失），static 腿 startup 必需。
-生成路径排查完毕：headless 编辑器 + `--godotjs-api-generate` 挂起（handler 在编辑器
-主循环 call_deferred，headless 下卡死）；GUI 编辑器 + 该参数 120s 内未生成（确认框
-流程或 plugin 注册时机不符）。
+**Step1-3 全部完成并推送**（aa92897/c72e50a/b0ae540）。121 ctor case 在
+`--only=Constructors` 下验证通过（exit=0、0 errors、ctor thunk 正常执行）。
 
-**需要人工操作**：启动一次 GUI 编辑器（godot.windows.editor.x86_64.exe --path ./project），
-菜单 Project Tools → "Generate API Tool Data"，确认后编辑器保存并自动重启生成数据。
-生成后 capi 采数即可继续（tsc 产物已恢复，dll ba0f51df+ 就绪）。
+**已知不稳定项**：`--only=Constructors` 偶发挂起/exit5（ApiToolPayload 警告与
+启动竞态相关，多次成功运行证明非确定性阻断）。10 轮采数验证因该不稳定项暂缓，
+采数脚本（bench_matrix groupwise 模式）与 dll 均就绪，待环境稳定后执行。
+
+**低优先级子任务**：09-08-lowprio-static-improvements（父任务）下挂
+09-08-static-factory-primitive-ctors 与 09-08-member-form-operators 两个 P3 任务。
