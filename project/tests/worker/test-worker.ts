@@ -246,8 +246,8 @@ function assertFullPayloadResponse(payload: FullPayload, transferType: TransferT
 		if (!(roundTrippedChild instanceof Node)) {
 			fail('scriptedNodeWithExport child was not a Node');
 		}
-		if ((roundTrippedChild as unknown as { get_name(): string }).get_name() !== 'implicit-child-worker') {
-			fail(`scriptedNodeWithExport child name mismatch: ${(roundTrippedChild as unknown as { get_name(): string }).get_name()}`);
+		if (roundTrippedChild.get_name() !== 'implicit-child-worker') {
+			fail(`scriptedNodeWithExport child name mismatch: ${roundTrippedChild.get_name()}`);
 		}
 	}
 
@@ -380,7 +380,7 @@ export default class TestWorker extends Node {
 		scriptedNodeWithExport.exportText = 'main-initial';
 		if (transferType === TransferType.Godot) {
 			const scriptedNodeChild = new Node();
-			(scriptedNodeChild as unknown as { set_name(n: string): void }).set_name('implicit-child');
+			scriptedNodeChild.set_name('implicit-child');
 			scriptedNodeWithExport.add_child(scriptedNodeChild);
 		}
 
