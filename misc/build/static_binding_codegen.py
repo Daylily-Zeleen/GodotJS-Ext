@@ -1181,12 +1181,19 @@ def emit_operator_pair_tables(m):
     them. right=Variant stays off (untyped fallback, concrete overloads cover
     it -- same rule as the def-file emission).
     Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
+    # JS-native primitive left operands: bool/int/float map to JS
+    # boolean/number -- their operators never surface as static methods
+    # (JS native operators cover them entirely).
+    JS_NATIVE_LEFT = {"bool", "int", "float"}
+
     groups = {}
     for op in m.operators:
         left_vt = op["left_vt"]
         left_name = m.vt_names[left_vt]
         if left_name == "Nil":
             continue  # no JS class object on either path; dynamic covers nil
+        if left_name in JS_NATIVE_LEFT:
+            continue  # JS-native primitive left operand: no static surface
         sym = m.pool.strings[op["op_name_id"]]
         mapped = OPERATOR_NAME_MAP.get(sym)
         if mapped is None:
