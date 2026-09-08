@@ -54,6 +54,7 @@ interface BenchOutcome {
     iterations: number;
     checksum: number;
     error?: string;
+    sample?: string;
 }
 
 // jsb's v8 environment has no global `performance`; use the engine
@@ -199,7 +200,7 @@ export default class Benchmark extends Node {
         const report = {
             staticBinding,
             gcRequested: GC_REQUESTED && gcAvailable,
-            engine: Engine.get_version_info().full_name,
+            engine: String(Engine.get_version_info() as unknown as { full_name: string }["full_name"]),
             invalid: results.filter((r) => r.error).length,
             results,
         };

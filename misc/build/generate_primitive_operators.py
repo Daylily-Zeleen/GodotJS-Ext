@@ -201,6 +201,14 @@ def generate(api_path, interface_path, preferred_only=False):
             # compile. The operators of nil remain covered by the dynamic
             # path (Variant::evaluate handles nil operands generically).
             continue
+        import os as _os
+        _keep_ops = _os.environ.get("JSB_KEEP_PRIMITIVE_OPS", "")  # "bool"/"int"/"float"/"1"
+        if class_name in ("bool", "int", "float") and not (_keep_ops == "1" or class_name == _keep_ops):
+            # JS-native primitives: bool/int/float ARE JS boolean/number --
+            # their operators never surface as static methods (JS native
+            # operators cover them entirely). See task 09-08 prd, Step3.
+            # JSB_KEEP_PRIMITIVE_OPS=1 是临时二分开关(定位 Step3 引入的 exit5)。
+            continue
         L.extend(emit_type_block(class_name, by_class[class_name], variant_ops))
         L.append("")
 

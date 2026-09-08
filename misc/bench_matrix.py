@@ -80,10 +80,23 @@ def check_deploy(log) -> dict:
 
 
 
-def run_bench(out_path: Path, use_gc: bool, log) -> dict:
+BENCH_GROUPS = ["Operators", "Constructors", "FixArity", "AABB", "Array", "Basis",
+                "Callable", "ClassDB", "Color", "Dictionary", "Engine", "Image", "Node",
+                "Node2D", "NodePath", "Plane", "ProjectSettings", "Projection",
+                "Quaternion", "RID", "Rect2", "Rect2i", "ResourceLoader", "Signal",
+                "Transform2D", "Transform3D", "Vector2", "Vector2i", "Vector3",
+                "Vector3i", "Vector4", "Vector4i"]
+
+
+def run_bench(out_path: Path, use_gc: bool, log, only: str = "") -> dict:
     # --bench is a USER argument (start.ts reads get_cmdline_user_args);
-    # everything goes after `--`.
+    # everything goes after `--`. `only` scopes the run to one benchmark
+    # group: a full-suite (all groups in one process) SEGVs on the static
+    # leg when groups execute consecutively (task 09-08 prd, todo 4), so
+    # collection runs group-by-group and merges the results.
     user_args = ["--bench"] + (["--gc"] if use_gc else [])
+    if only:
+        user_args.append(f"--only={only}")
     cmd = [GODOT, "--headless", "--path", "project", "--"] + user_args
     log(f"  run: {' '.join(cmd[1:])}")
     with open(out_path, "w", encoding="utf-8", newline="") as f:
@@ -196,7 +209,21 @@ def collect(args, log):
                 before = check_deploy(log)
                 log_path = out / f"{tag}_r{rnd}.log"
                 log(f"[{tag} r{rnd}]")
-                report = run_bench(log_path, use_gc, log)
+                # Group-by-group collection: a full-suite run SEGVs on the
+                # static leg when all groups execute in one process (task
+                # 09-08 prd todo 4). Each group runs in its own process and
+                # the per-group BENCH_JSON reports are merged into one.
+                report = {"invalid": 0, "results": []}
+                for g in BENCH_GROUPS:
+                    g_log = out / f"{tag}_r{rnd}_{g}.log"
+                    g_report = run_bench(g_log, use_gc, log, only=g)
+                    report["invalid"] += g_report.get("invalid", 0)
+                    report["results"].extend(g_report["results"])
+                # persist the merged report for --report to read
+                out.joinpath(f"{tag}_r{rnd}.json").write_text(
+                        json.dumps(report), encoding="utf-8")
+                log(f"  merged {len(report['results'])} cases from "
+                    f"{len(BENCH_GROUPS)} groups")
                 after = check_deploy(log)
                 if before[DLL_MAIN]["md5"] != after[DLL_MAIN]["md5"]:
                     raise SystemExit(f"FATAL: dll changed DURING run {tag} r{rnd} "
@@ -235,8 +262,12 @@ def summarize(matrix_dir, log):
         if tag not in by_tag:
             return vals
         for p in by_tag[tag]:
-            txt = Path(p).read_text(encoding="utf-8", errors="replace")
-            d = json.loads(BENCH_JSON_RE.search(txt).group(1))
+            merged = Path(p).with_suffix(".json")
+            if merged.exists():
+                d = json.loads(merged.read_text(encoding="utf-8"))
+            else:
+                txt = Path(p).read_text(encoding="utf-8", errors="replace")
+                d = json.loads(BENCH_JSON_RE.search(txt).group(1))
             for res in d["results"]:
                 vals.setdefault(res["name"], []).append(res["nsPerCall"])
         return {k: statistics.median(v) for k, v in vals.items()}
