@@ -1356,9 +1356,6 @@ def emit_ctor_dispatch(m):
                     continue
                 arg_exprs = [arg_template_expr(a) for a in args]
                 probe_checks = []
-                dbg_probe = type_name == "Array" and arity == 4
-                if dbg_probe:
-                    L.append(f"\t\tfprintf(stderr, \"PROBE-ARRAY4 enter, argc=%d\\n\", argc); fflush(stderr);")
                 for i, a in enumerate(args):
                     t = a["type"]
                     # probe conditions mirror probe_vt/thunks_common semantics
@@ -1395,7 +1392,10 @@ def emit_ctor_dispatch(m):
                                                 f"TypeConvert::is_variant(info[{i}].As<v8::Object>()) "
                                                 f"&& ((godot::Variant *)info[{i}].As<v8::Object>()->GetAlignedPointerFromInternalField(IF_Pointer))->get_type() == {vt_value_to_enum(vt_val)}")
                 cond = " && ".join(probe_checks) if probe_checks else "true"
-                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index)] + arg_exprs)
+                # third template arg is the constructed builtin's C++ type
+                # (TargetCppT), used by builtin_ctor_thunk to size/align the
+                # base buffer and lift the result into a Variant self-sufficiently.
+                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index), left_cpp] + arg_exprs)
                 L.append(f"\t\tif ({cond}) {{")
                 L.append(f"\t\t\treturn &thunks::builtin_ctor_thunk<{thunk_args}>;")
                 L.append(f"\t\t}}")

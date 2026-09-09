@@ -15,7 +15,8 @@ codegen 已收集 `constructors: 156`（vt + ctor_index + args），数据齐全
 3. **editor.gdextension 无 `windows.release.*` 键**，template_release 引擎加载它直接 exit 5（8 行日志即退，无场景加载）。release 采数前必须把它移出 addons 并同步 extension_list.cfg。
 4. ~~static 腿 + 全量 152 ctor case = 0xC0000005~~ **已定位并修复**：ctor 的 base 传入 `variant_new_nil` 初始化的 Variant 时，引擎 ctor 只写数据**不更新类型标签**（标签仍 NIL），产出"标签 NIL、数据为 struct"的损坏 Variant。修复 = base 改用栈缓冲（UninitializedTypePtr 语义），`arg_ptr_to_var` 重建完整 Variant（类型标签+数据）。
 5. ~~单体 OK 组合崩~~ **误判**（多轮二分期间 dll/case 文件串线）。隔离后真实分布：118/121 case OK；确定性失败 3 例——**根因 = registry 按引擎名比较而 get_class_builder 传入的是 JS 类名（NamingUtil 映射 Array→GArray、Dictionary→GDictionary）**，这两个类的 ctor adapter 未挂载 → new GArray(...) 落反射 fallback → fallback 无 4 参重载 → "no suitable constructor"。修复 = registry 发射双名比较（引擎名 + JS 名）。
-6. ~~正确路径 = variant_new_nil~~ 推翻。**正确路径 = base 用栈缓冲（MaxSizeEncodeArgType，UninitializedTypePtr 语义）→ ctor 写入 → `arg_ptr_to_var` 重建完整 Variant（类型标签+数据）→ `bind_valuetype`**。`get_opaque_typed<VTC>(NIL)` 返回无效指针、`Variant(VTC)` 不存在（隐式转 int64_t）——两条歧路均已踩过并排除。
+6. ~~正确路径 = variant_new_nil~~ 推翻。**正确路径 = base 用栈缓冲（UninitializedTypePtr 语义）→ ctor 写入 → 用 `Variant(const TargetCppT&)` 构造器重建完整 Variant（类型标签+数据）→ `bind_valuetype`**。`get_opaque_typed<VTC>(NIL)` 返回无效指针、`Variant(VTC)` 不存在（隐式转 int64_t）——两条歧路均已踩过并排除。
+7. **static binding 体系不依赖 api_tool**：其他 thunk（method/operator/utility）均用自足 `marshal_one`+`PtrToArg` slots。ctor 曾错误引入 api_tool（`var_to_arg_ptr`/`arg_ptr_to_var`/`MaxSizeEncodeArgType`），用户明确要求剥离——已改为：参数走 `marshal_one`+`PtrToArg::EncodeT` slots（数据经 `godot::PtrToArg<T>::encode`），base 用 `std::aligned_storage_t<sizeof(TargetCppT)>`（TargetCppT 由 codegen 注入第三模板参），重建走 `Variant(const TargetCppT&)`。
 
 
 ## Step1 决策（2026-09-07 用户指示，已实施）
@@ -26,7 +27,7 @@ bool/int/float/String/StringName 在 JS 中即 boolean/number/string 原生类�
 
 ## 当前实现状态
 
-- `builtin_ctor_thunk<VT, CtorIndex, Args...>`：逐参 `var_to_arg_ptr` 编码到 MaxSizeEncodeArgType 槽 → `ctor(栈缓冲 base, args)`（UninitializedTypePtr 语义）→ `arg_ptr_to_var` 重建完整 Variant（类型标签+数据）→ `bind_valuetype` 绑 This
+- `builtin_ctor_thunk<VT, CtorIndex, TargetCppT, Args...>`：逐参 `marshal_one`+`PtrToArg::EncodeT` slots（自足，无 api_tool）→ `ctor(aligned_storage<sizeof(TargetCppT)> 栈缓冲, args)`（UninitializedTypePtr 语义）→ `Variant(const TargetCppT&)` 重建完整 Variant（类型标签+数据）→ `bind_valuetype` 绑 This；TargetCppT 由 codegen 注入第三模板参
 - `find_ctor_<Type>(info)`：argc 分段 + probe 参数类型精确匹配（同 arity 异型重载必需）
 - `find_ctor_adapter(name)`：name → per-type 适配器（get_class_builder 注册期查表挂载）
 - `builtin_ctor_tables.gen.h` 声明 + `dispatch_builtin.gen.cpp` 定义（static_binding 体系内）
@@ -43,7 +44,7 @@ bool/int/float/String/StringName 在 JS 中即 boolean/number/string 原生类�
 4. ~~registry 双名比较（Array→GArray / Dictionary→GDictionary）~~ 完成（本次）
 5. ~~probe 修正：String 参用 IsString；StringName/NodePath 接受 JS string；Variant 参恒真~~ 完成
 6. ~~Transform2D makeTarget 6 参无匹配重载 → 改 idx2 (float, Vector2)~~ 完成
-7. 全量 121 ctor case 验证：0 errors 目标，待最终跑
+7. ~~全量 121 ctor case 验证：0 errors 目标，待最终跑~~ 完成：剥离 api_tool（自足实现）后 `--only=Constructors` exit=0、invalid=0、121 results 全过、0 errors（ctor_verify3.log）
 
 
 ## 当前状态（2026-09-08 最终）
