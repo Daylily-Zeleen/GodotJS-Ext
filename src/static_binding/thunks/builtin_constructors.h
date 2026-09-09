@@ -28,8 +28,6 @@
 #if JSB_WITH_STATIC_BINDINGS
 
 #	include "thunks_common.h"
-// api_tool::internal::arg_ptr_to_var / api_tool::internal::MaxSizeEncodeArgType live here
-#	include "api_tool/api_tool_types.h"
 // GDExtensionPtrConstructor + variant_get_ptr_constructor declaration
 #	include <gdextension_interface.h>
 #	include <godot_cpp/core/builtin_ptrcall.hpp>
@@ -43,17 +41,19 @@ namespace jsb::static_binding::thunks {
 //     (VTC, CtorIndex) via variant_get_ptr_constructor (magic-static).
 //   - the engine ABI is `void ctor(GDExtensionTypePtr base, const
 //     GDExtensionTypePtr *args)` -- the constructed value is written IN
-//     PLACE into base. We construct into a stack buffer, then copy the
-//     result into a fresh environment-owned Variant bound to `info.This()`
-//     (same sequence as the reflection fallback's bind_valuetype; V8 takes
-//     `info.This()` as the value of the `new` expression).
+//     PLACE into base. TargetCppT is the constructed builtin's C++ type
+//     (injected by the codegen), so base is aligned raw storage of exactly
+//     that size; the result is lifted into a full Variant through the
+//     godot-cpp Variant(target) constructor -- same self-sufficient pattern
+//     as builtin_method_thunk's marshal_one/PtrToArg args -- NOT api_tool.
+//     Static binding is decoupled from api_tool (no var_to_arg_ptr /
+//     arg_ptr_to_var / MaxSizeEncodeArgType).
 //   - strict arity: constructors have no default arguments in the api json,
 //     so info.Length() must equal sizeof...(ArgsT) exactly.
-template <godot::Variant::Type VTC, int CtorIndex, typename... ArgsT>
+template <godot::Variant::Type VTC, int CtorIndex, typename TargetCppT, typename... ArgsT>
 void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-	fprintf(stderr, "CTOR: enter VTC=%d N=%d argc=%d\n", (int)VTC, (int)sizeof...(ArgsT), info.Length()); fflush(stderr);
 
 	// engine constructor pointer, resolved once per (type, index) pair
 	static GDExtensionPtrConstructor ctor = [] {
@@ -75,32 +75,36 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 
-	// strict per-type conversion of every argument into a Variant (same
-	// conversion rules as the reflection fallback's can_convert_strict +
-	// js_to_gd_var pair)
-	godot::Variant arg_values[N > 0 ? N : 1];
-	api_tool::internal::MaxSizeEncodeArgType arg_enc[N > 0 ? N : 1];
-	GDExtensionConstTypePtr arg_ptrs[N > 0 ? N : 1] = {};
-	for (int i = 0; i < N; ++i) {
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], arg_values[i])) {
-			jsb_throw(isolate, jsb_errorf("bad argument: %d", i));
-			return;
-		}
-		api_tool::internal::var_to_arg_ptr(arg_values[i], arg_enc + i, arg_values[i].get_type());
-		arg_ptrs[i] = arg_enc + i;
+	// marshal every argument into a typed ptrcall slot (godot-cpp native
+	// mechanism, identical to builtin_method_thunk -- no api_tool encode).
+	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(slots), N)) && ...);
+	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return; // marshal_one already jsb_threw
 	}
 
+	void *arg_ptrs[N > 0 ? N : 1] = {};
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
+	}(std::make_index_sequence<N>{});
+
 	// engine constructor ABI: ctor(base, args). base is
-	// GDExtensionUninitializedTypePtr -- raw storage the ctor writes into.
-	// The constructed value is converted back into a full Variant (type tag
-	// + data) via arg_ptr_to_var -- constructing directly into a Variant
-	// object does NOT update its type tag, leaving a NIL-tagged Variant with
-	// struct data (SEGV on first use).
+	// GDExtensionUninitializedTypePtr -- raw storage of sizeof(TargetCppT),
+	// which the ctor writes in place. The constructed value is lifted into a
+	// full godot::Variant through Variant(const TargetCppT &) -- this sets
+	// the type tag AND copies the data (the prior failure mode was passing a
+	// `variant_new_nil` Variant as base: the ctor only wrote data and never
+	// updated the NIL tag, yielding a NIL-tagged Variant with struct data =
+	// SEGV on first use).
 	Environment *env = Environment::wrap(isolate);
-	api_tool::internal::MaxSizeEncodeArgType base_enc;
-	ctor(&base_enc, arg_ptrs);
+	std::aligned_storage_t<sizeof(TargetCppT), alignof(TargetCppT)> base_storage;
+	ctor(&base_storage, arg_ptrs);
+	godot::Variant constructed(*reinterpret_cast<const TargetCppT *>(&base_storage));
 	Variant *instance = env->alloc_variant();
-	api_tool::internal::arg_ptr_to_var(&base_enc, VTC, *instance);
+	*instance = std::move(constructed);
 	env->bind_valuetype(instance, info.This());
 }
 
