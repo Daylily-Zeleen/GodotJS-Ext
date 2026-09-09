@@ -252,7 +252,7 @@ struct VariantBindFallbacks {
 			// we only need to alloc a dummy instance here because the validated constructor will cast it to the expected type by itself
 			// BE CAUTIOUS: DON'T FORGET TO call `Environment::dealloc_variant(instance)` if `bind_valuetype` is not eventually called
 			Variant *instance = env->alloc_variant();
-			*instance = constructor_variant.constructor_info->validated_construct(argv, argc);
+			*instance = std::move(constructor_variant.constructor_info->validated_construct(argv, argc));
 
 			// don't forget to destruct all stack allocated variants
 			for (int index = 0; index < argc; ++index) {

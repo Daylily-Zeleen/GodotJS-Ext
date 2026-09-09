@@ -55,9 +55,9 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 
 	jsb_check(!p_class_name.is_empty());
 
-	String class_name = internal::NamingUtil::get_class_name(p_class_name);
-	const NativeClassID class_id = p_env->add_native_class(NativeClassType::GodotObject, class_name);
-	JSB_LOG(VeryVerbose, "expose godot type %s(%d) as %s", p_class_name, class_id, class_name);
+	const String exposed_class_name = internal::NamingUtil::get_class_name(p_class_name);
+	const NativeClassID class_id = p_env->add_native_class(NativeClassType::GodotObject, exposed_class_name);
+	JSB_LOG(VeryVerbose, "expose godot type %s(%d) as %s", p_class_name, class_id, exposed_class_name);
 
 	// construct type template
 	{
@@ -74,10 +74,10 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 #endif
 		// class: properties (getset)
 		for (const api_tool::ApiPropertyInfo &prop : api_class->properties) {
-			StringName prop_name = prop.property.name;
-			if (internal::StringNames::get_singleton().is_ignored(prop_name)) continue;
+			const StringName original_prop_name = prop.property.name;
+			if (internal::StringNames::get_singleton().is_ignored(original_prop_name)) continue;
 
-			const StringName &property_name = internal::NamingUtil::get_member_name(prop_name);
+			const StringName &exposed_property_name = internal::NamingUtil::get_member_name(original_prop_name);
 			const int prop_index = prop.index;
 			const StringName getter_name = prop.getter;
 			const StringName setter_name = prop.setter;
@@ -98,9 +98,9 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 			if (prop_index >= 0) {
 #if JSB_WITH_STATIC_BINDINGS
 				const jsb::static_binding::IndexedPropertyThunks sb_thunks =
-						jsb::static_binding::find_indexed_property_thunk(p_class_name, prop_name);
+						jsb::static_binding::find_indexed_property_thunk(p_class_name, original_prop_name);
 				if (sb_thunks.getter || sb_thunks.setter) {
-					class_builder.Instance().Property(property_name,
+					class_builder.Instance().Property(exposed_property_name,
 							sb_thunks.getter,
 							sb_thunks.setter,
 							(int32_t)0);
@@ -115,13 +115,13 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 				property_info2.index = prop_index;
 				p_env->get_variant_info_collection().object_properties.append(property_info2);
 
-				class_builder.Instance().Property(property_name,
+				class_builder.Instance().Property(exposed_property_name,
 						getter_method ? _godot_object_get2 : nullptr,
 						setter_method ? _godot_object_set2 : nullptr,
 						remap_index);
 			} else {
 				// TODO: 改用更简单的访问器回调取代 _godot_object_method
-				class_builder.Instance().Property(property_name,
+				class_builder.Instance().Property(exposed_property_name,
 						getter_method ? _godot_object_method : nullptr,
 						(void *)getter_method,
 						setter_method ? _godot_object_method : nullptr,
@@ -142,7 +142,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 #endif
 			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.method.name);
 #if JSB_WITH_STATIC_BINDINGS
-			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_name, method_info.hash)) {
+			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.method.name, method_info.hash)) {
 				if (method_info.method.flags & METHOD_FLAG_STATIC) {
 					static_builder.Method(method_name, sb_thunk);
 				} else {
