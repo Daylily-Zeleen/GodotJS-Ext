@@ -1,4 +1,4 @@
-import { Node, OS, PackedScene, ResourceLoader } from "godot";
+import { Node, OS, PackedScene, ResourceLoader, GArray } from "godot";
 import {
     getActiveAsyncTestCount,
     hasActiveAsyncTests,
@@ -20,6 +20,7 @@ export default class Start extends Node {
             // --bench is a USER argument (after `--`, read via
             // get_cmdline_user_args) so the engine itself never sees it.
             const benchOnly = OS.get_cmdline_user_args().has("--bench");
+            console.warn("START-DIAG benchOnly=" + String(benchOnly) + " args=" + JSON.stringify(OS.get_cmdline_user_args()) + " scenes=" + String(benchOnly ? 1 : 7));
             const scenes = benchOnly
                 ? ["res://tests/benchmark/Benchmark.tscn"]
                 : [
@@ -33,19 +34,26 @@ export default class Start extends Node {
                   ];
 
             for (const scene of scenes) {
+                console.warn("START-DIAG loop scene=" + scene + " fail=" + String(hasTestFailure()));
                 if (hasTestFailure()) {
                     break;
                 }
                 console.log("Loading scene", scene);
 
-                const loadedScene = ResourceLoader.load(scene);
+                const loadedScene = ResourceLoader.load(scene) as PackedScene;
                 if (!(loadedScene instanceof PackedScene)) {
                     throw new Error(`failed to load PackedScene: ${scene}`);
                 }
                 const sceneAsNode = loadedScene.instantiate();
 
                 this.get_tree().root?.call_deferred("add_child", sceneAsNode);
-                await new Promise((resolve) => setTimeout(resolve, SCENE_SETTLE_DELAY_MS));
+                await new Promise((resolve) => {
+                    if ("completeCallback" in sceneAsNode) {
+                        sceneAsNode.completeCallback = resolve;
+                    }else{
+                        setTimeout(resolve, SCENE_SETTLE_DELAY_MS);
+                    }
+                });
                 this.get_tree().root?.call_deferred("remove_child", sceneAsNode);
                 sceneAsNode.call_deferred("queue_free");
             }

@@ -45,6 +45,7 @@ declare module "godot-jsb" {
 
     const DEV_ENABLED: boolean;
     const TOOLS_ENABLED: boolean;
+    const STATIC_BINDING_ENABLED: boolean;
 
     /** version of GodotJS */
     const version: string;

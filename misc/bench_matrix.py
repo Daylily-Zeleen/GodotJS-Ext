@@ -80,32 +80,12 @@ def check_deploy(log) -> dict:
 
 
 
-# Group set is derived from the benchmark case files themselves, not a
-# hand-maintained list: every `group: "..."` key in cases.builtin.ts /
-# cases.object.ts is a collection group, so adding a benchmark case never
-# requires editing this script. (Order is irrelevant; collect() runs one
-# process per group and merges, the report re-orders.)
-_CASE_GROUP_RE = re.compile(r'\bgroup:\s*"([^"]+)"')
-def bench_groups() -> list:
-    names = set()
-    for rel in ("project/tests/benchmark/cases.builtin.ts",
-                "project/tests/benchmark/cases.object.ts"):
-        txt = Path(rel).read_text(encoding="utf-8")
-        names.update(_CASE_GROUP_RE.findall(txt))
-    if not names:
-        raise SystemExit("FATAL: no benchmark groups parsed from cases.builtin.ts/cases.object.ts")
-    return sorted(names)
-
-
-def run_bench(out_path: Path, use_gc: bool, log, only: str = "") -> dict:
+def run_bench(out_path: Path, use_gc: bool, log) -> dict:
     # --bench is a USER argument (start.ts reads get_cmdline_user_args);
-    # everything goes after `--`. `only` scopes the run to one benchmark
-    # group: a full-suite (all groups in one process) SEGVs on the static
-    # leg when groups execute consecutively (task 09-08 prd, todo 4), so
-    # collection runs group-by-group and merges the results.
+    # everything goes after `--`. One engine process runs the FULL suite
+    # (every BUILTIN_CASES / OBJECT_CASES group in the same run); no
+    # --only splitting.
     user_args = ["--bench"] + (["--gc"] if use_gc else [])
-    if only:
-        user_args.append(f"--only={only}")
     cmd = [GODOT, "--headless", "--path", "project", "--"] + user_args
     log(f"  run: {' '.join(cmd[1:])}")
     with open(out_path, "w", encoding="utf-8", newline="") as f:
@@ -138,21 +118,20 @@ def run_bench(out_path: Path, use_gc: bool, log, only: str = "") -> dict:
     return report
 
 
-def assert_leg(log_path: Path, expect_static: bool) -> None:
-    """Leg identity from the log itself: static binding falls back to dynamic
-    for 5 class methods not in the generated table (OS.get_preferred_locales,
-    ResourceLoader.get_resource_type, ...); the dynamic leg has no static
-    table to consult and never prints this warning."""
-    txt = log_path.read_text(encoding="utf-8", errors="replace")
-    n = len(re.findall(r"static binding not found", txt))
-    hint = ("\nSwitch legs with: scons target=template_release ... [static_binding=no] -j6, "
-            "copy both DLLs into addons/, then re-run.")
-    if expect_static and n < 1:
-        raise SystemExit(f"FATAL: {log_path.name} claims static but shows no "
-                         f"'static binding not found' fallback -- DLL is NOT the static leg.{hint}")
-    if not expect_static and n != 0:
-        raise SystemExit(f"FATAL: {log_path.name} claims dynamic but shows {n} "
-                         f"'static binding not found' fallbacks -- DLL is NOT the dynamic leg.{hint}")
+def assert_leg(report: dict, expect_static: bool) -> None:
+    """Leg identity from the BENCH_JSON itself: benchmark.ts reports
+    staticBinding = Vector2.OP_IN !== undefined (the static operator table
+    exposes OP_* methods; the dynamic path does not). This is authoritative --
+    the old fallback-warning count ('static binding not found') is not: the
+    static table now covers every benchmarked method, so a static leg logs
+    zero fallbacks and the count-based check mislabels it."""
+    got = bool(report.get("staticBinding"))
+    if expect_static and not got:
+        raise SystemExit(f"FATAL: BENCH_JSON staticBinding={got}, expected static leg -- "
+                         f"DLL is NOT the static leg (or the OP_* probe failed).")
+    if not expect_static and got:
+        raise SystemExit(f"FATAL: BENCH_JSON staticBinding={got}, expected dynamic leg -- "
+                         f"DLL is NOT the dynamic leg.")
 
 
 def build_and_deploy(leg: str, log) -> None:
@@ -218,27 +197,14 @@ def collect(args, log):
                 before = check_deploy(log)
                 log_path = out / f"{tag}_r{rnd}.log"
                 log(f"[{tag} r{rnd}]")
-                # Group-by-group collection: a full-suite run SEGVs on the
-                # static leg when all groups execute in one process (task
-                # 09-08 prd todo 4). Each group runs in its own process and
-                # the per-group BENCH_JSON reports are merged into one.
-                report = {"invalid": 0, "results": []}
-                for g in bench_groups():
-                    g_log = out / f"{tag}_r{rnd}_{g}.log"
-                    g_report = run_bench(g_log, use_gc, log, only=g)
-                    report["invalid"] += g_report.get("invalid", 0)
-                    report["results"].extend(g_report["results"])
-                # persist the merged report for --report to read
-                out.joinpath(f"{tag}_r{rnd}.json").write_text(
-                        json.dumps(report), encoding="utf-8")
-                log(f"  merged {len(report['results'])} cases from "
-                    f"{len(bench_groups())} groups")
+                report = run_bench(log_path, use_gc, log)
+                log(f"  merged {len(report['results'])} cases")
                 after = check_deploy(log)
                 if before[DLL_MAIN]["md5"] != after[DLL_MAIN]["md5"]:
                     raise SystemExit(f"FATAL: dll changed DURING run {tag} r{rnd} "
                                      f"({before[DLL_MAIN]['md5'][:8]} -> {after[DLL_MAIN]['md5'][:8]}) -- "
                                      f"rebuild finished mid-run; matrix aborted, discard this batch")
-                assert_leg(log_path, expect_static=(leg == "static"))
+                assert_leg(report, expect_static=(leg == "static"))
                 manifest["runs"].append({
                     "leg": leg, "gc": use_gc, "round": rnd,
                     "log": str(log_path), "dll_md5": after[DLL_MAIN]["md5"][:8],
