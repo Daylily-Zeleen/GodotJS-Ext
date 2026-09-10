@@ -59,3 +59,18 @@ bool/int/float/String/StringName 在 JS 中即 boolean/number/string 原生类�
 
 **低优先级子任务**：09-08-lowprio-static-improvements（父任务）下挂
 09-08-static-factory-primitive-ctors 与 09-08-member-form-operators 两个 P3 任务。
+
+
+## 重构收尾（2026-09，commit 22aebfe）
+
+在用户多轮审查驱动下完成，全部验证通过并推送：
+
+- `find_ctor_adapter`：switch → `static const ThunkFn[VARIANT_MAX]` 按 `Variant::Type` 下标查询（对齐 `find_builtin_thunk`）。
+- `find_ctor_<Type>`：`argc==0` 分支提到 `jsb_stackalloc`/probe 之前（零参零开销）；全参一次 probe 入栈数组、单一 `probe_vt<>` 偏向，由 `CTOR_PROBE_PREFER` 表驱动（用户已手调：Vector2/Vector2i/Vector3/Vector3i 走 primitive）。
+- `thunks::internal::throw_no_suitable_ctor(Variant::Type, info)`：报参数个数 + 每个参数实际探测到的 godot 类型（`jsb::internal::format` 直传，无 `.utf8().get_data()`）。
+- `find_op_*EQUAL/NOT_EQUAL`：`case NIL` 相邻标签 fall-through 具体 case（共用 operator_thunk 体，短路在 dispatch 命中，不再落动态兜底）。
+- `probe_vt` 上移 `thunks_common.h` + bool 偏向模板（`probe_prefer_object_types` / `probe_prefer_primitive_types`）；运算符左侧 object 偏向、右侧 primitive 偏向。
+- **StringName 静态绑定全删**（builtin 方法/成员/运算符），与 String 一致（JS string 别名）；两生成器 skip 同步、清 `JSB_KEEP_PRIMITIVE_OPS` 死开关。
+- 卫生：全部 `jsb_errorf` 去 `.utf8().get_data()`；`jsb_checkf` 直传 StringName；缩进/include 顺序统一。
+
+**验证**：`scons` 0 error / 0 C4715；`--bench --only=Constructors`=121、`Operators`=23、`Vector2`=3 全 exit=0、invalid=0。
