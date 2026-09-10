@@ -1392,10 +1392,7 @@ def emit_ctor_dispatch(m):
                                                 f"TypeConvert::is_variant(info[{i}].As<v8::Object>()) "
                                                 f"&& ((godot::Variant *)info[{i}].As<v8::Object>()->GetAlignedPointerFromInternalField(IF_Pointer))->get_type() == {vt_value_to_enum(vt_val)}")
                 cond = " && ".join(probe_checks) if probe_checks else "true"
-                # third template arg is the constructed builtin's C++ type
-                # (TargetCppT), used by builtin_ctor_thunk to size/align the
-                # base buffer and lift the result into a Variant self-sufficiently.
-                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index), left_cpp] + arg_exprs)
+                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index)] + arg_exprs)
                 L.append(f"\t\tif ({cond}) {{")
                 L.append(f"\t\t\treturn &thunks::builtin_ctor_thunk<{thunk_args}>;")
                 L.append(f"\t\t}}")
@@ -1404,17 +1401,21 @@ def emit_ctor_dispatch(m):
         L.append("}")
         L.append("")
 
-    # registry entry: maps the exposed class name to its per-type dispatch,
-    # so get_class_builder can resolve the ctor entry with one comparison
-    L.append("ThunkFn find_ctor_adapter(const godot::StringName &p_class_name) {")
+    # registry entry: dispatch purely on the godot Variant::Type enum --
+    # the caller (VariantBind<TypeName>::get_class_builder) has TYPE as a
+    # compile-time constant (VariantBind::TYPE), so a single enum switch
+    # resolves the adapter with no StringName comparison and no JS-name
+    # aliases (Array/GArray, Dictionary/GDictionary all collapse to their
+    # godot enum since JS names are never used for builtin class
+    # registration -- NamingUtil renames only show up later in member/method
+    # strings, never in the ctor adapter key).
+    L.append("ThunkFn find_ctor_adapter(const godot::Variant::Type p_vt) {")
+    L.append("\tswitch (p_vt) {")
     for vt, ctors in sorted(groups.items()):
         type_name = m.vt_names[vt]
-        L.append(f"\tif (p_class_name == godot::StringName({cxx_str(type_name)})) return {f'ctor_adapter_{type_name}'};")
-        if type_name == "Array":
-            L.append(f"\tif (p_class_name == godot::StringName({cxx_str('GArray')})) return {f'ctor_adapter_{type_name}'};")
-        if type_name == "Dictionary":
-            L.append(f"\tif (p_class_name == godot::StringName({cxx_str('GDictionary')})) return {f'ctor_adapter_{type_name}'};")
-    L.append("\treturn nullptr;")
+        L.append(f"\tcase {vt_value_to_enum(vt)}: return {f'ctor_adapter_{type_name}'};")
+    L.append("\tdefault: return nullptr;")
+    L.append("\t}")
     L.append("}")
     L.append("")
 
@@ -1426,7 +1427,7 @@ def emit_ctor_dispatch(m):
           "// NO namespace wrapper here.",
           ""]
     Ht += H
-    Ht.append("ThunkFn find_ctor_adapter(const godot::StringName &p_class_name);")
+    Ht.append("ThunkFn find_ctor_adapter(const godot::Variant::Type p_vt);")
     Ht.append("")
     return "\n".join(L), "\n".join(Ht)
 

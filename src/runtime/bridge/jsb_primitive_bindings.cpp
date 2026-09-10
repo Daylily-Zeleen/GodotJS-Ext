@@ -583,12 +583,11 @@ public:
 		// static-first: the generated per-type constructor dispatch probes
 		// argc/arg types at runtime and calls the matching builtin_ctor_thunk,
 		// which constructs in place through the engine's
-		// variant_get_ptr_constructor. All builtin types with constructors in
-		// the api json are covered -- no hand-written per-type list here.
-		fprintf(stderr, "CTOR-REGISTRY name=%s adapter=%p\n",
-				godot::String(p_class_name).utf8().get_data(),
-				(void*)jsb::static_binding::find_ctor_adapter(p_class_name));
-		if (const jsb::static_binding::ThunkFn ctor_adapter = jsb::static_binding::find_ctor_adapter(p_class_name)) {
+		// variant_get_ptr_constructor. The dispatch key is the compile-time
+		// Variant::Type enum (VariantBind::TYPE) -- no StringName lookup, no
+		// JS-name aliases (Array/GArray, Dictionary/GDictionary) -- goods
+		// builtins are addressed by their godot enum throughout.
+		if (const jsb::static_binding::ThunkFn ctor_adapter = jsb::static_binding::find_ctor_adapter(TYPE)) {
 			return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, p_class_name, ctor_adapter, *(p_class_id));
 		}
 #endif
