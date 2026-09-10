@@ -80,12 +80,21 @@ def check_deploy(log) -> dict:
 
 
 
-BENCH_GROUPS = ["Operators", "Constructors", "FixArity", "AABB", "Array", "Basis",
-                "Callable", "ClassDB", "Color", "Dictionary", "Engine", "Image", "Node",
-                "Node2D", "NodePath", "Plane", "ProjectSettings", "Projection",
-                "Quaternion", "RID", "Rect2", "Rect2i", "ResourceLoader", "Signal",
-                "Transform2D", "Transform3D", "Vector2", "Vector2i", "Vector3",
-                "Vector3i", "Vector4", "Vector4i"]
+# Group set is derived from the benchmark case files themselves, not a
+# hand-maintained list: every `group: "..."` key in cases.builtin.ts /
+# cases.object.ts is a collection group, so adding a benchmark case never
+# requires editing this script. (Order is irrelevant; collect() runs one
+# process per group and merges, the report re-orders.)
+_CASE_GROUP_RE = re.compile(r'\bgroup:\s*"([^"]+)"')
+def bench_groups() -> list:
+    names = set()
+    for rel in ("project/tests/benchmark/cases.builtin.ts",
+                "project/tests/benchmark/cases.object.ts"):
+        txt = Path(rel).read_text(encoding="utf-8")
+        names.update(_CASE_GROUP_RE.findall(txt))
+    if not names:
+        raise SystemExit("FATAL: no benchmark groups parsed from cases.builtin.ts/cases.object.ts")
+    return sorted(names)
 
 
 def run_bench(out_path: Path, use_gc: bool, log, only: str = "") -> dict:
@@ -214,7 +223,7 @@ def collect(args, log):
                 # 09-08 prd todo 4). Each group runs in its own process and
                 # the per-group BENCH_JSON reports are merged into one.
                 report = {"invalid": 0, "results": []}
-                for g in BENCH_GROUPS:
+                for g in bench_groups():
                     g_log = out / f"{tag}_r{rnd}_{g}.log"
                     g_report = run_bench(g_log, use_gc, log, only=g)
                     report["invalid"] += g_report.get("invalid", 0)
@@ -223,7 +232,7 @@ def collect(args, log):
                 out.joinpath(f"{tag}_r{rnd}.json").write_text(
                         json.dumps(report), encoding="utf-8")
                 log(f"  merged {len(report['results'])} cases from "
-                    f"{len(BENCH_GROUPS)} groups")
+                    f"{len(bench_groups())} groups")
                 after = check_deploy(log)
                 if before[DLL_MAIN]["md5"] != after[DLL_MAIN]["md5"]:
                     raise SystemExit(f"FATAL: dll changed DURING run {tag} r{rnd} "

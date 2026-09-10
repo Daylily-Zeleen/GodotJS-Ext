@@ -41,19 +41,21 @@ namespace jsb::static_binding::thunks {
 //     (VTC, CtorIndex) via variant_get_ptr_constructor (magic-static).
 //   - the engine ABI is `void ctor(GDExtensionTypePtr base, const
 //     GDExtensionTypePtr *args)` -- the constructed value is written IN
-//     PLACE into base. TargetCppT is the constructed builtin's C++ type
-//     (injected by the codegen), so base is aligned raw storage of exactly
-//     that size; the result is lifted into a full Variant through the
-//     godot-cpp Variant(target) constructor -- same self-sufficient pattern
-//     as builtin_method_thunk's marshal_one/PtrToArg args -- NOT api_tool.
-//     Static binding is decoupled from api_tool (no var_to_arg_ptr /
+//     PLACE into base. The constructed builtin's C++ type is derived from
+//     VTC via VariantNativeType_t<VTC> (see thunks_common.h), so base is
+//     aligned raw storage of exactly that size; the result is lifted into a
+//     full Variant through the godot-cpp Variant(target) constructor --
+//     same self-sufficient pattern as builtin_method_thunk's
+//     marshal_one/PtrToArg args -- NOT api_tool (no var_to_arg_ptr /
 //     arg_ptr_to_var / MaxSizeEncodeArgType).
 //   - strict arity: constructors have no default arguments in the api json,
 //     so info.Length() must equal sizeof...(ArgsT) exactly.
-template <godot::Variant::Type VTC, int CtorIndex, typename TargetCppT, typename... ArgsT>
+template <godot::Variant::Type VTC, int CtorIndex, typename... ArgsT>
 void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using TargetCppT = VariantNativeType_t<VTC>;
 	v8::Isolate *isolate = info.GetIsolate();
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	// TargetCppT (above) resolves the constructed builtin's C++ type from VTC.
 
 	// engine constructor pointer, resolved once per (type, index) pair
 	static GDExtensionPtrConstructor ctor = [] {
