@@ -11,7 +11,7 @@
  * Operator cases call the JS-side static methods `OP_XXX` (naming unified
  * with the editor typings; see JSB_OPERATOR_NAME in src/internal/jsb_macros.h).
  */
-import { BuiltinCase } from "./bench";
+import { CaseGroup } from "./benchmark";
 import {
     Vector2,
     Vector2i,
@@ -45,9 +45,10 @@ import {
     PackedVector3Array,
     PackedVector4Array,
     PackedColorArray,
+    Variant,
 } from "godot";
 
-export const BUILTIN_CASES: BuiltinCase[] = [
+export const BUILTIN_CASES: CaseGroup[] = [
     // ---- Vector2 ----
     {
         group: "Vector2",
@@ -619,7 +620,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         cases: [
             { name: "new Dictionary(0 args)", fn: () => new GDictionary() },
             { name: "new Dictionary(Dictionary)", fn: () => new GDictionary(new GDictionary()) },
-            { name: "new Dictionary(Dictionary,int,StringName,Variant,int,StringName,Variant)", fn: () => new GDictionary(new GDictionary(), 1, "abc", null, 1, "abc", null) },
+            { name: "new Dictionary(Dictionary,int,StringName,Variant,int,StringName,Variant)", fn: () => new GDictionary(new GDictionary(), Variant.Type.TYPE_INT, "", null, Variant.Type.TYPE_STRING, "", null) },
         ],
     },
     // ---- Constructors/Array ----
@@ -629,7 +630,7 @@ export const BUILTIN_CASES: BuiltinCase[] = [
         cases: [
             { name: "new Array(0 args)", fn: () => new GArray() },
             { name: "new Array(Array)", fn: () => new GArray(new GArray()) },
-            { name: "new Array(Array,int,StringName,Variant)", fn: () => new GArray(new GArray(), 1, "abc", null) },
+            { name: "new Array(Array,int,StringName,Variant)", fn: () => new GArray(new GArray(), Variant.Type.TYPE_STRING, "", null) },
         ],
     },
     // ---- Constructors/PackedByteArray ----

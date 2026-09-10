@@ -477,13 +477,12 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		return true;
 	}
 	if (p_jval->IsString()) {
-		// NOTE: do NOT route through the StringName cache here. Its per-hit
-		// `TStrongRef` construction (a live v8::Global allocation) both leaks
-		// an orphan StringName reference per call on vararg paths like
-		// `Object.call("method_name", ...)` and is measurably slower than a
-		// plain string conversion. The engine-side StringName table is a
-		// global hash map anyway, so the cache saves almost nothing.
-		r_cvar = impl::Helper::to_string(isolate, p_jval);
+		// directly return from cached StringName only if it exists
+		StringName sn;
+		if (Environment::wrap(isolate)->get_string_name_cache().try_get_string_name(isolate, p_jval, sn)) {
+			r_cvar = sn;
+			return true;
+		}
 		return true;
 	}
 	// is it proper to convert a ArrayBuffer into Vector<uint8_t>?
@@ -566,6 +565,11 @@ bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::C
 		case Variant::STRING_NAME: {
 			return p_val->IsString();
 		}
+		case Variant::NIL:
+			// "Variant" slot: accepts ANY JS value (mirrors js_to_gd_var's
+			// NIL handling -- a bare JS null/undefined/primitive/object all
+			// fit a godot Variant parameter).
+			return true;
 		case Variant::NODE_PATH:
 			if (p_val->IsString()) {
 				return true;

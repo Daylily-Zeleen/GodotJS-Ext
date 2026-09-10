@@ -18,11 +18,12 @@
  * get_cmdline_user_args): --bench selects the benchmark scene in start.ts,
  * --gc requests a full GC before each case, --only filters groups.
  */
-import { Engine, Node, OS, Time, Vector2 } from "godot";
+import { SceneTree, Engine, Node, OS, Time, Vector2 } from "godot";
 import { BUILTIN_CASES } from "./cases.builtin";
 import { OBJECT_CASES } from "./cases.object";
+import { STATIC_BINDING_ENABLED } from "godot-jsb";
 
-export interface BuiltinCase {
+export interface CaseGroup {
     group: string;
     makeTarget: () => any;
     cases: { name: string; fn: (t: any) => any }[];
@@ -65,7 +66,7 @@ const _args_user = OS.get_cmdline_user_args();
 const GC_REQUESTED = _args_user.has("--gc");
 
 const WARMUP_CALLS = 100;
-const ROUNDS = 5;
+const ROUNDS = 11;
 const TARGET_MS_PER_ROUND = 30;
 const MAX_ITERATIONS = 1 << 22;
 
@@ -77,7 +78,7 @@ function median(samples: number[]): number {
 
 function calibrate(fn: () => any): number {
     let iterations = 64;
-    for (;;) {
+    for (; ;) {
         const t0 = nowMs();
         for (let i = 0; i < iterations; i++) fn();
         const elapsed = nowMs() - t0;
@@ -89,7 +90,7 @@ function calibrate(fn: () => any): number {
     }
 }
 
-function benchOne(fn: () => any): BenchOutcome {
+async function benchOne(fn: () => any): Promise<BenchOutcome> {
     // probe: a throwing case is invalid for this binding configuration
     let sample = "invalid";
     try {
@@ -113,13 +114,17 @@ function benchOne(fn: () => any): BenchOutcome {
             checksum += v === undefined || v === null ? 0 : 1;
         }
         samples.push(((nowMs() - t0) * 1e6) / iterations);
+
+        await (Engine.get_main_loop() as SceneTree).process_frame.as_promise(); // process frame to flush GC
     }
     return { nsPerCall: Math.round(median(samples) * 10) / 10, iterations, checksum, sample };
 }
 
 export default class Benchmark extends Node {
+    public completeCallback: (() => any) | null = null;
+
     async _ready() {
-        const staticBinding = (Vector2 as any).IN !== undefined;
+        const staticBinding = STATIC_BINDING_ENABLED;
         const results: CaseResult[] = [];
         let checksum = 0;
 
@@ -142,7 +147,7 @@ export default class Benchmark extends Node {
             for (let i = 0; i < 5000; i++) a.length();
         }
 
-        const runGroup = (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any }[]) => {
+        const runGroup = async (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any }[]) => {
             let target: any;
             try {
                 target = makeTarget();
@@ -159,7 +164,7 @@ export default class Benchmark extends Node {
             }
             for (const c of cases) {
                 gcBeforeCase();
-                const r = benchOne(() => c.fn(target));
+                const r = await benchOne(() => c.fn(target));
                 checksum += r.checksum;
                 if (r.error) {
                     results.push({
@@ -177,6 +182,7 @@ export default class Benchmark extends Node {
                         sample: r.sample,
                     });
                 }
+                await this.get_tree().process_frame.as_promise();
             }
         };
 
@@ -207,5 +213,7 @@ export default class Benchmark extends Node {
         console.warn("BENCH_JSON " + JSON.stringify(report));
         // no self-quit: under `-- --bench` the start flow completes right
         // after this scene and exits through the regular (race-free) path.
+
+        if (this.completeCallback) this.completeCallback();
     }
 }

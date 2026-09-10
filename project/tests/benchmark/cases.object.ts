@@ -18,9 +18,9 @@ import {
     ResourceLoader,
     Vector2,
 } from "godot";
-import { BuiltinCase } from "./benchmark";
+import { CaseGroup } from "./benchmark";
 
-export const OBJECT_CASES: BuiltinCase[] = [
+export const OBJECT_CASES: CaseGroup[] = [
     {
         group: "Node",
         makeTarget: () => {
