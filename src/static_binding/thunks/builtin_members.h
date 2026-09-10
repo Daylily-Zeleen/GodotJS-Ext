@@ -73,7 +73,7 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	const GDExtensionPtrGetter getter = resolve_member_getter<VTC, NameLit>();
 	if (!getter) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member getter %s::%s",
-				godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
+				godot::Variant::get_type_name(VTC), NameLit.value));
 		jsb_throw(isolate, "missing member getter");
 		return;
 	}
@@ -107,7 +107,7 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	const GDExtensionPtrSetter setter = resolve_member_setter<VTC, NameLit>();
 	if (!setter) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member setter %s::%s",
-				godot::Variant::get_type_name(VTC).utf8().get_data(), NameLit.value));
+				godot::Variant::get_type_name(VTC), NameLit.value));
 		jsb_throw(isolate, "missing member setter");
 		return;
 	}

@@ -47,11 +47,12 @@ namespace jsb::static_binding {
 
 using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 
-// Generated per-(left, operator) pair-table and per-type constructor
-// dispatch declarations carry their own jsb::static_binding namespace;
-// ThunkFn above must precede them.
+// Generated per-(left, operator) pair-table declarations carry their own
+// jsb::static_binding namespace; ThunkFn above must precede them. Per-type
+// constructor resolvers (find_ctor_<Type>) are internal to
+// dispatch_builtin.gen.cpp -- the only external ctor entry is
+// find_ctor_adapter, declared below alongside the find_builtin_* resolvers.
 #include "gen/builtin_operator_tables.gen.h"
-#include "gen/builtin_ctor_tables.gen.h"
 
 // A single indexed property lookup yields BOTH accessor thunks: the getter
 // and setter of one property always share the same (class, property) entry,
@@ -71,6 +72,13 @@ const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringN
 // entries -- one accessor binds both.
 const ThunkFn find_builtin_member_getter_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name);
 const ThunkFn find_builtin_member_setter_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name);
+
+// Builtin constructors: p_vt keyed enum dispatch (caller VariantBind::TYPE is
+// a compile-time constant). Returns a find_ctor_<Type> resolver -- the `new`-
+// callback that probes argc/argument types, invokes the matching
+// builtin_ctor_thunk, or throws with the concrete class name. No separate
+// ctor-tables header; the resolver definitions live in dispatch_builtin.gen.cpp.
+const ThunkFn find_ctor_adapter(godot::Variant::Type p_vt);
 
 // Same for utility functions.
 const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash);

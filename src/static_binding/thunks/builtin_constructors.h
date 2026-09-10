@@ -35,6 +35,31 @@
 
 namespace jsb::static_binding::thunks {
 
+namespace internal {
+
+// Report a constructor overload-selection failure with the concrete caller
+// state: the target godot type, the received argument count, and EVERY
+// argument's probed godot type. Generated find_ctor_<Type> resolvers call
+// this after every arity/probe branch misses -- the #actual types are what a
+// user needs to see "what I passed didn't match any overload". jsb_errorf /
+// jsb::internal::format take Variant-convertible values directly, so no
+// .utf8().get_data() is needed here.
+_FORCE_INLINE_ void throw_no_suitable_ctor(
+		godot::Variant::Type p_target, const v8::FunctionCallbackInfo<v8::Value> &info) {
+	godot::String detail;
+	for (int i = 0; i < info.Length(); ++i) {
+		const Variant::Type vt = probe_vt(info[i]);
+		if (!detail.is_empty()) detail += ", ";
+		detail += vt == Variant::VARIANT_MAX
+				? godot::String("(unknown)")
+				: static_cast<godot::String>(godot::Variant::get_type_name(vt));
+	}
+	jsb_throw(info.GetIsolate(), jsb_errorf("no suitable constructor for %s (received %d arg(s): %s)",
+			godot::Variant::get_type_name(p_target), info.Length(), detail));
+}
+
+} // namespace internal
+
 // Per-overload constructor thunk, the ctor counterpart of
 // builtin_method_thunk. Key differences from the method flavor:
 //   - no method bind: the engine constructor pointer is resolved by
@@ -64,16 +89,16 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}();
 	if (!ctor) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin constructor %s (index %d)",
-				godot::Variant::get_type_name(VTC).utf8().get_data(), CtorIndex));
+				godot::Variant::get_type_name(VTC), CtorIndex));
 		jsb_throw(isolate, jsb_errorf("missing builtin constructor: %s (index %d)",
-				godot::Variant::get_type_name(VTC).utf8().get_data(), CtorIndex));
+				godot::Variant::get_type_name(VTC), CtorIndex));
 		return;
 	}
 
 	constexpr int N = (int)sizeof...(ArgsT);
 	if (info.Length() != N) {
 		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s constructor expects %d, got %d",
-				godot::Variant::get_type_name(VTC).utf8().get_data(), N, (int)info.Length()));
+				godot::Variant::get_type_name(VTC), N, (int)info.Length()));
 		return;
 	}
 

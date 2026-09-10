@@ -84,7 +84,7 @@ void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		info.GetReturnValue().Set(jrval);
 		return;
 	}
-	jsb_throw(isolate, jsb_errorf("Failed to get property: %s::%s. Failed to translate returned Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(ret.get_type()).utf8().get_data()));
+	jsb_throw(isolate, jsb_errorf("Failed to get property: %s::%s. Failed to translate returned Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(ret.get_type())));
 }
 
 template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC, godot::Variant::Type ArgVT>
@@ -116,7 +116,7 @@ void indexed_property_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	godot::Variant value;
 	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], arg_vt, value)) {
-		jsb_throw(isolate, jsb_errorf("Failed to set property: %s::%s. Unable to convert provided JS value to Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(arg_vt).utf8().get_data()));
+		jsb_throw(isolate, jsb_errorf("Failed to set property: %s::%s. Unable to convert provided JS value to Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(arg_vt)));
 		return;
 	}
 

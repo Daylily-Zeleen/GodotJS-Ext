@@ -343,7 +343,7 @@ void TypeDB::load_primitive_types() {
 
 PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode) {
 	const api_tool::ApiBuiltinClass *builtin_class = api_tool::find_builtin_class(p_type_name);
-	jsb_checkf(builtin_class, "builtin class not found: %s", String(p_type_name).utf8().get_data());
+	jsb_checkf(builtin_class, "builtin class not found: %s", p_type_name);
 
 	PrimitiveClassDecl *decl = memnew(PrimitiveClassDecl);
 	owned_primitives_.push_back(decl);

@@ -49,7 +49,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	if ((int)info.Length() != N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d", godot::String(NameLit.value).utf8().get_data(), N, (int)info.Length()));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d", NameLit.value, N, (int)info.Length()));
 		return;
 	}
 
@@ -92,7 +92,7 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	const int provided = (int)info.Length();
 	if (provided < F) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d", godot::String(NameLit.value).utf8().get_data(), F, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d", NameLit.value, F, provided));
 		return;
 	}
 
