@@ -285,6 +285,50 @@ template <godot::Variant::Type VT>
 using VariantNativeType_t = typename VariantNativeType<VT>::type;
 
 // ---------------------------------------------------------------------------
+// Probe the runtime Variant type of a JS argument/value. Shared by every
+// thunk shape (operator dispatch, builtin ctor overload selection, error
+// reporting): a JS value maps to a godot Variant type via the engine's
+// INT/FLOAT split (IsInt32 and IsNumber are mutually exclusive), JS-native
+// scalars (int/float/bool/String), null/undefined -> NIL, and a godot wrapper
+// Object exposed through the internal-field pointer. VARIANT_MAX means "not a
+// godot type" (no thunk can match). The `L` template param is legacy and
+// unused -- callers pass probe_vt<godot::Variant>(val).
+constexpr bool probe_prefer_primitive_types = true;
+constexpr bool probe_prefer_object_types = false;
+
+template <bool probe_prefer = probe_prefer_primitive_types>
+Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
+	if constexpr (probe_prefer == probe_prefer_object_types) {
+		if (val->IsObject()) {
+			const v8::Local<v8::Object> obj = val.As<v8::Object>();
+			if (obj->InternalFieldCount() == IF_VariantFieldCount) {
+				return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
+			}
+			if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
+		}
+		if (val->IsNullOrUndefined()) return Variant::NIL;
+	}
+
+	if (val->IsInt32()) return Variant::INT;
+	if (val->IsNumber()) return Variant::FLOAT;
+	if (val->IsBoolean()) return Variant::BOOL;
+	if (val->IsString()) return Variant::STRING;
+
+	if constexpr (probe_prefer == probe_prefer_primitive_types) {
+		if (val->IsNullOrUndefined()) return Variant::NIL;
+		if (val->IsObject()) {
+			const v8::Local<v8::Object> obj = val.As<v8::Object>();
+			if (obj->InternalFieldCount() == IF_VariantFieldCount) {
+				return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
+			}
+			if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
+		}
+	}
+
+	return Variant::VARIANT_MAX;
+}
+
+// ---------------------------------------------------------------------------
 // ptrcall ENCODE type (what the engine actually reads/writes through
 // GDExtensionPtrBuiltInMethod / PtrToArg<T>::EncodeT).
 //
@@ -402,13 +446,10 @@ using ReturnEncodeType = VariantEncodeType<typename RetT::cpp_type>;
 // default-fill, or error). This is the single conversion entry point shared
 // by every thunk shape.
 template <class ArgT>
-inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		typename ArgT::gd_type &out, int provided) {
+inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename ArgT::gd_type &out, int provided) {
 	if (i < provided) {
 		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
-			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i,
-					TypeConvert::js_debug_typeof(p_isolate, info[i]).utf8().get_data()));
+			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i, TypeConvert::js_debug_typeof(p_isolate, info[i])));
 			return false;
 		}
 		return true;
@@ -428,9 +469,7 @@ inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &
 // is that the slot itself is a plain RAII Variant and needs no hand-rolled
 // destruction on failure paths.
 template <class ArgT>
-inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		godot::Variant &out, int provided) {
+inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, godot::Variant &out, int provided) {
 	typename ArgT::gd_type value{};
 	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
@@ -442,9 +481,7 @@ inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context>
 // ptrcall flavor: produce the value and encode it into a raw argument slot
 // through godot-cpp's ptrcall contract.
 template <class ArgT>
-inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		const v8::FunctionCallbackInfo<v8::Value> &info, int i,
-		typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
+inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
 	typename ArgT::gd_type value{};
 	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
@@ -452,7 +489,6 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 	godot::PtrToArg<typename ArgT::gd_type>::encode(value, &slot);
 	return true;
 }
-
 
 // ---------------------------------------------------------------------------
 // Return value translation.
@@ -463,8 +499,7 @@ inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_
 //   ptrcall ABI           : ReturnBufT is the raw encode buffer; decode
 //                           through PtrToArg<RetT::cpp_type>::convert
 template <class RetT, class ReturnBufT>
-inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
-		ReturnBufT &ret_val, const v8::FunctionCallbackInfo<v8::Value> &info) {
+inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ReturnBufT &ret_val, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	if constexpr (!RetT::has_return) {
 		return true;
 	} else if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {

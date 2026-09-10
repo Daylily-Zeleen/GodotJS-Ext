@@ -72,26 +72,6 @@ void *left_opaque_of(Variant *v) {
 	return godot::VariantInternal::get_internal_value<L>(v);
 }
 
-// expected Variant::Type from the v8 value's shape; JS semantics map 1:1 to
-// the engine's INT/FLOAT split (IsInt32 and IsNumber are mutually exclusive,
-// so the generated overload order is irrelevant to the selection)
-template <typename L>
-Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
-	if (val->IsInt32()) return Variant::INT;
-	if (val->IsNumber()) return Variant::FLOAT;
-	if (val->IsBoolean()) return Variant::BOOL;
-	if (val->IsString()) return Variant::STRING;
-	if (val->IsNullOrUndefined()) return Variant::NIL;
-	if (val->IsObject()) {
-		const v8::Local<v8::Object> obj = val.As<v8::Object>();
-		if (obj->InternalFieldCount() == IF_VariantFieldCount) {
-			return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
-		}
-		if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
-	}
-	return Variant::VARIANT_MAX;
-}
-
 // binary operator thunk
 template <Variant::Operator OpC, typename L, typename R, typename Ret>
 void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -246,8 +226,8 @@ void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const Variant::Type left_vt = probe_vt<godot::Variant>(info[0]);
-	const Variant::Type right_vt = probe_vt<godot::Variant>(info[1]);
+	const Variant::Type left_vt = probe_vt<probe_prefer_object_types>(info[0]);
+	const Variant::Type right_vt = probe_vt<probe_prefer_primitive_types>(info[1]);
 	if (left_vt == Variant::VARIANT_MAX || right_vt == Variant::VARIANT_MAX) {
 		evaluate_dynamic_binary(info, isolate, context, OpC);
 		return;

@@ -74,17 +74,14 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<HashC, ClassLit, NameLit>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s",
-				ClassLit.value, NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M || provided > N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d",
-				godot::String(ClassLit.value).utf8().get_data(),
-				godot::String(NameLit.value).utf8().get_data(), M, N, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", ClassLit.value, NameLit.value, M, N, provided));
 		return;
 	}
 
@@ -143,17 +140,14 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<HashC, ClassLit, NameLit>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s",
-				ClassLit.value, NameLit.value));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < M) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d",
-				godot::String(ClassLit.value).utf8().get_data(),
-				godot::String(NameLit.value).utf8().get_data(), M, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", ClassLit.value, NameLit.value, M, provided));
 		return;
 	}
 
@@ -190,8 +184,9 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 			(const godot::Variant **)jsb_stackalloc(const godot::Variant *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)((int)I < fixed_count
-				? (void)(arg_ptrs[I] = &prefix[I])
-				: (void)0), ...);
+						 ? (void)(arg_ptrs[I] = &prefix[I])
+						 : (void)0),
+				...);
 	}(std::make_index_sequence<F>{});
 	for (int i = F; i < argc; ++i) {
 		memnew_placement(&tail_args[i - F], godot::Variant);
