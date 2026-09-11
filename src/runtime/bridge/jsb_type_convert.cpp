@@ -483,6 +483,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			r_cvar = sn;
 			return true;
 		}
+		r_cvar = impl::Helper::to_string(isolate, p_jval);
 		return true;
 	}
 	// is it proper to convert a ArrayBuffer into Vector<uint8_t>?
