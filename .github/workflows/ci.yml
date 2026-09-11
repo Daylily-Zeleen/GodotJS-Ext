@@ -199,6 +199,7 @@ jobs:
               sz = os.path.getsize(f"/tmp/bench/{leg}.so")
               lines.append(f"- {leg} gdextension: {sz / 1024 / 1024:.2f} MiB")
           lines.append("")
+          lines += [
               "| case | dynamic | static | ratio (dyn/stat) |",
               "|---|---:|---:|---:|",
           ]
