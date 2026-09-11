@@ -2,7 +2,7 @@
 
 ## Goal
 
-CI 缺口归组父任务：测试矩阵补齐、发布打包收尾、iOS Info.plist 核查；均低优先级（P3），基于 2026-09-06 对 .github/workflows 的现状核查
+CI 缺口归组父任务：测试矩阵补齐（ci-macos-test-legs）、发布打包收尾（ci-release-packaging）、iOS Info.plist 核查（ci-ios-infoplist）、libnode typeinfo 符号解阻（libnode-typeinfo-symbols）；均低优先级（P3），基于 2026-09-06 对 .github/workflows 的现状核查
 
 ## Requirements
 
