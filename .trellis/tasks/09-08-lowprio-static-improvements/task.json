@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "09-08-static-factory-primitive-ctors",
-    "09-08-member-form-operators"
+    "09-08-member-form-operators",
+    "09-11-static-binding-size-reduction"
   ],
   "parent": null,
   "relatedFiles": [],
