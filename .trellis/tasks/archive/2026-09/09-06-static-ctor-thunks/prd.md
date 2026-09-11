@@ -2,6 +2,8 @@
 
 > 静态绑定收尾任务之一。P4 阶段降级项：819fb3b 因类型试配问题降级。
 
+> **结案注记（2026-09-12）**：实质工作已由 `archive/2026-09/09-08-builtin-ctor-static-bindings`（归档提交 1772907）承接完成——构造器 thunk 已实施为 static-first 分发（aa92897→22aebfe，121/121 ctor case 通过），运算符侧经基准裁决维持不恢复 ptrcall thunk（证据：`archive/2026-09/09-06-static-binding-bench-gc/report.md`）。本任务无独立未完成范围，据此归档。
+
 ## Goal
 
 恢复内置类型的 static 构造 thunk：Constructors 组当前走 dynamic 构造，static 构造 thunk 因「类型试配问题」被降级；基准数据裁决后恢复实施。

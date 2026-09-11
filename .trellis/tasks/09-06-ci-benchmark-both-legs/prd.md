@@ -9,11 +9,12 @@ CI benchmark job 恢复 static/dynamic 双腿对比数据：dynamic leg 因 C1 �
 ## 现状
 
 - 环境三层修复已完成并合入：896b942（scons 安装）、804e6f0（godot-cpp platform 名 linux）、b7a1bd4（shadow_realm 去 always_inline）
-- dynamic leg 挂死阻塞于 C1 专项（`c1-dynamic-crash`）
+- C1 崩溃已结案：`09-06-c1-dynamic-crash` 已归档（根因修复 a5f0db9，ptrcall 缓冲区溢出），dynamic leg 阻塞解除
 
 ## 依赖
 
-- **阻塞于 `09-06-c1-dynamic-crash`**：崩溃修复前本任务无法完成，勿提前动 CI 配置
+- 原阻塞项 `09-06-c1-dynamic-crash` 已归档结案（根因 a5f0db9），阻塞解除，CI 配置可动
+- Comparison report step 的 Python 语法错误（`lines = [...]` 闭合后悬空 `]`）已于 2026-09-12 修正；剩余工作 = workflow_dispatch 触发 benchmark job 跑通双腿并回填报告
 
 ## Acceptance Criteria
 

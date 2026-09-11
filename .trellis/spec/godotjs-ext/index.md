@@ -24,10 +24,9 @@ src/runtime/          运行时（Script/ScriptLanguage、Environment、bridge�
 src/editor/           编辑器扩展（Plugin/Dock/REPL/ExportPlugin、codegen 编排）
 src/api_tool/         api 文档缓存与 ptrcall 调用（dynamic 路径核心）
 src/static_binding/   静态绑定（gen/ 为构建生成，不入库）
-src/common/           无状态工具（双侧各编一份）
-src/internal/         内部工具
-src/compat/           兼容层
-src/testing/          测试公共设施（header-only runner）
+src/internal/         内部工具（含双侧编译的无状态工具）
+src/compat/           兼容层（双侧编译）
+src/tests/            测试公共设施（header-only runner，仅 tests=yes 编入）
 third/godot-cpp       godot 绑定子模块（只读）
 third/quickjs-ng      可选 JS 引擎子模块（只读）
 misc/build/           构建期代码生成脚本（静态绑定、运算符表、模板头）

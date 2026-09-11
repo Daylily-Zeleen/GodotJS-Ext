@@ -2,7 +2,7 @@
 
 ## Goal
 
-以成员函数形式实现内置类型运算符替代当前静态函数形式（绑定与编辑器代码生成）：vec.add(other) 替代 Vector2.OP_ADD(a, b)，绑定层把 this 作为左操作数；JS 原生基础类型（bool/int/float）无成员形态，仍以静态函数实现。编辑器 d.ts 同步生成成员签名。
+以成员函数形式实现内置类型运算符替代当前静态函数形式（绑定与编辑器代码生成）：vec.add(other) 替代 Vector2.OP_ADD(a, b)，绑定层把 this 作为左操作数；JS 原生基础类型（bool/int/float）的运算符已由 JS 原生运算符全覆盖，b0ae540 移除其静态运算符表后不再暴露为静态方法，无成员形态需求。编辑器 d.ts 同步生成成员签名。
 
 ## Requirements
 
