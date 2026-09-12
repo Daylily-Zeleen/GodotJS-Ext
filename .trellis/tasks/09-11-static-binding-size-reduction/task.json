@@ -18,7 +18,11 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "09-12-class-thunk-sharing",
+    "09-12-builtin-thunk-sharing",
+    "09-12-utility-thunk-sweep"
+  ],
   "parent": "09-08-lowprio-static-improvements",
   "relatedFiles": [],
   "notes": "",
