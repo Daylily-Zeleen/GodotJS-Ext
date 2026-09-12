@@ -32,6 +32,13 @@
 
 namespace jsb::static_binding::thunks {
 
+_FORCE_INLINE_ GDExtensionPtrBuiltInMethod resolve_builtin_method(godot::Variant::Type p_type, const godot::StringName &p_method_name, uint32_t p_hash) {
+	return ::godot::gdextension_interface::variant_get_ptr_builtin_method(
+			(GDExtensionVariantType)p_type,
+			p_method_name._native_ptr(),
+			(GDExtensionInt)p_hash);
+}
+
 // ---------------------------------------------------------------------------
 // Fixed-arity builtin method (§4.0-A). Parameters marshaled into ptrcall slots
 // via a std::tuple so every slot outlives the fn() call.
@@ -45,7 +52,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
+	static const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method(VTC, godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
 				godot::Variant::get_type_name(VTC), NameLit.value));
@@ -103,7 +110,7 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	GDExtensionPtrBuiltInMethod fn = resolve_builtin_method<VTC, HashC, NameLit>();
+	static const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method(VTC, godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
 				godot::Variant::get_type_name(VTC), NameLit.value));

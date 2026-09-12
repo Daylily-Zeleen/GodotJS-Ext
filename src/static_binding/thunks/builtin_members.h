@@ -31,38 +31,7 @@
 #	include "thunks_common.h"
 #	include <godot_cpp/variant/variant_internal.hpp>
 
-
 namespace jsb::static_binding::thunks {
-
-// ---------------------------------------------------------------------------
-// Builtin member accessors (§4.1): fixed Variant-type members such as
-// Vector2::x. The GDExtensionPtrGetter/Setter function pointers are resolved
-// once per instantiation via variant_get_ptr_getter/setter (magic static).
-//
-// CRITICAL: Member getters/setters use the OPAQUE PTRCALL ABI (not full Variant).
-// The engine's variant_get_ptr_getter returns ptr_get which expects:
-//   p_base = opaque data pointer (e.g., &variant.data.vector2 for Vector2)
-//   r_value = member type's native slot (PtrToArg<MemberType>::EncodeT)
-// This mirrors VariantSetGet_*::ptr_get in variant_setget.h:
-//   PtrToArg<MemberType>::encode(PtrToArg<BaseType>::convert(p_base).member, r_value)
-// ---------------------------------------------------------------------------
-template <godot::Variant::Type VTC, FixedString NameLit>
-GDExtensionPtrGetter resolve_member_getter() {
-	static GDExtensionPtrGetter getter =
-			::godot::gdextension_interface::variant_get_ptr_getter(
-					(GDExtensionVariantType)VTC,
-					godot::StringName(NameLit.value)._native_ptr());
-	return getter;
-}
-
-template <godot::Variant::Type VTC, FixedString NameLit>
-GDExtensionPtrSetter resolve_member_setter() {
-	static GDExtensionPtrSetter setter =
-			::godot::gdextension_interface::variant_get_ptr_setter(
-					(GDExtensionVariantType)VTC,
-					godot::StringName(NameLit.value)._native_ptr());
-	return setter;
-}
 
 template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
 void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
@@ -70,7 +39,10 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrGetter getter = resolve_member_getter<VTC, NameLit>();
+	static const GDExtensionPtrGetter getter = ::godot::gdextension_interface::variant_get_ptr_getter(
+			(GDExtensionVariantType)VTC,
+			godot::StringName(NameLit.value)._native_ptr());
+
 	if (!getter) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member getter %s::%s",
 				godot::Variant::get_type_name(VTC), NameLit.value));
@@ -104,7 +76,10 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrSetter setter = resolve_member_setter<VTC, NameLit>();
+	static const GDExtensionPtrSetter setter = ::godot::gdextension_interface::variant_get_ptr_setter(
+			(GDExtensionVariantType)VTC,
+			godot::StringName(NameLit.value)._native_ptr());
+
 	if (!setter) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member setter %s::%s",
 				godot::Variant::get_type_name(VTC), NameLit.value));

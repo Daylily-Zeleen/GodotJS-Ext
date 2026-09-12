@@ -31,6 +31,12 @@
 
 namespace jsb::static_binding::thunks {
 
+_FORCE_INLINE_ GDExtensionPtrUtilityFunction resolve_utility_function(const godot::StringName &p_function_name, uint32_t p_hash) {
+	return ::godot::gdextension_interface::variant_get_ptr_utility_function(
+			p_function_name._native_ptr(),
+			(GDExtensionInt)p_hash);
+}
+
 // ---------------------------------------------------------------------------
 // Global utility function (§4.2). Utility functions carry no default args.
 template <uint32_t HashC, FixedString NameLit, class RetT, class... ArgsT>
@@ -41,7 +47,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrUtilityFunction fn = resolve_utility_function<HashC, NameLit>();
+	static const GDExtensionPtrUtilityFunction fn = resolve_utility_function(godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));
@@ -83,7 +89,7 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const GDExtensionPtrUtilityFunction fn = resolve_utility_function<HashC, NameLit>();
+	static const GDExtensionPtrUtilityFunction fn = resolve_utility_function(godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));

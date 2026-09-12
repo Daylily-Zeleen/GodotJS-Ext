@@ -521,32 +521,6 @@ inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context
 		return true;
 	}
 }
-
-// Per-instantiation lazy native-pointer cache (magic static, thread-safe on
-// first call). Returns nullptr on engine/generated-tables version mismatch.
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit>
-GDExtensionPtrBuiltInMethod resolve_builtin_method() {
-	static GDExtensionPtrBuiltInMethod fn = [&] {
-		const godot::StringName method_name(NameLit.value);
-		return ::godot::gdextension_interface::variant_get_ptr_builtin_method(
-				(GDExtensionVariantType)VTC,
-				method_name._native_ptr(),
-				(GDExtensionInt)HashC);
-	}();
-	return fn;
-}
-
-template <uint32_t HashC, FixedString NameLit>
-GDExtensionPtrUtilityFunction resolve_utility_function() {
-	static GDExtensionPtrUtilityFunction fn = [&] {
-		const godot::StringName function_name(NameLit.value);
-		return ::godot::gdextension_interface::variant_get_ptr_utility_function(
-				function_name._native_ptr(),
-				(GDExtensionInt)HashC);
-	}();
-	return fn;
-}
-
 } // namespace jsb::static_binding
 
 #endif // JSB_WITH_STATIC_BINDINGS

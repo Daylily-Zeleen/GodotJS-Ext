@@ -27,9 +27,9 @@
 
 #if JSB_WITH_STATIC_BINDINGS
 
-#include "thunks_common.h"
-#include "../dispatch.h"
-#include <godot_cpp/variant/variant_internal.hpp>
+#	include "../dispatch.h"
+#	include "thunks_common.h"
+#	include <godot_cpp/variant/variant_internal.hpp>
 
 // ---------------------------------------------------------------------------
 // Operator thunks (static path).
@@ -99,12 +99,11 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		}
 	}
 
-	static GDExtensionPtrOperatorEvaluator eval = [] {
-		return ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
-				(GDExtensionVariantOperator)OpC,
-				(GDExtensionVariantType)GetTypeInfo<L>::VARIANT_TYPE,
-				(GDExtensionVariantType)GetTypeInfo<R>::VARIANT_TYPE);
-	}();
+	static const GDExtensionPtrOperatorEvaluator eval = ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
+			(GDExtensionVariantOperator)OpC,
+			(GDExtensionVariantType)GetTypeInfo<L>::VARIANT_TYPE,
+			(GDExtensionVariantType)GetTypeInfo<R>::VARIANT_TYPE);
+
 	if (!eval) {
 		jsb_throw(isolate, "operator: evaluator missing");
 		return;
@@ -164,12 +163,11 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 	void *left_opaque = left_opaque_of<L>((Variant *)left_var);
 
-	static GDExtensionPtrOperatorEvaluator eval = [] {
-		return ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
-				(GDExtensionVariantOperator)OpC,
-				(GDExtensionVariantType)GetTypeInfo<L>::VARIANT_TYPE,
-				GDEXTENSION_VARIANT_TYPE_NIL);
-	}();
+	static const GDExtensionPtrOperatorEvaluator eval = ::godot::gdextension_interface::variant_get_ptr_operator_evaluator(
+			(GDExtensionVariantOperator)OpC,
+			(GDExtensionVariantType)GetTypeInfo<L>::VARIANT_TYPE,
+			GDEXTENSION_VARIANT_TYPE_NIL);
+
 	if (!eval) {
 		jsb_throw(isolate, "operator: evaluator missing");
 		return;
@@ -241,7 +239,6 @@ void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	// no thunk for this (left, op, right): dynamic evaluation
 	evaluate_dynamic_binary(info, isolate, context, OpC);
 }
-
 
 } // namespace jsb::static_binding
 

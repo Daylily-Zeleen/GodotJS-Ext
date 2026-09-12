@@ -101,7 +101,7 @@ struct ApiHeader {
 // ============================================================================
 
 struct ApiMethodBase {
-	godot::MethodInfo method;
+	godot::MethodInfo method; // TODO: 信息懒加载，尤其是 default values
 	MethodHash hash = 0;
 
 public:

@@ -75,7 +75,7 @@ _FORCE_INLINE_ void throw_no_suitable_ctor(
 //     arg_ptr_to_var / MaxSizeEncodeArgType).
 //   - strict arity: constructors have no default arguments in the api json,
 //     so info.Length() must equal sizeof...(ArgsT) exactly.
-template <godot::Variant::Type VTC, int CtorIndex, typename... ArgsT>
+template <godot::Variant::Type VTC, int32_t CtorIndex, typename... ArgsT>
 void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using TargetCppT = VariantNativeType_t<VTC>;
 	v8::Isolate *isolate = info.GetIsolate();
@@ -83,10 +83,8 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	// TargetCppT (above) resolves the constructed builtin's C++ type from VTC.
 
 	// engine constructor pointer, resolved once per (type, index) pair
-	static GDExtensionPtrConstructor ctor = [] {
-		return ::godot::gdextension_interface::variant_get_ptr_constructor(
-				(GDExtensionVariantType)VTC, (int32_t)CtorIndex);
-	}();
+	static const GDExtensionPtrConstructor ctor = ::godot::gdextension_interface::variant_get_ptr_constructor(
+				(GDExtensionVariantType)VTC, CtorIndex);
 	if (!ctor) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin constructor %s (index %d)",
 				godot::Variant::get_type_name(VTC), CtorIndex));
