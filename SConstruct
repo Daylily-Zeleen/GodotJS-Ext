@@ -879,6 +879,11 @@ def make_target_env(base_env, pdb_name, obj_root, source_globs):
     return target_env, sources
 
 target_env, runtime_sources = make_target_env(env, "bin/windows/godotjs-ext", "runtime", runtime_globs)
+# 为 runtime 环境添加宏定义
+target_env.Append(CPPDEFINES=[
+    ('JSB_EDITOR_LIB_BUILD', 0),
+    ('JSB_RUNTIME_LIB_BUILD', 1),
+])
 
 library = target_env.SharedLibrary(
     "bin/{}/{}".format(env['platform'], lib_filename),
@@ -904,6 +909,11 @@ if env["target"] == "editor":
     # make_target_env gives every compile its own /Fd PDB (a bare env falls
     # back to the default vc140.pdb -> C1041 contention).
     editor_build_env, editor_sources = make_target_env(env, "bin/windows/godotjs-ext-editor", "editor", editor_globs)
+    # 为 editor 环境添加宏定义
+    editor_build_env.Append(CPPDEFINES=[
+        ('JSB_EDITOR_LIB_BUILD', 1),
+        ('JSB_RUNTIME_LIB_BUILD', 0),
+    ])
     editor_library = editor_build_env.SharedLibrary(
         "bin/{}/{}".format(env['platform'], editor_libname),
         source=editor_sources,
