@@ -26,7 +26,7 @@
 #pragma once
 
 #include "version_comparison.h" // IWYU pragma: keep
-#include <runtime/jsb.config.h>
+#include <jsb.config.h>
 #include <cstdint>
 
 #include <godot_cpp/core/memory.hpp>

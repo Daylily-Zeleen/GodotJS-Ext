@@ -29,10 +29,10 @@
 
 #include <cstdint>
 
-#include "../compat/jsb_compat.h"
-#include "../jsb.config.h"
-#include "../jsb.gen.h"
-#include "../jsb_version.h"
+#include "compat/jsb_compat.h"
+#include "jsb.config.h"
+#include "jsb.gen.h"
+#include "jsb_version.h"
 #if JSB_WITH_WEB
 #	include "../impl/web/jsb_web.h"
 #elif JSB_WITH_NODE

@@ -49,7 +49,7 @@
 
 #include "jsb_script.h"
 #include "jsb_script_instance.h"
-#include "runtime/jsb.config.h"
+#include "jsb.config.h"
 
 #ifdef TOOLS_ENABLED
 #	include "editor/weaver-editor/templates/templates.gen.h"

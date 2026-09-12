@@ -27,9 +27,9 @@
 
 #pragma once
 
-#include <runtime/jsb.config.h>
-#include <runtime/jsb.gen.h>
-#include <runtime/jsb_version.h>
+#include "jsb.config.h"
+#include "jsb.gen.h"
+#include "jsb_version.h"
 #define JSB_STRINGIFY_2(a) #a
 #define JSB_STRINGIFY(a) JSB_STRINGIFY_2(a)
 #define JSB_CONCAT_IMPL(a, b) a##b

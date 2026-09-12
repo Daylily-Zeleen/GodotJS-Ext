@@ -81,6 +81,14 @@
 #	define JSB_WITH_CHECK JSB_DEBUG
 #endif
 
+#ifndef JSB_EDITOR_LIB_BUILD
+#	define JSB_EDITOR_LIB_BUILD 1
+#endif // JSB_EDITOR_LIB_BUILD
+
+#ifndef JSB_RUNTIME_LIB_BUILD
+#	define JSB_RUNTIME_LIB_BUILD 1
+#endif // JSB_RUNTIME_LIB_BUILD
+
 // output verbose log anyway even if `OS::get_singleton()->is_stdout_verbose()` is false
 #define JSB_VERBOSE_ENABLED 0
 

@@ -1,4 +1,4 @@
-/************************************************************************/
+﻿/************************************************************************/
 /*  api_tool_loader.h                                                   */
 /************************************************************************/
 /*  This file is part of:                                               */
@@ -33,7 +33,7 @@
 // Supports cache invalidation callback for external notification.
 
 #include "../api_tool_types.h"
-#include <runtime/jsb.config.h>
+#include <jsb.config.h>
 #include <deque>
 #include <godot_cpp/templates/hash_set.hpp>
 #include <godot_cpp/variant/string.hpp>

@@ -71,6 +71,7 @@ env['SHLIBPREFIX'] = ''
 # Source root directory
 src_dir = "src"
 runtime_dir = os.path.join(src_dir, "runtime")
+editor_dir = os.path.join(src_dir, "editor")
 internal_dir = os.path.join(src_dir, "internal")
 compat_dir = os.path.join(src_dir, "compat")
 
@@ -187,7 +188,7 @@ def get_thirdparty_support(support, path):
     return None
 
 def read_macro_value(name, def_val=None):
-    with open(os.path.join(runtime_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
+    with open(os.path.join(src_dir, "jsb.config.h"), "rt", encoding="utf-8") as f:
         regex = rf"^#define\s+{name}\s+(\d+)$"
         for line in f:
             matches = re.finditer(regex, line)
@@ -451,7 +452,7 @@ def generate_jsb_gen_header():
                 output.write(f"// {t.help}\n")
         output.write(f"#define {t.name} {t.value}\n")
     output.write("\n")
-    write_file(os.path.join(runtime_dir, "jsb.gen.h"), output)
+    write_file(os.path.join(src_dir, "jsb.gen.h"), output)
 
 # =============================================================================
 # Generate jsb_project_preset.gen.cpp (embedded JS bundles)
@@ -555,9 +556,9 @@ def generate_method_code(output, methodname, indent, preset_defines):
 def generate_code(rt_preset_defines, ed_preset_defines):
     indent = "    "
 
-    # delete obsolete files
-    remove_file(os.path.join(runtime_dir, "weaver-editor", "jsb_project_preset.cpp"))
-    remove_file(os.path.join(runtime_dir, "jsb_project_preset.cpp"))
+    # delete files
+    remove_file(os.path.join(editor_dir, "weaver-editor", "jsb_editor_preset.gen.cpp"))
+    remove_file(os.path.join(src_dir, "jsb_runtime_preset.cpp"))
 
     JSB_BUNDLE_VERSION = read_macro_value("JSB_BUNDLE_VERSION")
     version_assert = f"static_assert({JSB_BUNDLE_VERSION} == JSB_BUNDLE_VERSION, \"obsolete preset data found, please regenerate project sources with scons\");\n"
@@ -566,13 +567,13 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     rt_output = io.StringIO()
     rt_output.write("// AUTO-GENERATED\n")
     rt_output.write("\n")
-    rt_output.write(generate_copyright_header_cpp("jsb_project_preset.gen.cpp", read_copyright_text()))
+    rt_output.write(generate_copyright_header_cpp("jsb_runtime_preset.gen.cpp", read_copyright_text()))
     rt_output.write("\n")
     rt_output.write("#include \"jsb_runtime_preset.h\"\n")
     rt_output.write("#include \"jsb.config.h\"\n")
     rt_output.write(version_assert)
     generate_method_code(rt_output, "GodotJSRuntimePreset::get_source", indent, rt_preset_defines)
-    write_file(os.path.join(runtime_dir, "jsb_project_preset.gen.cpp"), rt_output)
+    write_file(os.path.join(runtime_dir, "jsb_runtime_preset.gen.cpp"), rt_output)
 
     # editor side: embedded editor bundles + project scaffolding templates.
     # Consumed exclusively by the editor extension (which always builds with TOOLS_ENABLED).
@@ -587,7 +588,7 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     ed_output.write("#ifdef TOOLS_ENABLED\n")
     generate_method_code(ed_output, "GodotJSEditorPreset::get_source", indent, ed_preset_defines)
     ed_output.write("#endif\n")
-    write_file(os.path.join(src_dir, "editor", "weaver-editor", "jsb_editor_preset.gen.cpp"), ed_output)
+    write_file(os.path.join(editor_dir, "weaver-editor", "jsb_editor_preset.gen.cpp"), ed_output)
 
 generate_code([
     PresetDefine("scripts/out/jsb.runtime.bundle.js", "", zero_terminated, AMDSourceTransformer()),
@@ -701,8 +702,6 @@ env.Append(CPPPATH=[
     os.path.join(root_dir, third_dir),
 ])
 
-editor_dir = os.path.join(src_dir, "editor")
-
 # Add editor include path for editor target
 if env["target"] == "editor":
     env.Append(CPPPATH=[os.path.join(root_dir, editor_dir)])
@@ -792,7 +791,6 @@ runtime_globs = [
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
 ]
 
-editor_dir = os.path.join(src_dir, "editor")
 editor_globs = [
     os.path.join(editor_dir, "*.cpp"),
     os.path.join(editor_dir, "weaver-editor", "*.cpp"),

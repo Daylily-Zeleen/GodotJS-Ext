@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "../../jsb.gen.h"
+#include "jsb.gen.h"
 
 #include "../../internal/jsb_custom_field.h"
 #if JSB_PREFER_QUICKJS_NG

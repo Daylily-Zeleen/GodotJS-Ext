@@ -28,7 +28,7 @@
 #pragma once
 
 #include "../../internal/jsb_internal.h"
-#include "../../jsb.gen.h"
+#include "jsb.gen.h"
 #include "../../internal/jsb_custom_field.h"
 #include "../../internal/jsb_statistics.h"
 

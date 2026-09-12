@@ -28,7 +28,7 @@
 #pragma once
 
 #include "../../internal/jsb_internal.h"
-#include "../../jsb.gen.h"
+#include "jsb.gen.h"
 
 #include <cstdint>
 #include <memory>
