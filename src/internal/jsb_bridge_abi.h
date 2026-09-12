@@ -63,11 +63,9 @@ namespace jsb {
 using JsbEvalFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
 
 /// Evaluate source with one argument Variant exposed as the `__jsb_arg` global.
-using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length,
-		GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
+using JsbEvalArgFn = godot::Error (*)(const char *p_source_utf8, int64_t p_length, GDExtensionConstVariantPtr p_argument_variant, GDExtensionVariantPtr r_result_variant);
 
-using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length,
-		GDExtensionVariantPtr r_result_variant);
+using JsbQueryFn = godot::Error (*)(const char *p_arg_utf8, int64_t p_length, GDExtensionVariantPtr r_result_variant);
 
 using JsbFillStatsFn = godot::Error (*)(void *p_statistics_raw);
 
@@ -110,6 +108,10 @@ struct JsbBridgeTable {
 
 	JsbAddConsoleFn add_console_output = nullptr;
 	JsbRemoveConsoleFn remove_console_output = nullptr;
+
+	// 通知 Runtime 重新加载 .paths_mapping（TS 未启用时 Runtime 侧填 nullptr）
+	// 字段必须无条件存在：两个 DLL 按同一内存布局解释同一张表。
+	JsbVoidFn refresh_paths_mapping = nullptr;
 };
 
 } //namespace jsb

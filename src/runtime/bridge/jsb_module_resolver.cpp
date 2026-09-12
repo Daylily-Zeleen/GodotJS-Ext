@@ -28,6 +28,10 @@
 #include "jsb_module_resolver.h"
 #include "jsb_environment.h"
 
+#if JSB_USE_TYPESCRIPT
+#	include <internal/jsb_paths_mapping.h>
+#endif
+
 #include "../internal/jsb_path_util.h"
 #include "runtime/internal/jsb_runtime_settings.h"
 #include <godot_cpp/classes/dir_access.hpp>
@@ -404,22 +408,46 @@ bool DefaultModuleResolver::check_package_file_path(const String &p_package_path
 bool DefaultModuleResolver::get_source_info(const String &p_module_id, ModuleSourceInfo &r_source_info) {
 	JSB_LOG(VeryVerbose, "resolving path %s", p_module_id);
 
-	// directly inspect it at first if it's an absolute path
-	if (internal::PathUtil::is_absolute_path(p_module_id)) {
-		if (check_absolute_file_path(p_module_id, r_source_info)) {
+#if JSB_USE_TYPESCRIPT
+	// tsconfig paths 仅作用于裸说明符（不以 "./"、"../" 开头且非绝对路径）——
+	// TS 官方语义：相对导入与绝对路径永远不受 paths 影响。
+	// 命中 pattern 时拼一个候选试一个（见 PathsMapping::resolve 回调约定），
+	// 单次重写，结果不再套用映射表；未命中/全失败则原样落到常规解析。
+	if (!p_module_id.begins_with("./") && !p_module_id.begins_with("../")
+			&& !internal::PathUtil::is_absolute_path(p_module_id)) {
+		struct PathsTryCtx {
+			DefaultModuleResolver *self;
+			ModuleSourceInfo *info;
+		} ctx{ this, &r_source_info };
+		if (PathsMapping::resolve(p_module_id, &ctx, [](void *p_userdata, const String &p_candidate_id) -> bool {
+			PathsTryCtx *c = (PathsTryCtx *)p_userdata;
+			return c->self->try_resolve_id(p_candidate_id, *c->info);
+		})) {
 			return true;
 		}
-		r_source_info = {};
-		// TODO: 如果后续支持弄得nodejs的话得考虑把这条警告降级
-		JSB_LOG(Warning, "failed to check out module (absolute) %s", p_module_id);
-		return false;
 	}
+#endif
 
+	// directly inspect it at first if it's an absolute path
+	return try_resolve_id(p_module_id, r_source_info);
+}
+
+// absolute-path check + search-path iteration for a single module id
+bool DefaultModuleResolver::try_resolve_id(const String &p_module_id, ModuleSourceInfo &r_source_info) {
 	// it's a simplified implementation of the Node.js module resolution algorithm
 	//   1. explicit-file
 	//   2. if (is dir) dir/package.json :[main || index]
 	//   3. implicit-file (path.js, path.cjs, path/index.js, path/index.cjs)
 	//   X. iterate in all search paths
+	if (internal::PathUtil::is_absolute_path(p_module_id)) {
+		if (check_absolute_file_path(p_module_id, r_source_info)) {
+			return true;
+		}
+		// TODO: 如果后续支持弄得 nodejs 的话得考虑把这条警告降级
+		JSB_LOG(Warning, "failed to check out module (absolute) %s", p_module_id);
+		r_source_info = {};
+		return false;
+	}
 
 	// search the statically configured paths
 	for (const String &search_path : search_paths_) {

@@ -27,6 +27,10 @@
 
 #include "jsb_export_plugin.h"
 
+#if JSB_USE_TYPESCRIPT
+#	include <internal/jsb_paths_mapping.h>
+#endif
+
 #include "../jsb_editor_settings.h"
 #include "jsb_editor_bridge.h"
 #include <godot_cpp/classes/dir_access.hpp>
@@ -132,6 +136,14 @@ void GodotJSExportPlugin::get_script_resources(const String &p_dir, PackedString
 void GodotJSExportPlugin::_export_begin(const PackedStringArray &p_features, bool p_debug, const String &p_path, uint32_t p_flags) {
 	JSB_EXPORTER_LOG(Verbose, "export_begin path: %s", p_path);
 	exported_paths_.clear();
+
+#if JSB_USE_TYPESCRIPT
+	// 导出 .paths_mapping 文件（运行时依赖它解析 tsconfig paths）
+	const String mapping_path = jsb::PathsMapping::get_paths_mapping_file_path();
+	if (FileAccess::file_exists(mapping_path)) {
+		export_raw_file(mapping_path, false);
+	}
+#endif
 
 	// add all explicitly included file paths in settings
 	const PackedStringArray file_paths = jsb::internal::settings::project::get_packaging_include_files();

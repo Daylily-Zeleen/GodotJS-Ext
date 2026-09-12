@@ -7,12 +7,15 @@ import {
 	reportTestFailure,
 } from "./test-status";
 
+import { test_paths_in_tsconfig_json } from "@tests/paths_test/paths-test";
+
 const SCENE_SETTLE_DELAY_MS = 100;
 const ASYNC_TEST_DRAIN_TIMEOUT_MS = 20000;
 const ASYNC_TEST_DRAIN_POLL_MS = 10;
 
 export default class Start extends Node {
 	async _ready() {
+		test_paths_in_tsconfig_json();
 		try {
 			const scenes = [
 				"res://tests/resource/Resource.tscn",

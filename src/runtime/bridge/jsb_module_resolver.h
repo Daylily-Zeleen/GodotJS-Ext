@@ -78,8 +78,15 @@ protected:
 
 	static bool check_implicit_source_path(const String &p_module_id, String &o_path);
 
+	// absolute-path check + search-path iteration for a single module id
+	// (the tail of the old get_source_info body, now shared by the bare-specifier
+	//  paths flow and the plain resolution flow)
+	bool try_resolve_id(const String &p_module_id, ModuleSourceInfo &r_source_info);
+
 private:
 	Dictionary package_exports_cache;
+
+	Vector<String> search_paths_;
 
 	// Helper function for recursive resolution of exports target values
 	// p_value: The value retrieved from package.json exports map
@@ -87,7 +94,5 @@ private:
 	// p_subpath: The portion of path (suffix) which did not match the lookup prefix
 	// p_wildcard: True if the matched exports key contained a wildcard ('*')
 	static String resolve_package_export_value(const Variant &p_value, const String &p_condition, const String &p_subpath, bool p_wildcard);
-
-	Vector<String> search_paths_;
 };
 } //namespace jsb

@@ -39,6 +39,9 @@
 #include "tests/test_jsb_bridge_table.h"
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_sarray.h"
+#if JSB_USE_TYPESCRIPT
+#	include "tests/test_jsb_paths_mapping.h"
+#endif // JSB_USE_TYPESCRIPT
 #if JSB_SHADOW_REALM_ENABLED
 #	include "tests/test_jsb_shadow_realm.h"
 #endif // JSB_SHADOW_REALM_ENABLED

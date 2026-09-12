@@ -110,6 +110,11 @@ private:
 	void _on_clean_timer_timeout();
 	void _save_md5_cache();
 
+#if JSB_USE_TYPESCRIPT
+	// 解析 tsconfig.json 并重新生成 .paths_mapping（MD5 未变化时空操作）
+	static void _regenerate_paths_mapping();
+#endif
+
 protected:
 	static void _bind_methods();
 

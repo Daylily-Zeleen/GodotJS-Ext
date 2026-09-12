@@ -35,6 +35,9 @@
 #include "../internal/jsb_internal.h"
 #include "../jsb_runtime_preset.h"
 #include "jsb_monitor.h"
+#if JSB_USE_TYPESCRIPT
+#	include <internal/jsb_paths_mapping.h>
+#endif
 
 #if JSB_SHADOW_REALM_ENABLED
 #	include "../bridge/jsb_shadow_realm.h"
@@ -137,6 +140,11 @@ void GodotJSScriptLanguage::_init() {
 		- 放在此处是个比较合适的折中，虽然运行c++测试时会重复执行填充，但是幂等无副作用，正式运行时只会被执行一次。
 	*/
 	populate_string_names_replacements();
+
+#if JSB_USE_TYPESCRIPT
+	// 加载路径映射（与编译产物同目录的 .paths_mapping；尚未生成时静默跳过）
+	jsb::PathsMapping::refresh();
+#endif
 
 	jsb::Environment::CreateParams params;
 	params.initial_class_slots = (int)ClassDBSingleton::get_singleton()->get_class_list().size() + JSB_MASTER_INITIAL_CLASS_EXTRA_SLOTS;

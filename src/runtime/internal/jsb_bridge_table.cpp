@@ -1,4 +1,4 @@
-/************************************************************************/
+﻿/************************************************************************/
 /*  jsb_bridge_table.cpp                                                */
 /************************************************************************/
 /*  This file is part of:                                               */
@@ -37,6 +37,10 @@
 #	include "../impl/node/jsb_node.h"
 #	include <internal/jsb_console_output.h>
 #	include <string_builder.h>
+#endif
+
+#if JSB_USE_TYPESCRIPT
+#	include <internal/jsb_paths_mapping.h>
 #endif
 
 namespace jsb {
@@ -516,6 +520,17 @@ static godot::Error bridge_remove_console_output(int64_t p_handle) {
 	return OK; // idempotent
 }
 
+#if JSB_USE_TYPESCRIPT
+// 仅重载静态缓存，不执行 JS；主线程限制是因为缓存无锁。
+static godot::Error bridge_refresh_paths_mapping() {
+	if (!Thread::is_main_thread()) {
+		return godot::Error::FAILED;
+	}
+	jsb::PathsMapping::refresh();
+	return OK;
+}
+#endif
+
 static JsbBridgeTable g_bridge_table = {
 	sizeof(JsbBridgeTable),
 	&bridge_eval,
@@ -528,6 +543,11 @@ static JsbBridgeTable g_bridge_table = {
 	&bridge_request_gc,
 	&bridge_add_console_output,
 	&bridge_remove_console_output,
+#if JSB_USE_TYPESCRIPT
+	&bridge_refresh_paths_mapping,
+#else
+	nullptr, // refresh_paths_mapping（TS 未启用）
+#endif
 };
 
 const JsbBridgeTable *get_bridge_table() {

@@ -26,6 +26,10 @@
 /************************************************************************/
 
 #include "jsb_editor_plugin.h"
+#if JSB_USE_TYPESCRIPT
+#	include <internal/jsb_paths_mapping.h>
+#endif
+
 #include "../jsb_editor_settings.h"
 #include "api_tool/api_tool.h"
 #include "api_tool/editor/api_tool_editor.h"
@@ -51,12 +55,14 @@
 #include <godot_cpp/classes/editor_paths.hpp>
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/reg_ex.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/timer.hpp>
+
 
 #include <compat/misc.h>
 #define JSB_TYPE_ROOT "typings"
@@ -154,6 +160,10 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 					bridge->scan_external_changes();
 				}
 			}
+#if JSB_USE_TYPESCRIPT
+			// 窗口获得焦点时检查路径映射是否需要更新
+			_regenerate_paths_mapping();
+#endif
 			break;
 		case NOTIFICATION_PREDELETE: {
 			jsb_check(singleton_ == this);
@@ -199,6 +209,11 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 					}
 				}
 			}
+
+#if JSB_USE_TYPESCRIPT
+			// 编辑器就绪即生成/刷新路径映射（MD5 未变化时为空操作）
+			_regenerate_paths_mapping();
+#endif
 
 			break;
 		default:
@@ -960,6 +975,10 @@ void GodotJSEditorPlugin::try_install_project_files(std::function<void(bool)> co
 		Vector<jsb::weaver::InstallFileInfo> modified;
 		if (verify_files(editor_plugin->install_files_, true, &modified)) {
 			on_successfully_installed();
+#if JSB_USE_TYPESCRIPT
+			// 安装完成后生成路径映射
+			_regenerate_paths_mapping();
+#endif
 			return;
 		}
 
@@ -975,6 +994,10 @@ void GodotJSEditorPlugin::try_install_project_files(std::function<void(bool)> co
 
 		if (force) {
 			install_project_files(complete, modified);
+#if JSB_USE_TYPESCRIPT
+			// 安装完成后生成路径映射
+			_regenerate_paths_mapping();
+#endif
 		} else if (DisplayServer::get_singleton()->get_name() == "headless") {
 			JSB_LOG(Log, "Skipped existing TypeScript project files: %s", modified_file_list);
 
@@ -1248,3 +1271,31 @@ void GodotJSEditorPlugin::_update_progress_task(const String &p_task_name, const
 void GodotJSEditorPlugin::_finish_progress_task(const String &p_task_name) {
 	EditorProgressDialog::get_singleton()->finish(p_task_name);
 }
+
+#if JSB_USE_TYPESCRIPT
+void GodotJSEditorPlugin::_regenerate_paths_mapping() {
+	// tsconfig.json 由 try_install_project_files 安装到 res://tsconfig.json
+	static const godot::String kTsconfigPath = "res://tsconfig.json";
+
+	// 增量判断：tsconfig.json 未变化则跳过（MD5 缓存）
+	static godot::String cached_md5;
+	const godot::String current_md5 = godot::FileAccess::get_md5(kTsconfigPath);
+	if (current_md5.is_empty() || current_md5 == cached_md5) {
+		return;
+	}
+
+	const godot::String jsonc = godot::FileAccess::get_file_as_string(kTsconfigPath);
+	if (jsonc.is_empty()) {
+		return;
+	}
+
+	if (jsb::PathsMapping::generate_from_tsconfig(jsonc)) {
+		cached_md5 = current_md5;
+		// 通知 Runtime 重新加载（通过 BridgeTable）
+		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
+		if (bridge && bridge->refresh_paths_mapping != nullptr) {
+			bridge->refresh_paths_mapping();
+		}
+	}
+}
+#endif // JSB_USE_TYPESCRIPT
