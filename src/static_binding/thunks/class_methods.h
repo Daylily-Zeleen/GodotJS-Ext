@@ -34,11 +34,20 @@
 
 namespace jsb::static_binding::thunks {
 
-_FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method(const godot::StringName& p_class_name, const godot::StringName& p_method_name, uint32_t p_hash) {
+template <FixedString ClassLit, FixedString NameLit, uint32_t HashC>
+_FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method() {
+	static GDExtensionMethodBindPtr ret = ::godot::gdextension_interface::classdb_get_method_bind(
+			godot::StringName(ClassLit.value)._native_ptr(),
+			godot::StringName(NameLit.value)._native_ptr(),
+			(GDExtensionInt)HashC);
+	return ret;
+}
+
+_FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method(const godot::StringName &p_class_name, const godot::StringName &p_method_name, uint32_t p_hash) {
 	return ::godot::gdextension_interface::classdb_get_method_bind(
-					p_class_name._native_ptr(),
-					p_method_name._native_ptr(),
-					(GDExtensionInt)p_hash);
+			p_class_name._native_ptr(),
+			p_method_name._native_ptr(),
+			(GDExtensionInt)p_hash);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +69,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	static GDExtensionMethodBindPtr method_bind = resolve_class_method(godot::StringName(ClassLit.value), godot::StringName(NameLit.value), HashC);
+	GDExtensionMethodBindPtr method_bind = resolve_class_method<ClassLit, NameLit, HashC>();
 	if (!method_bind) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
