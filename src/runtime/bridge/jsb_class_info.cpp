@@ -227,7 +227,9 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 	// detect all exported properties (which annotated with @export_)
 	{
 		v8::Local<v8::Value> val_test;
-		if (prototype->HasOwnProperty(p_context, jsb_symbol(environment, ClassProperties)).ToChecked() && prototype->Get(p_context, jsb_symbol(environment, ClassProperties)).ToLocal(&val_test) && val_test->IsArray()) {
+		if (prototype->HasOwnProperty(p_context, jsb_symbol(environment, ClassProperties)).ToChecked()
+				&& prototype->Get(p_context, jsb_symbol(environment, ClassProperties)).ToLocal(&val_test)
+				&& val_test->IsArray()) {
 			const v8::Local<v8::Array> collection = val_test.As<v8::Array>();
 			const uint32_t len = collection->Length();
 			for (uint32_t index = 0; index < len; ++index) {

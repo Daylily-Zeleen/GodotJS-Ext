@@ -244,7 +244,7 @@ struct VariantBindFallbacks {
 				}
 
 				jsb_checkf(Variant::can_convert_strict(args[argument_index].get_type(), argument_type),
-						"Realm::can_convert_strict returned inconsistent type %s while %s is expected",
+						"Variant::can_convert_strict returned inconsistent type %s while %s is expected",
 						Variant::get_type_name(args[argument_index].get_type()),
 						Variant::get_type_name(argument_type));
 			}

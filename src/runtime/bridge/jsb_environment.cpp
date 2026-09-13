@@ -1733,7 +1733,12 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 		}
 
 		if (!TypeConvert::js_to_gd_var(isolate, context, value, p_info.type, r_val)) {
-			JSB_LOG(Error, "Failed to get property '%s' on a %s: Failed to convert result to a Godot type (%s)", p_info.name, p_info.class_name, UtilityFunctions::type_string(p_info.type));
+			JSB_LOG(Error,
+					"Failed to get property '%s' on a %s: Failed to convert result from js type (%s) to a Godot type (%s)",
+					p_info.name,
+					p_info.class_name,
+					TypeConvert::js_debug_typeof(isolate, value),
+					Variant::get_type_name(p_info.type));
 			return false;
 		}
 	} else {

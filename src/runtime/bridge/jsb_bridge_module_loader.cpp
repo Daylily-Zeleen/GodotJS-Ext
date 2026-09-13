@@ -213,7 +213,7 @@ void _add_script_rpc(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		rpc_config_map = val.As<v8::Map>();
 	}
 
-	rpc_config_map->Set(context, info[1], info[2]);
+	rpc_config_map->Set(context, info[1], info[2]).ToLocalChecked();
 	JSB_LOG(VeryVerbose, "script %s (rpc) %s", impl::Helper::to_string_opt(isolate, target->Get(context, jsb_name(environment, name))), impl::Helper::to_string(isolate, info[1]));
 }
 
