@@ -46,6 +46,7 @@ import {
     PackedVector4Array,
     PackedColorArray,
     Variant,
+    GAny,
 } from "godot";
 
 export const BUILTIN_CASES: CaseGroup[] = [
@@ -234,17 +235,29 @@ export const BUILTIN_CASES: CaseGroup[] = [
     // ---- Callable ----
     {
         group: "Callable",
-        makeTarget: () => new Callable(new Callable()),
+        makeTarget: () => Callable.create((...arg: GAny[]) => console.log("test Callble output:", GArray.create(arg))),
         cases: [
-            { name: "is_null(0)", fn: (t: any) => t["is_null"]() },
-            { name: "unbind(1)", fn: (t: any) => t["unbind"](1) },
+            { name: "is_null(0)", fn: (t: Callable) => t.is_null() },
+            { name: "unbind(1)", fn: (t: Callable) => t.unbind(1) },
+            // 以下对 Callable 的可变参数调用进行测试
+            { name: "call(vararg)", fn: (t: Callable) => t.call(1, "bench call") },
+            { name: "bind(2 vararg)", fn: (t: Callable) => t.bind(1, 2) },
+            /* JSCallable 不支持 rpc 特性，跳过相关测试 */
+            // { name: "rpc(vararg)", fn: (t: Callable) => t.rpc(1, "bench rpc") },
+            // { name: "rpc_id(1prefix+1tail)", fn: (t: Callable) => t.rpc_id(1, "bench rpc_id") },
+            /* call_deferred 不会立刻发生实际调用，在测试中会被更多次地调用以满足测试的最短时间，可能会撑爆 MessageQueue.
+               由于上面几个已经基本覆盖可变参数调用测试，在此不对 call_deferred 进行测试 */
+            // { name: "call_deferred(1prefix+1tail)", fn: (t: Callable) => t.call_deferred(1, "bench") },
         ],
     },
     // ---- Signal ----
     {
         group: "Signal",
         makeTarget: () => new Signal(new Signal()),
-        cases: [{ name: "is_null(0)", fn: (t: any) => t["is_null"]() }],
+        cases: [
+            { name: "is_null(0)", fn: (t: any) => t["is_null"]() },
+            { name: "emit(2 vararg)", fn: (t) => t["emit"](1, "x") },
+        ],
     },
     // ---- Dictionary ----
     {
