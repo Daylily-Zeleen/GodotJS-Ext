@@ -183,7 +183,9 @@ public:
 			if (i < arguments.size()) {
 				args_type[i] = arguments[i].type;
 			} else {
-				CRASH_COND(is_vararg_);
+#if DEBUG_ENABLED
+				CRASH_COND(!is_vararg_);
+#endif // DEBUG_ENABLED
 				args_type[i] = Variant::NIL;
 			}
 			// Meta
@@ -321,7 +323,9 @@ public:
 			if (i < arguments.size()) {
 				args_type[i] = arguments[i].type;
 			} else {
-				CRASH_COND(is_vararg_);
+#if DEBUG_ENABLED
+				CRASH_COND(!is_vararg_);
+#endif // DEBUG_ENABLED
 				args_type[i] = Variant::NIL;
 			}
 			// Meta
