@@ -60,19 +60,14 @@ struct FixedString {
 
 // ---------------------------------------------------------------------------
 // Default value for optional parameters, keyed by (C++ type, literal).
-// Parsed once per instantiation (magic static); STRING literals are used
-// verbatim, everything else goes through str_to_var -- the same rule the
-// dynamic path follows (api_tool_parser.cpp).
+// Parsed once per instantiation (magic static) through str_to_var -- the
+// same rule the dynamic path follows (api_tool_parser.cpp). The api json
+// stores every default in Variant construct-string form; String defaults
+// arrive quoted ("" / "region") and str_to_var decodes them like any
+// other type.
 template <typename T, FixedString Lit>
 inline const T &default_as() {
-	static const T value = []() -> T {
-		if constexpr (std::is_same_v<T, godot::String>) {
-			return T(Lit.value);
-		} else {
-			godot::Variant parsed = godot::UtilityFunctions::str_to_var(Lit.value);
-			return parsed;
-		}
-	}();
+	static const T value = godot::UtilityFunctions::str_to_var(Lit.value);
 	return value;
 }
 

@@ -242,13 +242,11 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 			// JSON stores these as string representations (e.g. "0", "true", "PackedByteArray()").
 			if (ad.has("default_value")) {
 				String dv_str = String(ad["default_value"]);
-				// For STRING-typed args, the value IS the literal string (JSON unescaped).
-				// For all other types, str_to_var converts Godot's string representation back to Variant.
-				if (pi.type == Variant::STRING) {
-					ami.method.default_arguments.push_back(Variant(dv_str));
-				} else {
-					ami.method.default_arguments.push_back(UtilityFunctions::str_to_var(dv_str));
-				}
+				// str_to_var converts Godot's construct-string representation
+				// back to a Variant for every type, STRING included: the dump
+				// writes String defaults quoted ("" / "region"), which decode
+				// through the same path as every other type.
+				ami.method.default_arguments.push_back(UtilityFunctions::str_to_var(dv_str));
 			}
 		}
 	}
