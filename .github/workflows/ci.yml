@@ -25,10 +25,71 @@
 
 name: CI
 
-env:
-  # Dependency versions - aligned with godot-cpp
-  EM_VERSION: 4.0.11
-  NDK_VERSION: r28b
+# Tool/environment version inputs - aligned with godot-cpp
+inputs:
+  # Python toolchain
+  python-version:
+    description: 'Python version'
+    type: string
+    default: '3.x'
+
+  # Node.js toolchain
+  node-version-file:
+    description: 'Node version file path'
+    type: string
+    default: '.node-version'
+  pnpm-version:
+    description: 'pnpm version'
+    type: string
+    default: '10.11.0'
+
+  # Android toolchain
+  java-version:
+    description: 'Java version for Android'
+    type: string
+    default: '17'
+  java-distribution:
+    description: 'Java distribution for Android'
+    type: string
+    default: 'temurin'
+
+  # SCons
+  scons-version:
+    description: 'SCons version'
+    type: string
+    default: '4.4.0'
+
+  # Android NDK (aligned with godot-cpp)
+  ndk-version:
+    description: 'Android NDK version (aligned with godot-cpp)'
+    type: string
+    default: 'r28b'
+
+  # Emscripten (aligned with godot-cpp)
+  em-version:
+    description: 'Emscripten version (aligned with godot-cpp)'
+    type: string
+    default: '4.0.11'
+
+  # Windows MinGW
+  mingw-version:
+    description: 'MinGW version for Windows/MinGW'
+    type: string
+    default: '12.2.0'
+
+  # Godot version for testing/benchmarks
+  godot-version:
+    description: 'Godot version for testing and benchmarks'
+    type: string
+    default: 'tags/4.7.1-stable'
+  godot-asset-linux:
+    description: 'Godot Linux asset filename'
+    type: string
+    default: 'Godot_v4.7.1-stable_linux.x86_64.zip'
+  godot-asset-windows:
+    description: 'Godot Windows asset filename'
+    type: string
+    default: 'Godot_v4.7.1-stable_win64.exe.zip'
 
 on:
   workflow_dispatch:
@@ -38,6 +99,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}|${{ github.ref_name }}
   cancel-in-progress: true
+
 jobs:
   environment:
     name: Set Environment
@@ -49,6 +111,8 @@ jobs:
 
       - name: Setup pnpm
         uses: ./.github/actions/pnpm-install
+        with:
+          pnpm-version: ${{ inputs.pnpm-version }}
 
       - name: Build JS runtime
         run: pnpm build
@@ -61,7 +125,6 @@ jobs:
           name: scripts-out
           path: ${{github.workspace}}/scripts/out
           retention-days: 1
-
 
 
   # Static-vs-dynamic binding benchmark (manual trigger only).
@@ -82,12 +145,14 @@ jobs:
 
       - name: Setup pnpm
         uses: ./.github/actions/pnpm-install
+        with:
+          pnpm-version: ${{ inputs.pnpm-version }}
 
       - name: Setup python + scons
         shell: bash
         run: |
           python3 --version || { sudo apt-get update && sudo apt-get install -y python3 python3-pip; }
-          python3 -m pip install --quiet scons
+          python3 -m pip install --quiet scons==${{ inputs.scons-version }}
           scons --version
 
       - name: Build GDExtension (static_binding=yes, release)
@@ -112,8 +177,8 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@1.1.2
         with:
           repo: godotengine/godot
-          version: tags/4.7.1-stable
-          file: Godot_v4.7.1-stable_linux.x86_64.zip
+          version: ${{ inputs.godot-version }}
+          file: ${{ inputs.godot-asset-linux }}
           target: godot/godot.zip
 
       - name: Extract Godot
@@ -376,10 +441,10 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.x'
+          python-version: ${{ inputs.python-version }}
 
       - name: Install SCons
-        run: pip install scons
+        run: pip install scons==${{ inputs.scons-version }}
 
       - name: Download JS runtime
         uses: actions/download-artifact@v8
@@ -420,21 +485,22 @@ jobs:
         if: matrix.platform == 'android'
         uses: actions/setup-java@v5
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
       - name: Setup Android NDK
         if: matrix.platform == 'android'
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: ${{ env.NDK_VERSION }}
+          ndk-version: ${{ inputs.ndk-version }}
           link-to-sdk: true
 
       - name: Setup Emscripten
         if: matrix.platform == 'web'
         uses: mymindstorm/setup-emsdk@v16
         with:
-          version: ${{ env.EM_VERSION }}
+          version: ${{ inputs.em-version }}
           actions-cache-folder: 'emsdk-cache'
+
       - name: Build GDExtension
         shell: bash
         run: |
@@ -602,6 +668,8 @@ jobs:
 
       - name: Setup pnpm
         uses: ./.github/actions/pnpm-install
+        with:
+          pnpm-version: ${{ inputs.pnpm-version }}
 
       - name: Build JS runtime
         run: pnpm build
@@ -630,7 +698,7 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@1.1.2
         with:
           repo: godotengine/godot
-          version: tags/4.7.1-stable
+          version: ${{ inputs.godot-version }}
           file: ${{ matrix.godot_asset }}
           target: godot/godot.zip
 
