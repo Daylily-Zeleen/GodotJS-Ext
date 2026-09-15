@@ -1409,12 +1409,6 @@ def emit_operator_pair_tables(m):
         L.append("")
 
     H = [
-         "// GENERATED FILE - DO NOT EDIT.",
-         "// SCons regenerates this on every static_binding=yes build; manual run:",
-         "//   python misc/build/static_binding_codegen.py \\",
-         "//       --input third/godot-cpp/gdextension/extension_api-4-7.json \\",
-         "//       --out src/static_binding/gen",
-         "//",
          "// Per-(left, operator) thunk-table declarations consumed by the",
          "// JSB_DEFINE_OVERLOADED_BINARY_BEGIN/COMPARATOR macros in",
          "// jsb_primitive_bindings_reflect.cpp (## pastes find_op_##type_lit##_##op_code).",
