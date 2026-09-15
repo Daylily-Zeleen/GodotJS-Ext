@@ -363,6 +363,26 @@ def _assert_byte_sorted(what, names):
 def default_count(ent):
     return sum(1 for a in ent["args"] if "default" in a)
 
+def _assert_default_layout(m):
+    """Safety net for the M template parameter semantics: class/builtin/utility
+    fixed-arity methods must carry tail-contiguous defaults (so
+    len(args) - default_count is the true minimum arity), and vararg fixed
+    prefixes must carry none (the vararg thunks hardcode M == F)."""
+    for what, lst in (("class", m.class_methods), ("builtin", m.builtin_methods), ("utility", m.utility_funcs)):
+        for e in lst:
+            label = "%s method %s" % (what, m.pool.strings[e["name_id"]])
+            if e.get("is_vararg"):
+                if any("default" in a for a in e["args"]):
+                    raise SystemExit(f"FATAL: {label} is vararg but its fixed prefix carries defaults")
+                continue
+            seen_default = False
+            for a in e["args"]:
+                if "default" in a:
+                    seen_default = True
+                elif seen_default:
+                    raise SystemExit(f"FATAL: {label} has non-tail-contiguous defaults")
+
+
 
 def collect(data, vt_map):
     m = Model()
@@ -748,7 +768,10 @@ def emit_registry_cpp(m):
 
 
 def arg_template_expr(a):
-    """json argument -> C++ parameter type for the direct-conversion layer.
+    """json argument -> BARE C++ parameter type for the direct-conversion
+    layer. Callers pack the results into Args<>/Defs<> wrappers: a thunk's
+    explicit template argument list cannot disambiguate two trailing
+    parameter packs, so each is carried in ONE class template argument.
 
     Class-method arguments follow the api json metadata: float/double via
     REAL_IS_FLOAT/REAL_IS_DOUBLE, int8..uint64 via the INT_* metadata.
@@ -774,27 +797,123 @@ def arg_template_expr(a):
             ct = "int64_t"
         else:
             ct = "godot::Object*"
-    if "default" in a:
-        return "Arg<%s, %s>" % (ct, cxx_str(a["default"]))
-    return "Arg<%s>" % ct
+    return ct
+
+
+def args_pack_expr(args):
+    """The FULL parameter type list (required first, optional tail
+    contiguous) wrapped in one Args<> class argument."""
+    return "Args<%s>" % ", ".join(arg_template_expr(a) for a in args)
+
+
+def _split_ctor_args(s):
+    """Split a construct-string argument list on top-level commas
+    (nesting-aware; quoted segments never split)."""
+    parts, depth, cur, in_str = [], 0, [], False
+    for ch in s:
+        if in_str:
+            cur.append(ch)
+            if ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            cur.append(ch)
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    if cur:
+        parts.append("".join(cur))
+    return parts
+
+
+_SCALAR_TOKEN = re.compile(r"^-?(?:\d+|\d+\.\d*|\.\d+|\d+(?:\.\d*)?[eE][+-]?\d+)$")
+
+
+def def_ctor_expr(a):
+    """json argument carrying a default -> one Def<...> descriptor whose
+    template argument is a NULLARY Ctor (make<T, auto...> / make_str<Lit>).
+
+    The json default_value token is the engine's GDScript construct-string
+    (extension_api_dump.cpp -> Variant::get_construct_string ->
+    VariantWriter::write_to_string): 'true' / '-1' / '1e-05' /
+    'Color(0, 0, 0, 0)' / '"region"' / 'null' -- NOT C++ syntax (e.g.
+    class-side tokens like 'Array[StringName]([])' are GDScript-only). This
+    translator maps the surface grammar onto a compile-time argument list so
+    the value materializes through T(args...) inside the magic static on
+    FIRST use (engine-side hooks are guaranteed ready by then) -- no
+    str_to_var anywhere. Forms outside the grammar abort the build loudly:
+    extending the emission surface is a deliberate act, never a silently
+    wrong value."""
+    t = a["type"]
+    ct = arg_template_expr(a)
+    tok = a["default"]
+    if t == "bool" and tok in ("true", "false"):
+        return "Def<make<bool, %s>>" % tok
+    if t == "int":
+        try:
+            return "Def<make<%s, %d>>" % (ct, int(tok))
+        except ValueError:
+            pass
+    if t == "float":
+        try:
+            return "Def<make<%s, %r>>" % (ct, float(tok))
+        except ValueError:
+            pass
+    if t in ["String", "StringName"]:
+        m = re.match(r'^"(.*)"$', tok, re.S)
+        if m:
+            return "Def<make_str<%s, %s>>" % (t, cxx_str(m.group(1)))
+    if t == "Variant" and tok == "null":
+        return "Def<make<godot::Variant>>"
+    m = re.match(r"^([A-Za-z_]\w*)\((.*)\)$", tok, re.S)
+    if m and m.group(1) == t:
+        parts = [p.strip() for p in _split_ctor_args(m.group(2))]
+        if not parts:
+            return "Def<make<%s>>" % ct
+        if all(_SCALAR_TOKEN.match(p) for p in parts):
+            return "Def<make<%s, %s>>" % (ct, ", ".join(parts))
+    raise SystemExit("FATAL: cannot translate default_value %r (json type %r) "
+                     "into a make<> Ctor expression; extend def_ctor_expr" % (tok, t))
+
+
+def defs_pack_expr(args):
+    """Default-value descriptors for the LAST k parameters (tail-contiguous
+    per _assert_default_layout): one Def<make<...>> / Def<make_str<...>> per
+    defaulted parameter (def_ctor_expr translates the json construct-string
+    into the nullary Ctor); the value materializes lazily through the magic
+    static on first use. default_arg_slot rebinds referential defaults
+    (Array/Dictionary) with a per-occurrence identifier at instantiation."""
+    defs = ", ".join(def_ctor_expr(a) for a in args if "default" in a)
+    return "Defs<%s>" % defs
 
 
 def ret_template_expr(t, usage=0, meta=None):
     """json return type (+optional metadata) -> Ret descriptor.
 
-    The descriptor carries the C++ SEMANTIC type; the ptrcall return buffer
-    type is derived from it via PtrToArg<CppT>::EncodeT (the engine widens
-    narrow ints to int64_t and float to double -- method_ptrcall.hpp).
+    `Ret<void>` for void/nil-without-NIL_IS_VARIANT, `Ret<godot::Variant>`
+    for Variant/typedarray/nil-with-NIL_IS_VARIANT (no static type hint),
+    otherwise the typed C++ SEMANTIC type; the ptrcall return buffer type is
+    derived from it through the specializable ReturnSlot<CppT> (typed ->
+    PtrToArg<CppT>::EncodeT -- the engine widens narrow ints to int64_t and
+    float to double, method_ptrcall.hpp; void -> a full godot::Variant slot).
     """
     if t in ("void", "null"):
-        return "RetVoid"
+        return "Ret<void>"
     if t == "nil":
         if usage & PROPERTY_USAGE_NIL_IS_VARIANT:
-            return "RetAny"
-        return "RetVoid"
+            return "Ret<godot::Variant>"
+        return "Ret<void>"
     if t == "Variant" or t.startswith("typedarray::"):
         # no static type hint; the value round-trips through godot::Variant
-        return "RetAny"
+        return "Ret<godot::Variant>"
     if t == "float":
         ct = FLOAT_META_TO_CPP.get(meta, "godot::real_t")
     elif t == "int" and meta in INT_META_TO_CPP:
@@ -805,15 +924,17 @@ def ret_template_expr(t, usage=0, meta=None):
         ct = "int64_t"  # enums/bitfields come back as integers
     else:
         ct = "godot::Object*"  # Object-derived engine class name (Button, ...)
-    if usage:
-        return "Ret<%s, 0x%xu>" % (ct, usage)
     return "Ret<%s>" % ct
 
 
 def builtin_entry_expr(m, e, is_utility=False):
     """One `<hash>[, name] -> thunk instantiation` expression."""
     name_lit = cxx_str(m.pool.strings[e["name_id"]])
-    args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
+    # fixed-arity thunks take both packs; vararg fixed prefixes carry no
+    # defaults (asserted at generation time), so they take Args<> only
+    packs = ", " + args_pack_expr(e["args"])
+    if not e.get("is_vararg"):
+        packs += ", " + defs_pack_expr(e["args"])
     tmpl_name = ("thunks::utility_vararg_function_thunk" if is_utility and e.get("is_vararg") else
                  "thunks::builtin_vararg_method_thunk" if e.get("is_vararg") else
                  "thunks::utility_function_thunk" if is_utility else
@@ -822,7 +943,7 @@ def builtin_entry_expr(m, e, is_utility=False):
     static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
     ret_expr = ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta"))
     return "(ThunkFn)&%s<%s%du, %s, %s%s%s>" % (
-                tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, args_exprs)
+                tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, packs)
 
 def emit_builtin_dispatch_cpp(m, op_tables=""):
     """Builtin-method dispatch: one resolver per Variant type, keyed by the
@@ -975,28 +1096,21 @@ def class_ident(name):
     return s
 
 
-def class_entry_expr(e, cname, extra=""):
-    name_lit = cxx_str(m.pool.strings[e["name_id"]])
-    cls_lit = cxx_str(cname)
-    args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
-    tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
-                 else "thunks::class_method_thunk")
-    return "%s<%du, %s, %s, %s, %s%s%s>" % (
-        tmpl_name, e["hash"], cls_lit, name_lit,
-        cxx_bool(e["is_static"]),
-        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0)), args_exprs, extra)
-
-
 def class_entry_expr(m, e, cname, extra=""):
     name_lit = cxx_str(m.pool.strings[e["name_id"]])
     cls_lit = cxx_str(cname)
-    args_exprs = "".join(", " + arg_template_expr(a) for a in e["args"])
+    # Class thunks carry NO default literals -- the engine MethodBind fills
+    # missing optional arguments. M (minimum arity) is the only
+    # default-derived datum they consume, as a template parameter.
+    args_exprs = ", " + args_pack_expr(e["args"])
     tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
                  else "thunks::class_method_thunk")
     ret_expr = ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta"))
-    return "%s<%du, %s, %s, %s, %s%s%s>" % (
+    return "%s<%du, %s, %s, %s, %d, %s%s%s>" % (
         tmpl_name, e["hash"], cls_lit, name_lit,
-        cxx_bool(e["is_static"]), ret_expr, args_exprs, extra)
+        cxx_bool(e["is_static"]),
+        len(e["args"]) - default_count(e), ret_expr, args_exprs, extra)
+
 
 
 def emit_class_dispatch_cpp(m):
@@ -1431,7 +1545,7 @@ def emit_ctor_dispatch(m):
         # consult.
         if has_zero:
             L.append("\tif (argc == 0) {")
-            L.append("\t\tthunks::builtin_ctor_thunk<%s, 0>(info);" % vt_value_to_enum(vt))
+            L.append("\t\tthunks::builtin_ctor_thunk<%s, 0, Args<>>(info);" % vt_value_to_enum(vt))
             L.append("\t\treturn;")
             L.append("\t}")
         # Probe every argument's Variant type ONCE into a stack array
@@ -1494,7 +1608,7 @@ def emit_ctor_dispatch(m):
                         else:
                             probe_checks.append("argts[%d] == %s" % (i, vt_value_to_enum(vt_name)))
                 cond = " && ".join(probe_checks) if probe_checks else "true"
-                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index)] + arg_exprs)
+                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index), "Args<%s>" % ", ".join(arg_exprs)])
                 if cond == "true":
                     L.append(f"\t\tthunks::builtin_ctor_thunk<{thunk_args}>(info);")
                     L.append("\t\treturn;")
@@ -1545,12 +1659,22 @@ def emit_ctor_dispatch(m):
 
 
 def emit_manifest(m, input_path, interface_path):
+    # Emitted default literals only: class thunks carry none (engine-side
+    # fill), so this counts the builtin/utility Defs<Def<make<...>>>
+    # instantiations. Mirror the emission-side String/StringName receiver
+    # skip (JS string aliases never get static builtin bindings) so the count
+    # reconciles with what dispatch_builtin.gen.cpp actually instantiates.
     uniq_defaults = set()
-    for lst in (m.builtin_methods, m.class_methods, m.utility_funcs):
-        for e in lst:
-            for a in e["args"]:
-                if "default" in a:
-                    uniq_defaults.add((a["type"], a["default"]))
+    for e in m.builtin_methods:
+        if m.vt_names[e["vt"]] in ("String", "StringName"):
+            continue
+        for a in e["args"]:
+            if "default" in a:
+                uniq_defaults.add((a["type"], a["default"]))
+    for e in m.utility_funcs:
+        for a in e["args"]:
+            if "default" in a:
+                uniq_defaults.add((a["type"], a["default"]))
 
     def sha12(path):
         with open(path, "rb") as f:
@@ -1602,6 +1726,7 @@ def main():
         data = json.load(f)
 
     m = collect(data, vt_map)
+    _assert_default_layout(m)
     op_tables, op_tables_h = emit_operator_pair_tables(m)
     ctor_tables, _ = emit_ctor_dispatch(m)  # ctor resolvers stay internal to
     # dispatch_builtin.gen.cpp; find_ctor_adapter (the only external ctor

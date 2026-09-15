@@ -44,7 +44,7 @@ namespace internal {
 // user needs to see "what I passed didn't match any overload". jsb_errorf /
 // jsb::internal::format take Variant-convertible values directly, so no
 // .utf8().get_data() is needed here.
-_FORCE_INLINE_ void throw_no_suitable_ctor(
+void throw_no_suitable_ctor(
 		godot::Variant::Type p_target, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	godot::String detail;
 	for (int i = 0; i < info.Length(); ++i) {
@@ -54,8 +54,7 @@ _FORCE_INLINE_ void throw_no_suitable_ctor(
 				? godot::String("(unknown)")
 				: static_cast<godot::String>(godot::Variant::get_type_name(vt));
 	}
-	jsb_throw(info.GetIsolate(), jsb_errorf("no suitable constructor for %s (received %d arg(s): %s)",
-			godot::Variant::get_type_name(p_target), info.Length(), detail));
+	jsb_throw(info.GetIsolate(), jsb_errorf("no suitable constructor for %s (received %d arg(s): %s)", godot::Variant::get_type_name(p_target), info.Length(), detail));
 }
 
 } // namespace internal
@@ -74,38 +73,38 @@ _FORCE_INLINE_ void throw_no_suitable_ctor(
 //     marshal_one/PtrToArg args -- NOT api_tool (no var_to_arg_ptr /
 //     arg_ptr_to_var / MaxSizeEncodeArgType).
 //   - strict arity: constructors have no default arguments in the api json,
-//     so info.Length() must equal sizeof...(ArgsT) exactly.
-template <godot::Variant::Type VTC, int32_t CtorIndex, typename... ArgsT>
+//     so info.Length() must equal the Args<> pack size exactly.
+template <godot::Variant::Type VTC, int32_t CtorIndex, class AllArgsT>
 void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using TargetCppT = VariantNativeType_t<VTC>;
+	using AllArgsTuple = typename AllArgsT::tuple;
 	v8::Isolate *isolate = info.GetIsolate();
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	// TargetCppT (above) resolves the constructed builtin's C++ type from VTC.
 
 	// engine constructor pointer, resolved once per (type, index) pair
 	static const GDExtensionPtrConstructor ctor = ::godot::gdextension_interface::variant_get_ptr_constructor(
-				(GDExtensionVariantType)VTC, CtorIndex);
+			(GDExtensionVariantType)VTC, CtorIndex);
 	if (!ctor) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin constructor %s (index %d)",
-				godot::Variant::get_type_name(VTC), CtorIndex));
-		jsb_throw(isolate, jsb_errorf("missing builtin constructor: %s (index %d)",
-				godot::Variant::get_type_name(VTC), CtorIndex));
+				godot::Variant::get_type_name(VTC),
+				CtorIndex));
+		jsb_throw(isolate, jsb_errorf("missing builtin constructor: %s (index %d)", godot::Variant::get_type_name(VTC), CtorIndex));
 		return;
 	}
 
-	constexpr int N = (int)sizeof...(ArgsT);
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
 	if (info.Length() != N) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s constructor expects %d, got %d",
-				godot::Variant::get_type_name(VTC), N, (int)info.Length()));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s constructor expects %d, got %d", godot::Variant::get_type_name(VTC), N, (int)info.Length()));
 		return;
 	}
 
 	// marshal every argument into a typed ptrcall slot (godot-cpp native
 	// mechanism, identical to builtin_method_thunk -- no api_tool encode).
-	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
+	typename AllArgsT::encode_slots slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(slots), N)) && ...);
+		(void)((ok = marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), N)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return; // marshal_one already jsb_threw

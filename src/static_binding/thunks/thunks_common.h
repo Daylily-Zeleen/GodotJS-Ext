@@ -35,7 +35,6 @@
 
 #	include <godot_cpp/classes/global_constants.hpp>
 #	include <godot_cpp/variant/string_name.hpp>
-#	include <godot_cpp/variant/utility_functions.hpp>
 #	include <godot_cpp/variant/variant.hpp>
 #	include <godot_cpp/variant/variant_internal.hpp>
 
@@ -58,57 +57,133 @@ struct FixedString {
 	}
 };
 
+template <typename... Arg>
+struct ExtraIdentifier {};
+
+/**
+ * @brief 类函数的默认值
+ *
+ * @tparam Ctor 默认值构造器（如 make<godot::Vector2, 0, 1> / make_str<Lit>）；只在首次 get()/get_encoded_ptr() 时调用（magic static 懒初始化），因此扩展 dll 静态初始化期不要求 godot 侧接口就绪
+ * @tparam **ExtraIdentifier** 额外的形参用于显示实例化，用于防止引用类型默认值出现潜在的互相干扰。
+ */
+template <auto Ctor, typename ExtraIdentifierT = void, typename T = std::invoke_result_t<decltype(Ctor)>, std::enable_if_t<!std::is_same_v<T, void>> *_dummy = nullptr>
+struct Def {
+	using EncodedT = typename godot::PtrToArg<T>::EncodeT;
+	using type = T;
+
+	template <typename IdT>
+	using rebind = Def<Ctor, IdT>;
+
+	static T &get() {
+		static type value = Ctor();
+		return value;
+	}
+
+	static void *get_encoded_ptr() {
+		if constexpr (std::is_same_v<T, EncodedT>) {
+			return &get();
+		} else {
+			static EncodedT value = [] {
+				EncodedT ret;
+				godot::PtrToArg<T>::encode(Ctor(), &ret);
+				return ret;
+			}();
+			return &value;
+		}
+	}
+};
+
+template <typename T, auto... Args>
+T make() { return T(Args...); }
+
+template <typename T, FixedString Lit, std::enable_if_t<std::is_same_v<T, godot::String> || std::is_same_v<T, godot::StringName>> *_dummy = nullptr>
+T make_str() { return T(Lit.value); }
+
 // ---------------------------------------------------------------------------
-// Default value for optional parameters, keyed by (C++ type, literal).
-// Parsed once per instantiation (magic static) through str_to_var -- the
-// same rule the dynamic path follows (api_tool_parser.cpp). The api json
-// stores every default in Variant construct-string form; String defaults
-// arrive quoted ("" / "region") and str_to_var decodes them like any
-// other type.
-template <typename T, FixedString Lit>
-inline const T &default_as() {
-	static const T value = godot::UtilityFunctions::str_to_var(Lit.value);
-	return value;
+// Parameter information packs emitted by the code generator. A thunk's
+// explicit template argument list cannot disambiguate two trailing parameter
+// packs, so each is wrapped in ONE class template argument:
+//   Args<Variant, String, int>          the FULL parameter type list
+//                                       (required first, optional tail
+//                                       contiguous)
+//   Defs<Def<make<int64_t, 0>>,         default-value descriptors for the
+//         Def<make<godot::String>>,     LAST sizeof...(Ds) parameters
+//         Def<make<godot::Color, 1, 1, 1, 1>>>
+//                                       (M = N - sizeof...(Ds)); each
+//                                       descriptor carries one nullary Ctor
+//                                       (compile-time argument list),
+//                                       lazily invoked once per slot -- no
+//                                       str_to_var anywhere
+template <typename... Ts>
+struct Args {
+	using tuple = std::tuple<Ts...>;
+	using encode_slots = std::tuple<typename godot::PtrToArg<Ts>::EncodeT...>;
+};
+
+template <typename... Ds>
+struct Defs {
+	static constexpr std::size_t count = sizeof...(Ds);
+	using tuple = std::tuple<Ds...>;
+};
+
+template <typename T>
+using VariantEncodeType = typename godot::PtrToArg<T>::EncodeT;
+
+namespace internal {
+template <typename VarT>
+static _FORCE_INLINE_ bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, VarT &&p_ret_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
+	v8::Local<v8::Value> jrval;
+	if (!TypeConvert::gd_var_to_js(p_isolate, p_context, std::forward<VarT>(p_ret_val), jrval)) {
+		jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
+		return false;
+	}
+	p_info.GetReturnValue().Set(jrval);
+	return true;
 }
 
-// ---------------------------------------------------------------------------
-// Parameter descriptor emitted by the code generator:
-//   Arg<godot::Vector2>            required parameter, converted directly to
-//                                  the strongly-typed value via try_js_to_gd
-//   Arg<int64_t, "-1">             optional, filled from a per-(type,literal)
-//                                  default singleton when missing
-template <typename T_, FixedString Def = FixedString("")>
-struct Arg {
-	using gd_type = T_;
-	static constexpr bool has_default = Def.length > 0;
-	static constexpr FixedString def = Def;
-};
+} //namespace internal
 
-// ---------------------------------------------------------------------------
-// Return descriptor.
-//   RetVoid               json void/nil -- no return value
-//   RetAny                json "Variant" / typedarray (no static type hint)
-//   Ret<CppT>             typed return carrying the C++ semantic type the
-//                         codegen resolved from the api json: class methods
-//                         follow the argument metadata (float/double,
-//                         int8..uint64), builtin/utility follow godot-cpp
-//                         conventions (float -> real_t, int -> int64_t).
-struct RetVoid {
-	static constexpr bool has_return = false;
-	// unused (has_return == false); keeps ReturnEncodeType well-formed
-	using cpp_type = godot::Variant;
-};
-
-struct RetAny {
-	static constexpr bool has_return = true;
-	using cpp_type = godot::Variant;
-};
-
-template <typename CppT_, uint64_t Usage_ = 0>
+// Return descriptor (the codegen emits Ret<void> / Ret<godot::Variant> /
+// Ret<CppT>).
+//   type         : the semantic C++ return type resolved from the api json
+//   encoded_type : the ptrcall return-slot layout, PtrToArg<T>::EncodeT.
+//                  Builtin/utility thunks declare their return buffer as
+//                  this type (the engine writes the EncodeT layout into
+//                  it); the class family is the exception --
+//                  object_method_bind_call always writes a complete
+//                  Variant, so class thunks use a plain godot::Variant
+//                  slot and RetT is compile-time metadata only.
+template <typename T>
 struct Ret {
-	using cpp_type = CppT_;
-	static constexpr uint64_t usage = Usage_;
-	static constexpr bool has_return = true;
+	static constexpr bool has_return = !std::is_same_v<T, void>;
+	using type = T;
+	using encoded_type = VariantEncodeType<T>;
+
+	// ReturnBufT is the caller's actual slot type (deduced at the call
+	// site): godot::Variant for class thunks and Ret<godot::Variant> (the
+	// engine wrote a complete Variant there), typename RetT::encoded_type
+	// for builtin/utility ptrcall thunks (raw EncodeT buffer, decoded
+	// through the ptrcall contract).
+	template <class ReturnBufT>
+	static _FORCE_INLINE_ void translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context,
+			ReturnBufT &p_ret_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
+		if constexpr (has_return) {
+			if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
+				internal::translate_return(p_isolate, p_context, p_ret_val, p_info);
+			} else {
+				internal::translate_return(p_isolate, p_context, Variant(godot::PtrToArg<type>::convert(&p_ret_val)), p_info);
+			}
+		}
+	}
+};
+
+template <>
+struct Ret<void> {
+	static constexpr bool has_return = false;
+	using type = void;
+	// unused (has_return == false): builtin/utility thunks still declare a
+	// slot of this type, which the engine never writes for void returns
+	using encoded_type = godot::Variant;
 };
 
 // ---------------------------------------------------------------------------
@@ -324,20 +399,6 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 }
 
 // ---------------------------------------------------------------------------
-// ptrcall ENCODE type (what the engine actually reads/writes through
-// GDExtensionPtrBuiltInMethod / PtrToArg<T>::EncodeT).
-//
-// The engine's variant ptrcall ABI widens unconditionally (method_ptrcall.h):
-//   bool   -> uint8_t       narrow ints -> int64_t (sign/zero extended)
-//   float  -> double        Variant::FLOAT stores double internally
-// Only POD math structs (Vector2, Color, ...) and ref-counted handles pass
-// through directly. This is INDEPENDENT from the semantic member type above:
-// e.g. Vector2::x is a real_t member, but its builtin-method arguments and
-// every Variant::FLOAT ptrcall slot are still double.
-template <typename CppT>
-using VariantEncodeType = typename godot::PtrToArg<CppT>::EncodeT;
-
-// ---------------------------------------------------------------------------
 // Compile-time opaque-pointer fetch: VTC is a template parameter, so
 // dispatching through VariantInternal::get_opaque_pointer's runtime switch
 // would be pure overhead. Mirrors that switch exactly.
@@ -428,20 +489,14 @@ _FORCE_INLINE_ static void *get_opaque_typed(godot::Variant *self) {
 }
 
 // ---------------------------------------------------------------------------
-// ptrcall return-slot type: the engine reads/writes the return through
-// PtrToArg<CppT>::EncodeT (method_ptrcall.hpp widens narrow ints to int64_t,
-// float to double, bool to uint8_t). RetAny decodes from a full Variant slot.
-template <class RetT>
-using ReturnEncodeType = VariantEncodeType<typename RetT::cpp_type>;
-
-// ---------------------------------------------------------------------------
 // Marshaling helpers.
 
-// Produce one strongly-typed value from the JS arguments (conversion,
-// default-fill, or error). This is the single conversion entry point shared
-// by every thunk shape.
-template <class ArgT>
-inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename ArgT::gd_type &out, int provided) {
+// Produce one strongly-typed value from the JS arguments (conversion or
+// error). This is the single conversion entry point shared by every thunk
+// shape. Callers marshal only caller-provided positions (i < provided);
+// reaching here with i >= provided is a missing REQUIRED argument.
+template <class T>
+inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, T &out, int provided) {
 	if (i < provided) {
 		if (!try_js_to_gd(p_isolate, p_context, info[i], out)) {
 			jsb_throw(p_isolate, jsb_errorf("bad argument %d: got %s", i, TypeConvert::js_debug_typeof(p_isolate, info[i])));
@@ -449,24 +504,20 @@ inline bool produce_value(v8::Isolate *p_isolate, const v8::Local<v8::Context> &
 		}
 		return true;
 	}
-	if constexpr (ArgT::has_default) {
-		out = default_as<typename ArgT::gd_type, ArgT::def>();
-		return true;
-	}
 	jsb_throw(p_isolate, jsb_errorf("missing argument %d", i));
 	return false;
 }
 
-// Variant-slot flavor: typed conversion into a local gd_type first, then a
+// Variant-slot flavor: typed conversion into a local typed value first, then
 // convert-assign into the Variant slot. godot-cpp's Variant(T) constructors
 // always copy on the engine side (from_type_constructor takes the native
 // pointer), so move semantics change nothing here; the point of this flavor
 // is that the slot itself is a plain RAII Variant and needs no hand-rolled
 // destruction on failure paths.
-template <class ArgT>
+template <class T>
 inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, godot::Variant &out, int provided) {
-	typename ArgT::gd_type value{};
-	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
+	T value{};
+	if (!produce_value<T>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
 	}
 	out = std::move(value);
@@ -475,46 +526,47 @@ inline bool produce_variant(v8::Isolate *p_isolate, const v8::Local<v8::Context>
 
 // ptrcall flavor: produce the value and encode it into a raw argument slot
 // through godot-cpp's ptrcall contract.
-template <class ArgT>
-inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename godot::PtrToArg<typename ArgT::gd_type>::EncodeT &slot, int provided) {
-	typename ArgT::gd_type value{};
-	if (!produce_value<ArgT>(p_isolate, p_context, info, i, value, provided)) {
+template <class T>
+inline bool marshal_one(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::FunctionCallbackInfo<v8::Value> &info, int i, typename godot::PtrToArg<T>::EncodeT &slot, int provided) {
+	T value{};
+	if (!produce_value<T>(p_isolate, p_context, info, i, value, provided)) {
 		return false;
 	}
-	godot::PtrToArg<typename ArgT::gd_type>::encode(value, &slot);
+	godot::PtrToArg<T>::encode(value, &slot);
 	return true;
 }
 
+template <typename T>
+concept GDReferentialBuiltinType = std::is_base_of_v<godot::Array, T> || std::is_base_of_v<godot::Dictionary, T>;
+
 // ---------------------------------------------------------------------------
-// Return value translation.
-//   RetVoid               : no return at all
-//   class-method ABI      : ReturnBufT is godot::Variant and the engine
-//                           wrote a complete Variant (RetT is compile-time
-//                           metadata)
-//   ptrcall ABI           : ReturnBufT is the raw encode buffer; decode
-//                           through PtrToArg<RetT::cpp_type>::convert
-template <class RetT, class ReturnBufT>
-inline bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ReturnBufT &ret_val, const v8::FunctionCallbackInfo<v8::Value> &info) {
-	if constexpr (!RetT::has_return) {
-		return true;
-	} else if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
-		v8::Local<v8::Value> jrval;
-		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret_val, jrval)) {
-			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
-			return false;
-		}
-		info.GetReturnValue().Set(jrval);
-		return true;
-	} else {
-		godot::Variant ret = godot::PtrToArg<typename RetT::cpp_type>::convert(&ret_val);
-		v8::Local<v8::Value> jrval;
-		if (!TypeConvert::gd_var_to_js(p_isolate, p_context, ret, jrval)) {
-			jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
-			return false;
-		}
-		info.GetReturnValue().Set(jrval);
-		return true;
-	}
+// Pre-encoded default argument slot for ptrcall thunks (§4.0-A): one EncodeT
+// per (method, position), magic-static initialized on first use through the
+// Def descriptor's nullary Ctor (make<>/make_str<>) + PtrToArg::encode --
+// the same single conversion the provided positions go through, paid once
+// instead of per call. The Ctor only runs on first use, so engine-side hooks
+// are guaranteed ready (no static-init-order dependency).
+//
+// Referential defaults (Array/Dictionary) additionally key the slot with an
+// ExtraIdentifier (position + the two signature packs) so every occurrence
+// is isolated (OQ3): a callee mutating the default value in place never
+// leaks into another method sharing the same (type, literal) pair. Value
+// defaults (IdentifierT == void) keep the slot in the emitted Defs member
+// instantiation itself.
+//
+// Only instantiated for optional positions (I >= M) by the callers' split
+// wiring folds; a required position reaching here is a codegen bug and
+// trips the static_assert.
+template <std::size_t I, int M, class AllArgsT, class DefsT>
+_FORCE_INLINE_ void *default_arg_slot() {
+	static_assert(I >= (std::size_t)M, "default_arg_slot instantiated for a required position");
+	using DefT = std::tuple_element_t<I - (std::size_t)M, typename DefsT::tuple>;
+	using IdentifierT = std::conditional_t<
+			GDReferentialBuiltinType<typename DefT::type>,
+			ExtraIdentifier<std::integral_constant<std::size_t, I>, AllArgsT, DefsT>,
+			void>;
+	using ReboundDefT = typename DefT::template rebind<IdentifierT>;
+	return ReboundDefT::get_encoded_ptr();
 }
 } // namespace jsb::static_binding
 

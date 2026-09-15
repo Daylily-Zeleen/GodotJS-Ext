@@ -53,17 +53,21 @@ _FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method(const godot::String
 // ---------------------------------------------------------------------------
 // Fixed-arity class method (§4.0-A).
 //
-// MISSING DEFAULTS ARE *NOT* FILLED HERE: json default_value strings are
-// lossy for String-typed parameters (type_hint's "" arrives as two quote
-// chars), while the engine MethodBind carries the authoritative defaults.
-// The dynamic path does the same -- it passes the caller-supplied argc and
-// lets object_method_bind_call apply engine-side defaults. Only the
-// caller-provided arguments are marshaled; argc == provided.
-template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
+// MISSING DEFAULTS ARE *NOT* FILLED HERE: the engine MethodBind carries the
+// authoritative defaults and object_method_bind_call applies them -- the
+// dynamic path does the same. Only the caller-provided arguments are
+// marshaled; argc == provided.
+//
+// M (minimum argument count) is a template parameter: the arity check below
+// is a real safety duty because the engine's missing-argument defense is
+// DEBUG-only (a release build called with fewer than M args would read out
+// of bounds past the provided args). The json default literals are NOT
+// emitted for class thunks at all -- M is the only default-derived datum
+// they consume (static_binding_codegen.py class_entry_expr).
+template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, int M, class RetT, class AllArgsT>
 void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	constexpr int N = (int)sizeof...(ArgsT);
-	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
-	constexpr int M = N - D;
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
 
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -98,10 +102,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && (sizeof...(ArgsT) <= (size_t)provided
-				|| (int)I < provided
-				? produce_variant<ArgsT>(isolate, context, info, (int)I, argv[I], provided)
-				: true)) && ...);
+		(void)((ok = ok && (N <= (int)provided || (int)I < provided ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return; // JS exception already thrown by produce_variant
@@ -118,18 +119,20 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. engine error %d", ClassLit.value, NameLit.value, (int)call_error.error));
 		return;
 	}
-	translate_return<RetT>(isolate, context, ret, info);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret, info);
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Vararg class method (§4.0-B): fixed prefix unrolled, only the tail loops.
-// Defaults are engine-side (see the fixed-arity comment above): the fixed
-// prefix is marshaled only up to min(provided, F).
-template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
+// Defaults are engine-side (see the fixed-arity comment above); the codegen
+// asserts the fixed prefix carries none, so M == F.
+template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, int M, class RetT, class AllArgsT>
 void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	constexpr int F = (int)sizeof...(ArgsT);
-	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
-	constexpr int M = F - D;
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int F = (int)std::tuple_size_v<AllArgsTuple>;
 
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -158,15 +161,13 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 
 	// fixed prefix: Variant slots (the MethodBind ABI takes const Variant*),
 	// held in an RAII tuple so failure paths need no hand-rolled cleanup.
-	// Typed conversion goes to a local gd_type inside produce_variant, then
+	// Typed conversion goes to a local typed value inside produce_variant, then
 	// converts into the slot.
 	std::array<godot::Variant, F> prefix;
 	const int fixed_count = provided < F ? provided : F;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && ((int)I < fixed_count
-				? produce_variant<ArgsT>(isolate, context, info, (int)I, prefix[I], provided)
-				: true)) && ...);
+		(void)((ok = ok && ((int)I < fixed_count ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, prefix[I], provided) : true)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;
@@ -213,7 +214,10 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. engine error %d", ClassLit.value, NameLit.value, (int)call_error.error));
 		return;
 	}
-	translate_return<RetT>(isolate, context, ret, info);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret, info);
+	}
 }
 
 } // namespace jsb::static_binding::thunks

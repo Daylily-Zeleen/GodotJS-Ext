@@ -28,7 +28,9 @@
 #if JSB_WITH_STATIC_BINDINGS
 
 #	include "thunks_common.h"
+
 #	include <godot_cpp/variant/variant_internal.hpp>
+#	include <array>
 
 namespace jsb::static_binding::thunks {
 
@@ -42,11 +44,11 @@ _FORCE_INLINE_ GDExtensionPtrBuiltInMethod resolve_builtin_method(godot::Variant
 // ---------------------------------------------------------------------------
 // Fixed-arity builtin method (§4.0-A). Parameters marshaled into ptrcall slots
 // via a std::tuple so every slot outlives the fn() call.
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class AllArgsT, class DefsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	constexpr int N = (int)sizeof...(ArgsT);
-	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
-	constexpr int M = N - D;
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
+	constexpr int M = N - (int)DefsT::count;
 
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -55,7 +57,8 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	static const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method(VTC, godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
-				godot::Variant::get_type_name(VTC), NameLit.value));
+				godot::Variant::get_type_name(VTC),
+				NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(VTC), NameLit.value));
 		return;
 	}
@@ -78,33 +81,48 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// marshal into ptrcall slots (tuple outlives fn call)
-	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> slots;
+	// marshal caller-provided positions into the ptrcall slots (tuple
+	// outlives the fn() call). Missing optional positions skip the tuple
+	// entirely: arg_ptrs below wires them straight to the pre-encoded
+	// default slots.
+	typename AllArgsT::encode_slots slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(slots), provided)) && ...);
+		(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return;
 	}
 
 	void *arg_ptrs[N > 0 ? N : 1];
+	// required prefix [0, M): the arity check guarantees these are provided
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
-	}(std::make_index_sequence<N>{});
+	}(std::make_index_sequence<M>{});
+	// optional tail [M, N): provided -> typed slot, missing -> pre-encoded
+	// default slot (default_arg_slot is never instantiated for required
+	// positions)
+	[&]<std::size_t... J>(std::index_sequence<J...>) {
+		((void)(arg_ptrs[M + J] = (int)(M + J) < provided
+						 ? (void *)&std::get<M + J>(slots)
+						 : default_arg_slot<M + J, M, AllArgsT, DefsT>()),
+				...);
+	}(std::make_index_sequence<N - M>{});
 
-	ReturnEncodeType<RetT> ret_val{};
+	typename RetT::encoded_type ret_val{};
 	fn(base_ptr, arg_ptrs, &ret_val, N);
-	translate_return<RetT>(isolate, context, ret_val, info);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Vararg builtin method (§4.0-B).
-template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class... ArgsT>
+template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class AllArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	constexpr int F = (int)sizeof...(ArgsT);
-	constexpr int D = (0 + ... + (ArgsT::has_default ? 1 : 0));
-	constexpr int M = F - D;
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int F = (int)std::tuple_size_v<AllArgsTuple>;
 
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -113,14 +131,15 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 	static const GDExtensionPtrBuiltInMethod fn = resolve_builtin_method(VTC, godot::StringName(NameLit.value), HashC);
 	if (!fn) {
 		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s",
-				godot::Variant::get_type_name(VTC), NameLit.value));
+				godot::Variant::get_type_name(VTC),
+				NameLit.value));
 		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(VTC), NameLit.value));
 		return;
 	}
 
 	const int provided = (int)info.Length();
-	if (provided < M) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(VTC), NameLit.value, M, provided));
+	if (provided < F) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(VTC), NameLit.value, F, provided));
 		return;
 	}
 
@@ -136,11 +155,16 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// fixed prefix slots
-	std::tuple<typename godot::PtrToArg<typename ArgsT::gd_type>::EncodeT...> prefix_slots;
+	// fixed prefix: Variant slots. The engine's vararg ptrcall contract
+	// (VARARG_CLASS / VARARG_CLASS1 in variant_call.cpp) converts EVERY
+	// argument slot through PtrToArg<Variant>::convert, so the fixed prefix
+	// is boxed into Variants exactly like the tail (unlike fixed-arity
+	// builtin thunks, whose slots carry the typed EncodeT layout).
+	std::array<godot::Variant, F> prefix;
+	const int fixed_count = provided < F ? provided : F;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = marshal_one<ArgsT>(isolate, context, info, (int)I, std::get<I>(prefix_slots), provided)) && ...);
+		(void)((ok = ok && ((int)I < fixed_count ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, prefix[I], provided) : true)) && ...);
 	}(std::make_index_sequence<F>{});
 	if (!ok) {
 		return;
@@ -163,22 +187,22 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 
 	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix_slots)), ...);
+		((void)(arg_ptrs[I] = (void *)&prefix[I]), ...);
 	}(std::make_index_sequence<F>{});
 	for (int i = F; i < argc; ++i) {
 		arg_ptrs[i] = &tail_args[i - F];
 	}
 
-	ReturnEncodeType<RetT> ret_val{};
-	for (int _i = 0; _i < argc && _i < 64; ++_i) {
-		arg_ptrs[_i] = nullptr;
-	}
+	typename RetT::encoded_type ret_val{};
 	fn(base_ptr, arg_ptrs, &ret_val, argc);
 
 	for (int i = F; i < argc; ++i) {
 		tail_args[i - F].~Variant();
 	}
-	translate_return<RetT>(isolate, context, ret_val, info);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
 }
 
 } // namespace jsb::static_binding::thunks

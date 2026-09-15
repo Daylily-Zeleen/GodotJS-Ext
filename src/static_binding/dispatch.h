@@ -25,10 +25,16 @@
 
 #pragma once
 
+/**
+ * Builtin 族的下标访问器和键访问器目前不受支持（Array, PackedXXXArray, Dictionary）,
+ * JS 不能自定义下标访问器，除非使用 Proxy 进行模拟。
+ * 并且相关类型已经有 get(idx/key) set(idx/key, value) 访问器，因此不对其进静态绑定进行实现。
+ */
+
 #if JSB_WITH_STATIC_BINDINGS
 
-#include <cstdint>
-#include <godot_cpp/variant/variant.hpp>
+#	include <cstdint>
+#	include <godot_cpp/variant/variant.hpp>
 
 // forward declarations only -- pulling in the full v8 header here would leak
 // engine-specific include paths into every translation unit including this one.
@@ -37,7 +43,7 @@ template <class T>
 class FunctionCallbackInfo;
 class Value;
 } // namespace v8
-#include <godot_cpp/variant/string_name.hpp>
+#	include <godot_cpp/variant/string_name.hpp>
 
 namespace godot {
 class StringName;
@@ -52,7 +58,7 @@ using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 // constructor resolvers (find_ctor_<Type>) are internal to
 // dispatch_builtin.gen.cpp -- the only external ctor entry is
 // find_ctor_adapter, declared below alongside the find_builtin_* resolvers.
-#include "gen/builtin_operator_tables.gen.h"
+#	include "gen/builtin_operator_tables.gen.h"
 
 // A single indexed property lookup yields BOTH accessor thunks: the getter
 // and setter of one property always share the same (class, property) entry,
@@ -83,19 +89,19 @@ const ThunkFn find_ctor_adapter(godot::Variant::Type p_vt);
 // Same for utility functions.
 const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash);
 
-
 // Object-derived class methods: p_class is the engine class name
 // (e.g. "Node"), p_name disambiguates same-hash overloads, hash is the
 // official method hash.
 const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
-        const godot::StringName &p_name, uint32_t p_hash);
+		const godot::StringName &p_name,
+		uint32_t p_hash);
 
 // Indexed property accessors (P3): one thunk per (property side); the
 // constant index lives on the accessor, not on the shared backing method.
 // p_name is the PROPERTY name as exposed in the api json. Either side may be
 // null when the api json does not provide the corresponding accessor method.
 const IndexedPropertyThunks find_indexed_property_thunk(const godot::StringName &p_class,
-        const godot::StringName &p_name);
+		const godot::StringName &p_name);
 
 } // namespace jsb::static_binding
 

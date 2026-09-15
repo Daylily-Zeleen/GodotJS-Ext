@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "C++ 双套件与 TS 集成验收命令、官方稳定版 headless 纪律与陷阱（api 数据生成步骤）"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "doctest 纪律（如需 C++ 侧断言）"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": ".d.ts/gen 基线纪律——String 修复改变渲染输出，基线需重采并核对"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "构建命令组合与禁止事项"}

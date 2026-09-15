@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "EncodeT/PtrToArg::encode 契约与 produce/marshal 分层——builtin 槽预编码与死码清理必须遵守"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "*.gen.* 只改 codegen 发射逻辑（static_binding_codegen.py），禁手编、禁 scons --clean"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "thunk 模板/头文件改动规范（class_methods.h/builtin_methods.h/thunks_common.h）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "静态/动态双路径架构约束——api_tool_parser 修复不得破坏 dynamic 语义"}
