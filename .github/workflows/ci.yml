@@ -25,6 +25,11 @@
 
 name: CI
 
+env:
+  # Dependency versions - aligned with godot-cpp
+  EM_VERSION: 4.0.11
+  NDK_VERSION: r28b
+
 on:
   workflow_dispatch:
   pull_request:
@@ -33,7 +38,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}|${{ github.ref_name }}
   cancel-in-progress: true
-
 jobs:
   environment:
     name: Set Environment
@@ -417,27 +421,19 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
+      - name: Setup Android NDK
         if: matrix.platform == 'android'
-        uses: android-actions/setup-android@v4
-
-      - name: Install Android NDK
-        if: matrix.platform == 'android'
-        run: |
-          # Install NDK 28.1.13356709 (default version in godot-cpp)
-          sdkmanager "ndk;28.1.13356709"
-          # Set ANDROID_HOME environment variable
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          link-to-sdk: true
 
       - name: Setup Emscripten
         if: matrix.platform == 'web'
         uses: mymindstorm/setup-emsdk@v16
         with:
-          version: 3.1.39
+          version: ${{ env.EM_VERSION }}
           actions-cache-folder: 'emsdk-cache'
-
       - name: Build GDExtension
         shell: bash
         run: |
