@@ -142,7 +142,7 @@ def build_and_deploy(leg: str, log) -> None:
     flag = "static_binding=yes" if leg == "static" else "static_binding=no"
     cmd = ["scons", f"target={SCONS_TARGET}", "compiledb=no", "debug_symbols=no",
            "dev_build=no", "verbose=no", flag, "-j6"]
-    log(f"  scons {flag} ...")
+    log(f" [build command] {" ".join(cmd)}")
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         log(proc.stdout[-2000:])
@@ -179,7 +179,7 @@ def collect(args, log):
 
     manifest = {"runs": []}
     legs = ["static", "dynamic"] if args.leg in (None, "both") else [args.leg]
-    gcs = [True, False] if not args.gc_only else [True]
+    gcs =  [True] if args.gc_only else ([False] if args.no_gc_only else [True, False])
 
     if args.build:
         build_and_deploy(legs[0], log)
@@ -365,6 +365,7 @@ def main():
                     help="full pipeline: scons each leg (--leg both = build static, "
                          "collect, rebuild dynamic, collect) and deploy before collecting")
     ap.add_argument("--gc-only", action="store_true", help="skip the no-gc cells")
+    ap.add_argument("--no-gc-only", action="store_true", help="skip the gc cells")
     args = ap.parse_args()
 
     if args.report:
@@ -372,8 +373,8 @@ def main():
             print("NOTE: --rounds has NO effect in --report mode -- it only re-summarizes "
                   "the logs already collected in the directory. To collect fresh data with "
                   "N rounds: python misc/bench_matrix.py --rounds N --build --out <dir>")
-        if args.leg != "both" or args.build or args.gc_only:
-            print("NOTE: --leg/--build/--gc-only are collection flags; ignored in --report mode.")
+        if args.leg != "both" or args.build or args.gc_only or args.no_gc_only:
+            print("NOTE: --leg/--build/--gc-only/--no-gc-only are collection flags; ignored in --report mode.")
         summarize(args.report, print)
         return 0
 
