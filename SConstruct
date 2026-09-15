@@ -663,7 +663,7 @@ env["CXXFLAGS"] = cxx_flags
 
 natvis_sources = [
     os.path.join(root_dir, "third", "godot-cpp", "natvis", "godot-cpp.natvis"),
-    os.path.join(root_dir, "src", "runtime", "jsb.natvis"),
+    os.path.join(root_dir, "src", "jsb.natvis"),
     os.path.join(root_dir, "src", "runtime", "impl", "quickjs", "jsb.quickjs.natvis"),
 ]
 merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
