@@ -421,6 +421,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
+          java-version: '17'
       - name: Setup Android NDK
         if: matrix.platform == 'android'
         uses: nttld/setup-ndk@v1
