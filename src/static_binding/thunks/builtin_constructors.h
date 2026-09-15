@@ -124,12 +124,16 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	// `variant_new_nil` Variant as base: the ctor only wrote data and never
 	// updated the NIL tag, yielding a NIL-tagged Variant with struct data =
 	// SEGV on first use).
-	Environment *env = Environment::wrap(isolate);
 	std::aligned_storage_t<sizeof(TargetCppT), alignof(TargetCppT)> base_storage;
 	ctor(&base_storage, arg_ptrs);
-	godot::Variant constructed(*reinterpret_cast<const TargetCppT *>(&base_storage));
+	const TargetCppT *constructed = reinterpret_cast<const TargetCppT *>(&base_storage);
+
+	Environment *env = Environment::wrap(isolate);
 	Variant *instance = env->alloc_variant();
-	*instance = std::move(constructed);
+	*instance = std::move(*constructed);
+
+	constructed->~TargetCppT();
+
 	env->bind_valuetype(instance, info.This());
 }
 
