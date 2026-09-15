@@ -9,7 +9,7 @@
    - 宏注入：static→`JSB_WITH_STATIC_BINDINGS`；shared→`JSB_WITH_STATIC_BINDINGS`+`JSB_WITH_SHARED_THUNKS`；dynamic→无
    - 同步迁移（干净切换不留别名）：`.github/workflows/ci.yml:91,101`、`misc/bench_matrix.py:142`、spec `build/scons-build.md:25`、`cpp/generated-files.md:17`
 2. **共享 thunk**：新增 `src/static_binding/thunks/shared_class_methods.h`（`SharedClassMethodData` + `shared_class_method_thunk`，体迁移自 `class_methods.h:66-125`，三处替换见 design §2.2）
-3. **codegen shared 发射**：`static_binding_codegen.py` 增 `--binding-mode`；先跑 `--binding-mode static` 与改造前输出 diff（必须为空，形态 A 零回归判据）→ 再实现 shared 路径（签名去重 → 单点实例化 → 每类表 → `find_<Class>` 返回 binding 指针；`dispatch.h` 增 shared 类型/声明）
+3. **codegen shared 发射**：`static_binding_codegen.py` 增 `--binding-mode`；先跑 `--binding-mode static` 与改造前输出 diff（必须为空，形态 A 零回归判据；**改造前 = 09-12-form-a-default-handling 落地后重采的基线**——该任务改变 static 模式 Arg 发射与 thunk 模板串）→ 再实现 shared 路径（签名去重 → 单点实例化 → 每类表 → `find_<Class>` 返回 binding 指针；`dispatch.h` 增 shared 类型/声明）
 4. **挂载端**：`jsb_object_bindings.cpp:145` 增 `JSB_WITH_SHARED_THUNKS` 分支（eager 解析 + `Method(member_name, binding->thunk, &binding->data)` + 失败回退，见 design §2.4）
 5. **运行时暴露**：`jsb_bridge_module_loader.cpp` `STATIC_BINDING_ENABLED` → `BINDING_MODE` 三态字符串；`benchmark.ts`/BENCH_JSON `staticBinding` 适配
 6. **bench_matrix**：`--leg` 增 `shared`（构建 flag = `binding_mode=shared`）
@@ -17,10 +17,10 @@
 
 ## 验证命令（每步构建后跑，验收纪律见 spec test/index.md）
 
-- 形态 A 零回归：默认构建 `scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=yes tests=yes -j5` → C++ 双套件 + TS 集成全绿（与基线一致）
+- 形态 A 零回归：默认构建 `scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=yes tests=yes -j5` → C++ 双套件 + TS 集成全绿（与基线一致；基线 = 09-12-form-a-default-handling 落地后状态）
 - shared 构建：同上加 `binding_mode=shared`
 - 实例化计数：`grep -c "shared_class_method_thunk<" src/static_binding/gen/dispatch_class.gen.cpp` ≤ 1,530；形态 A 路径 `class_method_thunk<` 计数在 static 模式产物中不变
-- C++ 双套件（两形态各跑）：`"D:/Dev/godot/godot/bin/Godot_v4.7.1-stable_win64.exe" --headless --path ./project --jsb-run-tests`（exit 0、无 Orphan、无泄漏）
+- C++ 双套件（两形态各跑）：`godot --headless --path ./project --jsb-run-tests`（exit 0、无 Orphan、无泄漏）
 - TS 集成：api 数据生成 + `cd project && node_modules/.bin/tsc --noCheck` + `--verbose` 跑至 `GODOTJS_TEST_PROJECT_COMPLETED`（重点覆盖 class 方法默认参数调用路径）
 - bench 三腿：`python misc/bench_matrix.py --rounds 4 --out .agent_tmp/matrix`（static/shared/dynamic；md5 前后核验、invalid=0）
 

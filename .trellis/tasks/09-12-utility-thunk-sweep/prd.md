@@ -4,7 +4,7 @@
 
 ## Goal
 
-在 `binding_mode=shared` 形态下对剩余小头族套用同一共用化模式（字符串感知解析器复核计数）：utility_function_thunk 102 → 32、class_vararg_method_thunk 15 → 10、builtin_vararg_method_thunk 6 → 5、utility_vararg_function_thunk 12 → 3。**形态 A 零改动**。
+在 `binding_mode=shared` 形态下对剩余小头族套用同一共用化模式（字符串感知解析器复核计数）：utility_function_thunk 102 → 32、class_vararg_method_thunk 15 → 10、builtin_vararg_method_thunk 6 → 5、utility_vararg_function_thunk 12 → 3。**形态 A 零改动（其默认值处理改进在 09-12-form-a-default-handling——vararg thunk 模板已由该任务追加 M=F 并剥前缀 Def，本任务共享模式以其落地后的模板为基准）。**
 
 ## Background（已核实事实）
 
@@ -28,7 +28,7 @@
 ## Out of Scope
 
 - ctor（133 无冗余）、operator、member getter/setter 族
-- 任何运行时行为变化；形态 A 改动
+- 任何运行时行为变化；形态 A 默认值处理改动（09-12-form-a-default-handling 承接）
 
 ## Notes
 

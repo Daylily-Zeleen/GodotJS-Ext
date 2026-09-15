@@ -1,10 +1,10 @@
 # 静态绑定 class 族 thunk 共用化（形态 shared：签名共享）
 
-> 父任务：09-11-static-binding-size-reduction（子任务 1，P1）。依赖关系：无前置，先行开工；本任务定型形态 shared 的 callback-data 管道，子任务 2/3 复用。
+> 父任务：09-11-static-binding-size-reduction（子任务 1，P1）。依赖关系：**前置 = 09-12-form-a-default-handling**（该任务改变 class_methods.h 模板签名与本任务 "static diff 为空" 基线）；本任务定型形态 shared 的 callback-data 管道，子任务 2/3 复用。
 
 ## Goal
 
-在新编译形态 `binding_mode=shared` 下，消除 class_method_thunk 按方法重复实例化：15,370 个实例化 → **1,519** 个唯一签名（字符串感知解析器复核计数 `src/static_binding/gen/dispatch_class.gen.cpp`），每签名一个共享 thunk + 每方法数据经 v8 callback data（`info.Data()`）传入。**形态 A（`binding_mode=static`，现状）零改动**。
+在新编译形态 `binding_mode=shared` 下，消除 class_method_thunk 按方法重复实例化：15,370 个实例化 → **1,519** 个唯一签名（字符串感知解析器复核计数 `src/static_binding/gen/dispatch_class.gen.cpp`），每签名一个共享 thunk + 每方法数据经 v8 callback data（`info.Data()`）传入。**形态 A（`binding_mode=static`，现状）的默认值处理已由 09-12-form-a-default-handling 先行改进（剥 Def 入 M 模板参数）——本任务以其落地后的模板签名为迁移源。**
 
 ## Background（已核实事实）
 
@@ -24,7 +24,7 @@
 ## Requirements
 
 - SConstruct：`static_binding`（BoolVariable，`SConstruct:36`）更名替换为 `binding_mode = static | shared | dynamic`（EnumVariable，默认 `static`）；同步迁移面：`.github/workflows/ci.yml:91,101`、`misc/bench_matrix.py:142`、spec `build/scons-build.md:25`、`cpp/generated-files.md:17`（干净切换不留别名）；宏注入：保留 `JSB_WITH_STATIC_BINDINGS`（static/shared 共用门控）+ 新增 `JSB_WITH_SHARED_THUNKS`（shared 门控）；bridge 的 `STATIC_BINDING_ENABLED` 暴露改三态字符串
-- codegen（`misc/build/static_binding_codegen.py`）在 shared 形态下发射：共享 thunk 仅按 `(IsStaticC, RetT, ArgsT...纯类型)` 特化 + 每类一张方法表 {name, hash, 签名 id, min_argc}；形态 A 发射逻辑不动
+- codegen（`misc/build/static_binding_codegen.py`）在 shared 形态下发射：共享 thunk 仅按 `(IsStaticC, RetT, ArgsT...纯类型)` 特化 + 每类一张方法表 {name, hash, 签名 id, min_argc}；形态 A 发射逻辑以 09-12-form-a-default-handling 落地后状态为基线（该任务已改 class Arg 发射与 thunk 模板串）
 - 每方法数据载体：codegen 发射的静态描述符 `SharedClassMethodData { std::atomic<GDExtensionMethodBindPtr> method_bind; const char *class_name; const char *method_name; int32_t min_argc; }`（DLL .data 存储）经 `v8::External` 挂载——`impl_private::Data<void*>` → External 通道四引擎 impl 均已存在（v8：`jsb_v8_class_builder.h:54-56`）；`method_bind` 用 atomic relaxed（worker 线程各自 Environment 挂载同一静态表，并发写同值需良定义；单字对齐 load/store 零代价）
 - 默认值仍全权由引擎 `object_method_bind_call` 补（`argc==provided`），行为不变
 - 挂载端（`jsb_object_bindings.cpp:145`）改为携带 data 的 `Method` 调用；解析失败回退 dynamic 绑定
@@ -33,7 +33,7 @@
 
 ## Acceptance Criteria
 
-- [ ] `binding_mode` 三态构建接线完成，`static`（形态 A）构建产物与改造前行为/性能基线一致（零回归）
+- [ ] `binding_mode` 三态构建接线完成，`static`（形态 A）构建产物与基线一致（零回归；基线 = 09-12-form-a-default-handling 落地后重采）
 - [ ] shared 形态 class 实例化声明数 ≤ 1,530（1,519 + 容差；codegen 发射计数，非引用点）
 - [ ] C++ 双套件全绿（exit 0、无 Orphan、无未释放 Resource）——`static` 与 `shared` 两形态各跑一遍
 - [ ] TS 集成测试 `GODOTJS_TEST_PROJECT_COMPLETED`（含 class 方法默认参数调用路径）
@@ -42,7 +42,7 @@
 ## Out of Scope
 
 - builtin / utility / vararg / ctor / operator 族（子任务 2、3）
-- 形态 A 的任何改动（含 Def 剥离）
+- 形态 A 默认值处理改动（已拆至 09-12-form-a-default-handling 先行实施）
 - d.ts 生成与 JS 侧任何行为变化
 
 ## Notes

@@ -25,7 +25,7 @@
 
 ### 两种静态绑定形态与编译参数（2026-09-12 裁决）
 
-- **形态 A（现状，极致静态）**：每方法一实例，`Arg<T, FixedString Def>` 默认值烘模板。零运行时间接寻址；体积大。**保持原样不动**——Def 剥离在形态 A 下仅省 188 实例，不值得
+- **形态 A（现状，极致静态）**：每方法一实例，零运行时间间接寻址；体积大。~~保持原样不动~~ **2026-09-12 二次裁决推翻**：形态 A 默认值处理由独立任务 09-12-form-a-default-handling 改进（class 剥 Def 入 M 模板参数、builtin 预编码 EncodeT 槽、String 默认值双路径解析修复），**先于本族三子任务实施**——改写子任务 1 的迁移源（class_methods.h 模板签名）与 "static 输出 diff 为空" 基线（原"仅省 188 实例不值得"评估只看实例数；用户指令另含逐调用转换消除与正确性修复）
 - **形态 B（签名共享，新）**：共享 thunk 按 `(签名类型参数)` 特化，身份（Hash/Class/Name）与默认值全部下沉每方法 callback data。Def 留模板参数会令默认值不同的同签名方法无法共享——**Def 移出模板是形态 B 的强制推论，非独立优化项**
 - **编译参数命名（2026-09-12 二次裁决）**：`static_binding` 语义是"是否启用静态绑定"，形态是另一维度——统一参数须更名。**`binding_mode = static | shared | dynamic`**（字符串枚举，SCons `EnumVariable`），默认 `static`（= 形态 A，默认行为不变）：
   - `static` = 形态 A ｜ `shared` = 形态 B ｜ `dynamic` = 现 `static_binding=no`
@@ -82,7 +82,7 @@
 
 父任务（收口角色），实施由三个子任务承接：
 
-- **编译参数**：`binding_mode = static | shared | dynamic`（字符串枚举，默认 `static`）；形态 A 保持现状零改动；codegen 与挂载端按形态条件发射；迁移面见 Background（干净切换不留别名）
+- **编译参数**：`binding_mode = static | shared | dynamic`（字符串枚举，默认 `static`）；形态 A 默认值处理经 09-12-form-a-default-handling 先行改进（见 Background 形态 A 条目）；codegen 与挂载端按形态条件发射；迁移面见 Background（干净切换不留别名）
 - **形态 B 统一机制**（子任务 1 定型，2/3 复用）：共享 thunk 仅按签名类型参数特化；身份参数（Hash/Class/Name）与 Arg 的 Def 移出模板；**fn 指针 eager 解析**（绑定时，失败走 dynamic 回退）。每方法 callback data **按族分载**：class = {method_bind, class/method 名, **min_argc**}；builtin = {fn, 类型/方法名, **`const void *defaults[N]` 静态槽指针列表**}（无 min_argc，元数由列表自带）；utility = {fn, 函数名}（严格 N，编译期）；vararg = 前缀 0 默认值（gen 实测），M=F 编译期
 - 子任务 1（P1）：class 族（09-12-class-thunk-sharing）——15,370 → 1,519
 - 子任务 2（P2）：builtin 族（09-12-builtin-thunk-sharing）——767 → 434（含 VTC），静态 EncodeT 槽 + 类型分类发射（引用类 per-occurrence）
@@ -92,7 +92,7 @@
 
 ## Acceptance Criteria
 
-- [ ] `binding_mode=static|shared|dynamic` 三态各自构建通过且 `static` 腿（形态 A）产物与改造前行为/性能基线一致（零回归）
+- [ ] `binding_mode=static|shared|dynamic` 三态各自构建通过且 `static` 腿（形态 A）产物与基线一致（零回归；基线 = 09-12-form-a-default-handling 落地后重采——该任务改变形态 A codegen 输出）
 - [ ] 缺参/元数语义与形态 A 一致：`provided<M||provided>N` 判定等价（class 经 min_argc、builtin 经 `defaults[provided]` 探测）；默认值填充统一 `arg_ptrs[i] = defaults[i]`（平凡/CowData 按 (T, Lit) 去重共享槽；Array/Dictionary/Variant per-occurrence 独立槽——跨函数隔离细于形态 A，现状引用类默认 = 0 无可观察差异）；并发缺参冒烟通过
 - [ ] 三个子任务全部完成归档
 - [ ] 静态绑定 dll 体积报告（三腿对比，`misc/bench_matrix.py` 纪律采数）
@@ -100,7 +100,7 @@
 
 ## Out of Scope
 
-- 形态 A 的任何改动（含 Def 剥离——已裁决不值得）
+- 形态 A 默认值处理改进（用户 2026-09-12 指令拆至独立任务 09-12-form-a-default-handling，先行于本族子任务；原"Def 剥离不值得"裁决就此作废）
 - 运算符/构造器（133 无冗余）/成员属性族（近期已各自优化）
 - api_tool dynamic 路径；eager/lazy 的独立编译开关
 
@@ -109,4 +109,4 @@
 - 生成文件 `*.gen.*` 一律经 `misc/build/static_binding_codegen.py` 改发射逻辑，不直接编辑
 - 验收基线命令与陷阱见 `.trellis/spec/godotjs-ext/test/index.md`、`build/scons-build.md`
 - `IsStaticC` 已实测裁决**保留模板参数**：折叠仅省 34 个实例（1,520→1,486，2.2%，签名去重复核），不值得每调用热路径多一分支；记录见子任务 1 design.md
-- **min_argc 表示已裁决（2026-09-12，经用户二次修正）**：仅 **class 族**需要 min_argc 入 callback data（无 defaults 列表，M 显式存）；**builtin 族无 min_argc 字段**——defaults 列表本身即元数信息（`defaults[provided]==nullptr ⟺ provided<M`，尾部连续前提：1,127 带默认值方法实测非尾部连续 = 0）。备选"M 入模板参数"评估后放弃（class 1,643 vs 1,519、builtin 441 vs 434——多 131 实例换编译期 arity 检查，不值）；codegen 生成期断言默认值尾部连续作未来 API 安全网
+- **min_argc 表示已裁决（2026-09-12，经用户二次修正）**：仅 **class 族**需要 min_argc 入 callback data（无 defaults 列表，M 显式存）；**builtin 族无 min_argc 字段**——defaults 列表本身即元数信息（`defaults[provided]==nullptr ⟺ provided<M`，尾部连续前提：1,127 带默认值方法实测非尾部连续 = 0）。备选"M 入模板参数"评估后放弃（class 1,643 vs 1,519、builtin 441 vs 434——多 131 实例换编译期 arity 检查，不值）；codegen 生成期断言默认值尾部连续作未来 API 安全网。**注（2026-09-12 更新）**：该放弃仅限形态 B 共享场景（共享签名随 M 增 131 实例）；形态 A 按方法实例化、M 入模板不增实例数，09-12-form-a-default-handling 已采纳 M 模板参数（该任务 PRD Key Decisions）

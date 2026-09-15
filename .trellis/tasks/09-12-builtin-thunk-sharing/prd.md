@@ -1,10 +1,10 @@
 # 静态绑定 builtin 族 thunk 共用化（形态 shared：签名共享）
 
-> 父任务：09-11-static-binding-size-reduction（子任务 2，P2）。依赖关系：在子任务 1（09-12-class-thunk-sharing）定型 `binding_mode` 接线与 callback-data 管道后开工。
+> 父任务：09-11-static-binding-size-reduction（子任务 2，P2）。依赖关系：在子任务 1（09-12-class-thunk-sharing）定型 `binding_mode` 接线与 callback-data 管道后开工；子任务 1 的前置 09-12-form-a-default-handling（形态 A builtin 槽化 + String 双端修复）亦先于本任务——改写本 PRD 所引形态 A 锚点。
 
 ## Goal
 
-在 `binding_mode=shared` 形态下消除 builtin_method_thunk 重复实例化：767 个实例化 → **434** 个含 VTC 唯一签名（字符串感知解析器复核计数 `src/static_binding/gen/dispatch_builtin.gen.cpp`）。核心：**默认参数迁"静态 EncodeT 槽 + 类型分类发射"（引用类 per-occurrence）**。**形态 A 零改动**。
+在 `binding_mode=shared` 形态下消除 builtin_method_thunk 重复实例化：767 个实例化 → **434** 个含 VTC 唯一签名（字符串感知解析器复核计数 `src/static_binding/gen/dispatch_builtin.gen.cpp`）。核心：**默认参数迁"静态 EncodeT 槽 + 类型分类发射"（引用类 per-occurrence）**。**形态 A 的默认值处理已由 09-12-form-a-default-handling 先行改进（同一槽机制应用于形态 A + String 解析双端修复）——本任务共享槽方案与该任务同源，锚点以其落地后为准。**
 
 ## Background（已核实事实）
 
@@ -21,16 +21,16 @@
     - **引用共享无 fork**：Array（`array.cpp:950-953` 拷贝构造 → `_ref` `:56-72`：`refcount.ref()` + `_p` 后端指针共享、无数据 fork；变更仅守 `_p->read_only` 标志——`:280-281` push_back、`:122-123` clear、`:304-305` resize——refcount 不参与写隔离）与 Dictionary（同构：`dictionary.cpp:756-759` → `:287-302`、守卫 `:202-204`）；引擎从不给默认值标 read_only（`make_read_only` 调用点仅 `array.cpp:931-933` create_read_only 与 `variant_call.cpp:2628/2688` 显式绑定）→ **per-occurrence 独立槽**（方法 × 参数位；用户裁决：同函数两个空 Array 默认 = 两个独立对象）；Variant 保守同类（`method_ptrcall.h:241` ByReference 边界零拷贝，内含 Array/Dict 共享后端）
   - **与形态 A 的语义对比（精确）**：同函数跨调用共享后端**两形态均存在**（A：magic static 跨调用共享；B：槽后端跨调用共享）；差异在形态 A 的 `default_as` 函数模板 static 按 (T, Lit) **全二进制唯一**（inline 模板弱符号合并，`thunks_common.h:66-77`）——同对默认值**跨函数共享同一后端**，被调方原地改写会跨函数泄漏；per-occurrence 消除之（更细隔离，用户裁决的有意改进）。现状 Array/Dictionary 默认 = 0 → **今天零可观察差异**
   - **统一填充，无逐调用 copy 分支**（原"值语义二分"取消）：三类均 `arg_ptrs[i] = defaults[i]`
-- **默认参数消费点（改写锚点）**：`produce_value` 缺参分支 `if constexpr (ArgT::has_default) { out = default_as<...>(); }`（`thunks_common.h:449-463`）——形态 shared 下 builtin 路径改为 `arg_ptrs[i] = defaults[i]` 直填（跳过 produce_value）；必填位 defaults[i]==nullptr → "missing argument" 异常语义不变
+- **默认参数消费点（改写锚点）**：`produce_value` 缺参分支 `if constexpr (ArgT::has_default) { out = default_as<...>(); }`（`thunks_common.h:449-463`）——形态 shared 下 builtin 路径改为 `arg_ptrs[i] = defaults[i]` 直填（跳过 produce_value）；必填位 defaults[i]==nullptr → "missing argument" 异常语义不变（09-12-form-a-default-handling 落地后该缺参分支已删除、形态 A builtin 已槽直取——本任务锚点以其落地后的 `builtin_methods.h` 为准）
 - builtin ptrcall **引擎不补默认值**（不同于 class 的 MethodBind）：thunk 必须在 `provided < N` 时自己填（`builtin_methods.h:129-130` D/M/N 机制）——形态 shared 下 **M 不设任何存储字段**，元数由 defaults 列表自带（见下条）
 - **元数检查（用户指正，2026-09-12）**：`provided > N` → too-many；`provided < N && defaults[provided] == nullptr` → missing——与 `provided < M || provided > N` 严格等价（默认值尾部连续前提，1,127 带默认值方法实测非尾部连续 = 0）；同一探测两用（元数判定 + 缺参填充）；报错文案的 M 冷路径现扫（首个非空位）；**codegen 生成期断言默认值尾部连续**（未来 API 违反前提 → 构建期报错拒绝发射）；无默认值方法（680/767）的 defaults 布局（全 nullptr 共享表 vs nullptr 描述符捷径）留 design.md 定
 - **eager 解析（父任务裁决）**：绑定时（挂载点 `jsb_primitive_bindings.cpp:808`，TYPE/name/hash 在手）解析 `GDExtensionPtrBuiltInMethod` 存 callback data；失败走 "falling back to dynamic binding"（`:816` 既有模式）
-- `default_as<T, FixedString Lit>`（`thunks_common.h:66-77`）形态 shared 退役（形态 A 保留；其 (T, Lit) 跨函数共享行为即上面对比中形态 A 的行为）
+- `default_as<T, FixedString Lit>`（`thunks_common.h:66-77`）形态 shared 退役（**形态 A 亦已随 09-12-form-a-default-handling 槽化退役**——thunk 内 magic static per-occurrence，跨函数隔离细于旧 default_as；上面对比中"形态 A 的行为"以该任务落地后为准）
 
 ## Requirements
 
 - 共享 thunk 仅按 `(VTC, IsStaticC, RetT, ArgsT...纯类型)` 特化
-- codegen 在 shared 形态发射：默认值槽按类型分类（平凡/CowData 按 (T, Lit) 去重命名共享；Array/Dictionary/Variant per-occurrence）+ 每方法 `const void *defaults[N]` 指针列表数据（必填位 nullptr）；槽经 accessor magic static 懒初始化（**禁止静态初始化期调 `str_to_var`**）；**生成期断言默认值尾部连续**（违反即构建期报错）；字面量解析保持 `str_to_var` 单一事实源，String 原样特化沿用，`""` 双引号修复逻辑留在 codegen 侧
+- codegen 在 shared 形态发射：默认值槽按类型分类（平凡/CowData 按 (T, Lit) 去重命名共享；Array/Dictionary/Variant per-occurrence）+ 每方法 `const void *defaults[N]` 指针列表数据（必填位 nullptr）；槽经 accessor magic static 懒初始化（**禁止静态初始化期调 `str_to_var`**）；**生成期断言默认值尾部连续**（违反即构建期报错）；字面量解析 `str_to_var` 单一事实源——**String verbatim 特判已由 09-12-form-a-default-handling 双端删除（default_as + api_tool_parser.cpp 统一 str_to_var）**
 - 每方法 callback data：{eager 解析的 `GDExtensionPtrBuiltInMethod`, 类型/方法名（报错）, `const void *defaults[N]` 指针列表}——**无 min_argc 字段**，元数由列表自带
 - 缺参路径改写：统一 `arg_ptrs[i] = defaults[i]`（无 copy 分支）；`default_as` 形态 shared 退役
 - 行为保持：`provided < M || provided > N` 报错语义（经 defaults 探测实现，判定不变）、`get_opaque_typed` self 处理、`translate_return`
@@ -47,7 +47,7 @@
 ## Out of Scope
 
 - class / utility / vararg 族；ctor（133 无冗余）
-- operator / member getter-setter 族；形态 A 改动
+- operator / member getter-setter 族；形态 A 默认值处理改动（09-12-form-a-default-handling 承接）
 
 ## Notes
 
