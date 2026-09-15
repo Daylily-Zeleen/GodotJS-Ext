@@ -13,11 +13,13 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 2. **绝不 `scons --clean`**——全量重建极耗时；增量编译自动跳过未更改部分
 3. 需要重编就直接跑上述命令（增量构建）
 
+> **并行编辑竞态（重要）**：编译失败但报错位置/形态不在你自己的改动面内时，**先查 `git log`（新 commit？）与报错文件的 mtime**——用户或其他会话可能在同一工作树上并行编辑（2026-09-13 实例：rebuild 撞上用户 mid-edit 的 `class_methods.h` 半改状态，报 `HashC undeclared`；等用户提交后复跑即绿）。绝不先回滚/还原你未编辑过的文件；也绝不凭单次 md5 异常下结论（引擎 editor 模式会重拷 `~` 副本，拷贝进行中读 md5 会得到一次性假值——重读一次再判）
+
 ## 构建机制要点
 
 - 构建前提：`third/godot-cpp` 子模块已初始化（`git submodule update --init`），否则 SConstruct 报错退出
 - **不要回退旧引擎**：旧二进制（如 7-28 的 editor.dev）加载不了新构建扩展（godot-cpp ABI 不匹配，插件实例化即崩）；官方 4.8.dev 宿主会挂死。
-- **C++ 测试宿主（CI 同款）用官方 4.7.1**（`Godot_v4.7.1-stable_win64.exe`）；**不要用** `bin/windows/` 下自己构建的 godotjs-ext 可执行文件（headless 必崩，与改动无关）。
+- **C++ 测试宿主（CI 同款）用官方稳定版**（`godot`）；**不要用** `bin/windows/` 下自己构建的 godotjs-ext 可执行文件（headless 必崩，与改动无关）。
 - `--godotjs-api-generate` 会【消费删除】`project/extension_api.json`；需要资源声明 gen（`extension_api.json.gen.ts`）时，先把官方引擎自带的 `extension_api.json`（随引擎分发，在其安装目录下）复制回 `project/` 再重跑 `--generate-types`。
 - `project/.godot` 删除后的重建三件套：①手工写 `project/.godot/extension_list.cfg`（两行：runtime 与 editor 的 .gdextension 路径）；②重新编译 TS；③重新生成 api 数据。
 - **测试项目重置**（需要完整初始环境时，先删除）：`./project/.godot`、`./project/gen`、`./project/typings`（如果有）；`./project/tsconfig.json` **只有**要执行 `GodotJSEditorPlugin::try_install_project_files()` 的测试才删除（git 跟踪的预设文件）。
@@ -42,4 +44,4 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 - C++ 测试（需 `tests=yes` 构建）：`godot --path ./project --jsb-run-tests`（editor 构建同时跑 runtime + editor 两套件）
 - TS 编译：`cd project && node_modules/.bin/tsc --noCheck`
 - TS 集成测试：先生成 api 数据并编译 TS，再 `godot --path ./project --verbose`
-- Benchmark：`godot --headless --bench --path ./project [-- --only=<组>]`——`--bench` 是**引擎参数**（`start.ts` 用 `OS.get_cmdline_args()` 读取），必须放在 `--` **之前**；`--only`/`--calls` 是 user args（`benchmark.ts` 用 `OS.get_cmdline_user_args()` 读取），必须放在 `--` **之后**。误写 `-- --bench` 会静默跑全量 TS 测试而非 benchmark（判别：日志出现 `Loading scene` 即全量）
+- Benchmark：`godot --audio-driver Dummy --headless --path ./project -- --bench [--gc] [--only=<组>]`——**所有开关都是 user args**（`--` 之后）：`--bench`（`start.ts` 用 `OS.get_cmdline_user_args()` 判断，选中只跑 benchmark 场景）、`--gc`、`--only`（`benchmark.ts` 同源解析）。把 `--bench` 写在 `--` 之前引擎会试图解析它而测试项目收不到（判别：`START-DIAG benchOnly=false` 即未生效）；详细纪律见 [../test/index.md](../test/index.md) Benchmark 专项

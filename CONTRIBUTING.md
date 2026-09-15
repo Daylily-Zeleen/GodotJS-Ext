@@ -99,7 +99,7 @@ extensions synchronize through engine metadata and quit with a shared exit code:
 scons platform=windows target=editor dev_build=yes tests=yes -j10
 
 # Run both C++ test suites (requires a Godot editor binary)
-Godot_v4.7.1-stable_win64.exe --headless --path project --jsb-run-tests
+godot --headless --path project --jsb-run-tests
 ```
 
 ### TypeScript Integration Tests

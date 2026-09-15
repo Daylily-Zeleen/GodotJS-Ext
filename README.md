@@ -95,7 +95,7 @@ C++ unit tests use [doctest](https://github.com/doctest/doctest) and are run by 
 scons platform=windows target=editor dev_build=yes tests=yes -j10
 
 # Run tests (requires Godot editor binary)
-Godot_v4.7.1-stable_win64.exe --path project --jsb-run-tests
+godot --path project --jsb-run-tests
 ```
 
 #### TypeScript Integration Tests
@@ -129,11 +129,11 @@ must be bootstrapped in two steps:
 # 1. Dump the extension API together with docs. On some Godot versions the
 #    editor aborts during shutdown, but extension_api.json is already
 #    written by then.
-Godot_v4.7.1-stable_win64.exe --headless --editor --path project --dump-extension-api-with-docs
+godot --headless --editor --path project --dump-extension-api-with-docs
 
 # 2. Convert extension_api.json into the binary store. When running
 #    headless, the editor exits automatically once finished.
-Godot_v4.7.1-stable_win64.exe --headless --editor --path project --godotjs-api-generate extension_api.json
+godot --headless --editor --path project --godotjs-api-generate extension_api.json
 ```
 
 `--godotjs-api-generate <extension_api.json>` accepts a path relative to
