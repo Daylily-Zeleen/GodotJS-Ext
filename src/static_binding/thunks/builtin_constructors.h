@@ -28,6 +28,7 @@
 #if JSB_WITH_STATIC_BINDINGS
 
 #	include "thunks_common.h"
+#	include "type_compatible.h"
 // GDExtensionPtrConstructor + variant_get_ptr_constructor declaration
 #	include <gdextension_interface.h>
 #	include <godot_cpp/core/builtin_ptrcall.hpp>

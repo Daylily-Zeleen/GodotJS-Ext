@@ -1573,34 +1573,14 @@ def emit_ctor_dispatch(m):
                 probe_checks = []
                 for i, a in enumerate(args):
                     t = a["type"]
-                    # Match the probed arg type by array index. StringName/
-                    # NodePath accept a bare JS string OR their wrapper;
-                    # Variant accepts anything; unknown struct types must equal
-                    # the target godot type.
-                    if t == "int":
-                        probe_checks.append("argts[%d] == godot::Variant::INT" % i)
-                    elif t == "float":
-                        # JS number is ambiguous: 1 and 1.5 both probe to a
-                        # number, but probe_vt splits them INT vs FLOAT
-                        # (IsInt32 first). A float ctor param must accept both
-                        # (the engine coerces a JS int to double anyway).
-                        probe_checks.append("(argts[%d] == godot::Variant::FLOAT || argts[%d] == godot::Variant::INT)" % (i, i))
-                    elif t == "bool":
-                        probe_checks.append("argts[%d] == godot::Variant::BOOL" % i)
-                    elif t == "String":
-                        probe_checks.append("argts[%d] == godot::Variant::STRING" % i)
-                    elif t == "Variant":
+                    if t == "Variant":
+                        # Variant parameter accepts any type (no check needed)
                         probe_checks.append("true")
-                    elif t == "StringName":
-                        probe_checks.append("(argts[%d] == godot::Variant::STRING || argts[%d] == godot::Variant::STRING_NAME)" % (i, i))
-                    elif t == "NodePath":
-                        probe_checks.append("(argts[%d] == godot::Variant::STRING || argts[%d] == godot::Variant::NODE_PATH)" % (i, i))
                     else:
-                        vt_name = VARIANT_TYPE_VALUES.get(t)
-                        if vt_name is None:
-                            probe_checks.append("false")
-                        else:
-                            probe_checks.append("argts[%d] == %s" % (i, vt_value_to_enum(vt_name)))
+                        target_enum = json_to_enum(t)
+                        # Use can_be_converted_from<TargetT>(source_type) for strict conversion checks
+                        probe_checks.append(
+                            f"can_be_converted_from<godot::Variant::{target_enum}>(argts[{i}])")
                 cond = " && ".join(probe_checks) if probe_checks else "true"
                 thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index), "Args<%s>" % ", ".join(arg_exprs)])
                 if cond == "true":
@@ -1611,18 +1591,9 @@ def emit_ctor_dispatch(m):
                     L.append(f"\t\t\tthunks::builtin_ctor_thunk<{thunk_args}>(info);")
                     L.append("\t\t\treturn;")
                     L.append("\t\t}")
-            L.append("\t}")
-        # no matching overload: delegate the error construction (probe the
-        # actual arg types + format the message) to a shared helper in
-        # builtin_constructors.h -- the codegen emits a plain call, not a
-        # hand-rolled format with .utf8().get_data() chains.
-        L.append(f"\tthunks::internal::throw_no_suitable_ctor({vt_value_to_enum(vt)}, info);")
-        L.append("}")
+            L.append("\t}")  # close the `if (argc == X) {` block
+        L.append("\t}")  # close the function body
         L.append("")
-
-    # registry entry: dispatch purely on the godot Variant::Type enum --
-    # the caller (VariantBind<TypeName>::get_class_builder) has TYPE as a
-    # compile-time constant (VariantBind::TYPE), so a single enum switch
     # resolves the ctor resolver with no StringName comparison and no
     # JS-name aliases (Array/GArray, Dictionary/GDictionary collapse to their
     # godot enum since JS names are never used for builtin class
