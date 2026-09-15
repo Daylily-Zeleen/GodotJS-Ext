@@ -769,7 +769,7 @@ def emit_registry_cpp(m):
 
 def arg_template_expr(a):
     """json argument -> BARE C++ parameter type for the direct-conversion
-    layer. Callers pack the results into Args<>/Defs<> wrappers: a thunk's
+    layer. Callers pack the results into Args<>/DefVs<> wrappers: a thunk's
     explicit template argument list cannot disambiguate two trailing
     parameter packs, so each is carried in ONE class template argument.
 
@@ -838,7 +838,7 @@ _SCALAR_TOKEN = re.compile(r"^-?(?:\d+|\d+\.\d*|\.\d+|\d+(?:\.\d*)?[eE][+-]?\d+)
 
 
 def def_ctor_expr(a):
-    """json argument carrying a default -> one Def<...> descriptor whose
+    """json argument carrying a default -> one DefV<...> descriptor whose
     template argument is a NULLARY Ctor (make<T, auto...> / make_str<Lit>).
 
     The json default_value token is the engine's GDScript construct-string
@@ -856,43 +856,43 @@ def def_ctor_expr(a):
     ct = arg_template_expr(a)
     tok = a["default"]
     if t == "bool" and tok in ("true", "false"):
-        return "Def<make<bool, %s>>" % tok
+        return "DefV<make<bool, %s>>" % tok
     if t == "int":
         try:
-            return "Def<make<%s, %d>>" % (ct, int(tok))
+            return "DefV<make<%s, %d>>" % (ct, int(tok))
         except ValueError:
             pass
     if t == "float":
         try:
-            return "Def<make<%s, %r>>" % (ct, float(tok))
+            return "DefV<make<%s, %r>>" % (ct, float(tok))
         except ValueError:
             pass
     if t in ["String", "StringName"]:
         m = re.match(r'^"(.*)"$', tok, re.S)
         if m:
-            return "Def<make_str<%s, %s>>" % (t, cxx_str(m.group(1)))
+            return "DefV<make_str<%s, %s>>" % (t, cxx_str(m.group(1)))
     if t == "Variant" and tok == "null":
-        return "Def<make<godot::Variant>>"
+        return "DefV<make<godot::Variant>>"
     m = re.match(r"^([A-Za-z_]\w*)\((.*)\)$", tok, re.S)
     if m and m.group(1) == t:
         parts = [p.strip() for p in _split_ctor_args(m.group(2))]
         if not parts:
-            return "Def<make<%s>>" % ct
+            return "DefV<make<%s>>" % ct
         if all(_SCALAR_TOKEN.match(p) for p in parts):
-            return "Def<make<%s, %s>>" % (ct, ", ".join(parts))
+            return "DefV<make<%s, %s>>" % (ct, ", ".join(parts))
     raise SystemExit("FATAL: cannot translate default_value %r (json type %r) "
                      "into a make<> Ctor expression; extend def_ctor_expr" % (tok, t))
 
 
 def defs_pack_expr(args):
     """Default-value descriptors for the LAST k parameters (tail-contiguous
-    per _assert_default_layout): one Def<make<...>> / Def<make_str<...>> per
+    per _assert_default_layout): one DefV<make<...>> / DefV<make_str<...>> per
     defaulted parameter (def_ctor_expr translates the json construct-string
     into the nullary Ctor); the value materializes lazily through the magic
     static on first use. default_arg_slot rebinds referential defaults
     (Array/Dictionary) with a per-occurrence identifier at instantiation."""
     defs = ", ".join(def_ctor_expr(a) for a in args if "default" in a)
-    return "Defs<%s>" % defs
+    return "DefVs<%s>" % defs
 
 
 def ret_template_expr(t, usage=0, meta=None):
@@ -1660,7 +1660,7 @@ def emit_ctor_dispatch(m):
 
 def emit_manifest(m, input_path, interface_path):
     # Emitted default literals only: class thunks carry none (engine-side
-    # fill), so this counts the builtin/utility Defs<Def<make<...>>>
+    # fill), so this counts the builtin/utility DefVs<DefV<make<...>>>
     # instantiations. Mirror the emission-side String/StringName receiver
     # skip (JS string aliases never get static builtin bindings) so the count
     # reconciles with what dispatch_builtin.gen.cpp actually instantiates.

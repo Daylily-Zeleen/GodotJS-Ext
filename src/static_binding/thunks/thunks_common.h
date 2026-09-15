@@ -67,12 +67,12 @@ struct ExtraIdentifier {};
  * @tparam **ExtraIdentifier** 额外的形参用于显示实例化，用于防止引用类型默认值出现潜在的互相干扰。
  */
 template <auto Ctor, typename ExtraIdentifierT = void, typename T = std::invoke_result_t<decltype(Ctor)>, std::enable_if_t<!std::is_same_v<T, void>> *_dummy = nullptr>
-struct Def {
+struct DefV {
 	using EncodedT = typename godot::PtrToArg<T>::EncodeT;
 	using type = T;
 
 	template <typename IdT>
-	using rebind = Def<Ctor, IdT>;
+	using rebind = DefV<Ctor, IdT>;
 
 	static T &get() {
 		static type value = Ctor();
@@ -106,9 +106,9 @@ T make_str() { return T(Lit.value); }
 //   Args<Variant, String, int>          the FULL parameter type list
 //                                       (required first, optional tail
 //                                       contiguous)
-//   Defs<Def<make<int64_t, 0>>,         default-value descriptors for the
-//         Def<make<godot::String>>,     LAST sizeof...(Ds) parameters
-//         Def<make<godot::Color, 1, 1, 1, 1>>>
+//   DefVs<DefV<make<int64_t, 0>>,         default-value descriptors for the
+//         DefV<make<godot::String>>,     LAST sizeof...(Ds) parameters
+//         DefV<make<godot::Color, 1, 1, 1, 1>>>
 //                                       (M = N - sizeof...(Ds)); each
 //                                       descriptor carries one nullary Ctor
 //                                       (compile-time argument list),
@@ -121,7 +121,7 @@ struct Args {
 };
 
 template <typename... Ds>
-struct Defs {
+struct DefVs {
 	static constexpr std::size_t count = sizeof...(Ds);
 	using tuple = std::tuple<Ds...>;
 };
@@ -542,7 +542,7 @@ concept GDReferentialBuiltinType = std::is_base_of_v<godot::Array, T> || std::is
 // ---------------------------------------------------------------------------
 // Pre-encoded default argument slot for ptrcall thunks (§4.0-A): one EncodeT
 // per (method, position), magic-static initialized on first use through the
-// Def descriptor's nullary Ctor (make<>/make_str<>) + PtrToArg::encode --
+// DefV descriptor's nullary Ctor (make<>/make_str<>) + PtrToArg::encode --
 // the same single conversion the provided positions go through, paid once
 // instead of per call. The Ctor only runs on first use, so engine-side hooks
 // are guaranteed ready (no static-init-order dependency).
@@ -551,7 +551,7 @@ concept GDReferentialBuiltinType = std::is_base_of_v<godot::Array, T> || std::is
 // ExtraIdentifier (position + the two signature packs) so every occurrence
 // is isolated (OQ3): a callee mutating the default value in place never
 // leaks into another method sharing the same (type, literal) pair. Value
-// defaults (IdentifierT == void) keep the slot in the emitted Defs member
+// defaults (IdentifierT == void) keep the slot in the emitted DefVs member
 // instantiation itself.
 //
 // Only instantiated for optional positions (I >= M) by the callers' split
