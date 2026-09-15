@@ -30,7 +30,10 @@
 
 #include <gdextension_interface.h>
 
+#ifdef TOOLS_ENABLED
 class PlaceholderScriptInstance;
+#endif // TOOLS_ENABLED
+
 class GodotJSScriptInstanceBase;
 class GodotJSShadowScriptInstance;
 class GodotJSScriptInstance;
@@ -69,10 +72,12 @@ public:
 		ScriptInstance *si = get_script_instance(p_object);
 		if (si == nullptr) return nullptr;
 
+#ifdef TOOLS_ENABLED
 		if (si->is_placeholder()) {
 			if constexpr (std::is_same_v<ScriptInstanceTy, PlaceholderScriptInstance>) return si;
 			else return nullptr;
 		}
+#endif // TOOLS_ENABLED
 
 		if constexpr (std::is_same_v<ScriptInstanceTy, GodotJSShadowScriptInstance>) {
 			if (!(GodotJSScriptInstanceBase *)si->is_shadow()) return nullptr;

@@ -835,12 +835,15 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 				continue;
 			}
 
+#	if TOOLS_ENABLED
 			if (script_instance->is_placeholder() && scr->_is_placeholder_fallback_enabled()) {
 				PlaceholderScriptInstance *placeholder = static_cast<PlaceholderScriptInstance *>(script_instance);
 				for (const auto &G : saved_state) {
 					// placeholder->property_set_fallback(G.first, G.second); // TODO: Godot 未暴露接口
 				}
-			} else {
+			} else
+#	endif // TOOLS_ENABLED
+			{
 				GodotJSScriptInstanceBase *si = static_cast<GodotJSScriptInstanceBase *>(script_instance);
 				si->set_property_state(saved_state);
 			}
