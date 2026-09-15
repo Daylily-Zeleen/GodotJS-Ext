@@ -71,6 +71,7 @@ api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL �
 - 两份 `.gdextension` 清单注册重叠类会引发重复注册错误；拆分时审计类注册表
 - Headless 运行跳过部分编辑器流程（确认对话框自动确认）；驱动安装/codegen 路径时要刻意触发，不要按 GUI 行为假设
 - Linux 自动加 `lib` 前缀；共享层命名避免荒诞形态（`liblibdata.so`），优先 `<product>-shared` 风格
+- **`jsb_check` 系列是 dev 门控断言（`JSB_WITH_CHECK`，随 `dev_build=yes` 编入，`jsb_macros.h:59-65`；release 编译期整体移除）——release 验证全绿 ≠ dev 构建安全**：bench/matrix 历史全在 release 形态跑过 ≠ 该路径无雷。实例（2026-09-13，dynamic 腿 bench 首次以 dev 构建运行）：`jsb_static_binding_util.h` 曾在 hinted `js_to_gd_var` 之后断言返回精确 `GetTypeInfo<T>::VARIANT_TYPE`，但该函数对 math/misc 值类型按设计**宽松回退**（`jsb_type_convert.cpp` FALLBACK 分支原样返回 wrapper 自身 Variant 类型，`r_value = cv` 赋值时才经 `Variant::operator T()` 真正转换）——`new Vector2(Vector2i)`（`jsb_reflect_binding_util.h` reflect ctor 交叉尝试链）dev 构建 CRASH_COND 必崩、release 行为正常。教训：断言契约与被检函数的既定语义矛盾 = 断言本身是 bug；跨构建形态验证至少各跑一次 dev
 
 ## 验收标准（机械可查）
 
