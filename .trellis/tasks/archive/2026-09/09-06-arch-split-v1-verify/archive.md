@@ -198,8 +198,7 @@ godotjs-shared 不是 GDExtension，没有 entry 回调，其静态链接的 god
 
 | 入口 | 位置 | 行为 | 重构验证中的角色 |
 |---|---|---|---|
-| `--generate-types` | `jsb_editor_plugin.cpp:166` → `_generate_types_from_cmdline()`（:194） | 编辑器插件 READY 后延迟触发全量类型生成；headless 下完成后自动 `SceneTree::quit(0)` | **codegen 端到端触发的现成入口**：P0 校验脚本直接用它做「删产物→重生→diff」循环；P1 后同一参数触发的是 C++ 版生成器，前后行为可直接对比 |
-| `--godotjs-api-generate <json>` | `jsb_editor_plugin.cpp:176-186` → `api_tool::generate_api_tool_data()` | 纯 C++ 从 extension_api.json 构建 api store（`project/.godot/.api_dumping/*.capi`），headless 下完成即退出码 | api store 可再生性检查；CI 已在用（ci.yml「Generate API data」步，含 4.7.1 关机崩溃重试逻辑）；P2 迁移 api_tool core 后用它冒烟 |
+| `--godotjs-api-generate <json>` | `jsb_editor_plugin.cpp:176-186` → `api_tool::generate_api_tool_data()` | 纯 C++ 从 extension_api.json 构建 api store（`project/.godot/.api_dumping/*.capi`），headless 下完成即退出码 | api store 可再生性检查；CI 已在用（ci.yml「Generate API data」步，含稳定版关机崩溃重试逻辑）；P2 迁移 api_tool core 后用它冒烟 |
 | `--jsb-run-tests` | `register_types.cpp:113-127` | doctest 套件 + SceneTree 退出码 | C++ 单测入口（第九章拆分方案） |
 | JS 集成测试 | `project/tests/`（Start.tscn 主场景 + test-status.ts 哨兵 `GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`）+ CI 的 run-runtime-matrix.mts | 运行时行为集成测试，哨兵字符串判定成败 | 每阶段回归兜底：脚本运行时（模块加载/桥接/REPL 底层）未被重构破坏 |
 | 编辑器菜单 | 「项目」→ GodotJS：Generate API Data / Install Project Files / Generate Types / Config Enabled TS Classes / Generate All Scene Nodes Types / Generate All Resource Types / Cleanup Invalid Files（`jsb_editor_plugin.cpp:322-336`） | 手工功能面 | 仅手工冒烟用；自动化一律走命令行参数 |

@@ -14,8 +14,8 @@
 
 1. **CI 挂死现场跑在修复之前**：run 33946389411 触发于 b7a1bd4（09-05 13:07），溢出修复 a5f0db9 在其后（09-05 22:01）——挂死即溢出 bug 本身（提交信息：485 条 det==0 ERROR 后崩溃）
 2. **修复后 CI 从未复测**：benchmark job 仅 `workflow_dispatch` 手动触发（ci.yml:71）；a5f0db9（run 33972120556）与 HEAD 903cb69（run 34004202891）均为 push 触发 → benchmark skipped
-3. **HEAD 本地复现矩阵（26+ 轮）全绿**：dev/release × static/dynamic × 4.7.1/4.8.dev，全部 exit=0、COMPLETED、无泄漏、无 SEGV、无进程残留（日志 .agent_tmp/c1_*.log）
-4. **阳性对照实验**（证明复现手段有效）：临时 `git checkout b7a1bd4 -- <3 个修复文件>` 重建 release dynamic dll，同款 bench（4.7.1 + `--audio-driver Dummy --headless --bench`）立即 signal 11 崩溃（栈 23 帧落在主 dll，.agent_tmp/c1_positive_bench.log）；恢复 HEAD 后同款 exit=0。手段能抓住该类崩溃 → 全绿结果有效
+3. **HEAD 本地复现矩阵（26+ 轮）全绿**：dev/release × static/dynamic × 官方稳定版/4.8.dev，全部 exit=0、COMPLETED、无泄漏、无 SEGV、无进程残留（日志 .agent_tmp/c1_*.log）
+4. **阳性对照实验**（证明复现手段有效）：临时 `git checkout b7a1bd4 -- <3 个修复文件>` 重建 release dynamic dll，同款 bench（官方稳定版 + `--audio-driver Dummy --headless --bench`）立即 signal 11 崩溃（栈 23 帧落在主 dll，.agent_tmp/c1_positive_bench.log）；恢复 HEAD 后同款 exit=0。手段能抓住该类崩溃 → 全绿结果有效
 5. **用户本地复测确认不崩**（2026-09-06）
 
 "修复后仍崩"的最可能来源：旧记录形成时的 dll **混合部署**（两份 gdextension 只换了一份，spec 已沉淀双 dll 判据）；`.agent_tmp` 无当时崩溃日志留存，无法进一步考证。
@@ -45,9 +45,7 @@
 - linux CI benchmark job 表现为挂死（run 33946389411 已取消），Windows 为 SEGV 139
 
 ## Acceptance Criteria
-
-- [x] 根因定位并修复——ptrcall 参数缓冲区溢出（a5f0db9）；阳性对照证明手段有效，HEAD 复现矩阵全绿；非绕过
-- [x] Windows 本地：bench 全量 + TS 集成测试 exit code == 0、无泄漏、无 SEGV（dev/release × static/dynamic × 4.7.1/4.8.dev 矩阵 26+ 轮）
+- [x] Windows 本地：bench 全量 + TS 集成测试 exit code == 0、无泄漏、无 SEGV（dev/release × static/dynamic × 官方稳定版/4.8.dev 矩阵 26+ 轮）
 - [x] `ci-benchmark-both-legs` 解除阻塞（"修复后仍挂死"被 CI 元数据 + 阳性对照 + 用户复测推翻；job 需手动触发）
 - [x] 机制性结论沉淀 `.trellis/spec/godotjs-ext/build/scons-build.md`（bench 命令行形式、双 dll 部署判据、staticBinding 字段不可信）；CrossWrapper 隐患登记 P3 backlog（见「遗留」）
 
