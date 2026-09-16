@@ -52,9 +52,15 @@ inputs:
     required: false
     default: "4.11.1"
   mingw-version:
-    description: MinGW-w64 version (Chocolatey package version).
+    description: >-
+      MinGW-w64 version (Chocolatey package version). MUST be >= 14.1.0: the
+      older packages ship binutils 2.39, whose COFF writer overflows the
+      ~10 MB string table on the static-binding dispatch TU (15k thunks with
+      very long mangled names) and dies with "string table overflow at offset
+      10000xxx" / "file too big" -- -Wa,-mbig-obj does NOT help there, it only
+      raises the section limit. binutils 2.42 (>= 14.1.0) assembles it fine.
     required: false
-    default: "12.2.0"
+    default: "14.2.0"
   em-version:
     description: Emscripten version.
     required: false
@@ -118,6 +124,32 @@ runs:
       uses: egor-tensin/setup-mingw@v2
       with:
         version: ${{ inputs.mingw-version }}
+
+    # The static-binding dispatch TU (15k thunks, very long mangled names) hits
+    # the COFF string-table limit. binutils 2.39 cannot assemble it even with
+    # -Wa,-mbig-obj; 2.42 can. Fail here with a clear message instead of deep
+    # inside a 20-minute build.
+    - name: Verify MinGW binutils version
+      if: inputs.platform == 'windows' && inputs.windows-compiler == 'mingw'
+      shell: bash
+      run: |
+        set -euo pipefail
+        as_version="$(as --version | head -1)"
+        echo "$as_version"
+        major_minor="$(echo "$as_version" | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+        if [ -z "$major_minor" ]; then
+          echo "::error::could not parse the MinGW assembler version from: $as_version"
+          exit 1
+        fi
+        major="${major_minor%%.*}"
+        minor="${major_minor##*.}"
+        if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 42 ]; }; then
+          echo "::error::MinGW binutils $major_minor is too old (>= 2.42 required)."
+          echo "binutils 2.39 overflows the COFF string table on the static-binding"
+          echo "dispatch TU ('string table overflow at offset 10000xxx' / 'file too big'),"
+          echo "and -Wa,-mbig-obj does not help. Raise the mingw-version input (>= 14.1.0)."
+          exit 1
+        fi
 
     # clang-cl is an MSVC-ABI compiler: godot-cpp's use_llvm=yes only swaps
     # CC/CXX to clang-cl, it still needs the MSVC environment (INCLUDE/LIB and

@@ -39,7 +39,10 @@ env:
   # so godot-cpp's tools/windows.py silently falls back to MinGW and the
   # build dies on MSVC-only flags (/Z7, /Fd...) that g++ reads as file names.
   SCONS_VERSION: "4.11.1"
-  MINGW_VERSION: "12.2.0"
+  # MUST be >= 14.1.0: older Chocolatey packages ship binutils 2.39, which
+  # overflows the COFF string table on the static-binding dispatch TU
+  # ("string table overflow at offset 10000xxx"). See the mingw-version input.
+  MINGW_VERSION: "14.2.0"
   GODOT_VERSION: "tags/4.7.1-stable"
   GODOT_ASSET_LINUX: "Godot_v4.7.1-stable_linux.x86_64.zip"
   GODOT_ASSET_WINDOWS: "Godot_v4.7.1-stable_win64.exe.zip"
