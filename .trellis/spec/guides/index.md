@@ -6,7 +6,8 @@
 
 ## 项目硬性守则（每轮必守）
 
-→ [workflow-rules.md](./workflow-rules.md)：git 提交/推送/还原必须经用户确认、临时文件一律 `.agent_tmp/`、执行节奏（不重复编译、不轮询 job、最终汇报覆盖全流程）、文档用中文。
+→ [workflow-rules.md](./workflow-rules.md)：git 提交/推送/还原必须经用户确认（改文件≠提交≠推送，分别授权）、临时文件一律 `.agent_tmp/`、任务管理走 `.trellis/tasks/`、执行节奏与汇报补充细则。
+→ `AGENTS.md`「不绕圈」：不重复重编 / 不为次要问题验证 / 旧结论≠现状 / 失败有界（≤3 次、≤2 分钟）/ 不轮询 job——每轮注入的硬约束。
 
 ---
 
