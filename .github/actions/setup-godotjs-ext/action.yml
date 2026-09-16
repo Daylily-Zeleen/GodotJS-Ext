@@ -124,6 +124,15 @@ runs:
       uses: egor-tensin/setup-mingw@v2
       with:
         version: ${{ inputs.mingw-version }}
+        # The action's "static linking workaround" deletes libpthread.dll.a /
+        # libwinpthread.dll.a to force static pthread. Those files exist in the
+        # old winlibs packages but not in the mingw-builds ones (>= 14.x, i.e.
+        # the versions that ship binutils 2.42), where the Remove-Item fails the
+        # step outright. We do not need it: SConstruct already links MinGW with
+        # -static -static-libgcc -static-libstdc++, and a build made that way
+        # imports neither libwinpthread-1.dll nor libgcc/libstdc++ DLLs
+        # (verified with objdump -p on the produced godotjs-ext DLL).
+        static: 0
 
     # The static-binding dispatch TU (15k thunks, very long mangled names) hits
     # the COFF string-table limit. binutils 2.39 cannot assemble it even with
