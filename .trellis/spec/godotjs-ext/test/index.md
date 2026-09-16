@@ -23,6 +23,26 @@
 - 先生成 api 数据（dump → api-generate，见 [codegen-baseline.md](./codegen-baseline.md) 触发链）并编译 TS（`cd project && node_modules/.bin/tsc --noCheck`），再 `godot --path ./project --verbose`
 - 结尾哨兵：`GODOTJS_TEST_PROJECT_COMPLETED` 为成功、`GODOTJS_TEST_PROJECT_FAILED:` 为失败
 
+## 陷阱：TS 集成测试「挂死」（不是失败，是永不退出）
+
+**症状**：`run-runtime-matrix.mts` 卡在 `[run] host-<engine> run` 无任何输出，可挂数小时不退出（CI 上表现为 job 卡到被取消）。
+
+**机制**：`runCommand()` 用 `spawnSync` 同步等引擎进程，**自身无超时**。任何让引擎不退出 `SceneTree` 的错误都会变成无限挂起：
+
+1. `start.ts` 的模块级 `import`（如 `@tests/...` 别名、`./test-status`）解析失败 → `start.js` 附加失败 → `_ready` 从未执行 → `finally { quit() }` 永不运行。注意模块级 import 在 `_ready` 的 `try` **之外**，不受其保护。
+2. `start.ts` 的场景循环里某场景从不触发 `completeCallback`（该分支没有 `setTimeout` 兜底）→ 循环永久 await。
+
+**排查要点**：
+
+- tsc **不会重写** `paths` 别名。`tsconfig.json` 的 `paths`（如 `@tests/*` → `./tests/*`）只影响类型检查与智能提示，**输出里保留裸说明符**（`require("@tests/...")`），改由引擎运行时经 `.paths_mapping` 解析。因此 tsconfig 加了别名却缺 `.paths_mapping`，编译能过、运行必炸
+- `.paths_mapping` 在 `project/.godot/godotjs_ext/` 下（与编译产物同目录），由**编辑器**插件写（`PathsMapping::generate_from_tsconfig`），运行时在 `GodotJSScriptLanguage::init` 里 **eager 加载一次**
+- 该目录一旦整体缺失，`FileAccess` 不会创建父目录 → 写入静默失败（日志仅 `cannot open ... Can't open file`）。`rm -rf project/.godot`（CI 的 Linux 诊断步骤会做）即触发该形态
+- 判别日志：`unknown module: @tests/...` + `failed to attach module res://.../tests/start.js`
+
+**判别挂死而非慢**：`timeout 60 <engine> --audio-driver Dummy --headless --path project`，rc=124 即挂死。正常整轮约 1.5 分钟。
+
+**修复方向**（按优先）：让生成端在缺目录时自建（`DirAccess::make_dir_recursive_absolute`，见 `jsb_codegen_generator.cpp` 惯例）；CI 侧给该 step 加 `timeout-minutes` 兜底。**不要**靠“重跑一次”绕过——只要 `.godot` 被清空就会复现。
+
 ## 质量检查（所有测试通用）
 
 - [ ] 验收：exit code == 0、无资源泄漏（无未释放 Resource、无 Orphan StringName）
