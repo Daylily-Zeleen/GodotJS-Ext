@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 // 等可恢复操作——它们由 AGENTS.md 的授权约定约束，不在此处制造摩擦。
 //
 // 这是绊线（tripwire），不是保险箱：它只覆盖 `bash` 工具的参数文本，覆盖不到
-// 其他工具、脚本文件内部、以及正则无法可靠识别的间接写法（如 `sudo -u X git ...`）。
+// 其他工具、脚本文件内部、以及无法廉价识别的间接写法（如变量拼接、复杂引号嵌套）。
 // 作用是拦住疏忽，不是防蓄意规避。
 
 /**
@@ -219,12 +219,54 @@ const GIT_VALUE_FLAGS: Record<string, true> = {
    "--exec-path": true,
 };
 
-/** 剥掉 env 赋值与 sudo/command/env 包装，返回剩余 token 的起点。 */
+/**
+ * 会吞掉下一个 token 的包装命令选项（如 `sudo -u root` 的 `-u`）。
+ * 长选项带 `=` 时自含值，不必列出。`command` 的选项全是无值的。
+ * `timeout` 另有一个位置参数（时长），由 `WRAPPER_POSITIONAL` 处理。
+ */
+const WRAPPER_VALUE_FLAGS: Record<string, Record<string, true>> = {
+   sudo: {
+      "-u": true,
+      "-g": true,
+      "-p": true,
+      "-C": true,
+      "-D": true,
+      "-h": true,
+      "-r": true,
+      "-t": true,
+      "-T": true,
+      "-U": true,
+   },
+   env: { "-u": true, "-C": true, "-S": true },
+   command: {},
+   nice: { "-n": true },
+   stdbuf: { "-i": true, "-o": true, "-e": true },
+   timeout: { "-s": true, "-k": true },
+   time: {},
+   nohup: {},
+};
+
+/** 包装命令在选项之后还有几个位置参数（`timeout 5 git …` 的时长）。 */
+const WRAPPER_POSITIONAL: Record<string, number> = { timeout: 1 };
+
+/** 剥掉 env 赋值与包装命令（含包装自身选项），返回剩余 token 的起点。 */
 function skipWrappers(tokens: string[]): number {
    let i = 0;
    while (i < tokens.length && ENV_ASSIGN.test(tokens[i]!)) i++;
-   while (i < tokens.length && (tokens[i] === "sudo" || tokens[i] === "command" || tokens[i] === "env")) {
+   while (i < tokens.length) {
+      const name = tokens[i]!;
+      const valueFlags = WRAPPER_VALUE_FLAGS[name];
+      if (!valueFlags) break;
       i++;
+      // 包装自身的选项：取值的吞掉下一个 token，其余只吞自己；`--` 结束选项
+      while (i < tokens.length && tokens[i]!.startsWith("-")) {
+         const flag = tokens[i]!;
+         i++;
+         if (valueFlags[flag]) i++;
+         if (flag === "--") break;
+      }
+      // 选项之后的位置参数（如 `timeout 5 git …` 的时长）
+      for (let n = WRAPPER_POSITIONAL[name] ?? 0; n > 0 && i < tokens.length; n--) i++;
       while (i < tokens.length && ENV_ASSIGN.test(tokens[i]!)) i++;
    }
    return i;
