@@ -535,7 +535,7 @@ public:
 	// p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
 	// p_pointer must be 2-byte aligned (v8 requirement)
 	NativeObjectID bind_js_owned_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object) {
-		return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED);
+		return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED, true);
 	}
 	// An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
 	// The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).

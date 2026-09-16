@@ -859,12 +859,13 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 	bool force_weak{ false };
 	if (RefCounted *ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
 		binding_flags.set_flag(ObjectBindingFlags::OBF_GD_REFCOUNTED);
-		force_weak = ref_counted->get_reference_count() == 0;
 		if (!ref_counted->init_ref()) // 正常情况下 JS 会保有一个引用
 		{
 			JSB_LOG(Error, "can not bind a dead object %d", (uintptr_t)p_pointer);
 			return {};
 		}
+		// 兜底，按理说传进来的 ref_counted 计数都会 >= 1，经过 init_ref() 由 JS 环境保有一个计数之后计数应该会 > 1
+		force_weak = ref_counted->get_reference_count() == 1;
 	}
 	if (p_js_owned_non_ref) binding_flags.set_flag(OBF_JS_OWNED);
 	const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void *)p_pointer, p_object, binding_flags, force_weak);
@@ -900,7 +901,7 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 	jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
 	handle->ref_.Reset(get_isolate(), p_object);
 
-	if (p_fore_weak || handle->is_js_owned()) {
+	if (p_fore_weak) {
 		handle->ref_.SetWeak(p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
 	}
 
@@ -976,15 +977,7 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 		if (ref_count == 1) // 正常情况下 JS 会持有一个引用
 		{
-			// bind_pointer() already turned this handle weak when the object is
-			// JS-owned, and the reference callbacks are delivered one per
-			// inc/dec pair, so the same handle can legitimately reach here
-			// twice. SetWeak() is idempotent in V8 but traps in the shim
-			// implementations when the handle is not currently strong, so
-			// check the state instead of assuming it.
-			if (!object_handle->ref_.IsWeak()) {
-				object_handle->ref_.SetWeak((void *)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
-			}
+			object_handle->ref_.SetWeak((void *)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
 		}
 		return true;
 	}
@@ -1019,7 +1012,7 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	const NativeClassID class_id = object_handle->class_id;
 	// hold it in a local variable to avoid gc too early
 	v8::Global<v8::Object> obj_ref = std::move(object_handle->ref_);
-	templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
+	const templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
 
 	// erase from godot::ObjectDB before clearing the ref to avoid exposing a transient state
 	// with an empty `ref_` in the godot::ObjectDB, which can race with reference callbacks.
@@ -1037,16 +1030,17 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	obj_ref.Reset();
 
 	if (p_finalize != FinalizationType::None) {
+		const NativeClassInfo &class_info = native_classes_.get_value(class_id);
+		JSB_LOG(VeryVerbose, "free_object class:%s(%d) addr:%d", (String)class_info.name, class_id, (uintptr_t)p_pointer);
+
 		if (binding_flags.has_flag(OBF_PERSIST)) {
 			persistent_object_count_--;
 			jsb_ensure(persistent_object_count_ >= 0);
 			p_finalize = FinalizationType::None;
-		} else if (binding_flags.has_flag(OBF_GD_REFCOUNTED)) {
+		} else if (class_info.type == NativeClassType::GodotObject && !binding_flags.has_flag(OBF_JS_OWNED)) {
+			// 不需要 !binding_flags.has_flag(OBF_GD_REFCOUNTED) 判断，RefCounted 是根据引用计数来决定是否销毁的，不受 finalize 标志影响。
 			p_finalize = FinalizationType::None;
 		}
-
-		const NativeClassInfo &class_info = native_classes_.get_value(class_id);
-		JSB_LOG(VeryVerbose, "free_object class:%s(%d) addr:%d", (String)class_info.name, class_id, (uintptr_t)p_pointer);
 
 		//NOTE Godot will call Object::_predelete to post a notification NOTIFICATION_PREDELETE which finally call `ScriptInstance::callp`
 		class_info.finalizer(this, p_pointer, p_finalize);

@@ -63,12 +63,6 @@ struct ObjectHandle {
 
 	templates::BitField<ObjectBindingFlags> flags;
 
-	// // True when a non-refcounted Godot Object is explicitly JS-owned
-	// // (constructed from JS via native class constructor path).
-	// // Engine-owned non-refcounted objects (for example sub-objects returned
-	// // from APIs) must stay false so GC finalization only unbinds them.
-	// bool js_owned_non_ref_ = false;
-
 	_FORCE_INLINE_ bool is_persist() const { return flags.has_flag(OBF_PERSIST); }
 	_FORCE_INLINE_ bool is_gd_obj() const { return flags.has_flag(OBF_GD_OBJ); }
 	_FORCE_INLINE_ bool is_gd_refcounted() const { return flags.has_flag(OBF_GD_REFCOUNTED); }
