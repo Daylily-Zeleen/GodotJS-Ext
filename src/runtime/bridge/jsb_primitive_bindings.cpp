@@ -26,11 +26,8 @@
 /************************************************************************/
 
 #include "jsb_primitive_bindings.h"
-#include "static_binding/dispatch.h"
 #include "../internal/jsb_variant_info.h"
 #include "../internal/jsb_variant_util.h"
-#include <godot_cpp/variant/variant_internal.hpp>
-#include "static_binding/thunks/builtin_operators.h"
 #include "api_tool/api_tool_types.h"
 #include "jsb_bridge_helper.h"
 #include "jsb_class_info.h"
@@ -39,6 +36,11 @@
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
 
+#if JSB_WITH_STATIC_BINDINGS
+#	include "static_binding/dispatch.h"
+#	include "static_binding/thunks/builtin_operators.h"
+#	include <godot_cpp/variant/variant_internal.hpp>
+#endif // JSB_WITH_STATIC_BINDINGS
 
 #if JSB_WITH_STATIC_BINDINGS
 // static path: the overload set of every (left type, operator) pair is
@@ -52,69 +54,65 @@
 // known at runtime) and calls the pair-local switch; a miss falls back to
 // Variant::evaluate, matching the dynamic path exactly. No global table
 // lookup at call time.
-#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
+#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
-				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, \
-						&jsb::static_binding::find_op_##type_lit##_##op_code>);
-#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) // overloads live in the pair-local switch emitted above
-#define JSB_DEFINE_OVERLOADED_BINARY_END()
-#define JSB_DEFINE_UNARY(op_code, ret_type) \
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, &jsb::static_binding::find_op_##type_lit##_##op_code>);
+#	define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) // overloads live in the pair-local switch emitted above
+#	define JSB_DEFINE_OVERLOADED_BINARY_END()
+#	define JSB_DEFINE_UNARY(op_code, ret_type)                   \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_unary_thunk<Variant::OP_##op_code, CurrentType, ret_type>);
-#define JSB_DEFINE_COMPARATOR(type_lit, op_code) \
+#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)              \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
-				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, \
-						&jsb::static_binding::find_op_##type_lit##_##op_code>);
+				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, &jsb::static_binding::find_op_##type_lit##_##op_code>);
 #else
 // dynamic path: generic callbacks evaluate through Variant::evaluate
 // (def.gen passes the type literal as the first arg on both paths; unused here)
-#define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
+#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)                                                          \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
-#define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
-#define JSB_DEFINE_OVERLOADED_BINARY_END()
-#define JSB_DEFINE_UNARY(op_code, ret_type) \
+#	define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
+#	define JSB_DEFINE_OVERLOADED_BINARY_END()
+#	define JSB_DEFINE_UNARY(op_code, ret_type)                                                                           \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
-#define JSB_DEFINE_COMPARATOR(type_lit, op_code) \
+#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)                                                                       \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 #endif
 
-#	if JSB_FAST_REFLECTION
-#		define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr)   \
-			if (TReflectGetSetPointerCall<T, ForMemberCppType>::is_supported(ForMemberVariantType)) { \
-				class_builder.Instance().Property(PropName,                                           \
-						TReflectGetSetPointerCall<T, ForMemberCppType>::_getter,                      \
-						(void *)(MemberPtr)->get_getter_ptr(),                                        \
-						TReflectGetSetPointerCall<T, ForMemberCppType>::_setter,                      \
-						(void *)(MemberPtr)->get_setter_ptr());                                       \
-				continue;                                                                             \
-			}                                                                                         \
-			(void)0
-#		define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName)                                                                                     \
-			if constexpr (ReflectConstructorCall<ForCppType>::is_supported(TYPE)) {                                                                             \
-				return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, (ClassName), &ReflectConstructorCall<ForCppType>::constructor, *(ClassID)); \
-			}                                                                                                                                                   \
-			(void)0
+#if JSB_FAST_REFLECTION
+#	define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr)   \
+		if (TReflectGetSetPointerCall<T, ForMemberCppType>::is_supported(ForMemberVariantType)) { \
+			class_builder.Instance().Property(PropName,                                           \
+					TReflectGetSetPointerCall<T, ForMemberCppType>::_getter,                      \
+					(void *)(MemberPtr)->get_getter_ptr(),                                        \
+					TReflectGetSetPointerCall<T, ForMemberCppType>::_setter,                      \
+					(void *)(MemberPtr)->get_setter_ptr());                                       \
+			continue;                                                                             \
+		}                                                                                         \
+		(void)0
+#	define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName)                                                                                     \
+		if constexpr (ReflectConstructorCall<ForCppType>::is_supported(TYPE)) {                                                                             \
+			return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, (ClassName), &ReflectConstructorCall<ForCppType>::constructor, *(ClassID)); \
+		}                                                                                                                                                   \
+		(void)0
 #else
-#		define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr) (void)0
-#		define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName) (void)0
-#	endif
-
-
+#	define JSB_DEFINE_FAST_GETSET(ForMemberVariantType, ForMemberCppType, PropName, MemberPtr) (void)0
+#	define JSB_DEFINE_FAST_CONSTRUCTOR(ForCppType, ClassID, ClassName) (void)0
+#endif
 
 #define JSB_TYPE_BEGIN(InType)                                    \
-		template <>                                                   \
-		struct OperatorRegister<InType> {                             \
-			typedef InType CurrentType;                               \
-			static void generate(impl::ClassBuilder &class_builder) { \
-				JSB_LOG(VeryVerbose, "expose primitive type " #InType);
+	template <>                                                   \
+	struct OperatorRegister<InType> {                             \
+		typedef InType CurrentType;                               \
+		static void generate(impl::ClassBuilder &class_builder) { \
+			JSB_LOG(VeryVerbose, "expose primitive type " #InType);
 
 #define JSB_TYPE_END() \
-		}                  \
-		}                  \
-		;
+	}                  \
+	}                  \
+	;
 
 namespace jsb {
 
@@ -308,7 +306,7 @@ public:
 		info.GetReturnValue().Set(rval);
 	}
 
-	//NOTE should never be called any more, since all valuetype bindings exist without a normal gc callback (object_gc_callback)
+	/** @deprecated  NOTE should never be called any more, since all valuetype bindings exist without a normal gc callback (object_gc_callback) */
 	static void finalizer(Environment *environment, void *pointer, FinalizationType p_finalize) {
 		jsb_check(false);
 		Variant *self = (Variant *)pointer;
@@ -648,9 +646,7 @@ public:
 #if JSB_WITH_STATIC_BINDINGS
 				// static-first: bind the generated accessor thunks directly
 				if (jsb::static_binding::ThunkFn sb_getter = jsb::static_binding::find_builtin_member_getter_thunk(TYPE, name)) {
-					class_builder.Instance().Property(internal::NamingUtil::get_member_name(name), sb_getter,
-							jsb::static_binding::find_builtin_member_setter_thunk(TYPE, name),
-							(int32_t)0);
+					class_builder.Instance().Property(internal::NamingUtil::get_member_name(name), sb_getter, jsb::static_binding::find_builtin_member_setter_thunk(TYPE, name), (int32_t)0);
 					continue;
 				}
 #endif
@@ -687,7 +683,7 @@ public:
 				const Variant::Type return_type = (Variant::Type)method_info.method.return_val.type;
 				const String member_name = internal::NamingUtil::get_member_name(name);
 
-#	if JSB_FAST_REFLECTION
+#if JSB_FAST_REFLECTION
 				if (method_info.is_vararg()) {
 					//TODO hardcoded branches for fast method reflection wrapper
 					if (has_return_value) {
@@ -788,7 +784,7 @@ public:
 						}
 					}
 				}
-#	endif
+#endif
 
 				// convert method info, and store
 				const int collection_index = (int)GetVariantInfoCollection(p_env.env).methods.size();
@@ -813,8 +809,7 @@ public:
 					}
 					continue;
 				}
-				JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding",
-						class_name, member_name);
+				JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding", class_name, member_name);
 #endif
 				// function wrapper
 				if (has_return_value) {
@@ -990,4 +985,3 @@ void register_primitive_bindings(Environment *p_env) {
 	p_env->add_class_register(static_cast<Variant::Type>(GetTypeInfo<String>::VARIANT_TYPE), &VariantBind<String>::reflect_bind_utilities);
 }
 } //namespace jsb
-
