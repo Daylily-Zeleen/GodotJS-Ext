@@ -8,8 +8,17 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 // 明确不拦：commit / push / reset --soft / checkout <branch> / branch -d
 // 等可恢复操作——它们由 AGENTS.md 的授权约定约束，不在此处制造摩擦。
 //
-// 这是绊线（tripwire），不是保险箱：它只覆盖 bash 工具，不覆盖经 eval 起的
-// 子进程。作用是拦住疏忽，不是防蓄意规避。
+// 这是绊线（tripwire），不是保险箱：它只覆盖 `bash` 工具的参数文本，覆盖不到
+// 其他工具、脚本文件内部、以及正则无法可靠识别的间接写法（如 `sudo -u X git ...`）。
+// 作用是拦住疏忽，不是防蓄意规避。
+
+/**
+ * 短选项簇里是否含某个字母：`-f`、`-fd`、`-xdf` 都命中 `f`。
+ * 带参数的长选项（`--force`）不匹配，须单独列举；大小写敏感（`-D` ≠ `-d`）。
+ */
+function hasShort(tokens: string[], letter: string): boolean {
+   return tokens.some((t) => /^-[a-zA-Z]+$/.test(t) && t.slice(1).includes(letter));
+}
 
 /** 单个 shell 片段的危险判定；返回原因即为命中，返回 null 表示放行。 */
 function checkGit(sub: string, rest: string[]): string | null {
@@ -19,17 +28,31 @@ function checkGit(sub: string, rest: string[]): string | null {
          return rest.includes("--hard") ? "`git reset --hard` 会丢弃工作区改动" : null;
 
       case "clean":
-         // -n / --dry-run 无害；含 f 的短标志组合（-f、-fd、-fdx）才删文件
-         return rest.some((t) => /^-[a-zA-Z]*f/.test(t))
-            ? "`git clean -f` 会删除未跟踪文件"
+         // -n / --dry-run 只预演，优先级高于 -f（与 git 自身语义一致）
+         if (hasShort(rest, "n") || rest.includes("--dry-run")) return null;
+         // -f 簇与等价的 --force 都会删未跟踪文件
+         return hasShort(rest, "f") || rest.includes("--force")
+            ? "`git clean -f` / `--force` 会删除未跟踪文件"
             : null;
 
       case "push": {
          for (const t of rest) {
             // --force-with-lease 是安全的强制推送方式（远端有新提交即失败），放行
             if (/^--force-with-lease(=.*)?$/.test(t)) continue;
-            if (t === "--force" || /^-[a-zA-Z]*f$/.test(t)) {
+            if (t === "--force" || hasShort([t], "f")) {
                return "`git push --force` / `-f` 会覆盖远端历史；如需强制推送请改用 `--force-with-lease`";
+            }
+            // 删远端分支/标签：远端独有的提交就此失去引用
+            if (t === "--delete" || hasShort([t], "d")) {
+               return "`git push --delete` / `-d` 会删除远端分支或标签";
+            }
+            // 镜像推送让远端引用与本地完全一致（含删掉远端多出的）
+            if (t === "--mirror") {
+               return "`git push --mirror` 会让远端引用与本地完全一致（含删除）";
+            }
+            // 空 source 的 refspec（`git push origin :branch`）同样是删远端引用
+            if (/^:[^:]+$/.test(t)) {
+               return "`git push origin :<ref>` 会删除远端引用";
             }
             // `+<refspec>` 是另一种强制推送写法
             if (t.startsWith("+")) {
@@ -40,8 +63,17 @@ function checkGit(sub: string, rest: string[]): string | null {
       }
 
       case "checkout":
-         // `git checkout -- <路径>` 丢弃改动；`git checkout <分支>` 只是切换
-         return rest.includes("--") ? "`git checkout --` 会丢弃工作区改动" : null;
+         // `git checkout -- <路径>` 丢弃指定路径改动；`-f`/`--force` 丢弃全部未提交改动
+         if (rest.includes("--")) return "`git checkout --` 会丢弃工作区改动";
+         return hasShort(rest, "f") || rest.includes("--force")
+            ? "`git checkout -f` / `--force` 会丢弃未提交改动"
+            : null;
+
+      case "switch":
+         // 与 checkout -f 等价：强制切换即丢弃未提交改动
+         return hasShort(rest, "f") || rest.includes("--force") || rest.includes("--discard-changes")
+            ? "`git switch -f` / `--discard-changes` 会丢弃未提交改动"
+            : null;
 
       case "restore": {
          const staged = rest.some((t) => t === "--staged" || t === "-S");
@@ -55,9 +87,37 @@ function checkGit(sub: string, rest: string[]): string | null {
          return action === "drop" || action === "clear" ? "丢弃 stash 不可恢复" : null;
       }
 
-      case "branch":
-         return rest.some((t) => /^-[a-zA-Z]*D$/.test(t))
-            ? "`git branch -D` 会强制删除未合并分支"
+      case "branch": {
+         // `-d`/`--delete` 单独用时未合并会被拒绝（安全）；但配合 `-f`/`--force`（含 `-d --force`
+         // 与 `-D` 等价，实测确认）就无条件删——所以「删除」与「强制」两个条件同时成立才拦。
+         const deleting = hasShort(rest, "d") || hasShort(rest, "D") || rest.includes("--delete");
+         const forced = hasShort(rest, "f") || hasShort(rest, "D") || rest.includes("--force");
+         return deleting && forced ? "`git branch -D` / `-d --force` 会强制删除未合并分支" : null;
+      }
+
+      case "tag":
+         return hasShort(rest, "d") || hasShort(rest, "D") || rest.includes("--delete")
+            ? "`git tag -d` 会删除标签，且标签不在 reflog 保护范围内"
+            : null;
+
+      case "update-ref":
+         return hasShort(rest, "d") || rest.includes("--delete")
+            ? "`git update-ref -d` 会直接删除引用，绕过 reflog 提示"
+            : null;
+
+      case "worktree":
+         // 不带 --force 时脏工作树会被拒绝；带 --force 直接丢弃
+         return rest[0] === "remove" && (hasShort(rest, "f") || rest.includes("--force"))
+            ? "`git worktree remove --force` 会丢弃该工作树的未提交改动"
+            : null;
+
+      case "reflog":
+         return rest[0] === "expire" ? "`git reflog expire` 会清除对象的恢复路径" : null;
+
+      case "gc":
+         // 默认保留 2 周可达性保护；--prune=now|all 立即清除不可达对象
+         return rest.some((t) => t === "--prune=now" || t === "--prune=all")
+            ? "`git gc --prune=now` 会立即清除不可达对象，reflog 兜不住"
             : null;
 
       case "filter-branch":
@@ -159,14 +219,20 @@ const GIT_VALUE_FLAGS: Record<string, true> = {
    "--exec-path": true,
 };
 
-/** 剥掉 env 赋值与包装命令，取 `git` 之后的参数；非 git 命令返回 null。 */
-function gitArgs(tokens: string[]): string[] | null {
+/** 剥掉 env 赋值与 sudo/command/env 包装，返回剩余 token 的起点。 */
+function skipWrappers(tokens: string[]): number {
    let i = 0;
    while (i < tokens.length && ENV_ASSIGN.test(tokens[i]!)) i++;
    while (i < tokens.length && (tokens[i] === "sudo" || tokens[i] === "command" || tokens[i] === "env")) {
       i++;
       while (i < tokens.length && ENV_ASSIGN.test(tokens[i]!)) i++;
    }
+   return i;
+}
+
+/** 剥掉 env 赋值与包装命令，取 `git` 之后的参数；非 git 命令返回 null。 */
+function gitArgs(tokens: string[]): string[] | null {
+   let i = skipWrappers(tokens);
    if (tokens[i] !== "git") return null;
    i++;
    // git 全局参数；其中 -C/-c 等会吞掉下一个 token
@@ -177,10 +243,51 @@ function gitArgs(tokens: string[]): string[] | null {
    return tokens.slice(i);
 }
 
+/** 会重新执行一段命令串的 shell；`-c` 之后的参数即待执行命令。 */
+const SHELLS: Record<string, true> = {
+   bash: true,
+   sh: true,
+   zsh: true,
+   dash: true,
+   ksh: true,
+   ash: true,
+};
+
+/**
+ * `bash -c '...'` / `sh -lc "..."` / `eval '...'` 的内层命令串；非此类返回 null。
+ * 不递归展开的包装（`sudo git ...`）由 gitArgs 处理，不走这里。
+ */
+function innerCommand(tokens: string[]): string | null {
+   const head = tokens[0];
+   if (!head) return null;
+   if (head === "eval") return tokens.slice(1).join(" ") || null;
+   if (!SHELLS[head]) return null;
+   // `-c` 可与其他短选项同簇（-lc / -ec / -xc）
+   for (let i = 1; i < tokens.length; i++) {
+      if (!/^-[a-zA-Z]*c$/.test(tokens[i]!)) continue;
+      return tokens.slice(i + 1).join(" ") || null;
+   }
+   return null;
+}
+
 /** 判定整条命令；命中返回中文原因，否则返回 null。 */
 export function classify(command: string): string | null {
-   for (const segment of splitSegments(command)) {
-      const args = gitArgs(tokenize(segment));
+   for (const raw of splitSegments(command)) {
+      // 子 shell 语法 `( ... )` 只多一层括号，剥掉后仍按普通片段判
+      const trimmed = raw.trim();
+      const segment =
+         trimmed.startsWith("(") && trimmed.endsWith(")")
+            ? trimmed.slice(1, -1).trim()
+            : trimmed;
+      const tokens = tokenize(segment);
+      // 剥 env 赋值与 sudo/command/env 包装后，先看是否是 shell 复读
+      const nested = innerCommand(tokens.slice(skipWrappers(tokens)));
+      if (nested) {
+         const hit = classify(nested);
+         if (hit) return hit;
+         continue;
+      }
+      const args = gitArgs(tokens);
       if (!args || args.length === 0) continue;
       const hit = checkGit(args[0]!, args.slice(1));
       if (hit) return hit;
