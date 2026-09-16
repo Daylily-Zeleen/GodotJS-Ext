@@ -1,0 +1,145 @@
+#  action.yml
+#
+#  This file is part of:
+#                                GodotJS-Ext
+#              https://github.com/Daylily-Zeleen/GodotJS-Ext
+#
+#  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)
+#                 - Contact: daylily-zeleen@foxmail.com
+#
+#  This library is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU Lesser General Public
+#  License as published by the Free Software Foundation; either
+#  version 2.1 of the License, or (at your option) any later version.
+#
+#  This library is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  Lesser General Public License for more details.
+#
+#  You should have received a copy of the GNU Lesser General Public
+#  License along with this library; if not,
+#  see <https://www.gnu.org/licenses/>.
+
+name: Setup GodotJS-Ext build dependencies
+description: >-
+  Install the toolchain a build leg needs: Python + SCons always, plus the
+  platform-specific SDKs (MinGW/LLVM on Windows, NDK/EMS SDK, aarch64 cross).
+
+inputs:
+  platform:
+    description: Target platform (windows, linux, macos, ios, android, web).
+    required: true
+  arch:
+    description: Target architecture.
+    required: true
+  windows-compiler:
+    description: >-
+      Windows toolchain: msvc (default Visual Studio toolchain), mingw
+      (MinGW-w64 via Chocolatey) or llvm (clang-cl on the MSVC ABI).
+    required: false
+    default: msvc
+  python-version:
+    description: Python version used to run SCons.
+    required: false
+    default: "3.x"
+  scons-version:
+    description: >-
+      SCons version. MUST be >= 4.10.1: the first release whose MSVC detection
+      knows the VS 2022+ / toolset "14.5" layout used by VS 2026, which is all
+      the windows-2025-vs2026 runner image ships. Older SCons fails to see any
+      MSVC there and godot-cpp silently falls back to MinGW.
+    required: false
+    default: "4.11.1"
+  mingw-version:
+    description: MinGW-w64 version (Chocolatey package version).
+    required: false
+    default: "12.2.0"
+  em-version:
+    description: Emscripten version.
+    required: false
+    default: "4.0.11"
+  ndk-version:
+    description: Android NDK version.
+    required: false
+    default: "r28b"
+  java-version:
+    description: JDK version required by the Android toolchain.
+    required: false
+    default: "17"
+  java-distribution:
+    description: JDK distribution.
+    required: false
+    default: "temurin"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup Android JDK
+      if: inputs.platform == 'android'
+      uses: actions/setup-java@v5
+      with:
+        distribution: ${{ inputs.java-distribution }}
+        java-version: ${{ inputs.java-version }}
+
+    - name: Setup Android NDK
+      if: inputs.platform == 'android'
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: ${{ inputs.ndk-version }}
+        link-to-sdk: true
+
+    - name: Setup Emscripten
+      if: inputs.platform == 'web'
+      uses: mymindstorm/setup-emsdk@v16
+      with:
+        version: ${{ inputs.em-version }}
+        actions-cache-folder: emsdk-cache
+
+    # Linux arm64 is cross-compiled on the (plentiful) x86_64 runners. The
+    # native arm64 runners are too scarce to schedule reliably.
+    - name: Setup aarch64 cross toolchain
+      if: inputs.platform == 'linux' && inputs.arch == 'arm64'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+    # Windows: pick exactly one toolchain. godot-cpp's tools/windows.py keys off
+    # msvc.exists() and silently falls back to MinGW when MSVC is absent, so the
+    # environment must be unambiguous before SCons runs.
+    - name: Setup MinGW for Windows/MinGW build
+      if: inputs.platform == 'windows' && inputs.windows-compiler == 'mingw'
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        version: ${{ inputs.mingw-version }}
+
+    # clang-cl is an MSVC-ABI compiler: godot-cpp's use_llvm=yes only swaps
+    # CC/CXX to clang-cl, it still needs the MSVC environment (INCLUDE/LIB and
+    # link.exe), which is exactly what this action establishes. clang-cl itself
+    # comes from the runner's LLVM install (already on PATH).
+    - name: Setup LLVM (clang-cl) for Windows/LLVM build
+      if: inputs.platform == 'windows' && inputs.windows-compiler == 'llvm'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Verify clang-cl is available
+      if: inputs.platform == 'windows' && inputs.windows-compiler == 'llvm'
+      shell: bash
+      run: |
+        set -euo pipefail
+        command -v clang-cl >/dev/null 2>&1 || {
+          echo "::error::clang-cl not found on PATH; the LLVM toolset is required for windows-compiler=llvm"
+          exit 1
+        }
+        clang-cl --version
+
+    - name: Install SCons
+      shell: bash
+      run: |
+        python -m pip install --upgrade --quiet scons==${{ inputs.scons-version }}
+        scons --version

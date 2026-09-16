@@ -26,11 +26,9 @@ description: Setup pnpm, install dependencies
 inputs:
   pnpm-version:
     description: 'pnpm version'
-    type: string
     default: '10.11.0'
   node-version-file:
     description: 'Node version file path'
-    type: string
     default: '.node-version'
 runs:
   using: composite

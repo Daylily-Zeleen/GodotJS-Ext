@@ -6,8 +6,6 @@
 #
 #  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)
 #                 - Contact: daylily-zeleen@foxmail.com
-#  Copyright (c) Contributors of GodotJS
-#                 - <https://github.com/godotjs/GodotJS>
 #
 #  This library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -30,21 +28,21 @@ env:
   EM_VERSION: 4.0.11
   NDK_VERSION: r28b
   # Tool/environment versions - aligned with godot-cpp
-  PYTHON_VERSION: '3.x'
-  PNPM_VERSION: '10.11.0'
-  JAVA_VERSION: '17'
-  JAVA_DISTRIBUTION: 'temurin'
+  PYTHON_VERSION: "3.x"
+  PNPM_VERSION: "10.11.0"
+  JAVA_VERSION: "17"
+  JAVA_DISTRIBUTION: "temurin"
   # MUST be >= 4.10.1: that is the first SCons release whose MSVC detection
   # knows the VS 2022+/"14.5" toolset (VS 2026, product major 18). The
   # `windows-latest` runner image is now windows-2025-vs2026, which ships
   # ONLY VS 2026; an older SCons sees no MSVC at all (msvc.exists() -> False),
   # so godot-cpp's tools/windows.py silently falls back to MinGW and the
   # build dies on MSVC-only flags (/Z7, /Fd...) that g++ reads as file names.
-  SCONS_VERSION: '4.11.1'
-  MINGW_VERSION: '12.2.0'
-  GODOT_VERSION: 'tags/4.7.1-stable'
-  GODOT_ASSET_LINUX: 'Godot_v4.7.1-stable_linux.x86_64.zip'
-  GODOT_ASSET_WINDOWS: 'Godot_v4.7.1-stable_win64.exe.zip'
+  SCONS_VERSION: "4.11.1"
+  MINGW_VERSION: "12.2.0"
+  GODOT_VERSION: "tags/4.7.1-stable"
+  GODOT_ASSET_LINUX: "Godot_v4.7.1-stable_linux.x86_64.zip"
+  GODOT_ASSET_WINDOWS: "Godot_v4.7.1-stable_win64.exe.zip"
 on:
   workflow_dispatch:
   pull_request:
@@ -80,17 +78,74 @@ jobs:
           path: ${{github.workspace}}/scripts/out
           retention-days: 1
 
-
   # Static-vs-dynamic binding benchmark (manual trigger only).
-  # Builds both variants in release (dev_build=no) with the official stable
-  # editor as the engine, runs the same TS benchmark scene against each, and
-  # publishes a comparison report. Exit codes of the bench runs are tolerated:
-  # the job judges by the presence of the BENCH_JSON line (jsb teardown can
-  # crash after a heavy scene, a known engine-side issue).
+  #
+  # Split like a normal build leg: benchmark-build produces one extension per
+  # binding mode (static/dynamic) as an artifact, and benchmark consumes both
+  # and publishes the comparison report. The two variants share the very same
+  # build path as every other leg, so the benchmark can never silently measure
+  # a differently-built extension.
+  #
+  # Exit codes of the bench runs are tolerated: the job judges by the presence
+  # of the BENCH_JSON line (jsb teardown can crash after a heavy scene, a known
+  # engine-side issue).
+  benchmark-build:
+    name: Benchmark build (${{ matrix.static-binding }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: [environment]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        static-binding: ["yes", "no"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup build dependencies
+        uses: ./.github/actions/setup-godotjs-ext
+        with:
+          platform: linux
+          arch: x86_64
+          python-version: ${{ env.PYTHON_VERSION }}
+          scons-version: ${{ env.SCONS_VERSION }}
+
+      - name: Download JS runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: scripts-out
+          path: scripts/out
+
+      - name: Build GDExtension (benchmark variant)
+        uses: ./.github/actions/scons-build
+        with:
+          platform: linux
+          arch: x86_64
+          target: editor
+          engine: v8
+          profile: release
+          flags: static_binding=${{ matrix.static-binding }}
+          stage-artifact: "false"
+
+      - name: Stage benchmark binary
+        shell: bash
+        run: |
+          mkdir -p benchmark
+          cp project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so \
+             benchmark/godotjs-ext.so
+
+      - name: Upload benchmark binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-${{ matrix.static-binding }}
+          path: benchmark/
+          retention-days: 1
+
   benchmark:
     name: Benchmark (static vs dynamic)
     if: github.event_name == 'workflow_dispatch'
-    needs: [environment]
+    needs: [environment, benchmark-build]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -102,47 +157,17 @@ jobs:
         with:
           pnpm-version: ${{ env.PNPM_VERSION }}
 
-      - name: Setup python + scons
-        shell: bash
-        run: |
-          python3 --version || { sudo apt-get update && sudo apt-get install -y python3 python3-pip; }
-          python3 -m pip install --quiet scons==${{ env.SCONS_VERSION }}
-          scons --version
-
-      - name: Build GDExtension (static_binding=yes, release)
-        shell: bash
-        run: scons platform=linux target=editor arch=x86_64 compiledb=no debug_symbols=no dev_build=no static_binding=yes -j$(nproc)
-
-      - name: Save static dll
-        shell: bash
-        run: |
-          mkdir -p /tmp/bench
-          cp project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so /tmp/bench/static.so
-
-      - name: Build GDExtension (static_binding=no, release)
-        shell: bash
-        run: scons platform=linux target=editor arch=x86_64 compiledb=no debug_symbols=no dev_build=no static_binding=no -j$(nproc)
-
-      - name: Save dynamic dll
-        shell: bash
-        run: cp project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so /tmp/bench/dynamic.so
-
-      - name: Download Godot (Linux)
-        uses: dsaltares/fetch-gh-release-asset@1.1.2
+      - name: Download Godot
+        uses: ./.github/actions/fetch-godot
         with:
-          repo: godotengine/godot
           version: ${{ env.GODOT_VERSION }}
-          file: ${{ env.GODOT_ASSET_LINUX }}
-          target: godot/godot.zip
+          asset: ${{ env.GODOT_ASSET_LINUX }}
 
-      - name: Extract Godot
-        shell: bash
-        run: |
-          mkdir -p tests/bin
-          unzip -o godot/godot.zip -d tests/bin/
-          chmod +x tests/bin/Godot* 2>/dev/null || true
-          GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
+      - name: Download benchmark binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/bench
+          pattern: benchmark-*
 
       - name: Build TypeScript
         shell: bash
@@ -155,8 +180,9 @@ jobs:
         shell: bash
         run: |
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
+          mkdir -p project/addons/godotjs-ext.daylily-zeleen/bin/linux
           for leg in static dynamic; do
-            if [ "$leg" == "static" ]; then SO=/tmp/bench/static.so; else SO=/tmp/bench/dynamic.so; fi
+            if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-yes/godotjs-ext.so; else SO=/tmp/bench/benchmark-no/godotjs-ext.so; fi
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
             "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
@@ -170,7 +196,7 @@ jobs:
         run: |
           sudo apt-get install -y gdb
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
-          cp /tmp/bench/static.so "$ADDONS_SO"
+          cp /tmp/bench/benchmark-yes/godotjs-ext.so "$ADDONS_SO"
           gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project -- --bench \
             > /tmp/bench/gdb_static.log 2>&1 || true
           tail -60 /tmp/bench/gdb_static.log || true
@@ -219,7 +245,7 @@ jobs:
           ]
           import os
           for leg in ("dynamic", "static"):
-              sz = os.path.getsize(f"/tmp/bench/{leg}.so")
+              sz = os.path.getsize(f"/tmp/bench/benchmark-{'yes' if leg == 'static' else 'no'}/godotjs-ext.so")
               lines.append(f"- {leg} gdextension: {sz / 1024 / 1024:.2f} MiB")
           lines.append("")
           lines += [
@@ -250,16 +276,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows toolchain per leg. The v8 and libnode prebuilts are MSVC
+          # archives (MSVC-mangled C++ symbols), so they can only be linked by
+          # an MSVC-ABI compiler - msvc or clang-cl (llvm). quickjs-ng is a
+          # plain C source build and works with MinGW.
           - platform: windows
             os: windows-latest
             arch: x86_64
             target: editor
             engine: v8
+            windows-compiler: msvc
           - platform: windows
             os: windows-latest
             arch: x86_64
             target: editor
             engine: qjs-ng
+            windows-compiler: mingw
           - platform: linux
             os: ubuntu-22.04
             arch: x86_64
@@ -360,26 +392,16 @@ jobs:
             target: template_release
             engine: qjs-ng
             threads: false
-          # Node engine (Windows, Linux, macOS)
+          # Node engine (Windows only for now). NOTE: node builds on
+          # macos/linux are temporarily disabled - libnode.a lacks the typeinfo
+          # symbols of v8::Value{Serializer,Deserializer}::Delegate, which our
+          # delegate subclasses reference (tracked in the local backlog).
           - platform: windows
             os: windows-latest
             arch: x86_64
             target: editor
             engine: node
-          # NOTE: node builds on macos/linux are temporarily disabled:
-          # libnode.a lacks the typeinfo symbols of v8::Value{Serializer,Deserializer}::Delegate,
-          # which our delegate subclasses reference (tracked in the local
-          # backlog; see the libnode typeinfo entry in the worktree docs).
-          # - platform: linux
-          #   os: ubuntu-22.04
-          #   arch: x86_64
-          #   target: editor
-          #   engine: node
-          # - platform: macos
-          #   os: macos-latest
-          #   arch: arm64
-          #   target: editor
-          #   engine: node
+            windows-compiler: msvc
           # JavaScriptCore engine (macOS, iOS only)
           - platform: macos
             os: macos-latest
@@ -392,13 +414,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - name: Setup build dependencies
+        uses: ./.github/actions/setup-godotjs-ext
         with:
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+          windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install SCons
-        run: pip install scons==${{ env.SCONS_VERSION }}
+          scons-version: ${{ env.SCONS_VERSION }}
+          mingw-version: ${{ env.MINGW_VERSION }}
+          em-version: ${{ env.EM_VERSION }}
+          ndk-version: ${{ env.NDK_VERSION }}
+          java-version: ${{ env.JAVA_VERSION }}
+          java-distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Download JS runtime
         uses: actions/download-artifact@v8
@@ -406,10 +434,6 @@ jobs:
           name: scripts-out
           path: scripts/out
 
-      # NOTE: SCons cache is enabled on non-Windows platforms only. MSVC's /Zi
-      # emits a shared vc140.pdb that is not part of the cached .obj files, so
-      # cache hits produce LNK4099 warnings which fail the build due to /WX.
-      # GCC/Clang embed debug info per object file, so their caches are safe.
       - name: Restore V8 dependency cache
         if: matrix.engine == 'v8'
         uses: actions/cache@v6
@@ -424,6 +448,10 @@ jobs:
           path: third/node
           key: node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
+      # SCons cache is enabled on non-Windows platforms only. MSVC's debug info
+      # lives in a shared PDB that the cached .obj files do not carry, so cache
+      # hits produce LNK4099 warnings which fail the build due to /WX.
+      # GCC/Clang embed debug info per object file, so their caches are safe.
       - name: Restore SCons cache
         if: matrix.platform != 'windows'
         uses: actions/cache@v6
@@ -435,107 +463,16 @@ jobs:
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.target }}-
             scons-${{ runner.os }}-${{ matrix.platform }}-${{ matrix.arch }}-
 
-      - name: Setup JDK 17 for Android
-        if: matrix.platform == 'android'
-        uses: actions/setup-java@v5
-        with:
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-          java-version: ${{ env.JAVA_VERSION }}
-      - name: Setup Android NDK
-        if: matrix.platform == 'android'
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: ${{ env.NDK_VERSION }}
-          link-to-sdk: true
-
-      - name: Setup Emscripten
-        if: matrix.platform == 'web'
-        uses: mymindstorm/setup-emsdk@v16
-        with:
-          version: ${{ env.EM_VERSION }}
-          actions-cache-folder: 'emsdk-cache'
-
       - name: Build GDExtension
-        shell: bash
-        run: |
-          # SCons cache is enabled on non-Windows platforms only (see restore step above).
-          if [ "${{ matrix.platform }}" != "windows" ]; then
-            export SCONS_CACHE="$GITHUB_WORKSPACE/.scons-cache"
-          fi
-          
-          # Set engine flag based on matrix.engine
-          if [ "${{ matrix.engine }}" == "qjs-ng" ]; then
-            engine_flag="use_quickjs_ng=yes"
-          elif [ "${{ matrix.engine }}" == "node" ]; then
-            engine_flag="use_node=yes"
-          elif [ "${{ matrix.engine }}" == "jsc" ]; then
-            engine_flag="use_jsc=yes"
-          else
-            engine_flag=""
-          fi
-          
-          # Set threads flag for web platform
-          if [ "${{ matrix.platform }}" == "web" ]; then
-            if [ "${{ matrix.threads }}" == "false" ]; then
-              threads_flag="threads=no"
-            else
-              threads_flag="threads=yes"
-            fi
-          else
-            threads_flag=""
-          fi
-          
-          # Determine parallel job count (cross-platform)
-          if command -v nproc >/dev/null 2>&1; then
-            NPROC=$(nproc)
-          elif command -v sysctl >/dev/null 2>&1; then
-            NPROC=$(sysctl -n hw.ncpu)
-          else
-            NPROC=2
-          fi
-          
-          # Linux arm64: cross-compile with the aarch64 toolchain (the native
-          # arm64 runners are too scarce). godot-cpp's linux.py appends
-          # -march=armv8-a which only the aarch64 compiler understands.
-          cross_flags=""
-          if [ "${{ matrix.platform }}" == "linux" ] && [ "${{ matrix.arch }}" == "arm64" ]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            cross_flags="CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++"
-          fi
-          
-          # iOS, Android, and Web don't support tests or dev_build
-          if [ "${{ matrix.platform }}" == "ios" ] || [ "${{ matrix.platform }}" == "android" ] || [ "${{ matrix.platform }}" == "web" ]; then
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
-          else
-            scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes dev_build=yes tests=yes verbose=yes $engine_flag $threads_flag $cross_flags -j$NPROC
-          fi
-          
-          # iOS: Build simulator version and generate xcframework.
-          # NOTE: v8 has no iOS-simulator prebuilt, so only quickjs-ng/jsc
-          # produce an xcframework; v8 produces the device dylib alone.
-          if [ "${{ matrix.platform }}" == "ios" ]; then
-            if [ "${{ matrix.engine }}" != "v8" ]; then
-              echo "Building iOS simulator version..."
-              scons platform=${{ matrix.platform }} target=${{ matrix.target }} arch=${{ matrix.arch }} compiledb=yes debug_symbols=yes verbose=yes $engine_flag ios_simulator=yes -j$NPROC
-              echo "Generating xcframework..."
-              # The xcframework is automatically generated by SConstruct when both builds are present
-            else
-              echo "Skipping iOS simulator build for v8 (no simulator prebuilt available)"
-            fi
-          fi
-
-      - name: Prepare artifact
-        shell: bash
-        run: |
-          mkdir -p artifact
-          cp -r bin/* artifact/ 2>/dev/null || true
-
-      - name: Copy LICENSE to artifact
-        shell: bash
-        run: |
-          mkdir -p artifact/addons/godotjs-ext.daylily-zeleen
-          cp LICENSE artifact/addons/godotjs-ext.daylily-zeleen/
+        uses: ./.github/actions/scons-build
+        with:
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
+          engine: ${{ matrix.engine }}
+          windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
+          threads: ${{ matrix.threads }}
+          scons-cache: ${{ matrix.platform != 'windows' && format('{0}/.scons-cache', github.workspace) || '' }}
 
       - name: Upload GDExtension artifact
         uses: actions/upload-artifact@v7
@@ -544,8 +481,7 @@ jobs:
           path: artifact/
           retention-days: 1
 
-
-  # Guard against PARTIAL release zips: misc_upload_assets.yml globs '*-v8' /
+  # Guard against PARTIAL release zips: misc_release.yml globs '*-v8' /
   # '*-qjs-ng' over this run's artifacts and merges whatever matches. A total
   # mismatch fails loudly at release time, but a partial match (a matrix leg
   # renamed or dropped) would silently ship a zip missing platforms.
@@ -600,6 +536,8 @@ jobs:
       matrix:
         include:
           # host-v8 / host-qjs run on Linux (artifacts built natively there)
+          # NOTE: env.* is not available in the matrix context, so the asset
+          # names are spelled out here; keep them in sync with GODOT_ASSET_*.
           - runtime: host-v8
             os: ubuntu-22.04
             artifact: linux-editor-x86_64-v8
@@ -648,32 +586,21 @@ jobs:
           name: ${{ matrix.artifact }}
           path: runtime-artifacts
 
-      - name: Download Godot (Linux)
-        uses: dsaltares/fetch-gh-release-asset@1.1.2
+      - name: Download Godot
+        uses: ./.github/actions/fetch-godot
         with:
-          repo: godotengine/godot
           version: ${{ env.GODOT_VERSION }}
-          file: ${{ matrix.godot_asset }}
-          target: godot/godot.zip
+          asset: ${{ matrix.godot_asset }}
 
-      - name: Extract Godot
+      - name: Prepare test runtime binary
         shell: bash
         run: |
-          mkdir -p tests/bin
+          # spawnSync needs the platform's executable suffix.
           if [ "$RUNNER_OS" == "Windows" ]; then
-            powershell -NoProfile -Command "Expand-Archive -Path godot/godot.zip -DestinationPath tests/bin -Force"
+            cp "$GODOT" "tests/bin/godot-${{ matrix.runtime }}.exe"
           else
-            unzip -o godot/godot.zip -d tests/bin/
+            cp "$GODOT" "tests/bin/godot-${{ matrix.runtime }}"
           fi
-          chmod +x tests/bin/Godot* 2>/dev/null || true
-          GODOT_BIN=$(find tests/bin -maxdepth 1 -name 'Godot*' -type f | head -1)
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            # Windows requires the .exe suffix for spawnSync to launch it
-            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}.exe"
-          else
-            cp "$GODOT_BIN" "tests/bin/godot-${{ matrix.runtime }}"
-          fi
-          echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
 
       - name: Setup test project
         shell: bash
