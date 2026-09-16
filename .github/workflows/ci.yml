@@ -706,6 +706,12 @@ jobs:
 
       - name: Run TypeScript integration tests
         shell: bash
+        # The runner spawns the engine synchronously (spawnSync, no timeout of
+        # its own). If the engine ever fails to quit - e.g. a startup error that
+        # stops start.ts from reaching its `finally { quit() }` - the step would
+        # otherwise hang until the 6h job ceiling, which is expensive to
+        # diagnose. A normal run takes ~1.5 min.
+        timeout-minutes: 10
         run: |
           # Editor startup flows may wipe compiled JS output; re-emit defensively
           # and log the directory state for diagnostics.

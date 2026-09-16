@@ -344,9 +344,17 @@ bool PathsMapping::generate_from_tsconfig(const godot::String &p_jsonc_content) 
 	}
 
 	// 写入顺序无关紧要：refresh() 加载后统一 sort_custom 按 pattern 前缀长度降序
-	godot::Ref<godot::FileAccess> file = godot::FileAccess::open(get_paths_mapping_path(), godot::FileAccess::WRITE);
+	// 输出目录可能整体缺失（用户手动删除 .godot、或首次启动）：FileAccess 不会
+	// 创建父目录，写入会静默失败，运行时于是解析不了 tsconfig paths 别名。
+	const godot::String mapping_path = get_paths_mapping_path();
+	const godot::Error dir_error = godot::DirAccess::make_dir_recursive_absolute(mapping_path.get_base_dir());
+	if (dir_error != godot::OK) {
+		JSB_LOG(Warning, "PathsMapping: failed to create directory for %s: %s", mapping_path, godot::UtilityFunctions::error_string(dir_error));
+		return false;
+	}
+	godot::Ref<godot::FileAccess> file = godot::FileAccess::open(mapping_path, godot::FileAccess::WRITE);
 	if (!file.is_valid()) {
-		JSB_LOG(Warning, "PathsMapping: cannot open %s for writing: %s", get_paths_mapping_path(), godot::UtilityFunctions::error_string(godot::FileAccess::get_open_error()));
+		JSB_LOG(Warning, "PathsMapping: cannot open %s for writing: %s", mapping_path, godot::UtilityFunctions::error_string(godot::FileAccess::get_open_error()));
 		return false;
 	}
 	for (const godot::String &line : lines) {
