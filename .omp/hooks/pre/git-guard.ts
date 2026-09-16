@@ -272,10 +272,19 @@ function skipWrappers(tokens: string[]): number {
    return i;
 }
 
+/**
+ * 判定某 token 是否是 git 可执行文件。Windows 上 `git.exe` 与
+ * `C:\...\Git\bin\git.exe` 都合法，故按基名比较而忽略路径与 `.exe` 后缀。
+ */
+function isGitBinary(token: string): boolean {
+   const base = token.split(/[\\/]/).pop() ?? token;
+   return /^git(\.exe)?$/i.test(base);
+}
+
 /** 剥掉 env 赋值与包装命令，取 `git` 之后的参数；非 git 命令返回 null。 */
 function gitArgs(tokens: string[]): string[] | null {
    let i = skipWrappers(tokens);
-   if (tokens[i] !== "git") return null;
+   if (!tokens[i] || !isGitBinary(tokens[i]!)) return null;
    i++;
    // git 全局参数；其中 -C/-c 等会吞掉下一个 token
    while (i < tokens.length && tokens[i]!.startsWith("-")) {
@@ -285,7 +294,10 @@ function gitArgs(tokens: string[]): string[] | null {
    return tokens.slice(i);
 }
 
-/** 会重新执行一段命令串的 shell；`-c` 之后的参数即待执行命令。 */
+/**
+ * 会重新执行一段命令串的 shell；`-c` 之后的参数即待执行命令。
+ * 注意 `cmd /c`、`powershell -Command` 等价于这些 shell 的 `-c`，一并处理。
+ */
 const SHELLS: Record<string, true> = {
    bash: true,
    sh: true,
@@ -295,18 +307,38 @@ const SHELLS: Record<string, true> = {
    ash: true,
 };
 
+/** 内层命令由开关引导的宿主：`cmd /c`、`powershell -c|-Command`、`pwsh -c`。 */
+const CMD_SWITCHES_BY_HEAD: Record<string, Record<string, true>> = {
+   cmd: { "/c": true },
+   "cmd.exe": { "/c": true },
+   powershell: { "-c": true, "-command": true },
+   "powershell.exe": { "-c": true, "-command": true },
+   pwsh: { "-c": true, "-command": true },
+   "pwsh.exe": { "-c": true, "-command": true },
+};
+
 /**
- * `bash -c '...'` / `sh -lc "..."` / `eval '...'` 的内层命令串；非此类返回 null。
- * 不递归展开的包装（`sudo git ...`）由 gitArgs 处理，不走这里。
+ * `bash -c '...'` / `sh -lc "..."` / `eval '...'` / `cmd /c "..."` 的内层命令串；
+ * 非此类返回 null。不递归展开的包装（`sudo git ...`）由 gitArgs 处理，不走这里。
  */
 function innerCommand(tokens: string[]): string | null {
    const head = tokens[0];
    if (!head) return null;
    if (head === "eval") return tokens.slice(1).join(" ") || null;
-   if (!SHELLS[head]) return null;
-   // `-c` 可与其他短选项同簇（-lc / -ec / -xc）
+
+   if (SHELLS[head]) {
+      // `-c` 可与其他短选项同簇（-lc / -ec / -xc）
+      for (let i = 1; i < tokens.length; i++) {
+         if (!/^-[a-zA-Z]*c$/.test(tokens[i]!)) continue;
+         return tokens.slice(i + 1).join(" ") || null;
+      }
+      return null;
+   }
+
+   const switches = CMD_SWITCHES_BY_HEAD[head.toLowerCase()];
+   if (!switches) return null;
    for (let i = 1; i < tokens.length; i++) {
-      if (!/^-[a-zA-Z]*c$/.test(tokens[i]!)) continue;
+      if (!switches[tokens[i]!.toLowerCase()]) continue;
       return tokens.slice(i + 1).join(" ") || null;
    }
    return null;
