@@ -976,7 +976,15 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 		if (ref_count == 1) // 正常情况下 JS 会持有一个引用
 		{
-			object_handle->ref_.SetWeak((void *)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
+			// bind_pointer() already turned this handle weak when the object is
+			// JS-owned, and the reference callbacks are delivered one per
+			// inc/dec pair, so the same handle can legitimately reach here
+			// twice. SetWeak() is idempotent in V8 but traps in the shim
+			// implementations when the handle is not currently strong, so
+			// check the state instead of assuming it.
+			if (!object_handle->ref_.IsWeak()) {
+				object_handle->ref_.SetWeak((void *)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
+			}
 		}
 		return true;
 	}
