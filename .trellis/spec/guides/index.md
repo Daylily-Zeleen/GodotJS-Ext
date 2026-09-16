@@ -6,7 +6,7 @@
 
 ## 项目硬性守则（每轮必守）
 
-→ [workflow-rules.md](./workflow-rules.md)：git 提交/推送/还原必须经用户确认、临时文件一律 `.agent_tmp/`、文档用中文。
+→ [workflow-rules.md](./workflow-rules.md)：git 提交/推送/还原必须经用户确认、临时文件一律 `.agent_tmp/`、执行节奏（不重复编译、不轮询 job、最终汇报覆盖全流程）、文档用中文。
 
 ---
 
@@ -16,7 +16,7 @@
 |-------|------|--------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | 先搜索再写新代码，消灭重复 | 发现自己在复制/重写既有逻辑时 |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | 跨层数据流推演 | 功能跨越多层（JS ↔ 桥接 ↔ api_tool ↔ godot-cpp ↔ 引擎）时 |
-| [workflow-rules.md](./workflow-rules.md) | git / 临时文件 / 任务管理硬约束 | 任何涉及 git 操作或文件创建的时刻 |
+| [workflow-rules.md](./workflow-rules.md) | git / 临时文件 / 任务管理 / 执行节奏硬约束 | 任何涉及 git 操作、文件创建、启动后台 job 或收尾汇报的时刻 |
 
 ---
 
