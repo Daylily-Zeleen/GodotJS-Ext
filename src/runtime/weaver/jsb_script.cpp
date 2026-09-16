@@ -166,7 +166,7 @@ ScriptInstance *GodotJSScript::instance_create(const v8::Local<v8::Object> &p_th
 	jsb::JavaScriptModule *module = nullptr;
 	const Error err = env->load(script_class_info_.module_id, &module);
 	// jsb_ensure(!env->is_shadow()); // TODO: 待确认
-	jsb_ensuref(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
+	jsb_ensuref(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
 	const jsb::NativeClassID native_class_id = env->get_script_class(module->script_class_id)->native_class_id;
 
 	return try_create_script_instance(
@@ -202,7 +202,7 @@ ScriptInstance *GodotJSScript::instance_construct(Object *p_this, bool p_is_temp
 
 	jsb::JavaScriptModule *module = nullptr;
 	const Error err = env->load(script_class_info_.module_id, &module);
-	jsb_ensuref(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
+	jsb_ensuref(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
 	const jsb::ScriptClassID script_class_id = module->script_class_id;
 
 	GodotJSScriptInstance *instance = try_create_script_instance(
