@@ -34,7 +34,13 @@ env:
   PNPM_VERSION: '10.11.0'
   JAVA_VERSION: '17'
   JAVA_DISTRIBUTION: 'temurin'
-  SCONS_VERSION: '4.4.0'
+  # MUST be >= 4.10.1: that is the first SCons release whose MSVC detection
+  # knows the VS 2022+/"14.5" toolset (VS 2026, product major 18). The
+  # `windows-latest` runner image is now windows-2025-vs2026, which ships
+  # ONLY VS 2026; an older SCons sees no MSVC at all (msvc.exists() -> False),
+  # so godot-cpp's tools/windows.py silently falls back to MinGW and the
+  # build dies on MSVC-only flags (/Z7, /Fd...) that g++ reads as file names.
+  SCONS_VERSION: '4.11.1'
   MINGW_VERSION: '12.2.0'
   GODOT_VERSION: 'tags/4.7.1-stable'
   GODOT_ASSET_LINUX: 'Godot_v4.7.1-stable_linux.x86_64.zip'
