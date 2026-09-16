@@ -43,6 +43,24 @@
 
 **修复方向**（按优先）：让生成端在缺目录时自建（`DirAccess::make_dir_recursive_absolute`，见 `jsb_codegen_generator.cpp` 惯例）；CI 侧给该 step 加 `timeout-minutes` 兜底。**不要**靠“重跑一次”绕过——只要 `.godot` 被清空就会复现。
 
+## 陷阱：从 JS 构造 RefCounted 类会让 QuickJS 断言中止
+
+**症状**：`new Curve2D()` / `new AStar2D()` 等 **RefCounted 派生类**的 JS 构造触发
+
+```
+ERROR: FATAL: Condition "!(isolate_ && weak_type_ == WeakType::kStrong && is_alive())" is true.
+   at: SetWeak (src/runtime/impl/quickjs/jsb_quickjs_handle.h:278)
+terminate called after throwing an instance of 'std::system_error'  what():  Resource deadlock avoided
+```
+
+引擎以 abort 退出（Linux 上 `exit code null`），整个测试腿 FAIL。Node 派生类（`TabBar`/`CodeEdit`）、builtin（`GArray`）不受影响。
+
+**机制**：同一指针被 **弱化两次**。`bind_pointer()` 对 `is_js_owned()` 的对象已调用 `SetWeak`；随后引擎的 reference 回调（每对 inc/dec 各一次）在 DECREF 分支再次 `SetWeak` 同一 handle。V8 的 `Global::SetWeak` 在此**幂等**，但 QuickJS/JSC/Web 的 shim 实现要求 handle 当前必须是 strong，否则 `jsb_check` 中止（`JSB_WITH_CHECK` 仅在 `JSB_DEBUG` 下开，故 **release 构建不复现**）。
+
+**判别**：instrument 两个调用点（`bind_pointer` 与 `reference_object` 的 DECREF 分支）打印 `p_pointer`，同址两次即命中。或直接构造最小复现：测试项目里 `new Curve2D()` 单独一句。
+
+**修复方向**：用 `IsWeak()` 守卫 DECREF 分支的 `SetWeak`（shim 需补 `IsWeak()`——`v8::Global` 本就有，三个 shim 原先都缺）。不要改 `jsb_check` 或降级为告警。
+
 ## 质量检查（所有测试通用）
 
 - [ ] 验收：exit code == 0、无资源泄漏（无未释放 Resource、无 Orphan StringName）
