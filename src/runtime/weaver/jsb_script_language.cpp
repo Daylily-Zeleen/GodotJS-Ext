@@ -50,9 +50,9 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_state.hpp>
 
+#include "jsb.config.h"
 #include "jsb_script.h"
 #include "jsb_script_instance.h"
-#include "jsb.config.h"
 
 #ifdef TOOLS_ENABLED
 #	include "editor/weaver-editor/templates/templates.gen.h"
@@ -364,7 +364,12 @@ TypedArray<Dictionary> GodotJSScriptLanguage::_get_built_in_templates(const Stri
 	TypedArray<Dictionary> templates;
 #ifdef TOOLS_ENABLED
 	for (const Dictionary &template_dict : (::get_script_templates())) {
-		if (template_dict["inherit"] == p_object) {
+		/**
+			NOTE: Variant 的比较是先比较 类型 再比较具体值，因此如果 template_dict["inherit"] 是 String 的话将不可能会有匹配上 p_object 的机会。
+				虽然脚本模板已经将 inherit 改为 StringName，再次留下注释作为提醒。
+		 */
+		const StringName inherit = template_dict["inherit"];
+		if (p_object == inherit) {
 			templates.append(template_dict);
 		}
 	}
