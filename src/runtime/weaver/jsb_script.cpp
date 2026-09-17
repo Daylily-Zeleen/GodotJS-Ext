@@ -165,8 +165,8 @@ ScriptInstance *GodotJSScript::instance_create(const v8::Local<v8::Object> &p_th
 	jsb::JSEnvironment env(get_path(), p_is_temp_allowed);
 	jsb::JavaScriptModule *module = nullptr;
 	const Error err = env->load(script_class_info_.module_id, &module);
-	// jsb_ensure(!env->is_shadow()); // TODO: 待确认
-	jsb_ensuref(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
+	// jsb_check(!env->is_shadow()); // TODO: 待确认
+	jsb_checkf(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
 	const jsb::NativeClassID native_class_id = env->get_script_class(module->script_class_id)->native_class_id;
 
 	return try_create_script_instance(
@@ -202,7 +202,7 @@ ScriptInstance *GodotJSScript::instance_construct(Object *p_this, bool p_is_temp
 
 	jsb::JavaScriptModule *module = nullptr;
 	const Error err = env->load(script_class_info_.module_id, &module);
-	jsb_ensuref(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
+	jsb_checkf(module && err == OK, "JS Module not found: %s", this->script_class_info_.module_id);
 	const jsb::ScriptClassID script_class_id = module->script_class_id;
 
 	GodotJSScriptInstance *instance = try_create_script_instance(
@@ -210,7 +210,7 @@ ScriptInstance *GodotJSScript::instance_construct(Object *p_this, bool p_is_temp
 
 	if (instance) {
 		instance->postbind();
-		jsb_ensure(env->verify_object(p_this));
+		jsb_check(env->verify_object(p_this));
 	}
 
 	return instance;
@@ -498,7 +498,7 @@ void GodotJSScript::load_module_immediately() {
 			if (!script_class_info_.base_script_module_id.is_empty()) {
 				jsb::JavaScriptModule *base_module = nullptr;
 				const Error err = env->load(script_class_info_.base_script_module_id, &base_module);
-				jsb_ensuref(base_module && err == OK, "JS Module not found: %s", script_class_info_.base_script_module_id);
+				jsb_checkf(base_module && err == OK, "JS Module not found: %s", script_class_info_.base_script_module_id);
 				const Ref<Resource> base_res = ResourceLoader::get_singleton()->load(jsb::internal::PathUtil::convert_javascript_path(base_module->source_info.source_filepath));
 				jsb_check(base_res->get_class() == jsb_typename(GodotJSScript));
 				base = base_res;
@@ -617,7 +617,7 @@ bool GodotJSScript::_update_exports_internal(PlaceholderScriptInstance *p_placeh
 
 		jsb::JavaScriptModule *module = nullptr;
 		const Error err = env->load(script_class_info_.module_id, &module);
-		jsb_ensuref(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
+		jsb_checkf(module && err == OK, "JS Module not found: %s", script_class_info_.module_id);
 
 		if (const jsb::ScriptClassInfoPtr class_info = env->find_script_class(module->script_class_id)) {
 			for (const KeyValue<StringName, jsb::ScriptPropertyInfo> &pair : script_class_info_.properties) {

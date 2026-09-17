@@ -189,7 +189,7 @@ struct InstanceBindingCallbacks {
 	 * @brief 解除 Godot 对象上的 jsb instance binding。
 	 */
 	static void free_instance_bindings(Environment *p_env, Object *p_binding_object) {
-		jsb_ensure(p_binding_object && p_binding_object->_owner);
+		jsb_check(p_binding_object && p_binding_object->_owner);
 		::godot::gdextension_interface::object_free_instance_binding(p_binding_object->_owner, p_env);
 	}
 
@@ -299,7 +299,7 @@ Environment::Environment(const CreateParams &p_params)
 #if JSB_V8_CPPGC
 	// old version:
 	v8::Platform *platform = impl::GlobalInitialize::get_platform();
-	jsb_ensuref(platform, "Please call jsb::impl::GlobalInitialize::init() first.");
+	jsb_checkf(platform, "Please call jsb::impl::GlobalInitialize::init() first.");
 	cpp_heap_ = v8::CppHeap::Create(platform,
 			v8::CppHeapCreateParams({}, v8::WrapperDescriptor(kWrapperTypeIndex, kWrapperInstanceIndex, kWrapperID)));
 	// new version:
@@ -795,7 +795,7 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 		}
 	}
 
-	jsb_ensuref(!object_db_.has_object(p_pointer), "WTF? Bind again?");
+	jsb_checkf(!object_db_.has_object(p_pointer), "WTF? Bind again?");
 	templates::BitField<ObjectBindingFlags> binding_flags{ ObjectBindingFlags::OBF_GD_OBJ };
 	bool force_weak{ false };
 	if (RefCounted *ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
@@ -822,7 +822,7 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak) {
 	check_internal_state();
 	jsb_checkf(native_classes_.is_valid_index(p_class_id), "bad class_id");
-	jsb_ensure((flags_ & EF_PreDispose) == 0);
+	jsb_check((flags_ & EF_PreDispose) == 0);
 
 	ObjectHandlePtr handle;
 	const NativeObjectID object_id = object_db_.add_object(p_pointer, &handle);
@@ -888,14 +888,14 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 		JSB_LOG(Verbose, "UNEXPECTED bad pointer %d", (uintptr_t)p_pointer);
 		return false;
 	}
-	jsb_ensure(object_handle->is_gd_refcounted());
+	jsb_check(object_handle->is_gd_refcounted());
 
 	// must not be a valuetype object
 	// jsb_check(native_classes_.get_value(object_handle->class_id).type != NativeClassType::GodotPrimitive);
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
-	jsb_ensuref(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
+	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
 		if (ref_count > 1) // 正常情况下 JS 会持有一个引用
@@ -1783,7 +1783,7 @@ void Environment::evaluate_default_values(ScriptClassInfo &p_class_info) {
 			return;
 		}
 
-		jsb_ensure(!pointer->is_class(RefCounted::get_class_static()) || ((RefCounted *)pointer)->get_reference_count() == 1);
+		jsb_check(!pointer->is_class(RefCounted::get_class_static()) || ((RefCounted *)pointer)->get_reference_count() == 1);
 		memdelete(pointer);
 	}
 }
@@ -1908,7 +1908,7 @@ Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeO
 	v8::Local<v8::Function> method_func;
 	{
 		ScriptClassInfoPtr script_class_info = script_classes_.get_value_scoped(p_script_class_id);
-		jsb_ensure(script_class_info);
+		jsb_check(script_class_info);
 		const internal::TypeGen<StringName, v8::Global<v8::Function>>::UnorderedMapIt it = script_class_info->method_cache.find(p_method);
 		if (it == script_class_info->method_cache.end()) {
 			const v8::Local<v8::Object> class_obj = script_class_info->js_class.Get(isolate);

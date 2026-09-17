@@ -111,11 +111,11 @@ class EnvironmentRef {
 public:
 	EnvironmentRef(const EnvironmentRef &p_other) {
 		control_block = p_other.control_block;
-		jsb_ensure(control_block);
+		jsb_check(control_block);
 		control_block->refcount++;
 	}
 	~EnvironmentRef() {
-		jsb_ensure(control_block);
+		jsb_check(control_block);
 		if (--control_block->refcount == 0) {
 			memdelete(control_block);
 		}

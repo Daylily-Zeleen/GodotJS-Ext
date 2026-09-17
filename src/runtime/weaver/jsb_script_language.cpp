@@ -74,7 +74,7 @@ JSEnvironment::JSEnvironment(const String &p_path_hint, bool p_is_shadow_allowed
 	if (target_) {
 		is_shadow_ = false;
 	} else {
-		jsb_ensuref(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", ThreadEx::get_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
+		jsb_checkf(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", ThreadEx::get_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
 		is_shadow_ = true;
 	}
 }

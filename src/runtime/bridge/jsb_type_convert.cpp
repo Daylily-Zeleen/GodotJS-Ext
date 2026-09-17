@@ -442,7 +442,7 @@ bool TypeConvert::gd_obj_to_js(v8::Isolate *isolate, const v8::Local<v8::Context
 
 		Ref<GodotJSScript> script = si->get_script();
 		ScriptInstance *non_shadow_instance = script->instance_construct(p_godot_obj, false);
-		jsb_ensure(!non_shadow_instance->is_shadow() && !non_shadow_instance->is_placeholder());
+		jsb_check(!non_shadow_instance->is_shadow() && !non_shadow_instance->is_placeholder());
 
 		if (non_shadow_instance && environment->try_get_object(p_godot_obj, r_jval)) {
 			return true;

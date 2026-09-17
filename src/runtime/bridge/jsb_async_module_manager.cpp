@@ -139,7 +139,7 @@ void AsyncModuleManager::_mark_as_handled(const v8::Local<v8::Context> &p_contex
 		const impl::TryCatch try_catch(isolate);
 		if (!DefaultModuleResolver::load(env, module_id, reader, *module)) {
 			// error thrown in load()
-			jsb_ensure(try_catch.has_caught());
+			jsb_check(try_catch.has_caught());
 			const String err = BridgeHelper::get_exception(try_catch);
 			resolver->Reject(p_context, impl::Helper::new_string(isolate, err)).Check();
 			return;

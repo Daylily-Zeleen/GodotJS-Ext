@@ -37,22 +37,22 @@
 namespace jsb::impl {
 NodeRuntime::NodeRuntime() {
 	allocator_ = node::ArrayBufferAllocator::Create();
-	jsb_ensure(allocator_);
+	jsb_check(allocator_);
 
 	loop_ = memnew(uv_loop_t);
-	jsb_ensure(loop_);
+	jsb_check(loop_);
 	const int err = uv_loop_init(loop_);
-	jsb_ensuref(err == 0, "uv_loop_init failed: %d", uv_err_name(err));
+	jsb_checkf(err == 0, "uv_loop_init failed: %d", uv_err_name(err));
 
 	node::MultiIsolatePlatform *platform = GlobalInitialize::get_platform();
-	jsb_ensure(platform);
+	jsb_check(platform);
 
 	/** Step 1: Create isolate  */
 	{
 		// node::NewIsolate internally registers the isolate on the platform
 		// and sets the node-specific isolate settings.
 		isolate_ = node::NewIsolate(allocator_.get(), loop_, platform);
-		jsb_ensure(isolate_);
+		jsb_check(isolate_);
 		// Lock the isolate for the remainder of its lifetime. The MultiIsolatePlatform
 		// asserts on any V8 entry without a Locker, and jsb has call paths (notably
 		// the worker thread) that enter V8 without going through JSB_ISOLATE_SCOPE.
@@ -68,11 +68,11 @@ NodeRuntime::NodeRuntime() {
 		v8::HandleScope handle_scope(isolate_);
 
 		isolate_data_ = node::CreateIsolateData(isolate_, loop_, platform, allocator_.get());
-		jsb_ensure(isolate_data_);
+		jsb_check(isolate_data_);
 
 		/** Step 3: Create Context */
 		const v8::Local<v8::Context> context = node::NewContext(isolate_);
-		jsb_ensure(!context.IsEmpty());
+		jsb_check(!context.IsEmpty());
 		node_context_.Reset(isolate_, context);
 		v8::Context::Scope context_scope(context);
 
@@ -88,7 +88,7 @@ NodeRuntime::NodeRuntime() {
 		// its own debugger bridge (jsb_debugger.cpp), the node inspector is unused.
 		// kOwnsProcessState keeps process-level behaviour (cwd, title, ...) intact.
 		node_env_ = node::CreateEnvironment(isolate_data_, context, args, exec_args, node::EnvironmentFlags::kOwnsProcessState);
-		jsb_ensure(node_env_);
+		jsb_check(node_env_);
 	}
 
 	/** Step 5: Initialize the environment with bootstrap script.*/
@@ -156,7 +156,7 @@ NodeRuntime::~NodeRuntime() {
 		jsb_check(isolate_);
 		// the Locker must be released before the isolate is disposed.
 		locker_.reset();
-		jsb_ensure(GlobalInitialize::get_platform());
+		jsb_check(GlobalInitialize::get_platform());
 		bool platform_finished = false;
 		GlobalInitialize::get_platform()->AddIsolateFinishedCallback(isolate_, [](void *data) {
 			*static_cast<bool *>(data) = true;
@@ -207,13 +207,13 @@ void NodeRuntime::PumpEventLoop() {
 
 	isolate_->PerformMicrotaskCheckpoint();
 	uv_run(loop_, UV_RUN_NOWAIT);
-	jsb_ensure(GlobalInitialize::get_platform());
+	jsb_check(GlobalInitialize::get_platform());
 	GlobalInitialize::get_platform()->DrainTasks(isolate_);
 	isolate_->PerformMicrotaskCheckpoint();
 }
 
 v8::Global<v8::Value> NodeRuntime::NodeRequire(const v8::Local<v8::String> &p_module_id) const {
-	jsb_ensure(node_env_ && !node_context_.IsEmpty());
+	jsb_check(node_env_ && !node_context_.IsEmpty());
 
 	JSB_ISOLATE_SCOPE(isolate_);
 	v8::HandleScope handle_scope(isolate_);
