@@ -84,7 +84,6 @@ DEF(default)
 // worker
 DEF(JSWorker)
 DEF(JSWorkerParent)
-DEF(ontransfer)
 DEF(onmessage)
 DEF(onready)
 DEF(onerror)

@@ -623,37 +623,24 @@ void Environment::exec_async_calls() {
 	std::vector<AsyncCall> &calls = async_calls_.swap();
 	if (!calls.empty()) {
 		for (const AsyncCall &call : calls) {
-			exec_async_call(call.type_, call.binding_);
+			exec_async_call(call.type_, call.user_data_);
 		}
 		calls.clear();
 	}
 #endif
 }
 
-void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
+void Environment::exec_async_call(AsyncCall::Type p_type, void *p_user_data) {
 	switch (p_type) {
 		case AsyncCall::TYPE_REF:
-			reference_object(p_binding, true);
+			reference_object(p_user_data, true);
 			break;
 		case AsyncCall::TYPE_DEREF:
-			reference_object(p_binding, false);
+			reference_object(p_user_data, false);
 			break;
 		case AsyncCall::TYPE_GC_FREE:
-			free_object(p_binding, FinalizationType::Default);
+			free_object(p_user_data, FinalizationType::Default);
 			break;
-		case AsyncCall::TYPE_TRANSFER_: {
-			//TODO need a better way to control lifetime of TransferData?
-			TransferData *transfer_data = (TransferData *)p_binding;
-			{
-				v8::Isolate *isolate{ get_isolate() };
-				JSB_ISOLATE_SCOPE(isolate);
-				v8::HandleScope handle_scope(isolate);
-				const v8::Local<v8::Context> context = get_context();
-				const v8::Context::Scope context_scope(context);
-				_on_worker_transfer(context, transfer_data);
-			}
-			memdelete(transfer_data);
-		} break;
 		case AsyncCall::TYPE_GC_REQUEST:
 			_on_gc_request();
 			break;
@@ -663,61 +650,15 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
 	}
 }
 
-bool Environment::add_async_call(AsyncCall::Type p_type, void *p_binding) {
+bool Environment::add_async_call(AsyncCall::Type p_type, void *p_user_data) {
 #if JSB_THREADING
 	if (ThreadEx::get_caller_id() != thread_id_) {
-		async_calls_.add(AsyncCall(p_type, p_binding));
+		async_calls_.add(AsyncCall(p_type, p_user_data));
 		return true;
 	}
 #endif
-	exec_async_call(p_type, p_binding);
+	exec_async_call(p_type, p_user_data);
 	return true;
-}
-
-void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, const TransferData *p_data) {
-	jsb_check(p_data->source_worker_id);
-	if (!object_db_.has_object(p_data->source_worker_id)) {
-		JSB_LOG(Error, "invalid worker");
-		return;
-	}
-
-	//TODO 0. HOW TO HANDLE COMPLICATED SITUATIONS? SUCH AS NESTED OBJECTS?
-	jsb_nop();
-
-	{
-		ThreadSafeForNodesScope node_safe_scope;
-		transfer_in_bind(p_context, *p_data);
-		transfer_in_apply_state(*p_data);
-	}
-
-	// call 'ontransfer'
-	{
-		v8::Isolate *isolate{ get_isolate() };
-		ObjectHandleConstPtr handle = object_db_.try_get_object(p_data->source_worker_id);
-		const v8::Local<v8::Object> worker = handle->ref_.Get(isolate).As<v8::Object>();
-		jsb_check(!worker.IsEmpty());
-		handle = nullptr;
-
-		v8::Local<v8::Value> transferred_obj;
-		if (!TypeConvert::gd_var_to_js(isolate, p_context, p_data->variant, transferred_obj) || transferred_obj.IsEmpty()) {
-			JSB_LOG(Error, "failed to convert object to JS");
-			return;
-		}
-
-		v8::Local<v8::Value> callback;
-		if (!worker->Get(p_context, jsb_name(this, ontransfer)).ToLocal(&callback) || !callback->IsFunction()) {
-			JSB_LOG(Error, "ontransfer is not a function");
-			return;
-		}
-
-		const impl::TryCatch try_catch(isolate);
-		const v8::Local<v8::Function> call = callback.As<v8::Function>();
-		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &transferred_obj);
-		jsb_unused(rval);
-		if (try_catch.has_caught()) {
-			JSB_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
-		}
-	}
 }
 
 #if !JSB_WITH_WEB
@@ -2182,17 +2123,6 @@ void Environment::transfer_in_apply_state(const TransferData &p_data) {
 	}
 
 	static_cast<GodotJSScriptInstanceBase *>(script_instance)->set_property_state(p_data.state);
-}
-
-void Environment::transfer_to_host(Environment *p_from, Environment *p_to, NativeObjectID p_worker_handle_id, const Variant &p_variant) {
-	if (p_variant.get_type() == Variant::OBJECT) {
-		TransferData *transfer_data = memnew(TransferData);
-		p_from->prepare_transfer_out(p_worker_handle_id, 0, p_variant, *transfer_data);
-		p_from->finalize_transfer_out(*transfer_data);
-		p_to->add_async_call(AsyncCall::TYPE_TRANSFER_, transfer_data);
-	} else {
-		p_to->add_async_call(AsyncCall::TYPE_TRANSFER_, memnew(TransferData(p_worker_handle_id, 0, p_variant)));
-	}
 }
 
 void Environment::_on_gc_request() {

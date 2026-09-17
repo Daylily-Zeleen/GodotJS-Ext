@@ -428,10 +428,6 @@ public:
 
 				impl::Helper::set_as_interruptible(isolate);
 				context_obj->Set(context,
-								   jsb_name(env, transfer),
-								   v8::Function::New(context, &worker_transfer, v8::Uint32::NewFromUnsigned(isolate, *impl->id_)).ToLocalChecked())
-						.Check();
-				context_obj->Set(context,
 								   jsb_name(env, postMessage),
 								   v8::Function::New(context, &worker_post_message, v8::Uint32::NewFromUnsigned(isolate, *impl->id_)).ToLocalChecked())
 						.Check();
@@ -621,35 +617,6 @@ private:
 	}
 
 	// worker -> master (run in worker env)
-	static void worker_transfer(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		Environment *env = Environment::wrap(isolate);
-		v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		const WorkerID worker_id = (WorkerID)info.Data().As<v8::Uint32>()->Value();
-
-		WorkerImplPtr worker_impl_ptr;
-		if (!Worker::try_get_worker(worker_id, worker_impl_ptr)) {
-			jsb_throw(isolate, "invalid worker id");
-			return;
-		}
-
-		const std::shared_ptr<Environment> master = Environment::_access(worker_impl_ptr->token_);
-		if (!master) {
-			jsb_throw(isolate, "invalid environment");
-			return;
-		}
-
-		Variant target;
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], target)) {
-			jsb_throw(isolate, "bad parameter");
-			return;
-		}
-		Environment::transfer_to_host(env, master.get(), worker_impl_ptr->handle_, target);
-	}
-
-	// worker -> master (run in worker env)
 	static void worker_post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::HandleScope handle_scope(isolate);
@@ -772,7 +739,6 @@ public:
 		class_builder.Instance().Method("onready", &Worker::_placeholder);
 		class_builder.Instance().Method("onerror", &Worker::_placeholder);
 		class_builder.Instance().Method("onmessage", &Worker::_placeholder);
-		class_builder.Instance().Method("ontransfer", &Worker::_placeholder);
 		class_builder.Instance().Method("terminate", &Worker::terminate);
 
 		const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);

@@ -139,18 +139,16 @@ private:
 			TYPE_REF,
 			TYPE_DEREF,
 
-			TYPE_TRANSFER_,
-
 			// request a full gc from other threads
 			TYPE_GC_REQUEST,
 		};
 
 		Type type_;
 
-		void *binding_;
+		void *user_data_;
 
-		AsyncCall(Type p_type, void *p_binding)
-				: type_(p_type), binding_(p_binding) {}
+		AsyncCall(Type p_type, void *p_user_data)
+				: type_(p_type), user_data_(p_user_data) {}
 		~AsyncCall() = default;
 
 		AsyncCall(AsyncCall &&) noexcept = default;
@@ -397,14 +395,6 @@ public:
 	void finalize_transfer_out(const TransferData &p_data);
 	void transfer_in_bind(const v8::Local<v8::Context> &p_context, const TransferData &p_data);
 	void transfer_in_apply_state(const TransferData &p_data);
-
-	// [EXPERIMENTAL] transfer object between environments.
-	// call this method of the source environment in the source environment thread.
-	// if the transferred object is RefCounted, the reference count will be increased by 1 during the operation.
-	// NOTE: !!! IT MAY CRASH THE ENGINE TO TRANSFER A DEEPLY NESTED OBJECT (such as a godot Array of Objects) !!!
-	//       !!! Ensure all transferred objects are ONLY exist in the source environment !!!
-	// [pseudo] transfer_to_host(worker, master, worker_handle, scene->instantiate());
-	static void transfer_to_host(Environment *p_from, Environment *p_to, NativeObjectID p_worker_handle_id, const Variant &p_variant);
 
 	bool get_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, Variant &r_val);
 	bool set_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, const Variant &p_val);
@@ -716,16 +706,15 @@ public:
 
 private:
 	void exec_async_calls();
-	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
+	void exec_async_call(AsyncCall::Type p_type, void *p_user_data);
 
 	void _on_gc_request();
 
 	/**
 	 * @note execution order is not guaranteed
 	 */
-	bool add_async_call(AsyncCall::Type p_type, void *p_binding);
+	bool add_async_call(AsyncCall::Type p_type, void *p_user_data);
 
-	void _on_worker_transfer(const v8::Local<v8::Context> &p_context, const struct TransferData *p_data);
 #if !JSB_WITH_WEB
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif
