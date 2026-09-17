@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "注释改动边界与格式规范"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "核实 ABI 注释"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "统一编译与部署验证"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "测试与基准验收"}
