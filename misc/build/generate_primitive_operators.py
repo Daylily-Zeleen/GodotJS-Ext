@@ -32,11 +32,9 @@ GENERATED_NOTE = (
     "//       --interface third/godot-cpp/gdextension/gdextension_interface.json\n"
 )
 
-# json operator name -> (Variant::OP_ tail token, macro kind)
-# NOTE: the table mirrors the api json verbatim (every operator the engine
-# defines is emitted, no curation).
-#   kind: "cmp" -> JSB_DEFINE_COMPARATOR, "unary" -> JSB_DEFINE_UNARY,
-#         "bin" -> JSB_DEFINE_OVERLOADED_BINARY_BEGIN/END
+# json operator name -> (Variant::OP_ tail token, grouping kind).
+# Comparisons and binary operators share BEGIN/OVERLOAD/END emission;
+# unary operators use JSB_DEFINE_UNARY.
 OP_MAP = {
     "==": ("EQUAL", "cmp"),
     "!=": ("NOT_EQUAL", "cmp"),
@@ -65,12 +63,10 @@ OP_MAP = {
     "in": ("IN", "bin"),
 }
 
-# json type name -> C++ token used in the emitted triplets. Engine class names
-# map to their bare C++ names (both consumer TUs see the godot types bare,
-# same convention as the handwritten def file). These four need explicit
-# mappings because they are not valid/exact C++ type names by themselves.
+# json type name -> C++ token in emitted triplets; other names pass through
+# unqualified for the macro consumers.
 CPP_TYPE_MAP = {
-    "float": "Number",   # both TUs #define Number double around the include
+    "float": "Number",   # runtime consumer defines Number as double around the include
     "int": "int64_t",
     "Nil": "Variant",
     # godot-cpp only provides GetTypeInfo for Wrapped types through the
@@ -78,9 +74,7 @@ CPP_TYPE_MAP = {
     "Object": "Object *",
 }
 
-# Preferred class order, copied from the handwritten def file so that the
-# diff against it stays readable; classes not listed here (new in the api
-# json) are appended in json order.
+# Preserve the former handwritten table's order; append other classes in JSON order.
 PREFERRED_TYPE_ORDER = [
     "Vector2", "Vector2i", "Vector3", "Vector3i", "Vector4", "Vector4i",
     "Quaternion", "AABB", "Basis", "Plane", "Color", "Transform2D",
@@ -123,25 +117,17 @@ def emit_type_block(class_name, operators, variant_ops):
 
     left_cpp = cpp_type(class_name)
 
-    # Per-(left, op) thunk table: the overload set is fully known at codegen
-    # time, so the (op, left) -> overloads mapping collapses into a plain
-    # switch over the right operand's Variant type. The JS static method's
-    # dispatch callback (operator_dispatch_binary) calls this function with
-    # the probed right type -- no global binary search at call time.
+    # Group comparisons and binary overloads by operator for one JS method each.
     bin_groups = {}
     for token, op in bins:
         bin_groups.setdefault(token, []).append(op)
     for token, op in cmps:
         bin_groups.setdefault(token, []).append(op)
 
-    # The static-binding pair-local switch tables referenced by the BEGIN
-    # macro's ## paste (find_op_<Left>_<Op>) live in dispatch_builtin.gen.cpp,
-    # emitted by static_binding_codegen.py -- this file only declares the
-    # two-leg-shared operator surface via the macros below.
+    # Static pair resolvers referenced by the BEGIN macro's token paste live in
+    # dispatch_builtin.gen.cpp; this file emits the shared operator surface.
     L.append(f"JSB_TYPE_BEGIN({left_cpp})")
-    # ONE BEGIN/END block per operator token (the BEGIN macro registers the
-    # JS method; json lists one entry per overload, so e.g. Vector2's `*`
-    # yields int/float/Vector2 entries that must share a block)
+    # One BEGIN/END block registers one method, even with multiple right types.
     for token, entries in bin_groups.items():
         L.append(f"    JSB_DEFINE_OVERLOADED_BINARY_BEGIN({class_name}, {token})")
         for op in entries:
@@ -195,19 +181,13 @@ def generate(api_path, interface_path, preferred_only=False):
 
     for class_name in ordered:
         if class_name == "Nil":
-            # Variant (nil) has no JS class object on either binding path and
-            # godot-cpp has no VariantInternalType<Variant> -- emitting the
-            # block would instantiate get_internal_value<Variant> and fail to
-            # compile. The operators of nil remain covered by the dynamic
-            # path (Variant::evaluate handles nil operands generically).
+            # Nil has no JS class object or VariantInternalType<Variant>;
+            # emitting its block would instantiate unsupported internal access.
             continue
         if class_name in ("bool", "int", "float", "StringName"):
-            # JS-native primitives: bool/int/float are JS boolean/number and
-            # StringName is a plain alias for JS string -- their operators
-            # never surface as static methods (JS native operators cover them
-            # entirely). See task 09-08 prd Step3; StringName dropped like
-            # String (only String/its operators are intentionally omitted here
-            # -- String is not in PREFERRED_TYPE_ORDER either).
+            # These JS-native types have no operator static-method surface.
+            # String is not in PREFERRED_TYPE_ORDER, but is emitted unless
+            # --preferred-only is selected.
             continue
         L.extend(emit_type_block(class_name, by_class[class_name], variant_ops))
         L.append("")

@@ -38,9 +38,8 @@ _FORCE_INLINE_ GDExtensionPtrUtilityFunction resolve_utility_function(const godo
 }
 
 // ---------------------------------------------------------------------------
-// Global utility function (§4.2). Optional arguments resolve through the same
-// pre-encoded default slots as builtin methods; the api json currently
-// carries none -- the mechanism is in place for future dumps that do.
+// Fixed-arity utility function. Missing optional arguments use the same
+// pre-encoded default slots as builtin methods.
 template <uint32_t HashC, FixedString NameLit, class RetT, class AllArgsT, class DefsT>
 void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;
@@ -78,12 +77,14 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<M>{});
-	// optional tail [M, N): provided -> typed slot, missing -> pre-encoded
-	// default slot
+	// Instantiate default_arg_slot only for optional positions [M, N).
 	[&]<std::size_t... J>(std::index_sequence<J...>) {
 		((void)(arg_ptrs[M + J] = (int)(M + J) < provided
 						 ? (void *)&std::get<M + J>(slots)
-						 : default_arg_slot<M + J, M, AllArgsT, DefsT>()),
+						 : default_arg_slot<std::tuple_element_t<J, typename DefsT::tuple>,
+								   std::conditional_t<GDReferentialBuiltinType<std::tuple_element_t<J, typename DefsT::tuple>>,
+										   decltype(utility_function_thunk<HashC, NameLit, RetT, AllArgsT, DefsT>),
+										   void>>),
 				...);
 	}(std::make_index_sequence<N - M>{});
 
@@ -96,7 +97,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 // ---------------------------------------------------------------------------
-// Vararg utility function (§4.0-B).
+// Vararg utility function.
 template <uint32_t HashC, FixedString NameLit, class RetT, class AllArgsT>
 void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;

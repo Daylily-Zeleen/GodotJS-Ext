@@ -26,9 +26,8 @@
 #pragma once
 
 /**
- * Builtin 族的下标访问器和键访问器目前不受支持（Array, PackedXXXArray, Dictionary）,
- * JS 不能自定义下标访问器，除非使用 Proxy 进行模拟。
- * 并且相关类型已经有 get(idx/key) set(idx/key, value) 访问器，因此不对其进静态绑定进行实现。
+ * Builtin 下标与键访问不提供静态 thunk，仍走反射访问器。
+ * JS 的 obj[index/key] 语法需要 Proxy 才能模拟；这里仅暴露显式访问方法。
  */
 
 #if JSB_WITH_STATIC_BINDINGS
@@ -53,11 +52,7 @@ namespace jsb::static_binding {
 
 using ThunkFn = void (*)(const v8::FunctionCallbackInfo<v8::Value> &);
 
-// Generated per-(left, operator) pair-table declarations carry their own
-// jsb::static_binding namespace; ThunkFn above must precede them. Per-type
-// constructor resolvers (find_ctor_<Type>) are internal to
-// dispatch_builtin.gen.cpp -- the only external ctor entry is
-// find_ctor_adapter, declared below alongside the find_builtin_* resolvers.
+// Generated operator-table declarations open their own namespace and require ThunkFn.
 #	include "gen/builtin_operator_tables.gen.h"
 
 // A single indexed property lookup yields BOTH accessor thunks: the getter
@@ -68,22 +63,15 @@ struct IndexedPropertyThunks {
 	ThunkFn setter = nullptr;
 };
 
-// Builtin hashes are computed from the SIGNATURE and are NOT unique within a
-// type (e.g. String's casecmp_to family all share one hash), so the method
-// name participates in the lookup. vt: GDExtensionVariantType value.
+// Signature hashes are not unique within a builtin type; include the method name.
 const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash);
 
-// Builtin member accessors (P3): p_vt is the base Variant type and p_name
-// the member name (e.g. Vector2::"x"). Getter and setter have separate
-// entries -- one accessor binds both.
+// Member accessors are keyed by base Variant type and member name (e.g. Vector2::"x").
 const ThunkFn find_builtin_member_getter_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name);
 const ThunkFn find_builtin_member_setter_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name);
 
-// Builtin constructors: p_vt keyed enum dispatch (caller VariantBind::TYPE is
-// a compile-time constant). Returns a find_ctor_<Type> resolver -- the `new`-
-// callback that probes argc/argument types, invokes the matching
-// builtin_ctor_thunk, or throws with the concrete class name. No separate
-// ctor-tables header; the resolver definitions live in dispatch_builtin.gen.cpp.
+// Returns the per-type constructor callback, which resolves argc/argument types
+// at runtime and invokes a matching builtin_ctor_thunk or throws.
 const ThunkFn find_ctor_adapter(godot::Variant::Type p_vt);
 
 // Same for utility functions.
@@ -96,7 +84,7 @@ const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
 		const godot::StringName &p_name,
 		uint32_t p_hash);
 
-// Indexed property accessors (P3): one thunk per (property side); the
+// Indexed property accessors: one thunk per property side; the
 // constant index lives on the accessor, not on the shared backing method.
 // p_name is the PROPERTY name as exposed in the api json. Either side may be
 // null when the api json does not provide the corresponding accessor method.

@@ -35,14 +35,9 @@
 namespace jsb::static_binding::thunks {
 
 // ---------------------------------------------------------------------------
-// Indexed property accessors (§4.0-C). One template instance per property
-// side -- the constant index CANNOT live on the shared backing method (a
-// single engine method typically serves many indexes), so these are separate
-// from class_method_thunk and bind to the JS property accessor itself.
-//
-// Semantics mirror ObjectReflectBindingUtil::_godot_object_get2/_set2:
-// the index is prepended as the first Variant argument of the backing
-// method's Variant array.
+// Each accessor carries its own constant index: one backing method may serve
+// several indexed properties. Pass that index as the first Variant argument,
+// followed by the assigned value for setters.
 // ---------------------------------------------------------------------------
 template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC>
 void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {

@@ -1,12 +1,9 @@
 // uid://dtsfbiuf60r16 This line is generated, don't modify or remove it.
 /**
- * Builtin-type benchmark cases -- hand-maintained. The former generator
- * misc/build/generate_benchmark_cases.py was removed; extend this file
- * directly when adding cases.
- *
- * One case = (target object factory, call lambda). The harness probes
- * each case first; cases that throw against the default instance are
- * reported invalid and excluded from the timed run.
+ * Hand-maintained builtin benchmarks; add cases directly here.
+ * Each group entry creates one target shared by its cases. The harness probes
+ * each lambda and skips timing if it throws. Constructors inside lambdas are
+ * part of the measured work, unlike makeTarget().
  *
  * Operator cases call the JS-side static methods `OP_XXX` (naming unified
  * with the editor typings; see JSB_OPERATOR_NAME in src/internal/jsb_macros.h).
@@ -747,4 +744,3 @@ export const BUILTIN_CASES: CaseGroup[] = [
         ],
     },
 ];
-// 85 method/member cases over 32 classes

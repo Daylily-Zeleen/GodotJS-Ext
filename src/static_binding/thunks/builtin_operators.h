@@ -32,23 +32,11 @@
 #	include <godot_cpp/variant/variant_internal.hpp>
 
 // ---------------------------------------------------------------------------
-// Operator thunks (static path).
-//
-// One thunk instance per (operator, left type, right type, return type)
-// overload from the generated operator table. Operands go straight from the
-// v8 values into ptrcall slots -- zero Variant materialization on the operand
-// path:
-//   - left:  the variant-backed wrapper of exactly L; its backing Variant's
-//            internal value doubles as the opaque ptrcall slot
-//   - right: filled per R's compile-time type from the v8 value
-//            (IsInt32 -> INT slot, IsNumber -> FLOAT slot, wrapper -> backing)
-// The engine's registered operator evaluator is resolved once per
-// instantiation (magic static) and called through the opaque ptrcall ABI.
-//
-// The generated dispatch table (dispatch_operators.gen.cpp) selects the thunk
-// by (left type, operator, right type); combinations without an engine
-// evaluator never enter the table, so no per-call fallback logic is needed
-// here beyond the defensive type checks.
+// Static operator thunks use ptrcall evaluators cached per template instance.
+// The left operand aliases its wrapper's backing data; the right operand is
+// copied into an EncodeT slot (a NIL Variant for R = godot::Variant).
+// Binary dispatch uses a generated switch for each (left type, operator)
+// pair; unrecognized types and missing overloads fall back to Variant::evaluate.
 // ---------------------------------------------------------------------------
 
 namespace jsb::static_binding {
@@ -85,12 +73,8 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 	void *left_opaque = left_opaque_of<L>((Variant *)left_var);
 
-	// equality against null/undefined: the engine's api json emits a
-	// right=NIL row for ==/!= whose evaluator is ALWAYS-FALSE/ALWAYS-TRUE
-	// ("comparing against an uninitialized Variant", variant_op.cpp:487/571).
-	// Short-circuit here so `vec == null` returns false without hitting the
-	// evaluator at all. Applies to every concrete R -- the engine rules are:
-	// X == nil is always false, X != nil is always true.
+	// This short-circuit returns true for == and false for != when the right
+	// operand is missing or null/undefined, without calling the evaluator.
 	if constexpr (OpC == Variant::OP_EQUAL || OpC == Variant::OP_NOT_EQUAL) {
 		if (info.Length() < 2 || info[1]->IsNullOrUndefined()) {
 			const bool equal = OpC == Variant::OP_EQUAL;
@@ -119,15 +103,11 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	} else if constexpr (std::is_same_v<R, godot::String>) {
 		right_slot = impl::Helper::to_string(isolate, info[1]);
 	} else if constexpr (std::is_same_v<R, godot::Variant>) {
-		// nil-payload rows (e.g. String % null): the right operand IS the
-		// uninitialized Variant itself -- nothing to unbox, right_slot stays
-		// value-initialized and the evaluator reads it as NIL. The dispatch
-		// probe keyed this case on Variant::NIL.
+		// NIL dispatch rows (e.g. String % null) pass a default-constructed
+		// Variant, not a wrapper's native payload.
 		(void)info;
 	} else {
-		// builtin struct / container / StringName / NodePath wrapper: copy R
-		// out of its backing Variant (the dispatch probe already matched the
-		// wrapper's type against R)
+		// Copy the matched wrapper's native value into the right operand slot.
 		const v8::Local<v8::Object> obj = info[1].As<v8::Object>();
 		const Variant *bv = (const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (bv->get_type() != (Variant::Type)GetTypeInfo<R>::VARIANT_TYPE) {
@@ -185,9 +165,7 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	info.GetReturnValue().Set(rval);
 }
 
-// shared dynamic fallback: marshal both operands into Variants and evaluate
-// through the engine's generic operator table -- identical to the dynamic
-// binding path's behavior.
+// Dynamic fallback: convert both operands to Variants and use generic evaluation.
 static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &info,
 		v8::Isolate *isolate, const v8::Local<v8::Context> &context, Variant::Operator op) {
 	Variant left, right;
@@ -212,12 +190,9 @@ static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &i
 	info.GetReturnValue().Set(rval);
 }
 
-// mounted callback for binary operators: probes both operand types (JS
-// argument types are only known at runtime), then takes the thunk from the
-// pair-local table emitted by generate_primitive_operators.py -- a switch
-// over the right operand's Variant type covering every overload of
-// (OpC, LeftT). A miss falls back to the dynamic evaluation
-// (Variant::evaluate), matching the dynamic path exactly.
+// Probe operand types and select a thunk from the pair-local switch emitted
+// by static_binding_codegen.py. Type mismatches or table misses use the
+// dynamic fallback.
 template <Variant::Operator OpC, typename LeftT, ThunkFn (*FindTable)(godot::Variant::Type)>
 void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();

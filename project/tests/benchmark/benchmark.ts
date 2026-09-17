@@ -1,22 +1,21 @@
 // uid://dxbhcskd6lnrf This line is generated, don't modify or remove it.
 /**
- * Benchmark harness: measures JS -> Godot call overhead per case.
+ * Benchmark harness: measures each case lambda, including argument construction.
  *
  * Methodology:
  *  - probe each case once; cases that throw are reported invalid and skipped
- *  - warmup (JIT + engine caches), then per-case iteration calibration so a
- *    single timed round lasts ~TARGET_MS
+ *  - warmup (JIT + engine caches), then calibrate until a batch takes at least
+ *    TARGET_MS_PER_ROUND / 2, or reaches MAX_ITERATIONS
  *  - ROUNDS timed rounds, reported metric is the median ns/call
- *  - a checksum of call results is accumulated and printed to defeat dead
- *    code elimination
+ *  - timed loops also count non-null results; this count is not in BENCH_JSON
  *
  * Results are printed as a single line prefixed with BENCH_JSON for the CI
  * benchmark job to collect.
  *
  * Invocation: `godot --headless --path . -- --bench [--gc] [--only=<group>]`.
- * EVERY switch is a user argument after `--` (read via
- * get_cmdline_user_args): --bench selects the benchmark scene in start.ts,
- * --gc requests a full GC before each case, --only filters groups.
+ * The benchmark switches go after `--` (get_cmdline_user_args): --bench selects
+ * the scene in start.ts, --gc requests GC before each case's probe and warmup,
+ * and --only selects all entries with an exact matching group name.
  */
 import { SceneTree, Engine, Node, OS, Time, Vector2 } from "godot";
 import { BUILTIN_CASES } from "./cases.builtin";
@@ -37,8 +36,7 @@ interface CaseResult {
     error?: string;
 }
 
-// return-value fingerprint used by the CI consistency gate (static vs
-// dynamic legs must produce identical results for every case)
+// Probe-result fingerprint: primitive value, or constructor name for objects.
 function summarize(v: any): string {
     if (v === null || v === undefined) return "null";
     const t = typeof v;
@@ -58,8 +56,7 @@ interface BenchOutcome {
     sample?: string;
 }
 
-// jsb's v8 environment has no global `performance`; use the engine
-// monotonic microsecond clock instead (finer grained anyway).
+// Use the engine's monotonic microsecond clock without relying on performance.
 const nowMs = (): number => Time.get_ticks_usec() / 1000;
 
 const _args_user = OS.get_cmdline_user_args();
@@ -108,14 +105,13 @@ async function benchOne(fn: () => any): Promise<BenchOutcome> {
     for (let r = 0; r < ROUNDS; r++) {
         const t0 = nowMs();
         for (let i = 0; i < iterations; i++) {
-            // accumulate a weak fingerprint of every result; calls are never
-            // pure, but this makes DCE obvious if it ever happens
+            // Count non-null results alongside the timed calls.
             const v = fn();
             checksum += v === undefined || v === null ? 0 : 1;
         }
         samples.push(((nowMs() - t0) * 1e6) / iterations);
 
-        await (Engine.get_main_loop() as SceneTree).process_frame.as_promise(); // process frame to flush GC
+        await (Engine.get_main_loop() as SceneTree).process_frame.as_promise(); // yield between rounds; does not force GC
     }
     return { nsPerCall: Math.round(median(samples) * 10) / 10, iterations, checksum, sample };
 }
@@ -128,10 +124,8 @@ export default class Benchmark extends Node {
         const results: CaseResult[] = [];
         let checksum = 0;
 
-        // --gc: request a full GC before EVERY case's timing (probe+warmup).
-        // The engine exposes a synchronous global `gc()` (Builtins::_gc ->
-        // Environment::gc()); on builds without the binding the harness
-        // degrades to no-op with a one-time WARNING.
+        // --gc requests synchronous global gc() before each case's probe/warmup.
+        // Without that binding, warn once and report gcRequested=false.
         const gcFn = (globalThis as { gc?: () => void }).gc;
         const gcAvailable = typeof gcFn === "function";
         if (GC_REQUESTED && !gcAvailable) {
@@ -186,7 +180,7 @@ export default class Benchmark extends Node {
             }
         };
 
-        // diagnostic: --only=<group> runs a single class group
+        // --only=<group> selects matching builtin and object group entries.
         let _only: string | undefined;
         const _args = OS.get_cmdline_user_args();
         for (let i = 0; i < _args.size(); i++) {
@@ -211,8 +205,7 @@ export default class Benchmark extends Node {
             results,
         };
         console.warn("BENCH_JSON " + JSON.stringify(report));
-        // no self-quit: under `-- --bench` the start flow completes right
-        // after this scene and exits through the regular (race-free) path.
+        // start.ts owns shutdown after completeCallback; do not quit here.
 
         if (this.completeCallback) this.completeCallback();
     }

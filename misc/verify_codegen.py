@@ -43,12 +43,8 @@ import sys
 from pathlib import Path
 
 DEFAULT_GODOT = "godot"  # PATH 中的 godot 可执行文件；项目要求 Godot 4.7+（见 README）
-# 注意：8-22 起的引擎构建不再把 unexposed 的扩展 internal 类写入
-# extension_api.json，而 --generate-types 的场景/资源类型生成需要在 JS 运行时里
-# 解析 GodotJSEditorHelper。为此 register_editor_types.cpp 已把该类改为
-# GDREGISTER_CLASS（exposed）注册（生成器由 NamingUtil 过滤，产物不受影响）。
-# 引擎版本要求 Godot 4.7+（godot-cpp ABI 口径，见 README）；更旧的引擎二进制
-# 无法加载当前扩展（插件实例化即崩），不要回退。
+# GodotJSEditorHelper 必须 exposed 注册，才能进入 extension_api.json 并供
+# --generate-types 解析；NamingUtil 过滤该类，避免写入类型声明。
 SCRIPT_DIR = Path(__file__).resolve().parent          # <root>/misc
 CHECKOUT_ROOT = Path(os.environ.get("JSB_CHECKOUT_ROOT", SCRIPT_DIR.parent)).resolve()
 BASELINE_DIR = CHECKOUT_ROOT / ".codegen-baseline"
@@ -68,9 +64,7 @@ STAGED_EXT_JSON = CHECKOUT_ROOT / ".agent_tmp" / "staged_extension_api.json"
 STEP_TIMEOUT = 900  # 秒/步
 
 
-# Windows 编辑器已知问题：headless 任务完成后在退出阶段崩溃（0xC0000005）。
-# CI 对此用 `|| true` 容忍（ci.yml「Generate API data」步）。这里同样容忍该码，
-# 但必须配合各步骤的产物存在性检查——产物没落盘仍判失败。
+# Windows headless 编辑器可能在退出阶段崩溃；仅在对应产物存在时容忍该码。
 GODOT_SHUTDOWN_CRASH = 3221225477  # 0xC0000005
 
 
@@ -230,9 +224,7 @@ def main() -> None:
         if run_godot(args.godot, ["--dump-extension-api-with-docs"],
                      allow_retry=True, step="dump") != 0:
             die("dump-extension-api-with-docs 失败")
-        # 备份 extension_api.json：步骤 b 会消费删除它，
-        # 但 generate-types 需要它在项目根（复现基线输入条件）。
-        # 注意是复制不是移动——api-generate 本身要以该 json 为输入
+        # 复制而非移动：api-generate 需要原件；消费后还原以复现基线输入。
         ext_json = PROJECT_DIR / "extension_api.json"
         STAGED_EXT_JSON.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(ext_json), str(STAGED_EXT_JSON))
@@ -253,8 +245,7 @@ def main() -> None:
             die("generate-types 失败")
 
     if args.update_baseline:
-        # 快照模式：当前产物即新基线。逐文件替换，避免整目录删除后
-        # 长跑中途被杀留下空基线。
+        # 生成完成后逐目录替换基线；复制中断仍可能留下不完整的目录。
         BASELINE_DIR.mkdir(parents=True, exist_ok=True)
         for d in GEN_DIRS:
             dst = BASELINE_DIR / d
@@ -264,8 +255,7 @@ def main() -> None:
             log(f"已快照 {d}/ -> 基线")
         shutil.copy2(str(PROJECT_DIR / "tsconfig.json"), str(BASELINE_DIR / "tsconfig.json"))
         log("已快照 tsconfig.json -> 基线")
-        # 双轮确定性检查的第二轮应交叉比对两轮快照产物（见规范）；
-        # 此处额外做一次自校验：快照后立即 --diff-only 应全绿。
+        # 此处只自校验 gen/typings 快照；确定性验证仍需另跑一轮完整流程。
         report2: list = []
         for d in GEN_DIRS:
             diff_tree(d, BASELINE_DIR / d, PROJECT_DIR / d, report2)

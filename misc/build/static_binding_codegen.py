@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 
-# Static-binding codegen: consumes the extension_api json shipped inside the
-# godot-cpp submodule (gdextension/extension_api-<API_VERSION>.json -- the very
-# file godot-cpp's own binding generator uses) and emits the thunk dispatch
-# tables. The api json's argument/return metadata drives the emitted C++
-# semantic types (int8..uint64 / float / double).
-#
-# NOTE: Variant-type values are resolved BY NAME from godot-cpp's interface
-# description (third/godot-cpp/gdextension/gdextension_interface.json) --
-# never from the builtin_classes array position: extension_api.json omits the
-# "Object" entry, so positions >= OBJECT would be off-by-one.
+# Generate static thunk dispatch tables from godot-cpp's extension_api JSON.
+# Argument/return metadata selects semantic C++ types (int8..uint64, float/double).
+# Resolve Variant enum values by name from gdextension_interface.json:
+# builtin_classes omits Object, so array positions are not enum values.
 
 import argparse
 import collections
@@ -118,7 +112,7 @@ def load_variant_type_map(interface_json_path):
         f"non-contiguous GDExtensionVariantType values: {values[:10]}..."
     VARIANT_TYPE_VALUES.clear()
     VARIANT_TYPE_VALUES.update(mapping)
-    # reverse mapping: value -> JSON name (for Ret<godot::Variant::NAME> emission)
+    # Reverse mapping for emitted Variant::Type tokens.
     global VARIANT_TYPE_NAMES
     VARIANT_TYPE_NAMES = {v: k for k, v in mapping.items()}
     global OPERATOR_VALUES
@@ -129,7 +123,7 @@ def load_variant_type_map(interface_json_path):
         v["name"].replace("GDEXTENSION_VARIANT_OP_", ""): int(v["value"])
         for v in op_enum["values"]
     }
-    # JSON name -> enum name mapping (for Ret<godot::Variant::ENUM> emission)
+    # JSON type names -> Variant enum tokens.
     global JSON_TO_ENUM_NAME
     JSON_TO_ENUM_NAME = {
         "nil": "NIL",
@@ -244,8 +238,7 @@ def parse_args_list(args_json):
     return out
 
 
-# json "meta" on int arguments -> exact-width C type. Mirrors
-# GDExtensionClassMethodArgumentMetadata (INT_IS_INT8..UINT64).
+# json "meta" on int arguments/returns -> semantic C++ type, including char32.
 INT_META_TO_CPP = {
     "int8": "int8_t",
     "int16": "int16_t",
@@ -290,8 +283,8 @@ OPERATOR_NAME_MAP = {
 }
 
 # json operand/return type -> C++ token for the operator thunk templates.
-# None means the combination has no engine ptr evaluator (right=Variant /
-# right=Object) and stays on the dynamic path.
+# None marks types requiring special handling; right=Variant rows are handled
+# separately by emit_operator_pair_tables, while Object uses its pointer type.
 OPERAND_CPP_MAP = {
     "bool": "bool",
     "int": "int64_t",
@@ -424,8 +417,7 @@ def collect(data, vt_map):
                 "vt": vt,
                 "name_id": m.pool.get(mem["name"]),
                 "type_id": m.pool.get(mem["type"]),
-                # raw name: builtin member groups are keyed per VT in
-                # emit_dispatch_cpp; the literal is emitted per entry
+                # Raw member name for emit_builtin_dispatch_cpp's per-type lookup.
                 "name_str": mem["name"],
                 # the member's OWN declared type drives its ptrcall slot
                 "member_type": VARIANT_TYPE_VALUES.get(mem["type"], -1),
@@ -518,12 +510,10 @@ def collect(data, vt_map):
                 "class_name_id": cls_name_id,
                 "prop_name_id": m.pool.get(prop["name"]),
                 "index": int(prop["index"]),
-                # method defs actually carrying this index (None = side
-                # unresolved); emit_class_dispatch_cpp threads the index
-                # into those thunk instantiations via these hashes
-                # declared value type (json property "type") -- drives the
-                # strict JS->Variant conversion in the static setter
+                # Declared property type drives strict conversion in the setter.
                 "prop_type": prop.get("type", "Variant"),
+                # Resolved accessor definitions (None for an unresolved side);
+                # each property side gets its own index-bearing thunk.
                 "_gdef": gdef,
                 "_sdef": sdef,
                 "getter_name_id": m.pool.get(gname),
@@ -532,8 +522,6 @@ def collect(data, vt_map):
                 "setter_hash": int(sdef["hash"]) if sdef and "hash" in sdef else 0,
             })
 
-    # (class_name, method_hash) -> {method_name} backing an indexed property;
-    # used to thread the property index into those thunk instantiations
 
     # --- utility functions ------------------------------------------------------
     for uf in data.get("utility_functions", []):
@@ -1006,7 +994,7 @@ def emit_builtin_dispatch_cpp(m, op_tables=""):
     L.append("}")
     L.append("")
 
-    # ---- builtin member accessors (P3) --------------------------------------
+    # ---- builtin member accessors -------------------------------------------
     L.append("// ---- builtin member accessors (P3) ----")
     by_vt = collections.OrderedDict()
     for e in m.members:
@@ -1037,9 +1025,8 @@ def emit_builtin_dispatch_cpp(m, op_tables=""):
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
 
 
-    # Per-(left, op) operator pair tables are appended by main()
-    # (emit_operator_pair_tables) INSIDE the jsb::static_binding namespace:
-    # they share this TU because operators only exist on builtin types.
+    # main() supplies operator and constructor resolvers for this builtin TU.
+    # Keep them inside jsb::static_binding.
     L.append("")
     L.append(op_tables)
     L.append("} // namespace jsb::static_binding")
@@ -1167,7 +1154,7 @@ def emit_class_dispatch_cpp(m):
         L.append("}")
         L.append("")
 
-    # ---- indexed property accessors (P3) ------------------------------------
+    # ---- indexed property accessors -----------------------------------------
     # One template instance per property side: the constant index cannot live
     # on the shared backing method (one method typically serves many indexes).
     # A single resolver returns BOTH sides of a property at once.
@@ -1299,11 +1286,8 @@ def emit_operator_pair_tables(m):
     them. right=Variant stays off (untyped fallback, concrete overloads cover
     it -- same rule as the def-file emission).
     Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
-    # JS-native primitive left operands: bool/int/float/StringName map to JS
-    # boolean/number/string -- their operators never surface as static methods
-    # (JS native operators cover them entirely). StringName is a plain alias
-    # for JS string (like String; kept distinct here in case String operators
-    # are re-enabled later).
+    # These JS-native left types have no operator static-method surface.
+    # Keep this exclusion set aligned with generate_primitive_operators.py.
     JS_NATIVE_LEFT = {"bool", "int", "float", "StringName"}
 
     groups = {}
@@ -1336,30 +1320,17 @@ def emit_operator_pair_tables(m):
         L.append(f"ThunkFn {fn_name}(godot::Variant::Type p_right) {{")
         L.append("\tswitch (p_right) {")
         seen = set()
-        # Collect (right_vt_name, right_vt_value, right_cpp, ret_cpp) rows in
-        # the api json order, dedupe by right type. The nil/right=Variant row
-        # is emitted LAST and (for ==/!=) falls THROUGH the last concrete
-        # case, so a concrete right type wins over NIL when both exist -- the
-        # engine rules X==nil false / X!=nil true are handled by the
-        # null/undefined short-circuit inside operator_thunk.
+        # Preserve JSON overload order and deduplicate concrete right types.
+        # Equality's NIL case shares the last concrete thunk; operator_thunk
+        # short-circuits null/undefined before accessing its concrete R slot.
         rows = []
         nil_row = None  # (token, left_cpp, ret_cpp) or None
         for op in entries:
             right_name = m.pool.strings[op["right_type_id"]]
             if right_name == "Variant":
-                # right=Variant row from the api json. Distinct meanings
-                # (verified against the engine source, variant_op.cpp):
-                #   ==/!=  : X==nil always false, X!=nil always true. The
-                #            null/undefined short-circuit in operator_thunk
-                #            emits the answer WITHOUT any evaluator; a NIL case
-                #            that falls through a concrete case lets dispatch
-                #            reach that short-circuit instead of the dynamic
-                #            fallback. The concrete R type is never instantiated
-                #            for NIL -- the short-circuit returns first.
-                #   and/or/xor: nil in logic ops; JS uses native &&/||/^, the
-                #            static method is never called -- no table row.
-                #   % (String/StringName): sprintf("fmt" % null) -- REAL
-                #            nil-overload, R=godot::Variant kept below.
+                # Variant denotes a nil operand here. Equality shares a
+                # concrete thunk's null/undefined short-circuit; logical nil
+                # rows are skipped. Other nil rows use R=godot::Variant.
                 if token in ("AND", "OR", "XOR"):
                     continue
                 ret_name = m.pool.strings[op["ret_type_id"]]
@@ -1384,13 +1355,8 @@ def emit_operator_pair_tables(m):
         for _ri, (rvt, right_cpp, ret_cpp) in enumerate(rows):
             L.append(f"\t\tcase {rvt}:")
             if nil_row and token in ("EQUAL", "NOT_EQUAL") and _ri == len(rows) - 1:
-                # NIL falls through this LAST concrete case, sharing its body:
-                #   case PLANE:
-                #   case NIL:
-                #       return op<OP_EQUAL, Plane, Plane, bool>;
-                # NIL right hits the null/undefined short-circuit inside
-                # operator_thunk (false/true) before any R eval; a concrete
-                # right hits its own earlier case first.
+                # NIL and the last concrete case share a body; the NIL path
+                # returns from operator_thunk before concrete R access.
                 L.append(f"\t\tcase godot::Variant::NIL:")
             L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{token}, {left_cpp}, {right_cpp}, {ret_cpp}>;")
         if nil_row and not (token in ("EQUAL", "NOT_EQUAL") and rows):
@@ -1400,9 +1366,7 @@ def emit_operator_pair_tables(m):
             r_ret = nret if ntoken not in ("EQUAL", "NOT_EQUAL") else (rows[0][2] if rows else nret)
             L.append(f"\t\tcase godot::Variant::NIL:")
             L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{ntoken}, {nleft}, {r_cpp}, {r_ret}>;")
-        # unreachable-in-practice: operator_dispatch_binary only calls this
-        # with a probed right type that HAS an overload, but the compiler
-        # cannot see that -- a switch without default/return is UB + C4715.
+        # A missing overload returns nullptr so the caller can evaluate dynamically.
         L.append("\t\tdefault: return nullptr;")
         L.append("\t}")
         L.append("}")
@@ -1443,47 +1407,25 @@ def emit_ctor_dispatch(m):
     resolvers are internal to that TU (find_ctor_adapter is the only
     external entry, declared in dispatch.h alongside find_builtin_*).
     Returns (definitions_for_dispatch_builtin_cpp, None)."""
-    # JS-native primitive types: bool/int/float/String/StringName map to
-    # JS boolean/number/string -- their constructors are never exposed as
-    # `new X(...)` static bindings (primitive wrappers are created through
-    # the ReflectConstructorCall / conversion layer instead). See
-    # 09-08-static-factory-primitive-ctors for the future static-factory form.
+    # JS-native types have no `new X(...)` static constructor surface.
     JS_NATIVE_PRIMITIVES = {"bool", "int", "float", "String", "StringName"}
 
-    # =========================================================================
-    # probe_vt<>() preference per constructor parameter type.
-    # probe_vt has a bool template arg that picks the probe ORDER:
-    #   probe_prefer_object_types   : check Object/wrapper FIRST (fast when the
-    #                                 arg is normally a godot wrapper Object),
-    #                                 then JS scalars.
-    #   probe_prefer_primitive_types: check JS scalar (IsInt32/IsNumber/IsBool/
-    #                                 IsString) FIRST, then Object/wrapper.
-    # Pick whichever reflects how the JS call site normally passes this kind of
-    # argument -- it is a HOT-PATH ORDERING choice, not a correctness one (both
-    # eventually yield the same Variant type for well-typed args).
-    #
-    # Edit this table to tune the dispatch; it drives codegen directly.
-    #   JS-native scalars           -> primitive (fast for literal numbers)
-    #   StringName / NodePath       -> primitive (JS string is common, and the
-    #                                  engine accepts it for both; wrapper also
-    #                                  reachable via the IsObject fallthrough)
-    #   godot struct/container      -> object   (a wrapper Object is the norm)
-    # =========================================================================
+    # Parameter-type votes choose one probe order for all constructor arguments.
+    # This changes probe order, not accepted types; object preference wins ties.
     CTOR_PROBE_PREFER = {
-        # --- JS-native scalars: probe as primitives ---
+        # JS-native scalars: primitive-first probing.
         "int": "probe_prefer_primitive_types",
         "float": "probe_prefer_primitive_types",
         "bool": "probe_prefer_primitive_types",
         "String": "probe_prefer_primitive_types",
         "StringName": "probe_prefer_primitive_types",
-        # --- JS-string-or-wrapper: keep primitive (JS string common) ---        
+        # NodePath commonly arrives as a JS string; wrappers remain supported.
         "NodePath": "probe_prefer_primitive_types",
-        # --- always-Variant slot: no static probe, matches anything ---
+        # Variant accepts any probed type; its vote still affects probe order.
         "Variant": "probe_prefer_primitive_types",
 
-        # --- Only use primitive types as constructors arguments ---
+        # Prefer primitive probes for common numeric constructor call shapes.
         "Color": "probe_prefer_primitive_types",
-        # --- Some mathmatic types which are usually constructed from numbers ---
         "Vector2":  "probe_prefer_primitive_types",
         "Vector2i":  "probe_prefer_primitive_types",
         "Vector3":  "probe_prefer_primitive_types",
@@ -1492,7 +1434,6 @@ def emit_ctor_dispatch(m):
         "Vector4i":  "probe_prefer_primitive_types",
         "Rect2":  "probe_prefer_primitive_types",
         "Rect2i":  "probe_prefer_primitive_types",
-        # Rect2, Rect2i,Plan, Quaternion Need reconsidering.
     }
     # Any param type not listed above (godot structs/containers/arrays) probes
     # as an object wrapper by default -- that is the common call shape.
@@ -1502,8 +1443,7 @@ def emit_ctor_dispatch(m):
     for c in m.constructors:
         vt_name = m.vt_names[c["vt"]]
         if vt_name == "Nil":
-            continue  # nil has no JS class object; its "constructors" are
-                      # covered by dynamic Variant::evaluate paths
+            continue  # Nil has no JS class object to construct.
         if vt_name in JS_NATIVE_PRIMITIVES:
             continue  # JS-native primitives: no `new X()` constructor surface
         groups.setdefault(c["vt"], []).append(c)
@@ -1516,9 +1456,7 @@ def emit_ctor_dispatch(m):
             raise SystemExit(f"FATAL: ctor type '{type_name}' is not statically addressable")
         fn_name = f"find_ctor_{type_name}"
 
-        # dedupe identical overloads (json sometimes lists a same-shape ctor
-        # twice with different indices -- first index wins, matching the
-        # engine's own first-match resolution order)
+        # Duplicate parameter-type signatures keep the first JSON entry.
         seen_sigs = set()
         overloads = []
         for c in ctors:
@@ -1533,24 +1471,14 @@ def emit_ctor_dispatch(m):
         arities = sorted({len(args) for _, args in overloads})
         has_zero = 0 in arities
         non_zero = [a for a in arities if a != 0]
-        # The zero-arg overload needs no argument probing at all -- handle it
-        # FIRST so the common `new X()` (and any all-other-arity call) does
-        # not pay for a jsb_stackalloc/probe that only the >0-arity branches
-        # consult.
+        # The common zero-argument call needs no probe array.
         if has_zero:
             L.append("\tif (argc == 0) {")
             L.append("\t\tthunks::builtin_ctor_thunk<%s, 0, Args<>>(info);" % vt_value_to_enum(vt))
             L.append("\t\treturn;")
             L.append("\t}")
-        # Probe every argument's Variant type ONCE into a stack array
-        # (jsb_stackalloc), then match overloads by index -- no per-branch
-        # IsObject/is_variant/get_type() re-walk of the same JS value.
-        # ALL args share ONE probe bias (a loop can only call one
-        # probe_vt<>); pick CTOR_PROBE_PREFER's majority across this ctor's
-        # registered parameter types -- object bias when most params are
-        # wrapper structs, primitive bias when most are JS scalars. Tune the
-        # table above. Only emitted when there is at least one non-zero-arg
-        # overload (zero-arg short-circuited above).
+        # Probe each argument once, then reuse its type across overload checks.
+        # One majority-selected bias serves all arguments; ties prefer objects.
         if non_zero:
             pref = CTOR_PROBE_PREFER_DEFAULT
             votes = {"probe_prefer_object_types": 0, "probe_prefer_primitive_types": 0}
@@ -1594,11 +1522,8 @@ def emit_ctor_dispatch(m):
             L.append("\t}")  # close the `if (argc == X) {` block
         L.append("\t}")  # close the function body
         L.append("")
-    # resolves the ctor resolver with no StringName comparison and no
-    # JS-name aliases (Array/GArray, Dictionary/GDictionary collapse to their
-    # godot enum since JS names are never used for builtin class
-    # registration). The resolver IS a void(*)(info) callback, so it can be
-    # returned directly as the `new`-callback address.
+    # Resolve by Variant::Type, avoiding JS aliases such as Array/GArray.
+    # Each resolver is already a `new` callback and needs no adapter wrapper.
     L.append("const ThunkFn find_ctor_adapter(const godot::Variant::Type p_vt) {")
     L.append("\t// indexed by Variant::Type -- no switch, no StringName comparison,")
     L.append("\t// no JS-name aliases (the caller passes the compile-time")
@@ -1616,19 +1541,13 @@ def emit_ctor_dispatch(m):
     L.append("}")
     L.append("")
 
-    # Per-type resolvers are internal to dispatch_builtin.gen.cpp -- nobody
-    # references them outside (find_ctor_adapter is the only external entry,
-    # declared in dispatch.h like the other find_builtin_* resolvers). No
-    # separate builtin_ctor_tables.gen.h is emitted.
+    # Only find_ctor_adapter needs a public declaration; no ctor header is emitted.
     return "\n".join(L), None
 
 
 def emit_manifest(m, input_path, interface_path):
-    # Emitted default literals only: class thunks carry none (engine-side
-    # fill), so this counts the builtin/utility DefVs<DefV<make<...>>>
-    # instantiations. Mirror the emission-side String/StringName receiver
-    # skip (JS string aliases never get static builtin bindings) so the count
-    # reconciles with what dispatch_builtin.gen.cpp actually instantiates.
+    # Count unique builtin/utility default literals, matching receiver exclusions.
+    # Class defaults are supplied by the engine, not emitted as DefVs.
     uniq_defaults = set()
     for e in m.builtin_methods:
         if m.vt_names[e["vt"]] in ("String", "StringName"):
@@ -1693,9 +1612,7 @@ def main():
     m = collect(data, vt_map)
     _assert_default_layout(m)
     op_tables, op_tables_h = emit_operator_pair_tables(m)
-    ctor_tables, _ = emit_ctor_dispatch(m)  # ctor resolvers stay internal to
-    # dispatch_builtin.gen.cpp; find_ctor_adapter (the only external ctor
-    # entry) is declared in dispatch.h. No builtin_ctor_tables.gen.h emitted.
+    ctor_tables, _ = emit_ctor_dispatch(m)  # No separate constructor header.
     cpp_outputs = {
         "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables + ctor_tables),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
@@ -1703,16 +1620,13 @@ def main():
     }
     outputs = {}
     for fname, content in cpp_outputs.items():
-        # DO-NOT-EDIT marker on top (no separate AUTO-GENERATED line -- the
-        # note already says it), then the standard block-comment copyright
-        # header from misc/copyright.py, then the emitted body.
+        # Shared generated-file marker and copyright precede each C++ body.
         header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
         outputs[fname] = header + content
-    # manifest.gen.json is machine-readable JSON (no comments allowed) and is
-    # a build-reconciliation byproduct, not a compiled static binding file.
     for fname, content in {"builtin_operator_tables.gen.h": op_tables_h}.items():
         header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
         outputs[fname] = header + content
+    # The reconciliation manifest is JSON, so it receives no comment header.
     outputs["manifest.gen.json"] = emit_manifest(m, ns.input, ns.interface)
 
     if ns.check:

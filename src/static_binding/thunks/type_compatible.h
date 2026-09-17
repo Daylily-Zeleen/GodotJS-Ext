@@ -26,10 +26,10 @@
 /**
  * @brief 静态绑定内置类型构造函数参数类型兼容性检查
  *
- * 镜像 Godot Variant::can_convert_strict() 的转换规则。
+ * 本地允许源类型集合，用于构造函数重载筛选，不执行实际转换。
  * 编译期目标类型 TargetT + 运行期源类型 p_source_type -> bool。
  *
- * 用法：can_construct_from<godot::Variant::VECTOR2>(argts[i])
+ * 用法：can_be_converted_from<godot::Variant::VECTOR2>(argts[i])
  */
 
 #pragma once
@@ -40,16 +40,13 @@ namespace jsb::static_binding {
 
 // ---------------------------------------------------------------------------
 // 核心检查：编译期目标类型 + 运行期源类型
-// 对应 Godot 的 Variant::can_convert_strict(source, target)
 template <godot::Variant::Type TargetT>
 _FORCE_INLINE_ bool can_be_converted_from(godot::Variant::Type p_source_type) {
-	// 同类型
 	if (p_source_type == TargetT) return true;
 
-	// NIL 可以转到任何类型
+	// 重载筛选将 NIL 视为任意目标类型的候选。
 	if (p_source_type == godot::Variant::NIL) return true;
 
-	// 目标类型特化的允许源类型集合
 	switch (TargetT) {
 		// 基础数值互转
 		case godot::Variant::BOOL:
@@ -71,7 +68,7 @@ _FORCE_INLINE_ bool can_be_converted_from(godot::Variant::Type p_source_type) {
 		case godot::Variant::NODE_PATH:
 			return p_source_type == godot::Variant::STRING;
 
-		// 向量/矩阵整数/浮点互转
+		// 向量/矩形整数与浮点类型互转
 		case godot::Variant::VECTOR2:
 			return p_source_type == godot::Variant::VECTOR2I;
 		case godot::Variant::VECTOR2I:
@@ -110,15 +107,13 @@ _FORCE_INLINE_ bool can_be_converted_from(godot::Variant::Type p_source_type) {
 		case godot::Variant::BASIS:
 			return p_source_type == godot::Variant::QUATERNION;
 
-		// COLOR
 		case godot::Variant::COLOR:
 			return p_source_type == godot::Variant::STRING || p_source_type == godot::Variant::INT;
 
-		// RID
 		case godot::Variant::RID:
 			return p_source_type == godot::Variant::OBJECT;
 
-		// OBJECT 只接受 NIL（已在开头处理）
+		// OBJECT 仅接受同类型或 NIL（均已在开头处理）。
 
 		// 数组类型
 		case godot::Variant::ARRAY: {

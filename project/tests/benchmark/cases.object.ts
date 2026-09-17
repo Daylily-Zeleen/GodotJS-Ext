@@ -1,9 +1,8 @@
 // uid://dx0rgqdq7lv3c This line is generated, don't modify or remove it.
 /**
- * Handwritten object-layer benchmark cases: high-frequency Object-derived
- * classes, singletons, vararg calls and operator methods. Only APIs present
- * in BOTH binding configurations are benchmarked (the dynamic leg has no
- * IN/NOT/POSITIVE/MODULE registrations, so those are deliberately absent).
+ * Handwritten Object-derived and singleton benchmarks: methods, properties,
+ * varargs and calls with omitted or explicit optional arguments.
+ * Targets are shared within each group; earlier cases can change later inputs.
  */
 import {
     ClassDB,

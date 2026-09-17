@@ -29,7 +29,7 @@
 
 #	include "thunks_common.h"
 #	include "type_compatible.h"
-// GDExtensionPtrConstructor + variant_get_ptr_constructor declaration
+
 #	include <gdextension_interface.h>
 #	include <godot_cpp/core/builtin_ptrcall.hpp>
 #	include <godot_cpp/variant/variant_internal.hpp>
@@ -38,14 +38,8 @@ namespace jsb::static_binding::thunks {
 
 namespace internal {
 
-// Report a constructor overload-selection failure with the concrete caller
-// state: the target godot type, the received argument count, and EVERY
-// argument's probed godot type. Generated find_ctor_<Type> resolvers call
-// this after every arity/probe branch misses -- the #actual types are what a
-// user needs to see "what I passed didn't match any overload". jsb_errorf /
-// jsb::internal::format take Variant-convertible values directly, so no
-// .utf8().get_data() is needed here.
-void throw_no_suitable_ctor(
+// Include the target, argument count and probed types when no overload matches.
+static void throw_no_suitable_ctor(
 		godot::Variant::Type p_target, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	godot::String detail;
 	for (int i = 0; i < info.Length(); ++i) {
@@ -60,30 +54,16 @@ void throw_no_suitable_ctor(
 
 } // namespace internal
 
-// Per-overload constructor thunk, the ctor counterpart of
-// builtin_method_thunk. Key differences from the method flavor:
-//   - no method bind: the engine constructor pointer is resolved by
-//     (VTC, CtorIndex) via variant_get_ptr_constructor (magic-static).
-//   - the engine ABI is `void ctor(GDExtensionTypePtr base, const
-//     GDExtensionTypePtr *args)` -- the constructed value is written IN
-//     PLACE into base. The constructed builtin's C++ type is derived from
-//     VTC via VariantNativeType_t<VTC> (see thunks_common.h), so base is
-//     aligned raw storage of exactly that size; the result is lifted into a
-//     full Variant through the godot-cpp Variant(target) constructor --
-//     same self-sufficient pattern as builtin_method_thunk's
-//     marshal_one/PtrToArg args -- NOT api_tool (no var_to_arg_ptr /
-//     arg_ptr_to_var / MaxSizeEncodeArgType).
-//   - strict arity: constructors have no default arguments in the api json,
-//     so info.Length() must equal the Args<> pack size exactly.
+// Per-overload constructor thunk with exact arity. Resolve the engine ctor
+// by (VTC, CtorIndex), marshal typed ptrcall arguments, and construct into
+// uninitialized TargetCppT storage before copying into the bound Variant.
 template <godot::Variant::Type VTC, int32_t CtorIndex, class AllArgsT>
 void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using TargetCppT = VariantNativeType_t<VTC>;
 	using AllArgsTuple = typename AllArgsT::tuple;
 	v8::Isolate *isolate = info.GetIsolate();
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-	// TargetCppT (above) resolves the constructed builtin's C++ type from VTC.
 
-	// engine constructor pointer, resolved once per (type, index) pair
 	static const GDExtensionPtrConstructor ctor = ::godot::gdextension_interface::variant_get_ptr_constructor(
 			(GDExtensionVariantType)VTC, CtorIndex);
 	if (!ctor) {
@@ -100,8 +80,7 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		return;
 	}
 
-	// marshal every argument into a typed ptrcall slot (godot-cpp native
-	// mechanism, identical to builtin_method_thunk -- no api_tool encode).
+	// Typed EncodeT slots remain alive through the constructor call.
 	typename AllArgsT::encode_slots slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
@@ -116,14 +95,9 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<N>{});
 
-	// engine constructor ABI: ctor(base, args). base is
-	// GDExtensionUninitializedTypePtr -- raw storage of sizeof(TargetCppT),
-	// which the ctor writes in place. The constructed value is lifted into a
-	// full godot::Variant through Variant(const TargetCppT &) -- this sets
-	// the type tag AND copies the data (the prior failure mode was passing a
-	// `variant_new_nil` Variant as base: the ctor only wrote data and never
-	// updated the NIL tag, yielding a NIL-tagged Variant with struct data =
-	// SEGV on first use).
+	// ctor requires uninitialized native storage, not a NIL Variant: it does
+	// not set a Variant type tag. Copy the constructed value into a Variant
+	// before destroying the temporary native value.
 	std::aligned_storage_t<sizeof(TargetCppT), alignof(TargetCppT)> base_storage;
 	ctor(&base_storage, arg_ptrs);
 	const TargetCppT *constructed = reinterpret_cast<const TargetCppT *>(&base_storage);

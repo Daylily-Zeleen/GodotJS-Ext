@@ -1,5 +1,5 @@
 /************************************************************************/
-/*  jsb_primitive_bindings_reflect.cpp                                  */
+/*  jsb_primitive_bindings.cpp                                          */
 /************************************************************************/
 /*  This file is part of:                                               */
 /*                                GodotJS-Ext                           */
@@ -43,17 +43,9 @@
 #endif // JSB_WITH_STATIC_BINDINGS
 
 #if JSB_WITH_STATIC_BINDINGS
-// static path: the overload set of every (left type, operator) pair is
-// known at codegen time -- generate_primitive_operators.py emits one
-// find_op_<Left>_<Op>() switch per pair right above the JSB_TYPE_BEGIN
-// block that mounts the JS method, and passes the type literal into every
-// *_BEGIN/COMPARATOR invocation so the macro can paste the table function
-// name directly (## pasting of macro ARGUMENTS is reliable; pasting of a
-// macro name referenced inside another macro's body is not).
-// The dispatch callback probes the operands (JS argument types are only
-// known at runtime) and calls the pair-local switch; a miss falls back to
-// Variant::evaluate, matching the dynamic path exactly. No global table
-// lookup at call time.
+// Codegen emits a switch per (left type, operator). Pass type_lit explicitly
+// so token pasting names that switch; operands are probed at runtime and
+// unmatched pairs fall back to Variant::evaluate.
 #	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
 		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, &jsb::static_binding::find_op_##type_lit##_##op_code>);
@@ -232,7 +224,7 @@ struct VariantBindFallbacks {
 				argv[argument_index] = &args[argument_index];
 				const Variant::Type argument_type = constructor_variant.argument_types[argument_index];
 				if (!TypeConvert::js_to_gd_var(isolate, context, info[argument_index], argument_type, args[argument_index])) {
-					// revert all constructors
+					// revert all constructed arguments.
 					const String error_message = jsb_errorf("bad argument: %d", argument_index);
 					while (argument_index >= 0) {
 						args[argument_index--].~Variant();
@@ -247,8 +239,7 @@ struct VariantBindFallbacks {
 						Variant::get_type_name(argument_type));
 			}
 
-			// we only need to alloc a dummy instance here because the validated constructor will cast it to the expected type by itself
-			// BE CAUTIOUS: DON'T FORGET TO call `Environment::dealloc_variant(instance)` if `bind_valuetype` is not eventually called
+			// If binding is abandoned after allocation, release with dealloc_variant().
 			Variant *instance = env->alloc_variant();
 			*instance = std::move(constructor_variant.constructor_info->validated_construct(argv, argc));
 
@@ -480,7 +471,7 @@ public:
 						continue;
 					}
 				} else {
-					// identical to: i - p_argcount + (dvs - missing)
+					// Defaults correspond to the trailing declared parameters.
 					const int default_index = index - (int)(known_argc - default_arguments.size());
 					if (default_index >= 0) {
 						args[index] = default_arguments[default_index];
@@ -493,7 +484,7 @@ public:
 				}
 			}
 
-			// revert all constructors
+			// revert all constructored arguments.
 			const String error_message = jsb_errorf("bad argument: %d", utility ? index + 1 : index);
 			while (index >= 0) {
 				args[index--].~Variant();
@@ -578,13 +569,8 @@ public:
 
 	static impl::ClassBuilder get_class_builder(const ClassRegister &p_env, const NativeClassID p_class_id, const StringName &p_class_name) {
 #if JSB_WITH_STATIC_BINDINGS
-		// static-first: the generated per-type constructor dispatch probes
-		// argc/arg types at runtime and calls the matching builtin_ctor_thunk,
-		// which constructs in place through the engine's
-		// variant_get_ptr_constructor. The dispatch key is the compile-time
-		// Variant::Type enum (VariantBind::TYPE) -- no StringName lookup, no
-		// JS-name aliases (Array/GArray, Dictionary/GDictionary) -- goods
-		// builtins are addressed by their godot enum throughout.
+		// Resolve by Variant::Type, not the exposed JS name (e.g. Array/GArray).
+		// The generated callback selects a constructor from runtime argument types.
 		if (const jsb::static_binding::ThunkFn ctor_adapter = jsb::static_binding::find_ctor_adapter(TYPE)) {
 			return impl::ClassBuilder::New<IF_VariantFieldCount>(p_env.isolate, p_class_name, ctor_adapter, *(p_class_id));
 		}
@@ -878,8 +864,6 @@ public:
 	}
 
 	// Expose primitive instance methods as static utility functions for variant types not exposed to JS e.g. String
-	// TODO: 你妈的代码生成没有相应的为原为非静态函数添加thisArg作为首个参数呀，
-	// 		考虑实现为 reflect_bind， 作为部分类型的特化（String, 同时增加接口(静态常量表达式)判定是否被处理为工具类，让 editor helper 能够对返回的接口数据进行特化处理）
 	static NativeClassInfoPtr reflect_bind_utilities(const ClassRegister &p_env, NativeClassID *r_class_id = nullptr) {
 		const StringName &class_name = internal::NamingUtil::get_class_name(p_env.type_name);
 

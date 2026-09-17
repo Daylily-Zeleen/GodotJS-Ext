@@ -55,7 +55,7 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	// Get opaque pointer to the base Variant's internal data
 	void *base_opaque = get_opaque_typed<VTC>(const_cast<Variant *>(p_self));
 
-	// Member getter uses OPAQUE PTRCALL ABI: base is opaque pointer, value is native encode type
+	// Ptrcall ABI: base points into the Variant; the result uses EncodeT storage.
 	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_val{};
 	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_val);
 
@@ -99,7 +99,7 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	// Get opaque pointer to the base Variant's internal data
 	void *base_opaque = get_opaque_typed<VTC>(p_self);
 
-	// Member setter uses OPAQUE PTRCALL ABI
+	// The setter reads an EncodeT value, not a boxed Variant.
 	VariantEncodeType<VariantNativeType_t<MemberVT>> encoded_value{};
 	godot::PtrToArg<VariantNativeType_t<MemberVT>>::encode(value, &encoded_value);
 	setter((GDExtensionTypePtr)base_opaque, (GDExtensionConstTypePtr)&encoded_value);

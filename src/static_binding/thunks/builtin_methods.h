@@ -42,8 +42,7 @@ _FORCE_INLINE_ GDExtensionPtrBuiltInMethod resolve_builtin_method(godot::Variant
 }
 
 // ---------------------------------------------------------------------------
-// Fixed-arity builtin method (§4.0-A). Parameters marshaled into ptrcall slots
-// via a std::tuple so every slot outlives the fn() call.
+// Fixed-arity builtin method. Tuple-owned EncodeT slots outlive the call.
 template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class AllArgsT, class DefsT>
 void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;
@@ -81,10 +80,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// marshal caller-provided positions into the ptrcall slots (tuple
-	// outlives the fn() call). Missing optional positions skip the tuple
-	// entirely: arg_ptrs below wires them straight to the pre-encoded
-	// default slots.
+	// Marshal only provided positions; missing optionals use shared default slots.
 	typename AllArgsT::encode_slots slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
@@ -99,13 +95,14 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<M>{});
-	// optional tail [M, N): provided -> typed slot, missing -> pre-encoded
-	// default slot (default_arg_slot is never instantiated for required
-	// positions)
+	// Instantiate default_arg_slot only for optional positions [M, N).
 	[&]<std::size_t... J>(std::index_sequence<J...>) {
 		((void)(arg_ptrs[M + J] = (int)(M + J) < provided
 						 ? (void *)&std::get<M + J>(slots)
-						 : default_arg_slot<M + J, M, AllArgsT, DefsT>()),
+						 : default_arg_slot<std::tuple_element_t<J, typename DefsT::tuple>,
+								   std::conditional_t<GDReferentialBuiltinType<std::tuple_element_t<J, typename DefsT::tuple>>,
+										   decltype(builtin_method_thunk<VTC, HashC, NameLit, IsStaticC, RetT, AllArgsT, DefsT>),
+										   void>>()),
 				...);
 	}(std::make_index_sequence<N - M>{});
 
@@ -118,7 +115,7 @@ void builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 // ---------------------------------------------------------------------------
-// Vararg builtin method (§4.0-B).
+// Vararg builtin method.
 template <godot::Variant::Type VTC, uint32_t HashC, FixedString NameLit, bool IsStaticC, class RetT, class AllArgsT>
 void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;
@@ -155,11 +152,8 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// fixed prefix: Variant slots. The engine's vararg ptrcall contract
-	// (VARARG_CLASS / VARARG_CLASS1 in variant_call.cpp) converts EVERY
-	// argument slot through PtrToArg<Variant>::convert, so the fixed prefix
-	// is boxed into Variants exactly like the tail (unlike fixed-arity
-	// builtin thunks, whose slots carry the typed EncodeT layout).
+	// Builtin vararg ptrcalls consume Variant slots for the fixed prefix as
+	// well as the tail, unlike the typed EncodeT slots of fixed-arity methods.
 	std::array<godot::Variant, F> prefix;
 	const int fixed_count = provided < F ? provided : F;
 	bool ok = true;

@@ -38,10 +38,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Release-flavor engine: a 4.8.dev template_release build placed next to the
-# editor build (godot.windows.template_release.x86_64.exe). Benchmarks and
-# size comparisons MUST use it -- the editor build carries editor-only code
-# (debug helpers, TOOLS_ENABLED paths) that skews both timing and size.
+# Use a template_release host to keep editor-only code out of timing and size comparisons.
 GODOT = "D:/Dev/godot/godot/bin/godot.windows.template_release.x86_64.exe"
 SCONS_TARGET = "template_release"
 BENCH_JSON_RE = re.compile(r'BENCH_JSON (\{.*?\})\s*(?:\r?\n|$)', re.S)
@@ -81,10 +78,7 @@ def check_deploy(log) -> dict:
 
 
 def run_bench(out_path: Path, use_gc: bool, log) -> dict:
-    # --bench is a USER argument (start.ts reads get_cmdline_user_args);
-    # everything goes after `--`. One engine process runs the FULL suite
-    # (every BUILTIN_CASES / OBJECT_CASES group in the same run); no
-    # --only splitting.
+    # start.ts reads --bench after `--`; each process runs all builtin/object groups.
     user_args = ["--bench"] + (["--gc"] if use_gc else [])
     cmd = [GODOT, "--headless", "--path", "project", "--"] + user_args
     log(f"  run: {' '.join(cmd[1:])}")
@@ -106,9 +100,7 @@ def run_bench(out_path: Path, use_gc: bool, log) -> dict:
     if got_gc != want_gc:
         raise SystemExit(f"FATAL: gcRequested={got_gc}, wanted {want_gc} -- --gc did not "
                          f"take effect (argument position?) -- see {out_path}")
-    # Wrong-entry guard: `-- --bench` (user arg) must load the benchmark
-    # scene via start.ts; if the log's "Loading scene" line shows anything
-    # other than the benchmark scene, the regular TS test suite ran instead.
+    # Reject a logged scene selection outside the benchmark entry point.
     for line in txt.splitlines():
         if "Loading scene" in line:
             if "tests/benchmark" not in line:
@@ -160,10 +152,7 @@ def collect(args, log):
     out.mkdir(parents=True, exist_ok=True)
     manifest_path = out / "manifest.json"
 
-    # Stale-round guard: re-collecting fewer rounds into the same directory
-    # leaves r<N+1..> logs behind. They are NOT read by --report (manifest.json
-    # is the single source of truth), but their presence invites confusion --
-    # warn loudly and offer the reason.
+    # Fewer rounds leave old logs on disk; --report reads only manifest entries.
     if manifest_path.exists():
         try:
             old = json.loads(manifest_path.read_text(encoding="utf-8"))["runs"]
@@ -192,8 +181,7 @@ def collect(args, log):
         for use_gc in gcs:
             tag = f"{leg}_{'gc' if use_gc else 'nogc'}"
             for rnd in range(1, args.rounds + 1):
-                # Guard 1: identity before AND after each run. A background
-                # scons completing mid-matrix changes the md5 -> abort.
+                # Compare DLL identity before and after the run to catch a concurrent rebuild.
                 before = check_deploy(log)
                 log_path = out / f"{tag}_r{rnd}.log"
                 log(f"[{tag} r{rnd}]")
@@ -214,7 +202,6 @@ def collect(args, log):
                 })
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     log(f"OK: {len(manifest['runs'])} runs collected, manifest written")
-    # keep a single leg-md5 summary
     legs_md5 = sorted({r["dll_md5"] for r in manifest["runs"]})
     log(f"dll md5s seen: {legs_md5}")
     summarize(args.out, log)
@@ -306,9 +293,7 @@ def summarize(matrix_dir, log):
             return f"{v:.1f}" if v is not None else "n/a"
         lines.append(f"| {k} | {fmt(s)} | {fmt(d)} | {ratio} | {fmt(sn)} | {fmt(dn)} | {ratio_n} |")
 
-    # DLL size comparison: static linking inlines the operator/method tables
-    # into the DLL; the dynamic leg ships none of them. Manifest entries carry
-    # the sizes captured per run (all rounds of one leg share one build).
+    # Compare the first recorded main-DLL size per leg; keep one build per leg.
     sizes = {}
     for r in runs:
         leg = r["leg"]
@@ -328,8 +313,7 @@ def summarize(matrix_dir, log):
                          f"(static {st - dy:+.0f} bytes vs dynamic)")
     report = "\n".join(lines) + "\n"
 
-    # per-case round-by-round dispersion: makes "adding rounds didn't move the
-    # median" visible as stability instead of looking like a stale report.
+    # Show per-round dispersion so a stable median is not mistaken for a stale report.
     import math
     disp = ["\n## Per-case dispersion (per-round nsPerCall across rounds)\n"]
     disp.append("| case | S-gc min~max | D-gc min~max | S-gc stdev | D-gc stdev |")

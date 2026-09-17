@@ -51,19 +51,10 @@ _FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method(const godot::String
 }
 
 // ---------------------------------------------------------------------------
-// Fixed-arity class method (§4.0-A).
-//
-// MISSING DEFAULTS ARE *NOT* FILLED HERE: the engine MethodBind carries the
-// authoritative defaults and object_method_bind_call applies them -- the
-// dynamic path does the same. Only the caller-provided arguments are
-// marshaled; argc == provided.
-//
-// M (minimum argument count) is a template parameter: the arity check below
-// is a real safety duty because the engine's missing-argument defense is
-// DEBUG-only (a release build called with fewer than M args would read out
-// of bounds past the provided args). The json default literals are NOT
-// emitted for class thunks at all -- M is the only default-derived datum
-// they consume (static_binding_codegen.py class_entry_expr).
+// Fixed-arity class method. Marshal only provided arguments: MethodBind owns
+// and applies missing defaults. M is the minimum arity, not a default-value
+// descriptor. Keep the lower-bound check: engine missing-argument checks may
+// be disabled in release builds.
 template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, int M, class RetT, class AllArgsT>
 void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;
@@ -94,10 +85,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		}
 	}
 
-	// marshal ONLY the caller-provided arguments straight into the Variant
-	// slots (RAII stack array; no separate typed-storage pass). The engine
-	// fills defaults. A failed produce_variant leaves the slot untouched
-	// (still NIL), so scope exit cleans everything up automatically.
+	// RAII Variant slots remain NIL if conversion fails; the engine fills defaults.
 	godot::Variant argv[N > 0 ? N : 1];
 	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	bool ok = true;
@@ -126,9 +114,8 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 // ---------------------------------------------------------------------------
-// Vararg class method (§4.0-B): fixed prefix unrolled, only the tail loops.
-// Defaults are engine-side (see the fixed-arity comment above); the codegen
-// asserts the fixed prefix carries none, so M == F.
+// Vararg class method: unroll the fixed prefix, loop over the tail.
+// The generated fixed prefix has no defaults, so M == F.
 template <uint32_t HashC, FixedString ClassLit, FixedString NameLit, bool IsStaticC, int M, class RetT, class AllArgsT>
 void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	using AllArgsTuple = typename AllArgsT::tuple;
@@ -159,10 +146,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		}
 	}
 
-	// fixed prefix: Variant slots (the MethodBind ABI takes const Variant*),
-	// held in an RAII tuple so failure paths need no hand-rolled cleanup.
-	// Typed conversion goes to a local typed value inside produce_variant, then
-	// converts into the slot.
+	// MethodBind takes Variant pointers; array-owned prefix slots clean up on exit.
 	std::array<godot::Variant, F> prefix;
 	const int fixed_count = provided < F ? provided : F;
 	bool ok = true;
@@ -173,9 +157,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		return;
 	}
 
-	// vararg tail: untyped Variants beyond the fixed prefix -- the only part
-	// living in raw stack memory (count is runtime-bounded), hence the only
-	// part needing placement-new / hand destruction
+	// Runtime-sized tail slots need placement construction and manual destruction.
 	const int argc = provided;
 	godot::Variant *tail_args = (godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
 	const godot::Variant **arg_ptrs =
@@ -204,9 +186,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 	::godot::gdextension_interface::object_method_bind_call(
 			method_bind, IsStaticC ? nullptr : instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, argc, &ret, &call_error);
 
-	// prefix slots are RAII tuple members (destroyed at scope exit); only the
-	// raw-memory tail slots need hand destruction -- their constructed range
-	// is the contiguous [0, argc - F)
+	// Only the constructed tail needs manual cleanup; prefix is a RAII array.
 	for (int i = F; i < argc; ++i) {
 		tail_args[i - F].~Variant();
 	}
