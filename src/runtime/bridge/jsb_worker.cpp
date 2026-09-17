@@ -83,26 +83,31 @@ static void insert_transfer_variant(
 	transfers.insert(variant, transfer_data);
 }
 
-static void append_node_descendants_for_transfer(
-		Environment *from_env,
-		internal::ReferentialVariantMap<TransferData> &transfers,
-		const Node *node) {
-	if (!node) {
-		return;
-	}
+/** NOTE:
+	我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
+	不应该提供一个不完备的功能，应该由用户自己处理转移对象，
+*/
+// static void append_node_descendants_for_transfer(
+// 		Environment *from_env,
+// 		internal::ReferentialVariantMap<TransferData> &transfers,
+// 		const Node *node) {
+// 	if (!node) {
+// 		return;
+// 	}
 
-	const int child_count = node->get_child_count();
-	for (int i = 0; i < child_count; i++) {
-		Node *child = node->get_child(i);
-		if (!child) {
-			continue;
-		}
+// 	const int child_count = node->get_child_count();
+// 	for (int i = 0; i < child_count; i++) {
+// 		Node *child = node->get_child(i);
+// 		if (!child) {
+// 			continue;
+// 		}
 
-		Variant child_variant = child;
-		insert_transfer_variant(from_env, transfers, child_variant);
-		append_node_descendants_for_transfer(from_env, transfers, child);
-	}
-}
+// 		Variant child_variant = child;
+// 		insert_transfer_variant(from_env, transfers, child_variant);
+// 		append_node_descendants_for_transfer(from_env, transfers, child);
+// 	}
+// }
+
 } //namespace
 
 #if JSB_WITH_WEB
@@ -1027,7 +1032,7 @@ void Worker::constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	ptr->id_ = Worker::create(master, path, handle);
 }
 
-// placeholder func for ontransfer/onmessage/onready/onerror of worker (in master)
+// placeholder func for onmessage/onready/onerror of worker (in master)
 void Worker::_placeholder(const v8::FunctionCallbackInfo<v8::Value> &info) {}
 
 // master.postMessage
@@ -1470,15 +1475,19 @@ bool Worker::parse_transfer_list(
 		}
 	}
 
-	for (const Variant &explicit_transfer : explicit_node_transfers) {
-		if (explicit_transfer.get_type() == Variant::OBJECT) {
-			Object *object = explicit_transfer;
+	/** NOTE:
+		我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
+		不应该提供一个不完备的功能，应该由用户自己处理转移对象，
+	*/
+	// for (const Variant &explicit_transfer : explicit_node_transfers) {
+	// 	if (explicit_transfer.get_type() == Variant::OBJECT) {
+	// 		Object *object = explicit_transfer;
 
-			if (const Node *node = Object::cast_to<Node>(object)) {
-				append_node_descendants_for_transfer(from_env, transfers, node);
-			}
-		}
-	}
+	// 		if (const Node *node = Object::cast_to<Node>(object)) {
+	// 			append_node_descendants_for_transfer(from_env, transfers, node);
+	// 		}
+	// 	}
+	// }
 
 	return true;
 }
