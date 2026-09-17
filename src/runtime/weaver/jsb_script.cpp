@@ -432,9 +432,15 @@ Error GodotJSScript::load_source_code(const String &p_path) {
 void GodotJSScript::load_module_if_missing() {
 	if (!loaded_ || is_valid_internal()) return;
 
-	JSB_LOG(Verbose, "force to load missing script %s", get_path());
 	loaded_ = false;
-	load_module_immediately();
+
+	const String path = get_path();
+	if (path.is_empty()) {
+		JSB_LOG(Warning, "Failed to load a missing script, its path is now invalid (%s).", script_class_info_.module_id);
+	} else {
+		JSB_LOG(Verbose, "force to load missing script %s", path);
+		load_module_immediately();
+	}
 }
 
 void GodotJSScript::load_module_immediately() {
