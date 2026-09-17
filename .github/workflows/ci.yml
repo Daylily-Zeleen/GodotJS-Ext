@@ -595,15 +595,19 @@ jobs:
           version: ${{ env.GODOT_VERSION }}
           asset: ${{ matrix.godot_asset }}
 
-      - name: Prepare test runtime binary
+      - name: Put Godot on PATH
         shell: bash
         run: |
-          # spawnSync needs the platform's executable suffix.
+          # run-runtime-matrix resolves the host engine from PATH as `godot`,
+          # so expose the fetched binary under that name. Windows resolves
+          # `where godot` through PATHEXT, hence the .exe suffix.
           if [ "$RUNNER_OS" == "Windows" ]; then
-            cp "$GODOT" "tests/bin/godot-${{ matrix.runtime }}.exe"
+            cp "$GODOT" "tests/bin/godot.exe"
           else
-            cp "$GODOT" "tests/bin/godot-${{ matrix.runtime }}"
+            cp "$GODOT" "tests/bin/godot"
+            chmod +x "tests/bin/godot"
           fi
+          echo "$GITHUB_WORKSPACE/tests/bin" >> "$GITHUB_PATH"
 
       - name: Setup test project
         shell: bash
