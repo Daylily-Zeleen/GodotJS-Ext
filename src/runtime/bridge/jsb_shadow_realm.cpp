@@ -921,6 +921,8 @@ class ShadowRealmImpl {
 protected:
 	std::shared_ptr<Environment> env_{ nullptr };
 
+	virtual void dispose_environment() {}
+
 	// friend class TransferableShadowRealmImpl;
 
 protected:
@@ -1056,6 +1058,7 @@ protected:
 					JSB_SHADOW_REALM_LOG(Log, "shadow_realm is terminating %d", id_);
 					return;
 				}
+				dispose_environment();
 				isolate->TerminateExecution();
 			}
 
@@ -1451,6 +1454,11 @@ class TransferableShadowRealmImpl : public ShadowRealmImpl {
 	v8::Global<v8::Object> context_obj_handle_;
 
 protected:
+	virtual void dispose_environment() override {
+		context_obj_handle_.Reset();
+	}
+
+protected:
 	virtual void init_environment() override {
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
@@ -1609,6 +1617,8 @@ private:
 
 	// handle message from master
 	void _on_message(const ShadowRealmMessage &p_message) {
+		jsb_checkf(env_ && !context_obj_handle_.IsEmpty(), "Post message to a dead shadowRealm.");
+
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
