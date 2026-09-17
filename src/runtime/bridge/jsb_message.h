@@ -28,6 +28,7 @@
 #pragma once
 #include "jsb_bridge_pch.h"
 #include "jsb_buffer.h"
+#include "jsb_object_handle.h"
 
 namespace jsb {
 struct TransferData {
@@ -36,6 +37,7 @@ struct TransferData {
 	Variant variant;
 	String script_path;
 	List<Pair<StringName, Variant>> state;
+	templates::BitField<ObjectBindingFlags> flags;
 
 	TransferData() : transfer_index(0) {}
 

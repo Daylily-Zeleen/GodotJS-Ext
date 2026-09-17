@@ -861,14 +861,25 @@ void Environment::remove_object_binding(ObjectHandlePtr &p_object_handle_ptr, vo
 	}
 }
 
-void Environment::mark_as_persistent_object(void *p_pointer) {
-	ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
-	jsb_ensure(handle);
-	if (handle->is_persist()) {
-		JSB_LOG(Error, "duplicate adding persistent object: %d", (uintptr_t)p_pointer);
+void Environment::mark_as_persistent_object(void *p_pointer, bool p_count_only) {
+	if (likely(!p_count_only)) {
+		ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
+		jsb_check(handle && !handle->ref_.IsEmpty());
+
+		if (unlikely(handle->is_persist())) {
+			JSB_LOG(Error, "Duplicate marking persistent object: %d", (uintptr_t)p_pointer);
+			return;
+		}
+		handle->flags.set_flag(ObjectBindingFlags::OBF_PERSIST);
+	} else {
+		ObjectHandleConstPtr handle = const_cast<const Environment *>(this)->object_db_.try_get_object(p_pointer);
+		jsb_check(handle && !handle->ref_.IsEmpty());
+		if (unlikely(!handle->is_persist())) {
+			JSB_LOG(Error, "Try to increase persistent object count for non-persistent object: %d", (uintptr_t)p_pointer);
+			return;
+		}
 	}
 
-	handle->flags.set_flag(ObjectBindingFlags::OBF_PERSIST);
 	persistent_object_count_++;
 }
 
@@ -955,6 +966,13 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	v8::Global<v8::Object> obj_ref = std::move(object_handle->ref_);
 	const templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
 
+	// Presistant 对象也可以经过 free_object 处理，语义上表示 JS 环境解除对该对象的绑定/引用。
+	// 无论 FinalizationType 是什么都不会导致 Presistant 对象的销毁。
+	if (binding_flags.has_flag(OBF_PERSIST)) {
+		persistent_object_count_--;
+		jsb_check(persistent_object_count_ >= 0);
+	}
+
 	// erase from godot::ObjectDB before clearing the ref to avoid exposing a transient state
 	// with an empty `ref_` in the godot::ObjectDB, which can race with reference callbacks.
 	remove_object_binding(object_handle, p_pointer);
@@ -975,8 +993,6 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 		JSB_LOG(VeryVerbose, "free_object class:%s(%d) addr:%d", (String)class_info.name, class_id, (uintptr_t)p_pointer);
 
 		if (binding_flags.has_flag(OBF_PERSIST)) {
-			persistent_object_count_--;
-			jsb_ensure(persistent_object_count_ >= 0);
 			p_finalize = FinalizationType::None;
 		} else if (class_info.type == NativeClassType::GodotObject && !binding_flags.has_flag(OBF_JS_OWNED)) {
 			// 不需要 !binding_flags.has_flag(OBF_GD_REFCOUNTED) 判断，RefCounted 是根据引用计数来决定是否销毁的，不受 finalize 标志影响。
@@ -986,8 +1002,7 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 		//NOTE Godot will call Object::_predelete to post a notification NOTIFICATION_PREDELETE which finally call `ScriptInstance::callp`
 		class_info.finalizer(this, p_pointer, p_finalize);
 	} else {
-		jsb_check(!binding_flags.has_flag(OBF_PERSIST));
-		JSB_LOG(VeryVerbose, "(skip) free_object class_id:%d addr:%d", class_id, (uintptr_t)p_pointer);
+		JSB_LOG(VeryVerbose, "(skip) free_object class_id:%d addr:%d, presist: %s", class_id, (uintptr_t)p_pointer, binding_flags.has_flag(OBF_PERSIST));
 	}
 }
 
@@ -1273,7 +1288,7 @@ NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, 
 	if (const NativeObjectID object_id = this->try_get_object_id(p_this)) {
 		JSB_LOG(Verbose, "crossbinding on previously bound object %d (addr:%d), rebind it to script class %d", object_id, (uintptr_t)p_this, p_class_id);
 
-		auto handler = object_db_.try_get_object(p_this);
+		ObjectHandlePtr handler = object_db_.try_get_object(p_this);
 		object_db_.remove_object(handler, p_this); // 不需要移除绑定
 
 		// //TODO may not work in this way
@@ -1857,7 +1872,7 @@ void Environment::call_script_prelude(ScriptClassID p_script_class_id, NativeObj
 }
 
 Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName &p_method, const Variant **p_argv, int p_argc, GDExtensionCallError &r_error) {
-	// TODO: 支持静态函数得调用。 static calls are not supported
+	// TODO: 支持静态函数的调用。 static calls are not supported
 	if (!p_object_id) {
 		return {};
 	}
@@ -1993,13 +2008,17 @@ void Environment::prepare_transfer_out(NativeObjectID p_worker_handle_id, int tr
 
 	if (p_variant.get_type() == Variant::OBJECT) {
 		Object *obj = p_variant;
+		ObjectHandleConstPtr handle = ((const Environment *)this)->object_db_.try_get_object((void *)obj);
+		// 传送对象必须由用户显示指定在列表中，因此如果时 godot 对象的话必然会在 object_db_ 中，并且预期必然是一个有效的 Object
 		jsb_checkf(
-				obj && object_db_.has_object(obj) && godot::ObjectDB::get_instance(obj->get_instance_id()),
+				obj && handle && godot::ObjectDB::get_instance(obj->get_instance_id()),
 				"prepare_transfer_out failed: object %s (class=%s). In jsb object db: %s; In godot object db: %s",
 				obj,
 				obj ? obj->get_class() : "null",
-				obj ? object_db_.has_object(obj) : false,
+				obj ? (bool)handle : false,
 				obj ? godot::ObjectDB::get_instance(obj->get_instance_id()) != nullptr : false);
+
+		r_transfer_data.flags = handle->flags;
 
 		if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(obj)) {
 			jsb_check(script_instance);
@@ -2069,7 +2088,18 @@ void Environment::transfer_in_bind(const v8::Local<v8::Context> &p_context, cons
 
 	if (!object_db_.has_object(instance)) {
 		v8::Local<v8::Object> obj;
-		jsb_check(TypeConvert::gd_obj_to_js(get_isolate(), p_context, instance, obj));
+		CRASH_COND_MSG(!TypeConvert::gd_obj_to_js(get_isolate(), p_context, instance, obj), "failed to convert object to js");
+	}
+
+	{
+		// 完整复原该对象才的 flags
+		ObjectHandlePtr handle = object_db_.try_get_object(instance);
+		jsb_check(handle);
+		handle->flags = p_data.flags;
+	}
+
+	if (p_data.flags.has_flag(OBF_PERSIST)) {
+		mark_as_persistent_object(instance, true);
 	}
 
 	/**
@@ -2078,8 +2108,9 @@ void Environment::transfer_in_bind(const v8::Local<v8::Context> &p_context, cons
 	 * 在上面的传入步骤中 (script->instance_construct_default 或 TypeConvert::gd_obj_to_js) 会按照正常绑定流程绑定到该环境中时计数会 + 1
 	 * 因此在传入后需要对它降低 1 个计数
 	 */
-	if (RefCounted *ref_counted = Object::cast_to<RefCounted>(instance)) {
-		if (ref_counted->unreference()) {
+	if (p_data.flags.has_flag(OBF_GD_REFCOUNTED)) {
+		if (RefCounted *ref_counted = static_cast<RefCounted *>(instance);
+				ref_counted->unreference()) {
 			// Uh, we really shouldn't end up here. This can only occur if another thread is doing something it
 			// really shouldn't be doing. I guess we don't want to be responsible for a leak, but this is bad.
 			memdelete(ref_counted);

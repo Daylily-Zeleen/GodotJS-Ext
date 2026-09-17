@@ -121,7 +121,8 @@ public:
 		}
 	}
 	_FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
-	_FORCE_INLINE_ operator bool() const { return control_block; }
+	_FORCE_INLINE_ operator bool() const { return control_block->env != nullptr; }
+	_FORCE_INLINE_ bool operator==(nullptr_t) const { return control_block->env == nullptr; }
 	_FORCE_INLINE_ operator Environment *() const { return control_block->env; }
 };
 
@@ -222,7 +223,8 @@ private:
 	StringNameCache string_name_cache_;
 
 	BindingObjectDB object_db_;
-	uint32_t persistent_object_count_{ 0 };
+	// Environment 本身只能由创建它的线程操作。
+	int32_t persistent_object_count_{ 0 };
 
 	internal::VariantAllocator variant_allocator_;
 
@@ -574,7 +576,7 @@ public:
 
 	// return true if operation is successful
 	bool reference_object(void *p_pointer, bool p_is_inc);
-	void mark_as_persistent_object(void *p_pointer);
+	void mark_as_persistent_object(void *p_pointer, bool p_count_only = false);
 
 	// request a full garbage collection
 	static void gc();
