@@ -140,8 +140,8 @@ void TypeDB::build_method_decl(MethodDecl &r_decl, const MethodInfo &p_method) {
 		r_decl.args.push_back(info);
 		// aligned with `args`; NONE when the source list is shorter/absent
 		r_decl.args_meta.push_back(index < meta_count
-				? p_method.arguments_metadata[index]
-				: GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+						? p_method.arguments_metadata[index]
+						: GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
 	}
 
 	// default values aligned with trailing arguments
@@ -177,6 +177,8 @@ void TypeDB::load_classes() {
 #endif
 
 		for (const auto &api_prop : api_class->properties) {
+			if (internal::NamingUtil::is_ignored_name(api_prop.property.name)) continue;
+
 			PropertySetGetDecl prop;
 			prop.internal_name = api_prop.property.name;
 			prop.name = NamingUtil::get_member_name(api_prop.property.name);
@@ -675,8 +677,7 @@ static const char *js_object_key_types[] = {
 	"uint32",
 };
 
-String TypeDB::make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable,
-		GDExtensionClassMethodArgumentMetadata p_meta) {
+String TypeDB::make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable, GDExtensionClassMethodArgumentMetadata p_meta) {
 	// exact integer/float widths from GDExtensionClassMethodArgumentMetadata
 	switch (p_meta) {
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:

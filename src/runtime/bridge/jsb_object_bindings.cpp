@@ -75,7 +75,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 		// class: properties (getset)
 		for (const api_tool::ApiPropertyInfo &prop : api_class->properties) {
 			const StringName original_prop_name = prop.property.name;
-			if (internal::StringNames::get_singleton().is_ignored(original_prop_name)) continue;
+			if (internal::NamingUtil::is_ignored_name(original_prop_name)) continue;
 
 			const StringName &exposed_property_name = internal::NamingUtil::get_member_name(original_prop_name);
 			const int prop_index = prop.index;

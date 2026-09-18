@@ -119,5 +119,11 @@ public:
 
 		return result;
 	}
+
+	/**
+	 * 是否是需要被忽略的命名，主要用于绑定及其代码生成
+	 * 如 "name" 是类是js 类 和 函数 的一个固有属性，在绑定时不对 Node 将 set/get_name() 映射成属性。
+	 */
+	static bool is_ignored_name(const StringName &p_name);
 };
 } //namespace jsb::internal

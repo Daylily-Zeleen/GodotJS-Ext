@@ -299,4 +299,15 @@ String NamingUtil::snake_to_camel_case(const String &p_identifier, bool p_input_
 	return ret;
 }
 
+/**
+ * 是否是需要被忽略的命名，主要用于绑定及其代码生成
+ * 如 "name" 是类是js 类 和 函数 的一个固有属性，在绑定时不对 Node 将 set/get_name() 映射成属性。
+ */
+bool NamingUtil::is_ignored_name(const StringName &p_name) {
+	static const HashSet<StringName> ignored_names = {
+		"name",
+	};
+	return ignored_names.has(p_name);
+}
+
 } //namespace jsb::internal

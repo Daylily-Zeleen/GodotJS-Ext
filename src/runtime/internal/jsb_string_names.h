@@ -50,10 +50,6 @@ private:
 	static void create();
 	static void free();
 
-	// we need to ignore some names used in godot (such as XXX.name) to avoid conflicts in javascript.
-	// for instance, the GodotJS script name is determined with the `name` property of a javascript class.
-	HashSet<StringName> ignored_;
-
 	// replace confusing names (such as Dictionary/Array)
 	HashMap<StringName, StringName> replacements_; // original => modified (Array => GArray)
 	HashMap<StringName, StringName> replacements_inv_; // modified => original (GArray => Array)
@@ -65,8 +61,6 @@ public:
 	// library must obtain this through a cross-DLL function call rather than an
 	// inlined read of the exported `singleton_` data symbol.
 	static StringNames &get_singleton();
-
-	_FORCE_INLINE_ bool is_ignored(const StringName &p_name) const { return ignored_.has(p_name); }
 
 	_FORCE_INLINE_ bool is_replaced_name(const StringName &p_name) const { return replacements_.has(p_name); }
 

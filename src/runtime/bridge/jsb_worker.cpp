@@ -29,7 +29,7 @@
 
 #include "../internal/jsb_double_buffered.h"
 #include "../internal/jsb_sarray.h"
-#include "../internal/jsb_thread_util.h"
+#include "internal/jsb_thread_util.h"
 #include "jsb.config.h"
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
