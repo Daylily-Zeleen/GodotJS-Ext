@@ -76,3 +76,41 @@ api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL �
 ## 验收标准（机械可查）
 
 拆分/链接类改动：`dumpbin /dependents` / `nm -D` 显示零个来自兄弟扩展产物的未定义导入。
+
+## 跨 Environment 对象转移与退出
+
+### 范围与入口
+
+worker 与 transferable shadow realm 共用 `void Environment::prepare_transfer_out(..., TransferData&)`、`finalize_transfer_out` 和 `transfer_in_bind`。2026-09-18 用户调整后，prepare 依赖有效源句柄前置条件，不再返回失败状态或自动建立源绑定。
+
+### 消息与计数契约
+
+- `TransferData::flags` 为 `templates::BitField<ObjectBindingFlags>`，解绑前完整快照；接收完成正常绑定后整体赋值恢复，不是 OR 合并。
+- 源对象必须有效且已有句柄。注意现有 worker parser 仍递归收集 Node 后代，未被 JS 访问的 PackedScene 子节点可能没有句柄；此处是待修契约冲突，不能通过测试预绑定掩盖。
+- 源 flags 含 PERSIST 时接收先调用 `mark_as_persistent_object`，再恢复 flags。mark 不幂等：重复登记会报错且仍加计数，测试不得继续声明重复 mark 无副作用。
+- 当前计数为 `int32_t`，非 atomic。移除 persistent 句柄减计数，包含 `FinalizationType::None`；None 分支仍不调用 native finalizer。
+- RefCounted 源绑定经 None 解绑定保留的引用由接收释放一次；消息 Variant 保活，不可因接收已有绑定而跳过源引用配对。
+
+### 错误与边界
+
+| 输入/状态 | 处理 |
+|---|---|
+| 活的未绑定引擎子节点 | 与 prepare 前置条件冲突；保留回归并记录实际失败 |
+| 无效源对象或缺失句柄 | dev 断言，不承诺可恢复失败 |
+| 已 persistent 接收绑定 | 不再承诺幂等；另须注意非 persistent 源 flags 覆盖目标 bit 时计数未注销的风险 |
+| 持 ObjectHandlePtr 时调用 mark | 再次取得同一 DB 写锁；非递归 shared_timed_mutex 自锁，禁止嵌套取句柄 |
+| None 解绑 persistent | 减计数，不删除 native 对象 |
+
+### 好例、基例与坏例
+
+基例：显式绑定的 Node 连续往返后，接收环境 teardown 删除它。好例：persistent 在源解绑减计数、目标新登记加计数。坏例：为跑绿先访问所有隐式后代，掩盖 parser 自动传输与 prepare 前置条件冲突；或把整体 flags 恢复误称 OR 合并。
+
+### 回归入口与断言
+
+`project/tests/cross-environment` 的 owned/native-owned/refcounted/persistent 场景检查实例存活、WeakRef 归零、主环境 persistent 计数差值和连续往返。使用 `-- --object-transfer-case=<场景>` 隔离；V8 的真实 shadow 通道用 `-- --object-transfer-backend=shadow`。worker 内部计数与 web 仍须各自取证，不能以主环境计数或 native 结果替代。
+
+### 退出顺序：错误与正确
+
+- 错：EnvironmentRef 只检查控制块非空。正确：同时检查控制块中的 env，析构 reset 后旧引用必须为假。
+- 错：guest isolate 销毁后才析构持有其 Global 的宿主 impl。正确：`ShadowRealmImpl::finish` 在 guest isolate 存活时调用派生 `dispose_environment` 清空 `context_obj_handle_`，再 terminate/dispose/reset；显式 terminate 和宿主 GC 走同一路径。
+- `test_jsb_shadow_realm.h` 的 `GuestInstanceCleanup` 是夹具清理，不是转移断言：guest 保存测试 Node，C++ 作用域退出先在 guest 中 free，再由较早构造的 initer 销毁环境；REQUIRE 提前退出也会清理。原测试仍只验证 guest 创建的脚本实例绑定到 guest 而非主环境。doctest SUCCESS 不替代进程 exit 0 与泄漏检查。

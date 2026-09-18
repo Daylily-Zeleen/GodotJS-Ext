@@ -13,7 +13,7 @@
 - 命令：`cd project && godot --audio-driver Dummy --headless --path . -- --bench [--gc] [--only=<组>]`
 - **所有开关都是 user args**（在 `--` 之后）：`--bench`（start.ts 用 `get_cmdline_user_args()` 判断，选择只跑 benchmark 场景）、`--gc`、`--only=<组>`（benchmark.ts 用 `get_cmdline_user_args()` 解析）。引擎参数区（`--` 之前）不放任何 bench 开关——把 `--bench` 写在 `--` 之前会让引擎试图解析它而测试项目收不到
 - `cases.builtin.ts` 为**手维护**（原 `generate_benchmark_cases.py` 生成器已移除，新增 case 直接编辑该文件）；改动后 `cd project && node node_modules/typescript/bin/tsc --noCheck` 重编
-- `--gc`：每个 case 计时前请求一次全量 GC，消除前序组遗留 wrapper Variant 的 GC 压力污染。GC 入口为 JS 全局 `gc()`（`jsb_environment.cpp` 挂载 → `Builtins::_gc` → `Environment::gc()` → `LowMemoryNotification`，**同步语义**：返回即收集完成，禁止用 sleep/定时器等待）。未暴露 gc 入口的构建上自动降级 no-op + 一次性 WARNING；报告 JSON 有 `gcRequested` 字段供采数脚本核验 `--gc` 确实生效
+- `--gc`：每个 case 计时前通过 JS 全局 `gc()` 请求回收（`Builtins::_gc` → `Environment::gc` → 各环境 `add_async_call(TYPE_GC_REQUEST)`）。同线程立即执行 `_on_gc_request`，其他线程入队；返回不保证 worker 已回收。跨线程生命周期回归应有界等待可观测状态，不用任意 sleep 代替完成信号。未暴露 gc 的 benchmark 构建降级 no-op 并 WARNING；`gcRequested` 只表示请求。
 - **采数纪律**：用 `python misc/bench_matrix.py --rounds 4 --out .agent_tmp/matrix` 固化流程——脚本自动执行 dll md5 前后双查（后台 scons 中途完成会即时拦截）、按日志指纹（"static binding not found" 回退警告数）验证腿身份、`gcRequested` 字段验证 `--gc` 生效、COMPLETED/exit/invalid 逐轮核验，最后产出 `report.md` 中位数表。双腿/双开关对比必须各采 ≥3 轮取中位数，且全程同一 dll；报告 JSON 的 `staticBinding` 字段不可信，dll 身份只认 md5 + 构建命令
 - 验收：exit code == 0 且无 Orphan StringName（`--verbose` 下 grep Orphan）
 - 已知遗留（不视为失败）：remove_child / queue_free / add_child 各 1 个 orphan（start.ts 的 call_deferred 方法名字面量）
@@ -22,6 +22,32 @@
 
 - 先生成 api 数据（dump → api-generate，见 [codegen-baseline.md](./codegen-baseline.md) 触发链）并编译 TS（`cd project && node_modules/.bin/tsc --noCheck`），再 `godot --path ./project --verbose`
 - 结尾哨兵：`GODOTJS_TEST_PROJECT_COMPLETED` 为成功、`GODOTJS_TEST_PROJECT_FAILED:` 为失败
+
+## 跨环境通信测试后端选择
+
+### 范围
+`project/tests/cross-environment` 的对象转移与基础消息往返共用后端调度，不再将基础会话固定为 Worker。
+
+### 命令
+`godot --headless --path project` 默认依次运行 worker、shadow。单后端使用 `-- --object-transfer-backend=worker` 或 `-- --object-transfer-backend=shadow`；参数从 `OS.get_cmdline_user_args()` 读取。
+
+### 契约
+每个后端先跑 owned/native-owned/refcounted/persistent，再跑三轮基础消息会话（Godot/JavaScript 载荷、Dictionary，第一轮另含 plain）。`--object-transfer-case=<场景>` 仅限制对象用例、跳过基础会话，但仍遍历所选后端。Worker 等待 onready，ShadowRealm 同步加载 startupScript；使用真实 peer，结束时 terminate。
+
+### 校验与错误
+非法 backend（包括空值）报告 FAILED，不启动任一后端。运行时不支持的传输必须失败，不得静默跳过或替换为 Worker。成功判据为 exit 0、COMPLETED 且无 FAILED；失败哨兵优先于 exit 0。
+
+### 基例、好例、坏例
+无参数是双后端全套；指定 shadow 加 owned 是 shadow 单场景；backend=invalid 是应拒绝的输入。
+
+### 验证点
+默认日志必须有两后端四个对象用例及三轮 session 的 done；显式单后端不得出现另一后端 start；仅 case 筛选仍须有两后端该用例 done。检查场景断言、完成哨兵与进程退出，不只检查 start。
+
+### 错误与正确
+错误：shadow 对象测试后继续创建 JSWorker 执行基础会话，声称双覆盖。正确：整个后端会话使用同一 peer 工厂和真实所选实现，所有共享断言都执行。
+
+### QuickJS-NG shadow 传输支持
+`TransferableShadowRealmImpl::handle_post_message` 与 `_on_message` 已与 `Worker` 序列化路径对齐：统一走 `VariantSerializerDelegate`/`VariantDeserializerDelegate`（不再由 `#if JSB_WITH_V8` 门控），复用 `Worker::parse_transfer_list`，接收侧补 `ThreadSafeForNodesScope`，发送侧按 transfer_index 定序。QuickJS-NG 的 shadow 对象转移已全绿；worker 与 shadow 可并列声称双后端覆盖。
 
 ## 陷阱：TS 集成测试「挂死」（不是失败，是永不退出）
 
