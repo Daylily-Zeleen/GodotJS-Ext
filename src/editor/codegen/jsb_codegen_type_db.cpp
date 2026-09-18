@@ -393,7 +393,37 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		decl->enums.push_back(enum_decl);
 	}
 
+	// constants
+	for (const auto &api_constant : builtin_class->constants) {
+		PrimitiveConstantDecl constant;
+		constant.name = api_constant.name;
+		constant.type = api_constant.type;
+
+		switch (api_constant.type) {
+			case Variant::BOOL: {
+				constant.literal_is_bool = true;
+				constant.literal_bool_value = (bool)(Variant)api_constant.value;
+				break;
+			}
+			case Variant::INT: {
+				constant.has_literal_value = true;
+				constant.literal_value = (int64_t)(Variant)api_constant.value;
+				break;
+			}
+			case Variant::FLOAT: {
+				constant.literal_is_float = true;
+				constant.literal_float_value = (double)(Variant)api_constant.value;
+				break;
+			}
+			default:
+				break;
+		}
+		decl->constants.push_back(constant);
+	}
+
 	if (p_utilities_mode) {
+		// 工具类跳过 构造函数、操作符、属性成员相关的代码生成。
+		// 因为以工具类进行绑定的类型通常与 js 内置类型等价，仅补充。常量，枚举，并将函数统一补充为静态工具函数。
 		primitive_types.insert(decl->name, decl);
 		return decl;
 	}
@@ -423,34 +453,6 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		member.name = NamingUtil::get_member_name(api_member.name);
 		member.type = api_member.type;
 		decl->properties.push_back(member);
-	}
-
-	// constants
-	for (const auto &api_constant : builtin_class->constants) {
-		PrimitiveConstantDecl constant;
-		constant.name = api_constant.name;
-		constant.type = api_constant.type;
-
-		switch (api_constant.type) {
-			case Variant::BOOL: {
-				constant.literal_is_bool = true;
-				constant.literal_bool_value = (bool)(Variant)api_constant.value;
-				break;
-			}
-			case Variant::INT: {
-				constant.has_literal_value = true;
-				constant.literal_value = (int64_t)(Variant)api_constant.value;
-				break;
-			}
-			case Variant::FLOAT: {
-				constant.literal_is_float = true;
-				constant.literal_float_value = (double)(Variant)api_constant.value;
-				break;
-			}
-			default:
-				break;
-		}
-		decl->constants.push_back(constant);
 	}
 
 	primitive_types.insert(decl->name, decl);

@@ -948,6 +948,8 @@ public:
 			}
 		}
 
+		// NOTE: 以工具类形式进行绑定的类型不绑定其操作符（他们通常时 js 内置类型）
+
 		{
 			if (r_class_id) *r_class_id = class_id;
 
