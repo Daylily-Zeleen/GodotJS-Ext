@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "头文件禁 using namespace（Arr 模板定义在头文件）；临时脚本一律放 .agent_tmp/；格式化由 misc/format_src.py 负责"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "validated_call / var_to_arg_ptr 的参数内存与 EncodeT 规则；搬移 arguments/arguments_metadata 后必须保持 MaxSizeEncodeArgType 分配与 metadata 语义不变"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "本任务不得手改 *.gen.* / *.def.*；本次不涉及静态绑定生成逻辑"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "唯一合法编译命令、dll 部署与 md5 校验、进程残留锁 dll 的处理方式"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "R10/AC4 的基线固化与校验规程：必须先 --update-baseline 再双轮确定性验证，diff 逐项归因"}

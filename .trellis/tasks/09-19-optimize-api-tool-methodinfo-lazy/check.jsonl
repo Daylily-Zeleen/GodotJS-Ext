@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "AC4/AC8 判据来源：产物零差异 + 双轮确定性；退出码不可信、以产物存在性判断成败"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "AC5 的 C++ 双套件验收标准与运行方式（需 tests=yes 构建）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "校验 API 热层搬移后 ptrcall 参数编码/元数据路径未回归（AC3 的机制依据）"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "改后需重新 scons 才作用于 addon 目录的 dll；cache/DLL 陈旧会导致假失败（AC4–AC6 的前置）"}
