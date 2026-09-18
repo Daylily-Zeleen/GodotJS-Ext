@@ -1,0 +1,197 @@
+#  action.yml
+#
+#  This file is part of:
+#                                GodotJS-Ext
+#              https://github.com/Daylily-Zeleen/GodotJS-Ext
+#
+#  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)
+#                 - Contact: daylily-zeleen@foxmail.com
+#
+#  This library is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU Lesser General Public
+#  License as published by the Free Software Foundation; either
+#  version 2.1 of the License, or (at your option) any later version.
+#
+#  This library is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  Lesser General Public License for more details.
+#
+#  You should have received a copy of the GNU Lesser General Public
+#  License along with this library; if not,
+#  see <https://www.gnu.org/licenses/>.
+
+name: Build GDExtension
+description: >-
+  Run one SCons build for a matrix leg and stage the result into ./artifact.
+  The matrix leg declares what is built and this action translates those
+  parameters into SCons arguments, so the workflow needs no per-platform shell
+  branching and there is exactly one place that knows how a leg maps to a
+  command line.
+
+inputs:
+  platform:
+    description: Target platform passed to scons.
+    required: true
+  arch:
+    description: Target architecture passed to scons.
+    required: true
+  target:
+    description: Build target (editor or template_release).
+    required: true
+  engine:
+    description: >-
+      JS engine: v8 (default, no extra flag), qjs-ng, node or jsc.
+    required: false
+    default: v8
+  windows-compiler:
+    description: >-
+      Windows toolchain: msvc, llvm or mingw. The matching toolchain install
+      lives in setup-godotjs-ext; this action only forwards the matching scons
+      flag, so setup and build can never disagree about the compiler in use.
+      msvc/llvm are MSVC-ABI and are the only options able to link the v8 and
+      libnode prebuilts.
+    required: false
+    default: msvc
+  profile:
+    description: >-
+      editor: debug-friendly build with symbols and C++ unit tests (desktop
+      platforms only - mobile/web are template-only). release: the trimmed
+      build used by the benchmark legs.
+    required: false
+    default: editor
+  threads:
+    description: >-
+      Web only. Whether to build with threads. Any value other than "false"
+      builds with threads (the web default).
+    required: false
+    default: ""
+  flags:
+    description: >-
+      Extra raw scons arguments for this leg. Use this instead of adding
+      per-platform conditionals to the workflow, e.g. "static_binding=no".
+    required: false
+    default: ""
+  scons-cache:
+    description: >-
+      Shared SCons cache directory. Leave empty on Windows: MSVC debug info is
+      written to a shared PDB that the cached objects do not carry, so cache
+      hits produce LNK4099 and /WX turns that into a failure.
+    required: false
+    default: ""
+  jobs:
+    description: Parallel job count; empty auto-detects.
+    required: false
+    default: ""
+  stage-artifact:
+    description: Copy the built binaries into ./artifact for upload.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Build GDExtension
+      shell: bash
+      env:
+        LEG_PLATFORM: ${{ inputs.platform }}
+        LEG_ARCH: ${{ inputs.arch }}
+        LEG_TARGET: ${{ inputs.target }}
+        LEG_ENGINE: ${{ inputs.engine }}
+        LEG_WINDOWS_COMPILER: ${{ inputs.windows-compiler }}
+        LEG_PROFILE: ${{ inputs.profile }}
+        LEG_THREADS: ${{ inputs.threads }}
+        LEG_FLAGS: ${{ inputs.flags }}
+        LEG_JOBS: ${{ inputs.jobs }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "${{ inputs.scons-cache }}" ]; then
+          export SCONS_CACHE="${{ inputs.scons-cache }}"
+        fi
+
+        args=(platform="$LEG_PLATFORM" target="$LEG_TARGET" arch="$LEG_ARCH" verbose=yes)
+
+        case "$LEG_PROFILE" in
+          editor)
+            args+=(compiledb=yes debug_symbols=yes)
+            # iOS/Android/Web are template-only: no dev build, no tests.
+            case "$LEG_PLATFORM" in
+              ios|android|web) ;;
+              *) args+=(dev_build=yes tests=yes) ;;
+            esac
+            ;;
+          release)
+            args+=(compiledb=no debug_symbols=no dev_build=no)
+            ;;
+          *)
+            echo "::error::unknown profile '$LEG_PROFILE'"; exit 1
+            ;;
+        esac
+
+        case "$LEG_ENGINE" in
+          v8)     engine_arg="" ;;
+          qjs-ng) engine_arg=use_quickjs_ng=yes ;;
+          node)   engine_arg=use_node=yes ;;
+          jsc)    engine_arg=use_jsc=yes ;;
+          *) echo "::error::unknown engine '$LEG_ENGINE'"; exit 1 ;;
+        esac
+        if [ -n "$engine_arg" ]; then args+=("$engine_arg"); fi
+
+        if [ "$LEG_PLATFORM" = "windows" ]; then
+          case "$LEG_WINDOWS_COMPILER" in
+            msvc)  ;;
+            llvm)  args+=(use_llvm=yes) ;;
+            mingw) args+=(use_mingw=yes) ;;
+            *) echo "::error::unknown windows-compiler '$LEG_WINDOWS_COMPILER'"; exit 1 ;;
+          esac
+        fi
+
+        if [ "$LEG_PLATFORM" = "web" ]; then
+          if [ "$LEG_THREADS" = "false" ]; then
+            args+=(threads=no)
+          else
+            args+=(threads=yes)
+          fi
+        fi
+
+        # Linux arm64 cross-compilation: godot-cpp's linux.py appends
+        # -march=armv8-a, which only the aarch64 compiler understands.
+        if [ "$LEG_PLATFORM" = "linux" ] && [ "$LEG_ARCH" = "arm64" ]; then
+          args+=(CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++)
+        fi
+
+        if [ -n "$LEG_FLAGS" ]; then
+          # Word-split on purpose: this input carries several whole scons args.
+          # shellcheck disable=SC2206
+          args+=($LEG_FLAGS)
+        fi
+
+        jobs="$LEG_JOBS"
+        if [ -z "$jobs" ]; then
+          jobs=$( { command -v nproc >/dev/null 2>&1 && nproc; } \
+               || { command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu; } \
+               || echo 2 )
+        fi
+
+        echo "scons ${args[*]} -j$jobs"
+        scons "${args[@]}" -j"$jobs"
+
+        # iOS: the simulator build also emits the xcframework. v8 has no
+        # iOS-simulator prebuilt, so only quickjs-ng/jsc can produce one.
+        if [ "$LEG_PLATFORM" = "ios" ] && [ "$LEG_ENGINE" != "v8" ]; then
+          echo "Building iOS simulator version..."
+          sim_args=(platform=ios target="$LEG_TARGET" arch="$LEG_ARCH"
+                    compiledb=yes debug_symbols=yes verbose=yes ios_simulator=yes)
+          if [ -n "$engine_arg" ]; then sim_args+=("$engine_arg"); fi
+          scons "${sim_args[@]}" -j"$jobs"
+        fi
+
+    - name: Prepare artifact
+      if: inputs.stage-artifact == 'true'
+      shell: bash
+      run: |
+        mkdir -p artifact
+        cp -r bin/* artifact/ 2>/dev/null || true
+        mkdir -p artifact/addons/godotjs-ext.daylily-zeleen
+        cp LICENSE artifact/addons/godotjs-ext.daylily-zeleen/

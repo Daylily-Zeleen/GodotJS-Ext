@@ -64,8 +64,6 @@ StringNames::StringNames() {
 #pragma pop_macro("DEF")
 	sn_godot_typeloader = StringName("godot.typeloader");
 	sn_godot_postbind = StringName("_post_bind_");
-
-	ignored_.insert(sn_name);
 }
 
 } //namespace jsb::internal

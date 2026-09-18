@@ -33,6 +33,7 @@ opts.Add(BoolVariable("use_node", "Build with Node.js (libnode) support. libnode
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
+opts.Add(BoolVariable("static_binding", "Compile static binding tables into the build (requires src/static_binding/gen; regenerate with scons static_binding_gen)", True))
 opts.Add(BoolVariable("embedded_natvis", "Embed natvis files into the PDB via /NATVIS (MSVC/clang-cl linkers only). If no, merge all natvis files into a single root-level godotjs-ext.natvis instead.", True))
 opts.Update(localEnv)
 
@@ -60,8 +61,12 @@ third_folder_name = "third"
 third_dir = third_folder_name
 
 # godot-cpp >= PR #2034 (require-api-version) mandates an explicit api_version.
-# The bindings are generated from gdextension/extension_api-4.7.json.
-env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": "4.7"})
+# This is the SINGLE source of truth for the api json: godot-cpp generates its
+# bindings from gdextension/extension_api-<API_VERSION>.json (tools/godotcpp.py
+# _get_api_file), and our static-binding codegen uses the very same file below.
+# Keep it in sync with the .gdextension compatibility_minimum.
+API_VERSION = "4.7"
+env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": API_VERSION})
 
 # godot-cpp sets SHLIBPREFIX="" only on Windows; on Linux/macOS the default is
 # "lib" which produces libgodotjs-ext.*.so — but our .gdextension file expects
@@ -626,12 +631,20 @@ generate_jsb_gen_header()
 
 root_dir = Dir('#').abspath
 
+# Detect the MSVC-family toolchain once (cl / cl.exe / clang-cl). Single source
+# of truth for every MSVC-only flag decision below: godot-cpp's tools/windows.py
+# sets use_mingw=True both when asked and when it silently falls back from an
+# undetected MSVC, so the compiler identity is the only reliable signal.
+cxx_compiler_base = os.path.basename(str(env.subst('$CXX'))).lower()
+cc_compiler_base = os.path.basename(str(env.subst('$CC'))).lower()
+is_msvc_toolchain = (not env.get('use_mingw', False)) and (
+    cxx_compiler_base in ("cl", "cl.exe", "clang-cl")
+    or cc_compiler_base in ("cl", "cl.exe", "clang-cl"))
+
 # Enable C++20 (cross-compiler support)
-# Detect MSVC vs GCC/Clang: check if use_mingw or use_llvm is set
 cxx_compiler = str(env.subst('$CXX'))
 cxx_flags :list = env["CXXFLAGS"]
-cxx_compiler_base = os.path.basename(cxx_compiler).lower()
-if cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
+if is_msvc_toolchain:
     if '/std:c++17' in cxx_flags:
         cxx_flags.remove('/std:c++17')
     cxx_flags.append('/std:c++20')
@@ -658,7 +671,7 @@ env["CXXFLAGS"] = cxx_flags
 
 natvis_sources = [
     os.path.join(root_dir, "third", "godot-cpp", "natvis", "godot-cpp.natvis"),
-    os.path.join(root_dir, "src", "runtime", "jsb.natvis"),
+    os.path.join(root_dir, "src", "jsb.natvis"),
     os.path.join(root_dir, "src", "runtime", "impl", "quickjs", "jsb.quickjs.natvis"),
 ]
 merge_script = os.path.join(root_dir, "misc", "build", "merge_natvis.py")
@@ -679,7 +692,7 @@ else:
     print(f"natvis: {reason}, merging into {merged_natvis}")
     subprocess.run([sys.executable, merge_script, merged_natvis, *natvis_sources], check=True)
 
-if jsb_platform == "windows" and cxx_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
+if jsb_platform == "windows" and is_msvc_toolchain:
     # /Z7 keeps debug info in the .obj; no compile-time shared-PDB writes
     # (C1041-proof). Target-specific /Fd flags are added by make_target_env.
     # Strip the inherited /Zi first so cl never touches a shared PDB and we
@@ -769,7 +782,7 @@ if lws_support is not None:
 
 # Add GodotJS source files, split into the runtime and editor extension targets.
 #
-# Ownership rules (TASK_STATUS.md ch.14):
+# Ownership rules (project structure: .trellis/spec/godotjs-ext/index.md):
 #   runtime target: src/runtime/** + api_tool core (store/loader/payload/types)
 #   editor target:  src/editor/** + api_tool/editor orchestration
 # Shared sources (src/internal/**, src/compat/**, api_tool core copies) go into BOTH
@@ -790,6 +803,55 @@ runtime_globs = [
     os.path.join(src_dir, "api_tool", "*.cpp"),
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
 ]
+
+# Primitive-operator registration table (jsb_primitive_operators.def.gen.h):
+# generated from the same godot-cpp api json as the static-binding codegen.
+# Runs unconditionally -- the dynamic binding path consumes it too.
+_sb_ops_gen = os.path.join(src_dir, "runtime", "internal", "jsb_primitive_operators.def.gen.h")
+_sb_ops_codegen = os.path.join(root_dir, "misc", "build", "generate_primitive_operators.py")
+_sb_ops_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+        "extension_api-%s.json" % API_VERSION.replace(".", "-"))
+if not os.path.exists(_sb_ops_api_json):
+    print_error("primitive-operator codegen requires " + _sb_ops_api_json +
+                " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
+subprocess.run([sys.executable, _sb_ops_codegen, "--input", _sb_ops_api_json,
+                "--interface", os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+                                            "gdextension_interface.json"),
+                "--out", _sb_ops_gen], check=True)
+
+# Static bindings: generated tables (*.gen.*) are NEVER committed.
+# Codegen consumes the extension_api json that ships INSIDE the godot-cpp
+# submodule (gdextension/extension_api-<API_VERSION>.json) -- the exact file
+# godot-cpp's own binding generator uses (tools/godotcpp.py _get_api_file).
+# It is always present, so no engine dump and no CI pre-step are needed.
+if env.get("static_binding", False):
+    _sb_gen_dir = os.path.join(src_dir, "static_binding", "gen")
+    _sb_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
+            "extension_api-%s.json" % API_VERSION.replace(".", "-"))
+    _sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
+    _sb_codegen = os.path.join(root_dir, "misc", "build", "static_binding_codegen.py")
+    if not os.path.exists(_sb_api_json):
+        print_error("static_binding=yes requires " + _sb_api_json +
+                    " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
+    subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
+                    "--interface", _sb_interface_json,
+                    "--out", _sb_gen_dir], check=True)
+    runtime_globs += [
+        os.path.join(src_dir, "static_binding", "*.cpp"),
+        os.path.join(src_dir, "static_binding", "thunks", "*.cpp"),
+        os.path.join(_sb_gen_dir, "*.cpp"),
+    ]
+    if is_msvc_toolchain:
+        # the class dispatch TU instantiates ~15k thunks and overflows the
+        # default COFF section count without /bigobj (MSVC-family only)
+        env.Append(CCFLAGS=["/bigobj"])
+    elif jsb_platform == "windows":
+        # Same overflow, MinGW flavour: the default COFF object format caps the
+        # section count, and the class dispatch TU exceeds it. Without this the
+        # assembler aborts with "Fatal error: can't write <n> bytes to section
+        # .text ...: 'file too big'". -mbig-obj selects the extended format.
+        env.Append(CCFLAGS=["-Wa,-mbig-obj"])
+    env.Append(CPPDEFINES=["JSB_WITH_STATIC_BINDINGS"])
 
 editor_globs = [
     os.path.join(editor_dir, "*.cpp"),
@@ -848,8 +910,7 @@ quickjs_obj = []
 if quickjs_support is not None:
     quickjs_dir = quickjs_support[1].path
     env_c = env.Clone()
-    cc_compiler_base = os.path.basename(str(env.subst('$CC'))).lower()
-    if cc_compiler_base in ("cl", "cl.exe", "clang-cl") and not env.get('use_mingw', False):
+    if is_msvc_toolchain:
         env_c.Append(CCFLAGS=["/std:c11"])
         if "third/quickjs-ng" in quickjs_dir:
             env_c.Append(CCFLAGS=["/experimental:c11atomics"])
@@ -864,13 +925,17 @@ def make_target_env(base_env, pdb_name, obj_root, source_globs):
     # unique across all globs -- asserted by the build itself via SCons
     # duplicate-target errors). No .obj is ever written next to its source.
     target_env["OBJPREFIX"] = "#/.build/" + obj_root + "/"
-    if jsb_platform == "windows":
+    if jsb_platform == "windows" and is_msvc_toolchain:
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
         # LNK1218. Use /Z7 (debug info embedded in each .obj): parallel
         # CL.EXE instances never write a shared PDB at compile time, which
         # /FS could not guarantee (C1041 persisted on cold CI builds even
         # with /FS present on every command line). The link step still
         # produces the target's real PDB from the embedded debug info.
+        #
+        # Gated on the toolchain, not on the platform: MinGW's g++ reads
+        # these as input file names ("error: /Z7: linker input file not
+        # found"), so a MinGW Windows build must not inherit them.
         target_env.Append(CCFLAGS=["/Z7", "/Fd" + pdb_name + ".pdb"],
                           LINKFLAGS=["/PDB:" + pdb_name + ".pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
     sources = []

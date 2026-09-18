@@ -33,6 +33,7 @@
 #include <initializer_list>
 #include <utility>
 
+#include <api_tool/api_tool.h>
 #include <internal/jsb_naming_util.h>
 #include <internal/jsb_settings.h>
 
@@ -214,10 +215,17 @@ void append_garray_overrides(TypeMutation &t) {
 		add_override(t, key, mut(make_mutate_return_type(elem)));
 	}
 	add_override(t, "sort_custom", mut(make_mutate_parameter_type("func", "Callable<(a: GArrayElement<T>, b: GArrayElement<T>) => boolean>")));
-	add_override(t, "all", mut(make_mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>")));
-	add_override(t, "any", mut(make_mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>")));
-	add_override(t, "filter", chain({ make_mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => boolean>"), make_mutate_return_type("GArray<GArrayElement<T>>") }));
-	add_override(t, "map", chain({ make_mutate_parameter_type("callable", "Callable<(value: GArrayElement<T>) => U>"), make_mutate_return_type("GArray<U>"), make_mutate_template("U extends GAny") }));
+
+	String arr_indicator_arg_name = "method";
+	if (api_tool::get_header().version_minor >= 8) {
+		// NOTE: 4.8 开始的差异
+		arr_indicator_arg_name = "callable";
+	}
+	add_override(t, "all", mut(make_mutate_parameter_type(arr_indicator_arg_name, "Callable<(value: GArrayElement<T>) => boolean>")));
+	add_override(t, "any", mut(make_mutate_parameter_type(arr_indicator_arg_name, "Callable<(value: GArrayElement<T>) => boolean>")));
+	add_override(t, "filter", chain({ make_mutate_parameter_type(arr_indicator_arg_name, "Callable<(value: GArrayElement<T>) => boolean>"), make_mutate_return_type("GArray<GArrayElement<T>>") }));
+	add_override(t, "map", chain({ make_mutate_parameter_type(arr_indicator_arg_name, "Callable<(value: GArrayElement<T>) => U>"), make_mutate_return_type("GArray<U>"), make_mutate_template("U extends GAny") }));
+
 	add_override(t, "append_array", mut(make_mutate_parameter_type("array", "GArray<GArrayElement<T>>")));
 	add_override(t, "duplicate", mut(make_mutate_return_type("this")));
 	add_override(t, "slice", mut(make_mutate_return_type("GArray<GArrayElement<T>>")));

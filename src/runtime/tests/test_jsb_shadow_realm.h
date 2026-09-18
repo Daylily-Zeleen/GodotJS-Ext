@@ -29,7 +29,7 @@
 #include "../weaver/jsb_script_instance.h"
 #include "jsb_test_helpers.h"
 
-#include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/node.hpp>
 
 // 测试背景（见 src/bridge/jsb_shadow_realm.cpp 顶部 TODO 注释）：
 // ShadowRealm 会在宿主线程上创建新的 Environment，导致同一线程存在多个 Environment。
@@ -136,7 +136,10 @@ globalThis.__instance_id = globalThis.__realm.evaluate(`
 	GodotJSScriptInstance *js_instance = dynamic_cast<GodotJSScriptInstance *>(script_instance);
 	REQUIRE(js_instance != nullptr);
 	CHECK(js_instance->get_env() != nullptr);
-	CHECK(js_instance->get_env() != main_env); // 修复前：等于 main_env（bug）；修复后：等于 ShadowRealm 环境
+	CHECK(js_instance->get_env() != main_env);
+
+	REQUIRE(obj->is_class("Node")); // 本测试中约定测试对象是一个 Node.
+	static_cast<Node*>(obj)->queue_free(); // 释放测试对象
 }
 
 } //namespace jsb::tests

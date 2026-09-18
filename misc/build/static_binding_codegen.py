@@ -1,0 +1,1670 @@
+#!/usr/bin/env python3
+
+# Generate static thunk dispatch tables from godot-cpp's extension_api JSON.
+# Argument/return metadata selects semantic C++ types (int8..uint64, float/double).
+# Resolve Variant enum values by name from gdextension_interface.json:
+# builtin_classes omits Object, so array positions are not enum values.
+
+import argparse
+import collections
+import hashlib
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+# Allow importing misc/copyright.py from this sub-directory (same pattern as
+# misc/build/generate_templates_header.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from copyright import read_copyright_text, generate_copyright_header_cpp
+
+HEADER_GUARD_PREFIX = "GODOTJS_EXT_STATIC_BINDING_GEN_"
+GENERATED_NOTE = (
+    "// GENERATED FILE - DO NOT EDIT.\n"
+    "// SCons regenerates these on every static_binding=yes build;\n"
+    "//   manual run: python misc/build/static_binding_codegen.py"
+    " --input third/godot-cpp/gdextension/extension_api-4-7.json"
+    " --out src/static_binding/gen\n"
+)
+
+# Name -> GDExtensionVariantType value, populated by load_variant_type_map.
+VARIANT_TYPE_VALUES = {}
+
+# Variant::OP_ tail token -> enum value, populated by load_variant_type_map.
+OPERATOR_VALUES = {}
+
+# json type name -> C++ parameter type used by the direct-conversion layer.
+PARAM_TYPE_MAP = {
+    "bool": "bool",
+    "int": "int64_t",
+    "float": "godot::real_t",
+    "String": "godot::String",
+    "StringName": "godot::StringName",
+    "NodePath": "godot::NodePath",
+    "RID": "godot::RID",
+    "Callable": "godot::Callable",
+    "Signal": "godot::Signal",
+    "Object": "godot::Object*",
+    "Dictionary": "godot::Dictionary",
+    "Array": "godot::Array",
+    "Variant": "godot::Variant",
+}
+for _t in ("Vector2", "Vector2i", "Rect2", "Rect2i", "Vector3", "Vector3i",
+           "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB",
+           "Basis", "Transform3D", "Projection", "Color",
+           "PackedByteArray", "PackedInt32Array", "PackedInt64Array",
+           "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray",
+           "PackedVector2Array", "PackedVector3Array", "PackedColorArray",
+           "PackedVector4Array"):
+    PARAM_TYPE_MAP[_t] = "godot::" + _t
+
+DEFAULT_INTERFACE_JSON = os.path.join("third", "godot-cpp", "gdextension",
+                                      "gdextension_interface.json")
+
+_ENUM_TOKEN_FIXUPS = {
+    "BOOL": "bool",
+    "INT": "int",
+    "FLOAT": "float",
+    "AABB": "AABB",
+    "RID": "RID",
+    "TRANSFORM2D": "Transform2D",
+    "TRANSFORM3D": "Transform3D",
+}
+
+
+def _enum_token_to_json_name(token):
+    """GDEXTENSION_VARIANT_TYPE_<TOKENS> tail -> json builtin class name.
+
+    e.g. STRING_NAME -> StringName, PACKED_BYTE_ARRAY -> PackedByteArray,
+         VECTOR2 -> Vector2, TRANSFORM2D -> Transform2D (fixup), RID -> RID.
+    """
+    parts = token.split("_")
+    out = []
+    for p in parts:
+        if p in _ENUM_TOKEN_FIXUPS:
+            out.append(_ENUM_TOKEN_FIXUPS[p])
+        else:
+            out.append(p.capitalize())
+    return "".join(out)
+
+
+def load_variant_type_map(interface_json_path):
+    """Extract {json_builtin_name: int value} from GDExtensionVariantType."""
+    with open(interface_json_path, encoding="utf-8") as f:
+        iface = json.load(f)
+    enum_def = next(t for t in iface["types"]
+                    if t.get("name") == "GDExtensionVariantType")
+    prefix = "GDEXTENSION_VARIANT_TYPE_"
+    mapping = {}
+    for v in enum_def["values"]:
+        name = v["name"]
+        if not name.startswith(prefix):
+            continue
+        tail = name[len(prefix):]
+        if tail == "VARIANT_MAX":
+            continue  # sentinel entry, not a real type
+        mapping[_enum_token_to_json_name(tail)] = int(v["value"])
+
+    # sanity: contiguous from NIL=0
+    values = sorted(mapping.values())
+    assert values[0] == 0 and values == list(range(len(values))), \
+        f"non-contiguous GDExtensionVariantType values: {values[:10]}..."
+    VARIANT_TYPE_VALUES.clear()
+    VARIANT_TYPE_VALUES.update(mapping)
+    # Reverse mapping for emitted Variant::Type tokens.
+    global VARIANT_TYPE_NAMES
+    VARIANT_TYPE_NAMES = {v: k for k, v in mapping.items()}
+    global OPERATOR_VALUES
+    with open(interface_json_path, encoding="utf-8") as f:
+        iface = json.load(f)
+    op_enum = next(t for t in iface["types"] if t.get("name") == "GDExtensionVariantOperator")
+    OPERATOR_VALUES = {
+        v["name"].replace("GDEXTENSION_VARIANT_OP_", ""): int(v["value"])
+        for v in op_enum["values"]
+    }
+    # JSON type names -> Variant enum tokens.
+    global JSON_TO_ENUM_NAME
+    JSON_TO_ENUM_NAME = {
+        "nil": "NIL",
+        "bool": "BOOL",
+        "int": "INT",
+        "float": "FLOAT",
+        "String": "STRING",
+        "StringName": "STRING_NAME",
+        "NodePath": "NODE_PATH",
+        "RID": "RID",
+        "Object": "OBJECT",
+        "Callable": "CALLABLE",
+        "Signal": "SIGNAL",
+        "Dictionary": "DICTIONARY",
+        "Array": "ARRAY",
+        "Vector2": "VECTOR2",
+        "Vector2i": "VECTOR2I",
+        "Rect2": "RECT2",
+        "Rect2i": "RECT2I",
+        "Vector3": "VECTOR3",
+        "Vector3i": "VECTOR3I",
+        "Transform2D": "TRANSFORM2D",
+        "Vector4": "VECTOR4",
+        "Vector4i": "VECTOR4I",
+        "Plane": "PLANE",
+        "Quaternion": "QUATERNION",
+        "AABB": "AABB",
+        "Basis": "BASIS",
+        "Transform3D": "TRANSFORM3D",
+        "Projection": "PROJECTION",
+        "Color": "COLOR",
+        "PackedByteArray": "PACKED_BYTE_ARRAY",
+        "PackedInt32Array": "PACKED_INT32_ARRAY",
+        "PackedInt64Array": "PACKED_INT64_ARRAY",
+        "PackedFloat32Array": "PACKED_FLOAT32_ARRAY",
+        "PackedFloat64Array": "PACKED_FLOAT64_ARRAY",
+        "PackedStringArray": "PACKED_STRING_ARRAY",
+        "PackedVector2Array": "PACKED_VECTOR2_ARRAY",
+        "PackedVector3Array": "PACKED_VECTOR3_ARRAY",
+        "PackedColorArray": "PACKED_COLOR_ARRAY",
+        "PackedVector4Array": "PACKED_VECTOR4_ARRAY",
+    }
+    assert mapping.get("Nil") == 0 and mapping.get("String") == 4 \
+        and mapping.get("Vector2") == 5 and mapping.get("Callable") > mapping.get("RID"), \
+        "variant type anchor check failed"
+    return mapping
+
+
+class StringPool:
+    """Insertion-ordered unique string pool. id == index."""
+
+    def __init__(self):
+        self._index = {}
+        self.strings = []
+
+    def get(self, s):
+        idx = self._index.get(s)
+        if idx is None:
+            idx = len(self.strings)
+            self._index[s] = idx
+            self.strings.append(s)
+        return idx
+
+    def __len__(self):
+        return len(self.strings)
+
+
+def cxx_bool(b):
+    return "true" if b else "false"
+
+
+def cxx_str(s):
+    """Escape a python string as a C++ string literal (byte-stable)."""
+    out = ['"']
+    for ch in s:
+        if ch == '"':
+            out.append('\\"')
+        elif ch == "\\":
+            out.append("\\\\")
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append("\\%03o" % ord(ch))
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+class Model:
+    def __init__(self):
+        self.pool = StringPool()
+        self.indexed_method_names = {}
+        self.builtin_methods = []
+        self.utility_funcs = []
+        self.class_methods = []
+        self.constructors = []
+        self.operators = []
+        self.members = []
+        self.indexed_props = []
+        self.exemptions = []
+        self.classes_meta = []
+
+
+def parse_args_list(args_json):
+    out = []
+    for a in args_json or []:
+        entry = {"type": a.get("type", "Variant")}
+        if a.get("meta"):
+            entry["meta"] = a["meta"]
+        if "default_value" in a:
+            entry["default"] = a["default_value"]
+        out.append(entry)
+    return out
+
+
+# json "meta" on int arguments/returns -> semantic C++ type, including char32.
+INT_META_TO_CPP = {
+    "int8": "int8_t",
+    "int16": "int16_t",
+    "int32": "int32_t",
+    "int64": "int64_t",
+    "uint8": "uint8_t",
+    "uint16": "uint16_t",
+    "uint32": "uint32_t",
+    "uint64": "uint64_t",
+    "char32": "char32_t",
+}
+
+# json operator symbol -> (Variant::OP_ tail token, kind)
+#   kind: "cmp" -> comparator-shaped overloads, "unary" -> single-operand,
+#         "bin" -> everything else
+OPERATOR_NAME_MAP = {
+    "==": ("EQUAL", "cmp"),
+    "!=": ("NOT_EQUAL", "cmp"),
+    "<": ("LESS", "cmp"),
+    "<=": ("LESS_EQUAL", "cmp"),
+    ">": ("GREATER", "cmp"),
+    ">=": ("GREATER_EQUAL", "cmp"),
+    "unary-": ("NEGATE", "unary"),
+    "unary+": ("POSITIVE", "unary"),
+    "not": ("NOT", "unary"),
+    "~": ("BIT_NEGATE", "unary"),
+    "+": ("ADD", "bin"),
+    "-": ("SUBTRACT", "bin"),
+    "*": ("MULTIPLY", "bin"),
+    "/": ("DIVIDE", "bin"),
+    "%": ("MODULE", "bin"),
+    "**": ("POWER", "bin"),
+    "<<": ("SHIFT_LEFT", "bin"),
+    ">>": ("SHIFT_RIGHT", "bin"),
+    "&": ("BIT_AND", "bin"),
+    "|": ("BIT_OR", "bin"),
+    "^": ("BIT_XOR", "bin"),
+    "and": ("AND", "bin"),
+    "or": ("OR", "bin"),
+    "xor": ("XOR", "bin"),
+    "in": ("IN", "bin"),
+}
+
+# json operand/return type -> C++ token for the operator thunk templates.
+# None marks types requiring special handling; right=Variant rows are handled
+# separately by emit_operator_pair_tables, while Object uses its pointer type.
+OPERAND_CPP_MAP = {
+    "bool": "bool",
+    "int": "int64_t",
+    "float": "double",
+    "String": "godot::String",
+    "StringName": "godot::StringName",
+    "NodePath": "godot::NodePath",
+    "RID": "godot::RID",
+    "Callable": "godot::Callable",
+    "Signal": "godot::Signal",
+    "Array": "godot::Array",
+    "Dictionary": "godot::Dictionary",
+    "Variant": None,
+    # bare Object has no GetTypeInfo, but the T* specialization does
+    # (type_info.hpp: GetTypeInfo<T *, EnableIf<TypeInherits<Object, T>>>) --
+    # same convention as generate_primitive_operators.py's CPP_TYPE_MAP.
+    "Object": "Object *",
+}
+for _t in ("Vector2", "Vector2i", "Rect2", "Rect2i", "Vector3", "Vector3i",
+           "Transform2D", "Vector4", "Vector4i", "Plane", "Quaternion", "AABB",
+           "Basis", "Transform3D", "Projection", "Color",
+           "PackedByteArray", "PackedInt32Array", "PackedInt64Array",
+           "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray",
+           "PackedVector2Array", "PackedVector3Array", "PackedColorArray",
+           "PackedVector4Array"):
+    OPERAND_CPP_MAP[_t] = "godot::" + _t
+
+
+def operand_cpp(json_name):
+    return OPERAND_CPP_MAP.get(json_name)
+
+
+# json "meta" on float arguments/returns -> exact C type. Mirrors
+# GDExtensionClassMethodArgumentMetadata (REAL_IS_FLOAT / REAL_IS_DOUBLE).
+FLOAT_META_TO_CPP = {
+    "float": "float",
+    "double": "double",
+}
+
+# PROPERTY_USAGE_NIL_IS_VARIANT: a nil-typed return is still a Variant return.
+PROPERTY_USAGE_NIL_IS_VARIANT = 131072
+
+
+def json_to_enum(json_name):
+    """json builtin/type name -> godot::Variant::ENUM_NAME token."""
+    return JSON_TO_ENUM_NAME.get(json_name, json_name.upper())
+
+
+def vt_value_to_enum(value):
+    """GDExtensionVariantType value -> fully qualified 'godot::Variant::X'
+    enum token; falls back to the numeric literal for values missing from the
+    mapping."""
+    name = VARIANT_TYPE_NAMES.get(value)
+    if name is None:
+        return "(godot::Variant::Type)%d" % value
+    return "godot::Variant::" + json_to_enum(name)
+
+
+def _assert_byte_sorted(what, names):
+    """The dispatch tables are binary-searched with strcmp, so the emitted
+    order must be the C-locale byte order of the encoded names."""
+    encoded = [n.encode("utf-8") for n in names]
+    if encoded != sorted(encoded):
+        raise SystemExit(f"FATAL: {what} are not byte-sorted for strcmp")
+    if len(set(encoded)) != len(encoded):
+        raise SystemExit(f"FATAL: {what} contain duplicate names")
+
+
+def default_count(ent):
+    return sum(1 for a in ent["args"] if "default" in a)
+
+def _assert_default_layout(m):
+    """Safety net for the M template parameter semantics: class/builtin/utility
+    fixed-arity methods must carry tail-contiguous defaults (so
+    len(args) - default_count is the true minimum arity), and vararg fixed
+    prefixes must carry none (the vararg thunks hardcode M == F)."""
+    for what, lst in (("class", m.class_methods), ("builtin", m.builtin_methods), ("utility", m.utility_funcs)):
+        for e in lst:
+            label = "%s method %s" % (what, m.pool.strings[e["name_id"]])
+            if e.get("is_vararg"):
+                if any("default" in a for a in e["args"]):
+                    raise SystemExit(f"FATAL: {label} is vararg but its fixed prefix carries defaults")
+                continue
+            seen_default = False
+            for a in e["args"]:
+                if "default" in a:
+                    seen_default = True
+                elif seen_default:
+                    raise SystemExit(f"FATAL: {label} has non-tail-contiguous defaults")
+
+
+
+def collect(data, vt_map):
+    m = Model()
+    m.vt_names = {}
+
+    # --- builtin classes ----------------------------------------------------
+    seen_vts = []
+    for bc in data.get("builtin_classes", []):
+        name = bc["name"]
+        if name not in vt_map:
+            raise SystemExit(
+                f"FATAL: builtin class '{name}' not found in GDExtensionVariantType "
+                f"mapping (check {_ENUM_TOKEN_FIXUPS} / interface json)")
+        vt = vt_map[name]
+        m.vt_names[vt] = name
+        seen_vts.append(vt)
+        for meth in bc.get("methods", []):
+            if "hash" not in meth:
+                raise SystemExit(
+                    f"FATAL: builtin method without hash: {name}.{meth['name']}")
+            _rt = meth.get("return_type")
+            if isinstance(_rt, dict):
+                _ret_type, _ret_usage, _ret_meta = _rt.get("type", "void"), _rt.get("usage", 0), _rt.get("meta")
+            else:
+                _ret_type, _ret_usage, _ret_meta = (_rt or "void"), 0, None
+            m.builtin_methods.append({
+                "vt": vt,
+                "name_id": m.pool.get(meth["name"]),
+                "hash": int(meth["hash"]),
+                "args": parse_args_list(meth.get("arguments")),
+                "ret_id": m.pool.get(_ret_type),
+                "ret_usage": _ret_usage,
+                "ret_meta": _ret_meta,
+                "is_vararg": bool(meth.get("is_vararg", False)),
+                "is_static": bool(meth.get("is_static", False)),
+            })
+        for mem in bc.get("members", []):
+            m.members.append({
+                "vt": vt,
+                "name_id": m.pool.get(mem["name"]),
+                "type_id": m.pool.get(mem["type"]),
+                # Raw member name for emit_builtin_dispatch_cpp's per-type lookup.
+                "name_str": mem["name"],
+                # the member's OWN declared type drives its ptrcall slot
+                "member_type": VARIANT_TYPE_VALUES.get(mem["type"], -1),
+            })
+        for ctor in bc.get("constructors", []):
+            m.constructors.append({
+                "vt": vt,
+                "ctor_index": int(ctor["index"]),
+                "args": parse_args_list(ctor.get("arguments")),
+            })
+        for op in bc.get("operators", []):
+            m.operators.append({
+                "left_vt": vt,
+                "op_name_id": m.pool.get(op["name"]),
+                "right_type_id": m.pool.get(op.get("right_type", "Variant")),
+                "ret_type_id": m.pool.get(op.get("return_type", "Variant")),
+            })
+    # structural sanity: json order must still track ascending VT values
+    # ("Object" is legitimately absent from the json; everything else ascends)
+    if seen_vts != sorted(seen_vts):
+        raise SystemExit(
+            f"FATAL: builtin_classes are not in ascending VT order: {seen_vts}")
+
+    # --- classes --------------------------------------------------------------
+    classes_by_name = {c["name"]: c for c in data.get("classes", [])}
+
+    def resolve_method(cls_name, mname, _max_depth=24):
+        """Walk the inherits chain upward to find a method definition."""
+        cur = cls_name
+        for _ in range(_max_depth):
+            cdef = classes_by_name.get(cur)
+            if cdef is None:
+                return None
+            meths = cdef.get("methods") or []
+            for meth in meths:
+                if (meth["name"] == mname and not meth.get("is_virtual", False)
+                        and "hash" in meth):
+                    return meth
+            cur = cdef.get("inherits", "")
+            if not cur:
+                return None
+        return None
+
+    for cls in data.get("classes", []):
+        cls_name = cls["name"]
+        cls_name_id = m.pool.get(cls_name)
+        begin = len(m.class_methods)
+
+        for meth in cls.get("methods", []):
+            if meth.get("is_virtual", False) or "hash" not in meth:
+                m.exemptions.append(
+                    f"class method (virtual/no-hash): {cls_name}.{meth['name']}")
+                continue
+            _rt = meth.get("return_value")
+            if isinstance(_rt, dict):
+                _ret_type, _ret_usage, _ret_meta = _rt.get("type", "void"), _rt.get("usage", 0), _rt.get("meta")
+            else:
+                _ret_type, _ret_usage, _ret_meta = (_rt or "void"), 0, None
+            m.class_methods.append({
+                "class_name_id": cls_name_id,
+                "name_id": m.pool.get(meth["name"]),
+                "hash": int(meth["hash"]),
+                "args": parse_args_list(meth.get("arguments")),
+                "ret_id": m.pool.get(_ret_type),
+                "ret_usage": _ret_usage,
+                "ret_meta": _ret_meta,
+                "is_vararg": bool(meth.get("is_vararg", False)),
+                "is_static": bool(meth.get("is_static", False)),
+                "is_const": bool(meth.get("is_const", False)),
+            })
+        end = len(m.class_methods)
+        m.classes_meta.append({
+            "name_id": cls_name_id,
+            "api_type": cls.get("api_type", ""),
+            "method_begin": begin,
+            "method_end": end,
+        })
+
+        for prop in cls.get("properties", []):
+            if "index" not in prop:
+                continue
+            gname, sname = prop.get("getter", ""), prop.get("setter", "")
+            gdef, sdef = resolve_method(cls_name, gname), resolve_method(cls_name, sname)
+            if gdef is None and sdef is None:
+                m.exemptions.append(
+                    f"indexed property (getter/setter unresolved): "
+                    f"{cls_name}.{prop['name']}[{prop['index']}]")
+                continue
+            m.indexed_props.append({
+                "class_name_id": cls_name_id,
+                "prop_name_id": m.pool.get(prop["name"]),
+                "index": int(prop["index"]),
+                # Declared property type drives strict conversion in the setter.
+                "prop_type": prop.get("type", "Variant"),
+                # Resolved accessor definitions (None for an unresolved side);
+                # each property side gets its own index-bearing thunk.
+                "_gdef": gdef,
+                "_sdef": sdef,
+                "getter_name_id": m.pool.get(gname),
+                "setter_name_id": m.pool.get(sname),
+                "getter_hash": int(gdef["hash"]) if gdef and "hash" in gdef else 0,
+                "setter_hash": int(sdef["hash"]) if sdef and "hash" in sdef else 0,
+            })
+
+
+    # --- utility functions ------------------------------------------------------
+    for uf in data.get("utility_functions", []):
+        if "hash" not in uf:
+            m.exemptions.append(f"utility function (no-hash): {uf['name']}")
+            continue
+        _rt = uf.get("return_type")
+        if isinstance(_rt, dict):
+            _ret_type, _ret_usage, _ret_meta = _rt.get("type", "void"), _rt.get("usage", 0), _rt.get("meta")
+        else:
+            _ret_type, _ret_usage, _ret_meta = (_rt or "void"), 0, None
+        m.utility_funcs.append({
+            "name_id": m.pool.get(uf["name"]),
+            "hash": int(uf["hash"]),
+            "args": parse_args_list(uf.get("arguments")),
+            "ret_id": m.pool.get(_ret_type),
+            "ret_usage": _ret_usage,
+            "ret_meta": _ret_meta,
+            "is_vararg": bool(uf.get("is_vararg", False)),
+        })
+
+    return m
+
+
+def build_arg_pool(m):
+    """Flat uint16 table of type-name ids; annotates each entity with its span."""
+    pool = StringPool()
+    flat = []
+    for entity_list in (m.builtin_methods, m.class_methods,
+                        m.utility_funcs, m.constructors):
+        for ent in entity_list:
+            off = len(flat)
+            for a in ent["args"]:
+                flat.append(pool.get(a["type"]))
+            ent["arg_offset"] = off
+            ent["arg_count"] = len(ent["args"])
+    return pool, flat
+
+
+# ---------------------------------------------------------------------------
+# Emitters
+
+def emit_string_names_h():
+    guard = HEADER_GUARD_PREFIX + "STRING_NAMES_H"
+    return (GENERATED_NOTE
+            + f"#ifndef {guard}\n#define {guard}\n\n"
+            + "#include <cstdint>\n#include <cstddef>\n\n"
+            + "namespace jsb::static_binding::gen {\n\n"
+            + "// Insertion-ordered unique string table (classes/methods/members/types).\n"
+            + "// Resolved lazily into StringName at runtime (see src/static_binding/string_names.h).\n"
+            + "extern const char *const k_strings[];\n"
+            + "extern const uint32_t k_string_count;\n\n"
+            + "} // namespace jsb::static_binding::gen\n\n"
+            + f"#endif // {guard}\n")
+
+
+def emit_string_names_cpp(m):
+    parts = [GENERATED_NOTE,
+             '#include "string_names.gen.h"\n',
+             "namespace jsb::static_binding::gen {\n",
+             "\nconst uint32_t k_string_count = %d;\n" % len(m.pool.strings),
+             "\nconst char *const k_strings[] = {"]
+    for s in m.pool.strings:
+        parts.append("\n    " + cxx_str(s) + ",")
+    parts.append("\n};\n\n} // namespace jsb::static_binding::gen\n")
+    return "".join(parts)
+
+
+def emit_registry_h():
+    guard = HEADER_GUARD_PREFIX + "REGISTRY_H"
+    body = GENERATED_NOTE
+    body += f"#ifndef {guard}\n#define {guard}\n\n"
+    body += "#include <cstdint>\n#include <cstddef>\n\n"
+    body += "namespace jsb::static_binding::gen {\n\n"
+    body += ("// POD metadata tables. Thunk dispatch (switch by hash) lands in later\n"
+             "// phases; these tables are the reconciliation source of truth\n"
+             "// (cross-checked by manifest.gen.json).\n\n")
+
+    body += ("struct BuiltinMethodDef {\n"
+             "    uint32_t name_id;\n"
+             "    uint64_t hash;\n"
+             "    uint16_t vt;          // GDExtensionVariantType value (resolved by NAME at generation time)\n"
+             "    uint16_t arg_offset;  // into k_arg_types\n"
+             "    uint16_t arg_count;\n"
+             "    uint16_t default_count;\n"
+             "    bool is_vararg;\n"
+             "    bool is_static;\n"
+             "};\n\n")
+
+    body += ("struct UtilityFuncDef {\n"
+             "    uint32_t name_id;\n"
+             "    uint64_t hash;\n"
+             "    uint16_t arg_offset;\n"
+             "    uint16_t arg_count;\n"
+             "    uint16_t default_count;\n"
+             "    bool is_vararg;\n"
+             "};\n\n")
+
+    body += ("struct ClassMethodDef {\n"
+             "    uint32_t class_name_id;\n"
+             "    uint32_t name_id;\n"
+             "    uint64_t hash;\n"
+             "    uint16_t arg_offset;\n"
+             "    uint16_t arg_count;\n"
+             "    uint16_t default_count;\n"
+             "    bool is_vararg;\n"
+             "    bool is_static;\n"
+             "    bool is_const;\n"
+             "};\n\n")
+
+    body += ("struct ConstructorDef {\n"
+             "    uint16_t vt;\n"
+             "    uint8_t ctor_index;\n"
+             "    uint16_t arg_offset;\n"
+             "    uint16_t arg_count;\n"
+             "};\n\n")
+
+    body += ("struct OperatorDef {\n"
+             "    uint16_t left_vt;\n"
+             "    uint32_t op_name_id;    // symbol as in json (\"==\", \"unary-\", ...)\n"
+             "    uint32_t right_type_id; // type-name id; may be \"Variant\"\n"
+             "    uint32_t ret_type_id;\n"
+             "};\n\n")
+
+    body += ("struct MemberDef {\n"
+             "    uint16_t vt;\n"
+             "    uint32_t name_id;\n"
+             "    uint32_t type_id;\n"
+             "};\n\n")
+
+    body += ("struct IndexedPropDef {\n"
+             "    uint32_t class_name_id;\n"
+             "    uint32_t prop_name_id;\n"
+             "    int32_t index;\n"
+             "    uint32_t getter_name_id;\n"
+             "    uint32_t setter_name_id;\n"
+             "    uint64_t getter_hash;\n"
+             "    uint64_t setter_hash;\n"
+             "};\n\n")
+
+    body += ("struct ClassInfoDef {\n"
+             "    uint32_t name_id;\n"
+             "    uint32_t method_begin;\n"
+             "    uint32_t method_end;\n"
+             "};\n\n")
+
+    for ty, var in (
+        ("BuiltinMethodDef", "k_builtin_methods"),
+        ("UtilityFuncDef", "k_utility_funcs"),
+        ("ClassMethodDef", "k_class_methods"),
+        ("ConstructorDef", "k_constructors"),
+        ("OperatorDef", "k_operators"),
+        ("MemberDef", "k_members"),
+        ("IndexedPropDef", "k_indexed_props"),
+        ("ClassInfoDef", "k_class_infos"),
+    ):
+        body += f"extern const {ty} {var}[];\nextern const size_t {var}_count;\n\n"
+
+    body += "extern const uint16_t k_arg_types[];\nextern const size_t k_arg_types_count;\n\n"
+    body += "} // namespace jsb::static_binding::gen\n\n"
+    body += f"#endif // {guard}\n"
+    return body
+
+
+def _dump_table(L, name, ty, rows, fmt):
+    L.append("")
+    if not rows:
+        L.append(f"const {ty} {name}[] = {{}};")
+        L.append(f"const size_t {name}_count = 0;")
+        return
+    L.append(f"const {ty} {name}[] = {{")
+    for r in rows:
+        L.append("    {" + fmt(r) + "},")
+    L.append("};")
+    L.append(f"const size_t {name}_count = {len(rows)};")
+
+
+def emit_registry_cpp(m):
+    _, flat_args = build_arg_pool(m)  # annotate entities before emitting
+    L = [GENERATED_NOTE,
+         '#include "registry.gen.h"\n',
+         '#include "string_names.gen.h"\n',
+         "\nnamespace jsb::static_binding::gen {"]
+
+    _dump_table(L, "k_builtin_methods", "BuiltinMethodDef", m.builtin_methods,
+                lambda r: (f"{r['name_id']}, {r['hash']}ULL, {r['vt']}, "
+                           f"{r['arg_offset']}, {r['arg_count']}, {default_count(r)}, "
+                           f"{cxx_bool(r['is_vararg'])}, {cxx_bool(r['is_static'])}"))
+    _dump_table(L, "k_utility_funcs", "UtilityFuncDef", m.utility_funcs,
+                lambda r: (f"{r['name_id']}, {r['hash']}ULL, {r['arg_offset']}, "
+                           f"{r['arg_count']}, {default_count(r)}, "
+                           f"{cxx_bool(r['is_vararg'])}"))
+    _dump_table(L, "k_class_methods", "ClassMethodDef", m.class_methods,
+                lambda r: (f"{r['class_name_id']}, {r['name_id']}, {r['hash']}ULL, "
+                           f"{r['arg_offset']}, {r['arg_count']}, {default_count(r)}, "
+                           f"{cxx_bool(r['is_vararg'])}, {cxx_bool(r['is_static'])}, "
+                           f"{cxx_bool(r['is_const'])}"))
+    _dump_table(L, "k_constructors", "ConstructorDef", m.constructors,
+                lambda r: (f"{r['vt']}, {min(r['ctor_index'], 255)}, "
+                           f"{r['arg_offset']}, {r['arg_count']}"))
+    _dump_table(L, "k_operators", "OperatorDef", m.operators,
+                lambda r: (f"{r['left_vt']}, {r['op_name_id']}, "
+                           f"{r['right_type_id']}, {r['ret_type_id']}"))
+    _dump_table(L, "k_members", "MemberDef", m.members,
+                lambda r: f"{r['vt']}, {r['name_id']}, {r['type_id']}")
+    _dump_table(L, "k_indexed_props", "IndexedPropDef", m.indexed_props,
+                lambda r: (f"{r['class_name_id']}, {r['prop_name_id']}, {r['index']}, "
+                           f"{r['getter_name_id']}, {r['setter_name_id']}, "
+                           f"{r['getter_hash']}ULL, {r['setter_hash']}ULL"))
+    _dump_table(L, "k_class_infos", "ClassInfoDef", m.classes_meta,
+                lambda r: f"{r['name_id']}, {r['method_begin']}, {r['method_end']}")
+
+    L.append("")
+    if flat_args:
+        L.append("const uint16_t k_arg_types[] = {")
+        line = "   "
+        for v in flat_args:
+            piece = f" {v},"
+            if len(line) + len(piece) > 100:
+                L.append(line)
+                line = "   "
+            line += piece
+        if line.strip():
+            L.append(line)
+        L.append("};")
+    else:
+        L.append("const uint16_t k_arg_types[] = {};")
+    L.append(f"const size_t k_arg_types_count = {len(flat_args)};")
+
+    L.append("\n} // namespace jsb::static_binding::gen\n")
+    return "\n".join(L)
+
+
+def arg_template_expr(a):
+    """json argument -> BARE C++ parameter type for the direct-conversion
+    layer. Callers pack the results into Args<>/DefVs<> wrappers: a thunk's
+    explicit template argument list cannot disambiguate two trailing
+    parameter packs, so each is carried in ONE class template argument.
+
+    Class-method arguments follow the api json metadata: float/double via
+    REAL_IS_FLOAT/REAL_IS_DOUBLE, int8..uint64 via the INT_* metadata.
+    Builtin methods and utility functions carry no metadata in the api json
+    and follow godot-cpp conventions (float -> real_t, int -> int64_t).
+    """
+    t = a["type"]
+    meta = a.get("meta")
+    if t == "float":
+        ct = FLOAT_META_TO_CPP.get(meta, "godot::real_t")
+    elif t == "int" and meta in INT_META_TO_CPP:
+        ct = INT_META_TO_CPP[meta]
+    elif t.startswith("typedarray::"):
+        # may materialize as Array or Packed*Array; the typed converter covers
+        # both (JSToGD<godot::Array> falls back to the typed dynamic path)
+        ct = "godot::Array"
+    else:
+        ct = PARAM_TYPE_MAP.get(t)
+    if ct is None:
+        # enums/bitfields are integers at the ABI level; bare engine class
+        # names (Button, Sprite2D, ...) behave as plain Object*.
+        if t.startswith(("enum::", "bitfield::")):
+            ct = "int64_t"
+        else:
+            ct = "godot::Object*"
+    return ct
+
+
+def args_pack_expr(args):
+    """The FULL parameter type list (required first, optional tail
+    contiguous) wrapped in one Args<> class argument."""
+    return "Args<%s>" % ", ".join(arg_template_expr(a) for a in args)
+
+
+def _split_ctor_args(s):
+    """Split a construct-string argument list on top-level commas
+    (nesting-aware; quoted segments never split)."""
+    parts, depth, cur, in_str = [], 0, [], False
+    for ch in s:
+        if in_str:
+            cur.append(ch)
+            if ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            cur.append(ch)
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    if cur:
+        parts.append("".join(cur))
+    return parts
+
+
+_SCALAR_TOKEN = re.compile(r"^-?(?:\d+|\d+\.\d*|\.\d+|\d+(?:\.\d*)?[eE][+-]?\d+)$")
+
+
+def def_ctor_expr(a):
+    """json argument carrying a default -> one DefV<...> descriptor whose
+    template argument is a NULLARY Ctor (make<T, auto...> / make_str<Lit>).
+
+    The json default_value token is the engine's GDScript construct-string
+    (extension_api_dump.cpp -> Variant::get_construct_string ->
+    VariantWriter::write_to_string): 'true' / '-1' / '1e-05' /
+    'Color(0, 0, 0, 0)' / '"region"' / 'null' -- NOT C++ syntax (e.g.
+    class-side tokens like 'Array[StringName]([])' are GDScript-only). This
+    translator maps the surface grammar onto a compile-time argument list so
+    the value materializes through T(args...) inside the magic static on
+    FIRST use (engine-side hooks are guaranteed ready by then) -- no
+    str_to_var anywhere. Forms outside the grammar abort the build loudly:
+    extending the emission surface is a deliberate act, never a silently
+    wrong value."""
+    t = a["type"]
+    ct = arg_template_expr(a)
+    tok = a["default"]
+    if t == "bool" and tok in ("true", "false"):
+        return "DefV<make<bool, %s>>" % tok
+    if t == "int":
+        try:
+            return "DefV<make<%s, %d>>" % (ct, int(tok))
+        except ValueError:
+            pass
+    if t == "float":
+        try:
+            return "DefV<make<%s, %r>>" % (ct, float(tok))
+        except ValueError:
+            pass
+    if t in ["String", "StringName"]:
+        m = re.match(r'^"(.*)"$', tok, re.S)
+        if m:
+            return "DefV<make_str<%s, %s>>" % (t, cxx_str(m.group(1)))
+    if t == "Variant" and tok == "null":
+        return "DefV<make<godot::Variant>>"
+    m = re.match(r"^([A-Za-z_]\w*)\((.*)\)$", tok, re.S)
+    if m and m.group(1) == t:
+        parts = [p.strip() for p in _split_ctor_args(m.group(2))]
+        if not parts:
+            return "DefV<make<%s>>" % ct
+        if all(_SCALAR_TOKEN.match(p) for p in parts):
+            return "DefV<make<%s, %s>>" % (ct, ", ".join(parts))
+    raise SystemExit("FATAL: cannot translate default_value %r (json type %r) "
+                     "into a make<> Ctor expression; extend def_ctor_expr" % (tok, t))
+
+
+def defs_pack_expr(args):
+    """Default-value descriptors for the LAST k parameters (tail-contiguous
+    per _assert_default_layout): one DefV<make<...>> / DefV<make_str<...>> per
+    defaulted parameter (def_ctor_expr translates the json construct-string
+    into the nullary Ctor); the value materializes lazily through the magic
+    static on first use. default_arg_slot rebinds referential defaults
+    (Array/Dictionary) with a per-occurrence identifier at instantiation."""
+    defs = ", ".join(def_ctor_expr(a) for a in args if "default" in a)
+    return "DefVs<%s>" % defs
+
+
+def ret_template_expr(t, usage=0, meta=None):
+    """json return type (+optional metadata) -> Ret descriptor.
+
+    `Ret<void>` for void/nil-without-NIL_IS_VARIANT, `Ret<godot::Variant>`
+    for Variant/typedarray/nil-with-NIL_IS_VARIANT (no static type hint),
+    otherwise the typed C++ SEMANTIC type; the ptrcall return buffer type is
+    derived from it through the specializable ReturnSlot<CppT> (typed ->
+    PtrToArg<CppT>::EncodeT -- the engine widens narrow ints to int64_t and
+    float to double, method_ptrcall.hpp; void -> a full godot::Variant slot).
+    """
+    if t in ("void", "null"):
+        return "Ret<void>"
+    if t == "nil":
+        if usage & PROPERTY_USAGE_NIL_IS_VARIANT:
+            return "Ret<godot::Variant>"
+        return "Ret<void>"
+    if t == "Variant" or t.startswith("typedarray::"):
+        # no static type hint; the value round-trips through godot::Variant
+        return "Ret<godot::Variant>"
+    if t == "float":
+        ct = FLOAT_META_TO_CPP.get(meta, "godot::real_t")
+    elif t == "int" and meta in INT_META_TO_CPP:
+        ct = INT_META_TO_CPP[meta]
+    elif t in PARAM_TYPE_MAP:
+        ct = PARAM_TYPE_MAP[t]
+    elif t.startswith(("enum::", "bitfield::")):
+        ct = "int64_t"  # enums/bitfields come back as integers
+    else:
+        ct = "godot::Object*"  # Object-derived engine class name (Button, ...)
+    return "Ret<%s>" % ct
+
+
+def builtin_entry_expr(m, e, is_utility=False):
+    """One `<hash>[, name] -> thunk instantiation` expression."""
+    name_lit = cxx_str(m.pool.strings[e["name_id"]])
+    # fixed-arity thunks take both packs; vararg fixed prefixes carry no
+    # defaults (asserted at generation time), so they take Args<> only
+    packs = ", " + args_pack_expr(e["args"])
+    if not e.get("is_vararg"):
+        packs += ", " + defs_pack_expr(e["args"])
+    tmpl_name = ("thunks::utility_vararg_function_thunk" if is_utility and e.get("is_vararg") else
+                 "thunks::builtin_vararg_method_thunk" if e.get("is_vararg") else
+                 "thunks::utility_function_thunk" if is_utility else
+                 "thunks::builtin_method_thunk")
+    vt_part = ("%s, " % vt_value_to_enum(e["vt"])) if not is_utility else ""
+    static_part = ("%s, " % cxx_bool(e["is_static"])) if not is_utility else ""
+    ret_expr = ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta"))
+    return "(ThunkFn)&%s<%s%du, %s, %s%s%s>" % (
+                tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, packs)
+
+def emit_builtin_dispatch_cpp(m, op_tables=""):
+    """Builtin-method dispatch: one resolver per Variant type, keyed by the
+    official method hash; the name participates only where signature-derived
+    hashes collide within a type. Also emits the builtin member accessor
+    lookups (§4.1)."""
+    L = [
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/builtin_methods.h"',
+         '#include "static_binding/thunks/builtin_members.h"',
+         '#include "static_binding/thunks/builtin_operators.h"',
+         '#include "static_binding/thunks/builtin_constructors.h"',
+         '#include <iterator>',
+         "",
+         "namespace jsb::static_binding {",
+         "namespace {",
+         ""]
+
+    by_vt = collections.OrderedDict()
+    for e in m.builtin_methods:
+        if m.vt_names[e["vt"]] in ("String", "StringName"):
+            continue  # JS string aliases: no builtin-method static bindings
+        by_vt.setdefault(e["vt"], []).append(e)
+
+    for vt in sorted(by_vt):
+        entries = by_vt[vt]
+        by_hash = collections.OrderedDict()
+        for e in entries:
+            by_hash.setdefault(e["hash"], []).append(e)
+        L.append("ThunkFn find_%s(const godot::StringName &p_name, uint32_t p_hash) {" % m.vt_names[vt])
+        L.append("\tswitch (p_hash) {")
+        for h, group in by_hash.items():
+            if len(group) == 1:
+                L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0])))
+            else:
+                L.append("\tcase %du: {" % h)
+                for e in group:
+                    nlit = cxx_str(m.pool.strings[e["name_id"]])
+                    L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
+                    L.append("\t\t\treturn %s;" % builtin_entry_expr(m, e))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    L.append("} // namespace")
+    L.append("")
+    L.append("const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
+    L.append("\tstatic_assert((int)godot::Variant::VARIANT_MAX <= 64, \"slot table sized for 64 variant types\");")
+    L.append("\tusing PerVtResolver = ThunkFn (*)(const godot::StringName &, uint32_t);")
+    L.append("\tstatic const PerVtResolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+    max_vt = max(VARIANT_TYPE_VALUES.values())
+    for vt in range(max_vt + 1):
+        fn = ("find_" + m.vt_names[vt]) if vt in by_vt else "nullptr"
+        L.append("\t\t%s," % fn)
+    L.append("\t};")
+    L.append("\treturn unsigned(p_vt) < std::size(k_by_type) ? k_by_type[unsigned(p_vt)](p_name, p_hash) : nullptr;")
+    L.append("}")
+    L.append("")
+
+    # ---- builtin member accessors -------------------------------------------
+    L.append("// ---- builtin member accessors (P3) ----")
+    by_vt = collections.OrderedDict()
+    for e in m.members:
+        if m.vt_names[e["vt"]] in ("String", "StringName"):
+            continue  # JS string aliases: no member-accessor static bindings
+        by_vt.setdefault(e["vt"], []).append(e)
+
+    def emit_member_lookup(fn_name, side):
+        tmpl = ("thunks::member_getter_thunk" if side == "g"
+                else "thunks::member_setter_thunk")
+        L.append("const ThunkFn %s(godot::Variant::Type p_vt, const godot::StringName &p_name) {" % fn_name)
+        L.append("\tswitch (p_vt) {")
+        for vt in sorted(by_vt):
+            L.append("\tcase %s: {" % vt_value_to_enum(vt))
+            for e in by_vt[vt]:
+                nlit = cxx_str(e["name_str"])
+                L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
+                L.append("\t\t\treturn (ThunkFn)&%s<%s, %s, %s>;"
+                         % (tmpl, vt_value_to_enum(vt), vt_value_to_enum(e["member_type"]), nlit))
+            L.append("\t\treturn nullptr;")
+            L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    emit_member_lookup("find_builtin_member_getter_thunk", "g")
+    emit_member_lookup("find_builtin_member_setter_thunk", "s")
+
+
+    # main() supplies operator and constructor resolvers for this builtin TU.
+    # Keep them inside jsb::static_binding.
+    L.append("")
+    L.append(op_tables)
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
+def emit_utility_dispatch_cpp(m):
+    """Utility-function dispatch (§4.2): flat hash switch, the method name
+    disambiguates the rare same-hash collisions."""
+    L = [
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/utility_functions.h"',
+         "",
+         "namespace jsb::static_binding {",
+         ""]
+
+    util_by_hash = collections.OrderedDict()
+    for u in m.utility_funcs:
+        util_by_hash.setdefault(u["hash"], []).append(u)
+
+    L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash) {")
+    L.append("\tswitch (p_hash) {")
+    for h, group in util_by_hash.items():
+        if len(group) == 1:
+            L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0], True)))
+        else:
+            L.append("\tcase %du: {" % h)
+            for u in group:
+                nlit = cxx_str(m.pool.strings[u["name_id"]])
+                L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
+                L.append("\t\t\treturn %s;" % builtin_entry_expr(m, u, True))
+            L.append("\t\treturn nullptr;")
+            L.append("\t}")
+    L.append("\tdefault: return nullptr;")
+    L.append("\t}")
+    L.append("}")
+    L.append("")
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
+def class_ident(name):
+    """Class names in Godot are identifier-safe; keep a conservative sanitizer."""
+    out = []
+    for ch in name:
+        if ch.isalnum() or ch == "_":
+            out.append(ch)
+        else:
+            out.append("_%02X" % ord(ch))
+    s = "".join(out)
+    assert s.isidentifier(), f"class name is not a valid identifier: {name!r} -> {s}"
+    return s
+
+
+def class_entry_expr(m, e, cname, extra=""):
+    name_lit = cxx_str(m.pool.strings[e["name_id"]])
+    cls_lit = cxx_str(cname)
+    # Class thunks carry NO default literals -- the engine MethodBind fills
+    # missing optional arguments. M (minimum arity) is the only
+    # default-derived datum they consume, as a template parameter.
+    args_exprs = ", " + args_pack_expr(e["args"])
+    tmpl_name = ("thunks::class_vararg_method_thunk" if e.get("is_vararg")
+                 else "thunks::class_method_thunk")
+    ret_expr = ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta"))
+    return "%s<%du, %s, %s, %s, %d, %s%s%s>" % (
+        tmpl_name, e["hash"], cls_lit, name_lit,
+        cxx_bool(e["is_static"]),
+        len(e["args"]) - default_count(e), ret_expr, args_exprs, extra)
+
+
+
+def emit_class_dispatch_cpp(m):
+    """Per-class hash switches for Object-derived methods. The top-level entry
+    resolves the class via binary search over byte-sorted entries (the utf8
+    conversion happens ONCE, outside the loop), then delegates -- the
+    per-class switch disambiguates same-hash overloads with strcmp on the
+    method name. Indexed property accessors resolve BOTH sides in one lookup."""
+    L = [
+         '#include "static_binding/dispatch.h"',
+         '#include "static_binding/thunks/class_methods.h"',
+         '#include "static_binding/thunks/class_indexed_properties.h"',
+         "",
+         "#include <cstring>",
+         "",
+         "namespace jsb::static_binding {",
+         "namespace {",
+         ""]
+
+    # ---- per-class method dispatchers ---------------------------------------
+    by_cls = collections.OrderedDict()
+    for e in m.class_methods:
+        by_cls.setdefault(e["class_name_id"], []).append(e)
+
+    _assert_byte_sorted("class method dispatch entries",
+                        sorted({m.pool.strings[cid] for cid in by_cls}))
+
+    cls_entries = []
+    for cid in sorted(by_cls, key=lambda cid: m.pool.strings[cid]):
+        entries = by_cls[cid]
+        cname = m.pool.strings[cid]
+        ident = "find_cls_" + class_ident(cname)
+        cls_entries.append((cxx_str(cname), ident))
+
+        by_hash = collections.OrderedDict()
+        for e in entries:
+            by_hash.setdefault(e["hash"], []).append(e)
+
+        L.append("ThunkFn %s(const char *p_name, uint32_t p_hash) {" % ident)
+        L.append("\tswitch (p_hash) {")
+        for h, group in by_hash.items():
+            if len(group) == 1:
+                L.append("\tcase %du: return (ThunkFn)&%s;" % (h, class_entry_expr(m, group[0], cname)))
+            else:
+                L.append("\tcase %du: {" % h)
+                for e in group:
+                    nlit = cxx_str(m.pool.strings[e["name_id"]])
+                    L.append("\t\tif (strcmp(p_name, %s) == 0) return (ThunkFn)&%s;"
+                             % (nlit, class_entry_expr(m, e, cname)))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    # ---- indexed property accessors -----------------------------------------
+    # One template instance per property side: the constant index cannot live
+    # on the shared backing method (one method typically serves many indexes).
+    # A single resolver returns BOTH sides of a property at once.
+    L.append("// ---- indexed property accessors (P3) ----")
+    ip_by_cls = collections.OrderedDict()
+    for p in m.indexed_props:
+        ip_by_cls.setdefault(p["class_name_id"], []).append(p)
+
+    _assert_byte_sorted("indexed property dispatch entries",
+                        sorted({m.pool.strings[cid] for cid in ip_by_cls}))
+
+    def prop_vt_value(t):
+        """json property type -> GDExtensionVariantType value."""
+        if t in VARIANT_TYPE_VALUES:
+            return VARIANT_TYPE_VALUES[t]
+        if t.startswith(("enum::", "bitfield::")):
+            return VARIANT_TYPE_VALUES["int"]
+        # engine class names (AudioStream...) and compound hints
+        # ("Texture2D,-AtlasTexture") behave as Object* everywhere else
+        return VARIANT_TYPE_VALUES["Object"]
+
+    def ip_side_expr(p, cname, setter):
+        d = p["_sdef"] if setter else p["_gdef"]
+        nm = m.pool.strings[p["setter_name_id" if setter else "getter_name_id"]]
+        if setter:
+            return "thunks::indexed_property_setter_thunk<%du, %s, %s, %d, %s>" % (
+                int(d["hash"]), cxx_str(cname), cxx_str(nm),
+                p["index"], vt_value_to_enum(prop_vt_value(p["prop_type"])))
+        return "thunks::indexed_property_getter_thunk<%du, %s, %s, %d>" % (
+            int(d["hash"]), cxx_str(cname), cxx_str(nm), p["index"])
+
+    ip_entries = []
+    for cid in sorted(ip_by_cls, key=lambda cid: m.pool.strings[cid]):
+        cname = m.pool.strings[cid]
+        ident = "find_ip_" + class_ident(cname)
+        ip_entries.append((cxx_str(cname), ident))
+        L.append("IndexedPropertyThunks %s(const char *p_name) {" % ident)
+        for p in ip_by_cls[cid]:
+            nlit = cxx_str(m.pool.strings[p["prop_name_id"]])
+            gdef, sdef = p["_gdef"], p["_sdef"]
+            has_g = gdef is not None and "hash" in gdef
+            has_s = sdef is not None and "hash" in sdef
+            if has_g and has_s:
+                L.append("\tif (strcmp(p_name, %s) == 0) {" % nlit)
+                L.append("\t\treturn {(ThunkFn)&%s, (ThunkFn)&%s};"
+                         % (ip_side_expr(p, cname, False), ip_side_expr(p, cname, True)))
+                L.append("\t}")
+            elif has_g:
+                L.append("\tif (strcmp(p_name, %s) == 0) {" % nlit)
+                L.append("\t\treturn {(ThunkFn)&%s, nullptr};" % ip_side_expr(p, cname, False))
+                L.append("\t}")
+            elif has_s:
+                L.append("\tif (strcmp(p_name, %s) == 0) {" % nlit)
+                L.append("\t\treturn {nullptr, (ThunkFn)&%s};" % ip_side_expr(p, cname, True))
+                L.append("\t}")
+        L.append("\treturn {};")
+        L.append("}")
+        L.append("")
+
+    L.append("} // namespace")
+    L.append("")
+    L.append("const ThunkFn find_class_method_thunk(const godot::StringName &p_class,")
+    L.append("\t\tconst godot::StringName &p_name, uint32_t p_hash) {")
+    L.append("\tstruct Entry { const char *name; ThunkFn (*resolve)(const char *, uint32_t); };")
+    L.append("\tstatic const Entry k_entries[] = {")
+    for lit, ident in cls_entries:
+        L.append("\t\t{%s, &%s}," % (lit, ident))
+    L.append("\t};")
+    L.append("\t// binary search by class name (registration-time only, ~10 compares);")
+    L.append("\t// the class name's utf8 conversion happens ONCE, outside the loop.")
+    L.append("\tconst godot::CharString class_utf8 = godot::String(p_class).utf8();")
+    L.append("\tconst char *p_class_cstr = class_utf8.get_data();")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tconst int cmp = strcmp(p_class_cstr, k_entries[mid].name);")
+    L.append("\t\tif (cmp == 0) {")
+    L.append("\t\t\tconst godot::CharString name_utf8 = godot::String(p_name).utf8();")
+    L.append("\t\t\treturn k_entries[mid].resolve(name_utf8.get_data(), p_hash);")
+    L.append("\t\t}")
+    L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
+    L.append("\t}")
+    L.append("\treturn nullptr;")
+    L.append("}")
+    L.append("")
+    L.append("const IndexedPropertyThunks find_indexed_property_thunk(const godot::StringName &p_class,")
+    L.append("\t\tconst godot::StringName &p_name) {")
+    L.append("\tstruct Entry { const char *name; IndexedPropertyThunks (*resolve)(const char *); };")
+    L.append("\tstatic const Entry k_entries[] = {")
+    for lit, ident in ip_entries:
+        L.append("\t\t{%s, &%s}," % (lit, ident))
+    L.append("\t};")
+    L.append("\tconst godot::CharString class_utf8 = godot::String(p_class).utf8();")
+    L.append("\tconst char *p_class_cstr = class_utf8.get_data();")
+    L.append("\tint lo = 0, hi = (int)std::size(k_entries) - 1;")
+    L.append("\twhile (lo <= hi) {")
+    L.append("\t\tconst int mid = lo + (hi - lo) / 2;")
+    L.append("\t\tconst int cmp = strcmp(p_class_cstr, k_entries[mid].name);")
+    L.append("\t\tif (cmp == 0) {")
+    L.append("\t\t\tconst godot::CharString prop_utf8 = godot::String(p_name).utf8();")
+    L.append("\t\t\treturn k_entries[mid].resolve(prop_utf8.get_data());")
+    L.append("\t\t}")
+    L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")
+    L.append("\t}")
+    L.append("\treturn {};")
+    L.append("}")
+    L.append("")
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
+def emit_operator_pair_tables(m):
+    """Per-(left type, operator) thunk tables for the static operator path:
+    one find_op_<Left>_<Token>(godot::Variant::Type) switch per pair, keyed by
+    the right operand's Variant type. The JS static method's dispatch callback
+    (operator_dispatch_binary, mounted by the JSB_DEFINE_OVERLOADED_BINARY_BEGIN
+    / COMPARATOR macros in jsb_primitive_bindings_reflect.cpp) calls the pair's
+    function with the probed right type -- no global binary search at call
+    time. The declarations are emitted alongside (emit_operator_tables_h) so
+    the mounting macros can take the function address; this TU holds the
+    definitions, exactly like the find_builtin_thunk split. The table-name
+    segments (json class name + operator token) MUST stay in lockstep with
+    generate_primitive_operators.py's macro invocations: the macro ##-pastes
+    its first argument into find_op_##type_lit##_##op_code.
+    right=Object rows ARE emitted: operator_thunk<R=Object *> is fully
+    addressable (GetTypeInfo<T*> / PtrToArg<T*> / VariantInternalType<Object*>
+    specializations) and bool/int/float/String/StringName logical ops rely on
+    them. right=Variant stays off (untyped fallback, concrete overloads cover
+    it -- same rule as the def-file emission).
+    Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
+    # These JS-native left types have no operator static-method surface.
+    # Keep this exclusion set aligned with generate_primitive_operators.py.
+    JS_NATIVE_LEFT = {"bool", "int", "float", "StringName"}
+
+    groups = {}
+    for op in m.operators:
+        left_vt = op["left_vt"]
+        left_name = m.vt_names[left_vt]
+        if left_name == "Nil":
+            continue  # no JS class object on either path; dynamic covers nil
+        if left_name in JS_NATIVE_LEFT:
+            continue  # JS-native primitive left operand: no static surface
+        sym = m.pool.strings[op["op_name_id"]]
+        mapped = OPERATOR_NAME_MAP.get(sym)
+        if mapped is None:
+            raise SystemExit(f"FATAL: unmapped operator symbol '{sym}'")
+        token, kind = mapped
+        if kind == "unary":
+            continue  # unary ops mount operator_unary_thunk directly; no table
+        groups.setdefault((left_vt, token), []).append(op)
+
+    order = sorted(groups, key=lambda k: (k[0], OPERATOR_VALUES[k[1]]))
+    fn_names = [f"find_op_{m.vt_names[vt]}_{token}" for vt, token in order]
+
+    L = []
+    for (vt, token), entries, in zip(order, [groups[k] for k in order]):
+        left_name = m.vt_names[vt]
+        left_cpp = operand_cpp(left_name)
+        if left_cpp is None:
+            raise SystemExit(f"FATAL: operator left type '{left_name}' is not statically addressable")
+        fn_name = f"find_op_{left_name}_{token}"
+        L.append(f"ThunkFn {fn_name}(godot::Variant::Type p_right) {{")
+        L.append("\tswitch (p_right) {")
+        seen = set()
+        # Preserve JSON overload order and deduplicate concrete right types.
+        # Equality's NIL case shares the last concrete thunk; operator_thunk
+        # short-circuits null/undefined before accessing its concrete R slot.
+        rows = []
+        nil_row = None  # (token, left_cpp, ret_cpp) or None
+        for op in entries:
+            right_name = m.pool.strings[op["right_type_id"]]
+            if right_name == "Variant":
+                # Variant denotes a nil operand here. Equality shares a
+                # concrete thunk's null/undefined short-circuit; logical nil
+                # rows are skipped. Other nil rows use R=godot::Variant.
+                if token in ("AND", "OR", "XOR"):
+                    continue
+                ret_name = m.pool.strings[op["ret_type_id"]]
+                ret_cpp = operand_cpp(ret_name)
+                if ret_cpp is None:
+                    raise SystemExit(f"FATAL: operator {left_name}.{token} nil-row return '{ret_name}' is not statically addressable")
+                nil_row = (token, left_cpp, ret_cpp)
+                continue
+            right_vt = VARIANT_TYPE_VALUES.get(right_name)
+            if right_vt is None:
+                raise SystemExit(f"FATAL: unknown right operand type '{right_name}'")
+            if right_vt in seen:
+                continue
+            seen.add(right_vt)
+            ret_name = m.pool.strings[op["ret_type_id"]]
+            ret_cpp = operand_cpp(ret_name)
+            right_cpp = operand_cpp(right_name)
+            if ret_cpp is None or right_cpp is None:
+                raise SystemExit(f"FATAL: operator {left_name}.{token} operand type '{right_name}'/'{ret_name}' is not statically addressable")
+            rows.append((vt_value_to_enum(right_vt), right_cpp, ret_cpp))
+
+        for _ri, (rvt, right_cpp, ret_cpp) in enumerate(rows):
+            L.append(f"\t\tcase {rvt}:")
+            if nil_row and token in ("EQUAL", "NOT_EQUAL") and _ri == len(rows) - 1:
+                # NIL and the last concrete case share a body; the NIL path
+                # returns from operator_thunk before concrete R access.
+                L.append(f"\t\tcase godot::Variant::NIL:")
+            L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{token}, {left_cpp}, {right_cpp}, {ret_cpp}>;")
+        if nil_row and not (token in ("EQUAL", "NOT_EQUAL") and rows):
+            # ==/!= with no concrete case, or %: dedicated nil overload
+            ntoken, nleft, nret = nil_row
+            r_cpp = "godot::Variant" if ntoken != "EQUAL" and ntoken != "NOT_EQUAL" else rows[0][1] if rows else "godot::Variant"
+            r_ret = nret if ntoken not in ("EQUAL", "NOT_EQUAL") else (rows[0][2] if rows else nret)
+            L.append(f"\t\tcase godot::Variant::NIL:")
+            L.append(f"\t\t\treturn (ThunkFn)&operator_thunk<Variant::OP_{ntoken}, {nleft}, {r_cpp}, {r_ret}>;")
+        # A missing overload returns nullptr so the caller can evaluate dynamically.
+        L.append("\t\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    H = [
+         "// Per-(left, operator) thunk-table declarations consumed by the",
+         "// JSB_DEFINE_OVERLOADED_BINARY_BEGIN/COMPARATOR macros in",
+         "// jsb_primitive_bindings_reflect.cpp (## pastes find_op_##type_lit##_##op_code).",
+         "// Definitions live in dispatch_builtin.gen.cpp.",
+         "//",
+         "// NO namespace wrapper here: this header is included INSIDE",
+         "// namespace jsb::static_binding (dispatch.h) so the declarations use",
+         "// the ThunkFn alias defined there; wrapping it again would nest the",
+         "// namespace and hide every symbol.",
+         "",
+         "#pragma once",
+         "",
+    ]
+    for fn_name in fn_names:
+        H.append(f"ThunkFn {fn_name}(godot::Variant::Type p_right);")
+    H += [""]
+    return "\n".join(L), "\n".join(H)
+
+
+def emit_ctor_dispatch(m):
+    """Per-type constructor dispatch for the static ctor path: one
+    find_ctor_<Type>(const v8::FunctionCallbackInfo...) entry per builtin
+    type with constructors. This IS the `new`-callback: it probes argc /
+    argument types at runtime, invokes the matching builtin_ctor_thunk
+    (which constructs in place through variant_get_ptr_constructor), or
+    throws with the concrete type name. There is no separate find/adapter
+    split -- the resolver both selects and executes, exactly like the
+    find_builtin_member_getter_thunk resolvers.
+    Each overload is a builtin_ctor_thunk<VT, CtorIndex, Args...> instance
+    (see thunks/builtin_constructors.h). Definitions are appended to
+    dispatch_builtin.gen.cpp (inside jsb::static_binding); the per-type
+    resolvers are internal to that TU (find_ctor_adapter is the only
+    external entry, declared in dispatch.h alongside find_builtin_*).
+    Returns (definitions_for_dispatch_builtin_cpp, None)."""
+    # JS-native types have no `new X(...)` static constructor surface.
+    JS_NATIVE_PRIMITIVES = {"bool", "int", "float", "String", "StringName"}
+
+    # Parameter-type votes choose one probe order for all constructor arguments.
+    # This changes probe order, not accepted types; object preference wins ties.
+    CTOR_PROBE_PREFER = {
+        # JS-native scalars: primitive-first probing.
+        "int": "probe_prefer_primitive_types",
+        "float": "probe_prefer_primitive_types",
+        "bool": "probe_prefer_primitive_types",
+        "String": "probe_prefer_primitive_types",
+        "StringName": "probe_prefer_primitive_types",
+        # NodePath commonly arrives as a JS string; wrappers remain supported.
+        "NodePath": "probe_prefer_primitive_types",
+        # Variant accepts any probed type; its vote still affects probe order.
+        "Variant": "probe_prefer_primitive_types",
+
+        # Prefer primitive probes for common numeric constructor call shapes.
+        "Color": "probe_prefer_primitive_types",
+        "Vector2":  "probe_prefer_primitive_types",
+        "Vector2i":  "probe_prefer_primitive_types",
+        "Vector3":  "probe_prefer_primitive_types",
+        "Vector3i":  "probe_prefer_primitive_types",
+        "Vector4":  "probe_prefer_primitive_types",
+        "Vector4i":  "probe_prefer_primitive_types",
+        "Rect2":  "probe_prefer_primitive_types",
+        "Rect2i":  "probe_prefer_primitive_types",
+    }
+    # Any param type not listed above (godot structs/containers/arrays) probes
+    # as an object wrapper by default -- that is the common call shape.
+    CTOR_PROBE_PREFER_DEFAULT = "probe_prefer_object_types"
+
+    groups = collections.OrderedDict()
+    for c in m.constructors:
+        vt_name = m.vt_names[c["vt"]]
+        if vt_name == "Nil":
+            continue  # Nil has no JS class object to construct.
+        if vt_name in JS_NATIVE_PRIMITIVES:
+            continue  # JS-native primitives: no `new X()` constructor surface
+        groups.setdefault(c["vt"], []).append(c)
+
+    L = []
+    for vt, ctors in sorted(groups.items()):
+        type_name = m.vt_names[vt]
+        left_cpp = operand_cpp(type_name)
+        if left_cpp is None:
+            raise SystemExit(f"FATAL: ctor type '{type_name}' is not statically addressable")
+        fn_name = f"find_ctor_{type_name}"
+
+        # Duplicate parameter-type signatures keep the first JSON entry.
+        seen_sigs = set()
+        overloads = []
+        for c in ctors:
+            sig = tuple(a["type"] for a in c["args"])
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+            overloads.append((c["ctor_index"], c["args"]))
+
+        L.append(f"void {fn_name}(const v8::FunctionCallbackInfo<v8::Value> &info) {{")
+        L.append("\tconst int argc = info.Length();")
+        arities = sorted({len(args) for _, args in overloads})
+        has_zero = 0 in arities
+        non_zero = [a for a in arities if a != 0]
+        # The common zero-argument call needs no probe array.
+        if has_zero:
+            L.append("\tif (argc == 0) {")
+            L.append("\t\tthunks::builtin_ctor_thunk<%s, 0, Args<>>(info);" % vt_value_to_enum(vt))
+            L.append("\t\treturn;")
+            L.append("\t}")
+        # Probe each argument once, then reuse its type across overload checks.
+        # One majority-selected bias serves all arguments; ties prefer objects.
+        if non_zero:
+            pref = CTOR_PROBE_PREFER_DEFAULT
+            votes = {"probe_prefer_object_types": 0, "probe_prefer_primitive_types": 0}
+            for _, args in overloads:
+                for a in args:
+                    votes[CTOR_PROBE_PREFER.get(a["type"], CTOR_PROBE_PREFER_DEFAULT)] += 1
+            if votes["probe_prefer_primitive_types"] > votes["probe_prefer_object_types"]:
+                pref = "probe_prefer_primitive_types"
+            L.append("\tgodot::Variant::Type *argts = jsb_stackalloc(godot::Variant::Type, argc > 0 ? argc : 1);")
+            L.append(f"\tfor (int i = 0; i < argc; ++i) argts[i] = probe_vt<{pref}>(info[i]);")
+        emitted_arity = False
+        for arity in non_zero:
+            first = "if" if not emitted_arity else "else if"
+            emitted_arity = True
+            L.append(f"\t{first} (argc == {arity}) {{")
+            for ctor_index, args in overloads:
+                if len(args) != arity:
+                    continue
+                arg_exprs = [arg_template_expr(a) for a in args]
+                probe_checks = []
+                for i, a in enumerate(args):
+                    t = a["type"]
+                    if t == "Variant":
+                        # Variant parameter accepts any type (no check needed)
+                        probe_checks.append("true")
+                    else:
+                        target_enum = json_to_enum(t)
+                        # Use can_be_converted_from<TargetT>(source_type) for strict conversion checks
+                        probe_checks.append(
+                            f"can_be_converted_from<godot::Variant::{target_enum}>(argts[{i}])")
+                cond = " && ".join(probe_checks) if probe_checks else "true"
+                thunk_args = ", ".join([vt_value_to_enum(vt), str(ctor_index), "Args<%s>" % ", ".join(arg_exprs)])
+                if cond == "true":
+                    L.append(f"\t\tthunks::builtin_ctor_thunk<{thunk_args}>(info);")
+                    L.append("\t\treturn;")
+                else:
+                    L.append(f"\t\tif ({cond}) {{")
+                    L.append(f"\t\t\tthunks::builtin_ctor_thunk<{thunk_args}>(info);")
+                    L.append("\t\t\treturn;")
+                    L.append("\t\t}")
+            L.append("\t}")  # close the `if (argc == X) {` block
+        L.append("\t}")  # close the function body
+        L.append("")
+    # Resolve by Variant::Type, avoiding JS aliases such as Array/GArray.
+    # Each resolver is already a `new` callback and needs no adapter wrapper.
+    L.append("const ThunkFn find_ctor_adapter(const godot::Variant::Type p_vt) {")
+    L.append("\t// indexed by Variant::Type -- no switch, no StringName comparison,")
+    L.append("\t// no JS-name aliases (the caller passes the compile-time")
+    L.append("\t// VariantBind::TYPE enum, so all builtin classes including")
+    L.append("\t// Array/Dictionary are addressed by their godot enum).")
+    L.append("\tstatic const ThunkFn k_ctor_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+    max_vt = max(VARIANT_TYPE_VALUES.values())
+    for cv in range(max_vt + 1):
+        if cv in groups:
+            L.append("\t\t(ThunkFn)find_ctor_%s," % m.vt_names[cv])
+        else:
+            L.append("\t\tnullptr,")
+    L.append("\t};")
+    L.append("\treturn unsigned(p_vt) < (int)godot::Variant::VARIANT_MAX ? k_ctor_by_type[unsigned(p_vt)] : nullptr;")
+    L.append("}")
+    L.append("")
+
+    # Only find_ctor_adapter needs a public declaration; no ctor header is emitted.
+    return "\n".join(L), None
+
+
+def emit_manifest(m, input_path, interface_path):
+    # Count unique builtin/utility default literals, matching receiver exclusions.
+    # Class defaults are supplied by the engine, not emitted as DefVs.
+    uniq_defaults = set()
+    for e in m.builtin_methods:
+        if m.vt_names[e["vt"]] in ("String", "StringName"):
+            continue
+        for a in e["args"]:
+            if "default" in a:
+                uniq_defaults.add((a["type"], a["default"]))
+    for e in m.utility_funcs:
+        for a in e["args"]:
+            if "default" in a:
+                uniq_defaults.add((a["type"], a["default"]))
+
+    def sha12(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:12]
+
+    manifest = {
+        "generator_input_sha256_12": sha12(input_path),
+        "interface_json_sha256_12": sha12(interface_path),
+        "counts": {
+            "builtin_methods": len(m.builtin_methods),
+            "utility_funcs": len(m.utility_funcs),
+            "class_methods": len(m.class_methods),
+            "constructors": len(m.constructors),
+            "operators": len(m.operators),
+            "members": len(m.members),
+            "indexed_props": len(m.indexed_props),
+            "classes": len(m.classes_meta),
+            "exemptions": len(m.exemptions),
+            "unique_default_values": len(uniq_defaults),
+            "unique_strings": len(m.pool.strings),
+        },
+        "reconciliation": {
+            "variant_type_resolved_by_name": True,
+            "builtin_vt_order_ascending": True,
+            "indexed_props_all_resolved": all(
+                p["getter_hash"] or p["setter_hash"] for p in m.indexed_props),
+        },
+        "exemption_kinds": dict(collections.Counter(
+            e.split(":")[0] for e in m.exemptions)),
+    }
+    return json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+
+
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(description="GodotJS-Ext static binding codegen (P0)")
+    ap.add_argument("--input", required=True, help="path to extension_api.json")
+    ap.add_argument("--out", required=True, help="output dir, e.g. src/static_binding/gen")
+    ap.add_argument("--interface", default=DEFAULT_INTERFACE_JSON,
+                    help="godot-cpp gdextension_interface.json (variant type enum source)")
+    ap.add_argument("--check", action="store_true",
+                    help="verify existing outputs are fresh (byte-identical); exit 1 otherwise")
+    ns = ap.parse_args()
+
+    vt_map = load_variant_type_map(ns.interface)
+
+    with open(ns.input, encoding="utf-8") as f:
+        data = json.load(f)
+
+    m = collect(data, vt_map)
+    _assert_default_layout(m)
+    op_tables, op_tables_h = emit_operator_pair_tables(m)
+    ctor_tables, _ = emit_ctor_dispatch(m)  # No separate constructor header.
+    cpp_outputs = {
+        "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables + ctor_tables),
+        "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
+        "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m),
+    }
+    outputs = {}
+    for fname, content in cpp_outputs.items():
+        # Shared generated-file marker and copyright precede each C++ body.
+        header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
+        outputs[fname] = header + content
+    for fname, content in {"builtin_operator_tables.gen.h": op_tables_h}.items():
+        header = GENERATED_NOTE + "\n" + generate_copyright_header_cpp(fname, read_copyright_text()) + "\n"
+        outputs[fname] = header + content
+    # The reconciliation manifest is JSON, so it receives no comment header.
+    outputs["manifest.gen.json"] = emit_manifest(m, ns.input, ns.interface)
+
+    if ns.check:
+        stale = []
+        for fname, content in outputs.items():
+            path = os.path.join(ns.out, fname)
+            if not os.path.exists(path):
+                stale.append(fname + " (missing)")
+                continue
+            with open(path, "rb") as f:
+                if f.read() != content.encode("utf-8"):
+                    stale.append(fname + " (stale)")
+        if stale:
+            print("STALE generated files detected:", file=sys.stderr)
+            for s in stale:
+                print("  " + s, file=sys.stderr)
+            print("Run: scons static_binding_gen", file=sys.stderr)
+            return 1
+        print("generated files are fresh")
+        return 0
+
+    os.makedirs(ns.out, exist_ok=True)
+    for fname, content in outputs.items():
+        path = os.path.join(ns.out, fname)
+        new = content.encode("utf-8")
+        old = None
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                old = f.read()
+        if old != new:
+            with open(path, "wb") as f:
+                f.write(new)
+            print(f"wrote {path} ({len(new)} bytes)")
+    man = json.loads(outputs["manifest.gen.json"])
+    print(json.dumps(man["counts"], indent=2))
+    print("OK: static binding tables generated")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

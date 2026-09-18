@@ -31,6 +31,8 @@ declare module "godot.worker" {
     class JSWorker {
         constructor(path: string);
 
+        // transfer 用于显式指定要传送的 godot 对象列表。
+        // 用户必须确保这些 godot 对象是有效的，否则会发生崩溃。
         postMessage(message: any, transfer?: GArray | ReadonlyArray<NonNullable<GAny>>): void;
         terminate(): void;
 
@@ -39,28 +41,18 @@ declare module "godot.worker" {
 
         //TODO not implemented yet
         onerror?: (error: any) => void;
-
-        /**
-         * @deprecated Use onmessage to receive messages sent from postMessage() with transfers included.
-         * @param obj
-         */
-        ontransfer?: (obj: GObject) => void;
     }
 
     // only available in worker scripts
     const JSWorkerParent:
         | {
-              onmessage?: (message: any) => void;
+            onmessage?: (message: any) => void;
 
-              close(): void;
+            close(): void;
 
-              /**
-               * @deprecated Use the transfer parameter of postMessage instead.
-               * @param obj
-               */
-              transfer(obj: GObject): void;
-
-              postMessage(message: any, transfer?: GArray | ReadonlyArray<NonNullable<GAny>>): void;
-          }
+            // transfer 用于显式指定要传送的 godot 对象列表。
+            // 用户必须确保这些 godot 对象是有效的，否则会发生崩溃。
+            postMessage(message: any, transfer?: GArray | ReadonlyArray<NonNullable<GAny>>): void;
+        }
         | undefined;
 }

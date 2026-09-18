@@ -297,9 +297,20 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 				break;
 			}
 
-			void *pointer = self->GetAlignedPointerFromInternalField(IF_Pointer);
-			r_cvar = *(Variant *)pointer;
-			return true;
+			/* 进行严格检查，避免退化为无类型提示的 js 到 gd 的类型转换 */
+			Variant *pointer = (Variant *)self->GetAlignedPointerFromInternalField(IF_Pointer);
+			const Variant::Type type = pointer->get_type();
+			if (type == p_type || (type == Variant::NIL && p_type == Variant::OBJECT)) {
+				// 类型完全匹配 或为 空的 godot Object（符合 godot 类型语义）
+				r_cvar = *pointer;
+				return true;
+			} else if (Variant::can_convert_strict(pointer->get_type(), p_type)) {
+				// 可严格转换时进行转换
+				r_cvar = UtilityFunctions::type_convert(*pointer, p_type);
+				return true;
+			}
+
+			break;
 		}
 		case Variant::NIL:
 			//NOTE (instead of prompting a nil value) the type NIL usually means a Variant parameter accepted by a godot method
@@ -431,7 +442,7 @@ bool TypeConvert::gd_obj_to_js(v8::Isolate *isolate, const v8::Local<v8::Context
 
 		Ref<GodotJSScript> script = si->get_script();
 		ScriptInstance *non_shadow_instance = script->instance_construct(p_godot_obj, false);
-		jsb_ensure(!non_shadow_instance->is_shadow() && !non_shadow_instance->is_placeholder());
+		jsb_check(!non_shadow_instance->is_shadow() && !non_shadow_instance->is_placeholder());
 
 		if (non_shadow_instance && environment->try_get_object(p_godot_obj, r_jval)) {
 			return true;
@@ -566,6 +577,11 @@ bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::C
 		case Variant::STRING_NAME: {
 			return p_val->IsString();
 		}
+		case Variant::NIL:
+			// "Variant" slot: accepts ANY JS value (mirrors js_to_gd_var's
+			// NIL handling -- a bare JS null/undefined/primitive/object all
+			// fit a godot Variant parameter).
+			return true;
 		case Variant::NODE_PATH:
 			if (p_val->IsString()) {
 				return true;

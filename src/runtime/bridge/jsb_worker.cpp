@@ -29,7 +29,7 @@
 
 #include "../internal/jsb_double_buffered.h"
 #include "../internal/jsb_sarray.h"
-#include "../internal/jsb_thread_util.h"
+#include "internal/jsb_thread_util.h"
 #include "jsb.config.h"
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
@@ -83,26 +83,31 @@ static void insert_transfer_variant(
 	transfers.insert(variant, transfer_data);
 }
 
-static void append_node_descendants_for_transfer(
-		Environment *from_env,
-		internal::ReferentialVariantMap<TransferData> &transfers,
-		const Node *node) {
-	if (!node) {
-		return;
-	}
+/** NOTE:
+	我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
+	不应该提供一个不完备的功能，应该由用户自己处理转移对象，
+*/
+// static void append_node_descendants_for_transfer(
+// 		Environment *from_env,
+// 		internal::ReferentialVariantMap<TransferData> &transfers,
+// 		const Node *node) {
+// 	if (!node) {
+// 		return;
+// 	}
 
-	const int child_count = node->get_child_count();
-	for (int i = 0; i < child_count; i++) {
-		Node *child = node->get_child(i);
-		if (!child) {
-			continue;
-		}
+// 	const int child_count = node->get_child_count();
+// 	for (int i = 0; i < child_count; i++) {
+// 		Node *child = node->get_child(i);
+// 		if (!child) {
+// 			continue;
+// 		}
 
-		Variant child_variant = child;
-		insert_transfer_variant(from_env, transfers, child_variant);
-		append_node_descendants_for_transfer(from_env, transfers, child);
-	}
-}
+// 		Variant child_variant = child;
+// 		insert_transfer_variant(from_env, transfers, child_variant);
+// 		append_node_descendants_for_transfer(from_env, transfers, child);
+// 	}
+// }
+
 } //namespace
 
 #if JSB_WITH_WEB
@@ -428,10 +433,6 @@ public:
 
 				impl::Helper::set_as_interruptible(isolate);
 				context_obj->Set(context,
-								   jsb_name(env, transfer),
-								   v8::Function::New(context, &worker_transfer, v8::Uint32::NewFromUnsigned(isolate, *impl->id_)).ToLocalChecked())
-						.Check();
-				context_obj->Set(context,
 								   jsb_name(env, postMessage),
 								   v8::Function::New(context, &worker_post_message, v8::Uint32::NewFromUnsigned(isolate, *impl->id_)).ToLocalChecked())
 						.Check();
@@ -621,35 +622,6 @@ private:
 	}
 
 	// worker -> master (run in worker env)
-	static void worker_transfer(const v8::FunctionCallbackInfo<v8::Value> &info) {
-		v8::Isolate *isolate = info.GetIsolate();
-		Environment *env = Environment::wrap(isolate);
-		v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
-		const v8::Local<v8::Context> context = isolate->GetCurrentContext();
-		const WorkerID worker_id = (WorkerID)info.Data().As<v8::Uint32>()->Value();
-
-		WorkerImplPtr worker_impl_ptr;
-		if (!Worker::try_get_worker(worker_id, worker_impl_ptr)) {
-			jsb_throw(isolate, "invalid worker id");
-			return;
-		}
-
-		const std::shared_ptr<Environment> master = Environment::_access(worker_impl_ptr->token_);
-		if (!master) {
-			jsb_throw(isolate, "invalid environment");
-			return;
-		}
-
-		Variant target;
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], target)) {
-			jsb_throw(isolate, "bad parameter");
-			return;
-		}
-		Environment::transfer_to_host(env, master.get(), worker_impl_ptr->handle_, target);
-	}
-
-	// worker -> master (run in worker env)
 	static void worker_post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::HandleScope handle_scope(isolate);
@@ -772,7 +744,6 @@ public:
 		class_builder.Instance().Method("onready", &Worker::_placeholder);
 		class_builder.Instance().Method("onerror", &Worker::_placeholder);
 		class_builder.Instance().Method("onmessage", &Worker::_placeholder);
-		class_builder.Instance().Method("ontransfer", &Worker::_placeholder);
 		class_builder.Instance().Method("terminate", &Worker::terminate);
 
 		const NativeClassInfoPtr class_info = p_env->get_native_class(class_id);
@@ -1061,7 +1032,7 @@ void Worker::constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	ptr->id_ = Worker::create(master, path, handle);
 }
 
-// placeholder func for ontransfer/onmessage/onready/onerror of worker (in master)
+// placeholder func for onmessage/onready/onerror of worker (in master)
 void Worker::_placeholder(const v8::FunctionCallbackInfo<v8::Value> &info) {}
 
 // master.postMessage
@@ -1504,15 +1475,19 @@ bool Worker::parse_transfer_list(
 		}
 	}
 
-	for (const Variant &explicit_transfer : explicit_node_transfers) {
-		if (explicit_transfer.get_type() == Variant::OBJECT) {
-			Object *object = explicit_transfer;
+	/** NOTE:
+		我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
+		不应该提供一个不完备的功能，应该由用户自己处理转移对象，
+	*/
+	// for (const Variant &explicit_transfer : explicit_node_transfers) {
+	// 	if (explicit_transfer.get_type() == Variant::OBJECT) {
+	// 		Object *object = explicit_transfer;
 
-			if (const Node *node = Object::cast_to<Node>(object)) {
-				append_node_descendants_for_transfer(from_env, transfers, node);
-			}
-		}
-	}
+	// 		if (const Node *node = Object::cast_to<Node>(object)) {
+	// 			append_node_descendants_for_transfer(from_env, transfers, node);
+	// 		}
+	// 	}
+	// }
 
 	return true;
 }

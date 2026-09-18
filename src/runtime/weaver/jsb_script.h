@@ -42,10 +42,12 @@
 #include <compat/misc.h>
 
 class ScriptInstance;
-class PlaceholderScriptInstance;
 class GodotJSScriptInstance;
 class GodotJSScriptInstanceBase;
 class GodotJSShadowScriptInstance;
+#ifdef TOOLS_ENABLED
+class PlaceholderScriptInstance;
+#endif // TOOLS_ENABLED
 
 class GodotJSScript : public ScriptExtension {
 	GDCLASS(GodotJSScript, ScriptExtension)

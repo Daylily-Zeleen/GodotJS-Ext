@@ -61,13 +61,7 @@
 #	include "../impl/web/jsb_web_interop.h"
 #endif
 
-#if !JSB_WITH_STATIC_BINDINGS
-#	include "jsb_primitive_bindings_reflect.h"
-#	define register_primitive_bindings(param) register_primitive_bindings_reflect(param)
-#else
-#	include "jsb_primitive_bindings_static.h"
-#	define register_primitive_bindings(param) register_primitive_bindings_static(param)
-#endif
+#include "jsb_primitive_bindings.h"
 
 #if JSB_USE_JS_TYPE_EXTENSION
 #	include "js_type_extension/string_ext.h"
@@ -192,10 +186,10 @@ struct InstanceBindingCallbacks {
 			: callbacks_{ create_callback, free_callback, reference_callback } {}
 
 	/**
-	 * @brief 解除 Godot 对象上的 jsb instance binding 槽。
+	 * @brief 解除 Godot 对象上的 jsb instance binding。
 	 */
 	static void free_instance_bindings(Environment *p_env, Object *p_binding_object) {
-		jsb_ensure(p_binding_object && p_binding_object->_owner);
+		jsb_check(p_binding_object && p_binding_object->_owner);
 		::godot::gdextension_interface::object_free_instance_binding(p_binding_object->_owner, p_env);
 	}
 
@@ -231,7 +225,10 @@ private:
 				//       do this work on the environment's thread, because another Godot object may be allocated at
 				//       the same address before our message is handled. This is not hypothetical, it was observed
 				//       in practice several times.
+				jsb_check(!env->in_engine_binding_callback_);
+				env->in_engine_binding_callback_ = true;
 				env->free_object(p_binding, FinalizationType::None);
+				env->in_engine_binding_callback_ = false;
 			}
 		}
 	}
@@ -302,7 +299,7 @@ Environment::Environment(const CreateParams &p_params)
 #if JSB_V8_CPPGC
 	// old version:
 	v8::Platform *platform = impl::GlobalInitialize::get_platform();
-	jsb_ensuref(platform, "Please call jsb::impl::GlobalInitialize::init() first.");
+	jsb_checkf(platform, "Please call jsb::impl::GlobalInitialize::init() first.");
 	cpp_heap_ = v8::CppHeap::Create(platform,
 			v8::CppHeapCreateParams({}, v8::WrapperDescriptor(kWrapperTypeIndex, kWrapperInstanceIndex, kWrapperID)));
 	// new version:
@@ -370,6 +367,9 @@ Environment::Environment(const CreateParams &p_params)
 				require_func->Set(context, impl::Helper::new_string_ascii(isolate, "moduleId"), v8::String::Empty(isolate)).Check();
 				global->Set(context, impl::Helper::new_string_ascii(isolate, "require"), require_func).Check();
 				global->Set(context, impl::Helper::new_string_ascii(isolate, "define"), JSB_NEW_FUNCTION(context, Builtins::_define, {})).Check();
+				// JS-callable GC entry for the benchmark harness (--gc): forwards
+				// to Environment::gc(). Synchronous by contract.
+				global->Set(context, impl::Helper::new_string_ascii(isolate, "gc"), JSB_NEW_FUNCTION(context, Builtins::_gc, {})).Check();
 				module_cache_.init(isolate, cache_obj);
 			}
 
@@ -623,37 +623,24 @@ void Environment::exec_async_calls() {
 	std::vector<AsyncCall> &calls = async_calls_.swap();
 	if (!calls.empty()) {
 		for (const AsyncCall &call : calls) {
-			exec_async_call(call.type_, call.binding_);
+			exec_async_call(call.type_, call.user_data_);
 		}
 		calls.clear();
 	}
 #endif
 }
 
-void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
+void Environment::exec_async_call(AsyncCall::Type p_type, void *p_user_data) {
 	switch (p_type) {
 		case AsyncCall::TYPE_REF:
-			reference_object(p_binding, true);
+			reference_object(p_user_data, true);
 			break;
 		case AsyncCall::TYPE_DEREF:
-			reference_object(p_binding, false);
+			reference_object(p_user_data, false);
 			break;
 		case AsyncCall::TYPE_GC_FREE:
-			free_object(p_binding, FinalizationType::Default);
+			free_object(p_user_data, FinalizationType::Default);
 			break;
-		case AsyncCall::TYPE_TRANSFER_: {
-			//TODO need a better way to control lifetime of TransferData?
-			TransferData *transfer_data = (TransferData *)p_binding;
-			{
-				v8::Isolate *isolate{ get_isolate() };
-				JSB_ISOLATE_SCOPE(isolate);
-				v8::HandleScope handle_scope(isolate);
-				const v8::Local<v8::Context> context = get_context();
-				const v8::Context::Scope context_scope(context);
-				_on_worker_transfer(context, transfer_data);
-			}
-			memdelete(transfer_data);
-		} break;
 		case AsyncCall::TYPE_GC_REQUEST:
 			_on_gc_request();
 			break;
@@ -663,61 +650,15 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_binding) {
 	}
 }
 
-bool Environment::add_async_call(AsyncCall::Type p_type, void *p_binding) {
+bool Environment::add_async_call(AsyncCall::Type p_type, void *p_user_data) {
 #if JSB_THREADING
 	if (ThreadEx::get_caller_id() != thread_id_) {
-		async_calls_.add(AsyncCall(p_type, p_binding));
+		async_calls_.add(AsyncCall(p_type, p_user_data));
 		return true;
 	}
 #endif
-	exec_async_call(p_type, p_binding);
+	exec_async_call(p_type, p_user_data);
 	return true;
-}
-
-void Environment::_on_worker_transfer(const v8::Local<v8::Context> &p_context, const TransferData *p_data) {
-	jsb_check(p_data->source_worker_id);
-	if (!object_db_.has_object(p_data->source_worker_id)) {
-		JSB_LOG(Error, "invalid worker");
-		return;
-	}
-
-	//TODO 0. HOW TO HANDLE COMPLICATED SITUATIONS? SUCH AS NESTED OBJECTS?
-	jsb_nop();
-
-	{
-		ThreadSafeForNodesScope node_safe_scope;
-		transfer_in_bind(p_context, *p_data);
-		transfer_in_apply_state(*p_data);
-	}
-
-	// call 'ontransfer'
-	{
-		v8::Isolate *isolate{ get_isolate() };
-		ObjectHandleConstPtr handle = object_db_.try_get_object(p_data->source_worker_id);
-		const v8::Local<v8::Object> worker = handle->ref_.Get(isolate).As<v8::Object>();
-		jsb_check(!worker.IsEmpty());
-		handle = nullptr;
-
-		v8::Local<v8::Value> transferred_obj;
-		if (!TypeConvert::gd_var_to_js(isolate, p_context, p_data->variant, transferred_obj) || transferred_obj.IsEmpty()) {
-			JSB_LOG(Error, "failed to convert object to JS");
-			return;
-		}
-
-		v8::Local<v8::Value> callback;
-		if (!worker->Get(p_context, jsb_name(this, ontransfer)).ToLocal(&callback) || !callback->IsFunction()) {
-			JSB_LOG(Error, "ontransfer is not a function");
-			return;
-		}
-
-		const impl::TryCatch try_catch(isolate);
-		const v8::Local<v8::Function> call = callback.As<v8::Function>();
-		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &transferred_obj);
-		jsb_unused(rval);
-		if (try_catch.has_caught()) {
-			JSB_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
-		}
-	}
 }
 
 #if !JSB_WITH_WEB
@@ -757,11 +698,6 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			JSB_LOG(Error, "failed to parse message value");
 			return;
 		}
-
-#	if !JSB_WITH_V8 && !JSB_WITH_JAVASCRIPTCORE && !JSB_WITH_QUICKJS
-		// Restore Godot bindings from transfer markers.
-		value = Worker::restore_transfer_markers(isolate, p_context, value, transfers);
-#	endif
 	}
 
 	const impl::TryCatch try_catch(isolate);
@@ -854,17 +790,18 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 		}
 	}
 
-	jsb_ensuref(!object_db_.has_object(p_pointer), "WTF? Bind again?");
+	jsb_checkf(!object_db_.has_object(p_pointer), "WTF? Bind again?");
 	templates::BitField<ObjectBindingFlags> binding_flags{ ObjectBindingFlags::OBF_GD_OBJ };
 	bool force_weak{ false };
 	if (RefCounted *ref_counted = Object::cast_to<RefCounted>(p_pointer)) {
 		binding_flags.set_flag(ObjectBindingFlags::OBF_GD_REFCOUNTED);
-		force_weak = ref_counted->get_reference_count() == 0;
 		if (!ref_counted->init_ref()) // 正常情况下 JS 会保有一个引用
 		{
 			JSB_LOG(Error, "can not bind a dead object %d", (uintptr_t)p_pointer);
 			return {};
 		}
+		// 兜底，按理说传进来的 ref_counted 计数都会 >= 1，经过 init_ref() 由 JS 环境保有一个计数之后计数应该会 > 1
+		force_weak = ref_counted->get_reference_count() == 1;
 	}
 	if (p_js_owned_non_ref) binding_flags.set_flag(OBF_JS_OWNED);
 	const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void *)p_pointer, p_object, binding_flags, force_weak);
@@ -880,7 +817,7 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak) {
 	check_internal_state();
 	jsb_checkf(native_classes_.is_valid_index(p_class_id), "bad class_id");
-	jsb_ensure((flags_ & EF_PreDispose) == 0);
+	jsb_check((flags_ & EF_PreDispose) == 0);
 
 	ObjectHandlePtr handle;
 	const NativeObjectID object_id = object_db_.add_object(p_pointer, &handle);
@@ -900,7 +837,7 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 	jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
 	handle->ref_.Reset(get_isolate(), p_object);
 
-	if (p_fore_weak || handle->is_js_owned()) {
+	if (p_fore_weak) {
 		handle->ref_.SetWeak(p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
 	}
 
@@ -908,14 +845,36 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 	return object_id;
 }
 
-void Environment::mark_as_persistent_object(void *p_pointer) {
-	ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
-	jsb_ensure(handle);
-	if (handle->is_persist()) {
-		JSB_LOG(Error, "duplicate adding persistent object: %d", (uintptr_t)p_pointer);
+void Environment::remove_object_binding(ObjectHandlePtr &p_object_handle_ptr, void *p_pointer) {
+	const bool gd_obj = p_object_handle_ptr->is_gd_obj();
+	object_db_.remove_object(p_object_handle_ptr, p_pointer);
+	// When invoked from the engine's free_instance_binding callback the engine holds
+	// `_instance_binding_mutex` and removes our binding entry itself; re-entering
+	// `object_free_instance_binding` here would deadlock on the non-recursive mutex.
+	if (gd_obj && !in_engine_binding_callback_) {
+		InstanceBindingCallbacks::free_instance_bindings(this, (Object *)p_pointer);
+	}
+}
+
+void Environment::mark_as_persistent_object(void *p_pointer, bool p_count_only) {
+	if (likely(!p_count_only)) {
+		ObjectHandlePtr handle = object_db_.try_get_object(p_pointer);
+		jsb_check(handle && !handle->ref_.IsEmpty());
+
+		if (unlikely(handle->is_persist())) {
+			JSB_LOG(Error, "Duplicate marking persistent object: %d", (uintptr_t)p_pointer);
+			return;
+		}
+		handle->flags.set_flag(ObjectBindingFlags::OBF_PERSIST);
+	} else {
+		ObjectHandleConstPtr handle = const_cast<const Environment *>(this)->object_db_.try_get_object(p_pointer);
+		jsb_check(handle && !handle->ref_.IsEmpty());
+		if (unlikely(!handle->is_persist())) {
+			JSB_LOG(Error, "Try to increase persistent object count for non-persistent object: %d", (uintptr_t)p_pointer);
+			return;
+		}
 	}
 
-	handle->flags.set_flag(ObjectBindingFlags::OBF_PERSIST);
 	persistent_object_count_++;
 }
 
@@ -935,14 +894,14 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 		JSB_LOG(Verbose, "UNEXPECTED bad pointer %d", (uintptr_t)p_pointer);
 		return false;
 	}
-	jsb_ensure(object_handle->is_gd_refcounted());
+	jsb_check(object_handle->is_gd_refcounted());
 
 	// must not be a valuetype object
 	// jsb_check(native_classes_.get_value(object_handle->class_id).type != NativeClassType::GodotPrimitive);
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
-	jsb_ensuref(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
+	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
 		if (ref_count > 1) // 正常情况下 JS 会持有一个引用
@@ -1000,13 +959,18 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	const NativeClassID class_id = object_handle->class_id;
 	// hold it in a local variable to avoid gc too early
 	v8::Global<v8::Object> obj_ref = std::move(object_handle->ref_);
-	templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
+	const templates::BitField<ObjectBindingFlags> binding_flags = object_handle->flags;
+
+	// Presistant 对象也可以经过 free_object 处理，语义上表示 JS 环境解除对该对象的绑定/引用。
+	// 无论 FinalizationType 是什么都不会导致 Presistant 对象的销毁。
+	if (binding_flags.has_flag(OBF_PERSIST)) {
+		persistent_object_count_--;
+		jsb_check(persistent_object_count_ >= 0);
+	}
 
 	// erase from godot::ObjectDB before clearing the ref to avoid exposing a transient state
 	// with an empty `ref_` in the godot::ObjectDB, which can race with reference callbacks.
-	object_db_.remove_object(object_handle, p_pointer);
-
-	// TODO: Look into if we ought to be calling obj->free_instance_binding(this)
+	remove_object_binding(object_handle, p_pointer);
 
 	//TODO do not clear the internal field if calling from JS GC
 	// if (p_finalize != FinalizationType::None)
@@ -1020,22 +984,20 @@ void Environment::free_object(void *p_pointer, FinalizationType p_finalize) {
 	obj_ref.Reset();
 
 	if (p_finalize != FinalizationType::None) {
-		if (binding_flags.has_flag(OBF_PERSIST)) {
-			persistent_object_count_--;
-			jsb_ensure(persistent_object_count_ >= 0);
-			p_finalize = FinalizationType::None;
-		} else if (binding_flags.has_flag(OBF_GD_REFCOUNTED)) {
-			p_finalize = FinalizationType::None;
-		}
-
 		const NativeClassInfo &class_info = native_classes_.get_value(class_id);
 		JSB_LOG(VeryVerbose, "free_object class:%s(%d) addr:%d", (String)class_info.name, class_id, (uintptr_t)p_pointer);
+
+		if (binding_flags.has_flag(OBF_PERSIST)) {
+			p_finalize = FinalizationType::None;
+		} else if (class_info.type == NativeClassType::GodotObject && !binding_flags.has_flag(OBF_JS_OWNED)) {
+			// 不需要 !binding_flags.has_flag(OBF_GD_REFCOUNTED) 判断，RefCounted 是根据引用计数来决定是否销毁的，不受 finalize 标志影响。
+			p_finalize = FinalizationType::None;
+		}
 
 		//NOTE Godot will call Object::_predelete to post a notification NOTIFICATION_PREDELETE which finally call `ScriptInstance::callp`
 		class_info.finalizer(this, p_pointer, p_finalize);
 	} else {
-		jsb_check(!binding_flags.has_flag(OBF_PERSIST));
-		JSB_LOG(VeryVerbose, "(skip) free_object class_id:%d addr:%d", class_id, (uintptr_t)p_pointer);
+		JSB_LOG(VeryVerbose, "(skip) free_object class_id:%d addr:%d, presist: %s", class_id, (uintptr_t)p_pointer, binding_flags.has_flag(OBF_PERSIST));
 	}
 }
 
@@ -1321,8 +1283,9 @@ NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, 
 	if (const NativeObjectID object_id = this->try_get_object_id(p_this)) {
 		JSB_LOG(Verbose, "crossbinding on previously bound object %d (addr:%d), rebind it to script class %d", object_id, (uintptr_t)p_this, p_class_id);
 
-		auto handler = object_db_.try_get_object(p_this);
-		object_db_.remove_object(handler, p_this);
+		ObjectHandlePtr handler = object_db_.try_get_object(p_this);
+		object_db_.remove_object(handler, p_this); // 不需要移除绑定
+
 		// //TODO may not work in this way
 		// _rebind(isolate, context, p_this, p_class_id);
 		// return object_id;
@@ -1723,7 +1686,12 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 		}
 
 		if (!TypeConvert::js_to_gd_var(isolate, context, value, p_info.type, r_val)) {
-			JSB_LOG(Error, "Failed to get property '%s' on a %s: Failed to convert result to a Godot type (%s)", p_info.name, p_info.class_name, UtilityFunctions::type_string(p_info.type));
+			JSB_LOG(Error,
+					"Failed to get property '%s' on a %s: Failed to convert result from js type (%s) to a Godot type (%s)",
+					p_info.name,
+					p_info.class_name,
+					TypeConvert::js_debug_typeof(isolate, value),
+					Variant::get_type_name(p_info.type));
 			return false;
 		}
 	} else {
@@ -1825,7 +1793,7 @@ void Environment::evaluate_default_values(ScriptClassInfo &p_class_info) {
 			return;
 		}
 
-		jsb_ensure(!pointer->is_class(RefCounted::get_class_static()) || ((RefCounted *)pointer)->get_reference_count() == 1);
+		jsb_check(!pointer->is_class(RefCounted::get_class_static()) || ((RefCounted *)pointer)->get_reference_count() == 1);
 		memdelete(pointer);
 	}
 }
@@ -1899,7 +1867,7 @@ void Environment::call_script_prelude(ScriptClassID p_script_class_id, NativeObj
 }
 
 Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName &p_method, const Variant **p_argv, int p_argc, GDExtensionCallError &r_error) {
-	// TODO: 支持静态函数得调用。 static calls are not supported
+	// TODO: 支持静态函数的调用。 static calls are not supported
 	if (!p_object_id) {
 		return {};
 	}
@@ -1950,7 +1918,7 @@ Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeO
 	v8::Local<v8::Function> method_func;
 	{
 		ScriptClassInfoPtr script_class_info = script_classes_.get_value_scoped(p_script_class_id);
-		jsb_ensure(script_class_info);
+		jsb_check(script_class_info);
 		const internal::TypeGen<StringName, v8::Global<v8::Function>>::UnorderedMapIt it = script_class_info->method_cache.find(p_method);
 		if (it == script_class_info->method_cache.end()) {
 			const v8::Local<v8::Object> class_obj = script_class_info->js_class.Get(isolate);
@@ -2035,13 +2003,17 @@ void Environment::prepare_transfer_out(NativeObjectID p_worker_handle_id, int tr
 
 	if (p_variant.get_type() == Variant::OBJECT) {
 		Object *obj = p_variant;
+		ObjectHandleConstPtr handle = ((const Environment *)this)->object_db_.try_get_object((void *)obj);
+		// 传送对象必须由用户显示指定在列表中，因此如果时 godot 对象的话必然会在 object_db_ 中，并且预期必然是一个有效的 Object
 		jsb_checkf(
-				obj && object_db_.has_object(obj) && godot::ObjectDB::get_instance(obj->get_instance_id()),
+				obj && handle && godot::ObjectDB::get_instance(obj->get_instance_id()),
 				"prepare_transfer_out failed: object %s (class=%s). In jsb object db: %s; In godot object db: %s",
 				obj,
 				obj ? obj->get_class() : "null",
-				obj ? object_db_.has_object(obj) : false,
+				obj ? (bool)handle : false,
 				obj ? godot::ObjectDB::get_instance(obj->get_instance_id()) != nullptr : false);
+
+		r_transfer_data.flags = handle->flags;
 
 		if (ScriptInstance *script_instance = ScriptInstance::get_script_instance(obj)) {
 			jsb_check(script_instance);
@@ -2111,7 +2083,18 @@ void Environment::transfer_in_bind(const v8::Local<v8::Context> &p_context, cons
 
 	if (!object_db_.has_object(instance)) {
 		v8::Local<v8::Object> obj;
-		jsb_check(TypeConvert::gd_obj_to_js(get_isolate(), p_context, instance, obj));
+		CRASH_COND_MSG(!TypeConvert::gd_obj_to_js(get_isolate(), p_context, instance, obj), "failed to convert object to js");
+	}
+
+	{
+		// 完整复原该对象才的 flags
+		ObjectHandlePtr handle = object_db_.try_get_object(instance);
+		jsb_check(handle);
+		handle->flags = p_data.flags;
+	}
+
+	if (p_data.flags.has_flag(OBF_PERSIST)) {
+		mark_as_persistent_object(instance, true);
 	}
 
 	/**
@@ -2120,8 +2103,9 @@ void Environment::transfer_in_bind(const v8::Local<v8::Context> &p_context, cons
 	 * 在上面的传入步骤中 (script->instance_construct_default 或 TypeConvert::gd_obj_to_js) 会按照正常绑定流程绑定到该环境中时计数会 + 1
 	 * 因此在传入后需要对它降低 1 个计数
 	 */
-	if (RefCounted *ref_counted = Object::cast_to<RefCounted>(instance)) {
-		if (ref_counted->unreference()) {
+	if (p_data.flags.has_flag(OBF_GD_REFCOUNTED)) {
+		if (RefCounted *ref_counted = static_cast<RefCounted *>(instance);
+				ref_counted->unreference()) {
 			// Uh, we really shouldn't end up here. This can only occur if another thread is doing something it
 			// really shouldn't be doing. I guess we don't want to be responsible for a leak, but this is bad.
 			memdelete(ref_counted);
@@ -2165,17 +2149,6 @@ void Environment::transfer_in_apply_state(const TransferData &p_data) {
 	}
 
 	static_cast<GodotJSScriptInstanceBase *>(script_instance)->set_property_state(p_data.state);
-}
-
-void Environment::transfer_to_host(Environment *p_from, Environment *p_to, NativeObjectID p_worker_handle_id, const Variant &p_variant) {
-	if (p_variant.get_type() == Variant::OBJECT) {
-		TransferData *transfer_data = memnew(TransferData);
-		p_from->prepare_transfer_out(p_worker_handle_id, 0, p_variant, *transfer_data);
-		p_from->finalize_transfer_out(*transfer_data);
-		p_to->add_async_call(AsyncCall::TYPE_TRANSFER_, transfer_data);
-	} else {
-		p_to->add_async_call(AsyncCall::TYPE_TRANSFER_, memnew(TransferData(p_worker_handle_id, 0, p_variant)));
-	}
 }
 
 void Environment::_on_gc_request() {

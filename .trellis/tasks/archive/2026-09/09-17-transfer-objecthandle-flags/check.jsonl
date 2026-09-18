@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "C++ 编码与用户改动保护"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "生命周期和双 DLL 约束"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "TS 集成测试与强弱句柄边界"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "规范构建与部署验证"}
+{"file": ".trellis/tasks/09-17-transfer-objecthandle-flags/report.md", "reason": "最新持久标记调用链与旧 PRD 修正"}

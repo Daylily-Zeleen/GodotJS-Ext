@@ -58,12 +58,12 @@ void GlobalInitialize::init() {
 
 	// the shared multi-isolate platform (thread pool of 4 workers, like gode)
 	GlobalInitialize::platform = std::move(node::MultiIsolatePlatform::Create(4));
-	jsb_ensure(GlobalInitialize::platform.get());
+	jsb_check(GlobalInitialize::platform.get());
 
 	v8::V8::InitializePlatform(GlobalInitialize::platform.get());
 	v8::V8::Initialize();
 
-	jsb_ensure(get_platform());
+	jsb_check(get_platform());
 }
 
 void GlobalInitialize::shutdown() {

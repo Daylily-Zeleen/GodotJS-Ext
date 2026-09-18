@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-config-compile-flags",
+  "name": "lowprio-config-compile-flags",
+  "title": "编译参数控制 jsb.config.h 配置",
+  "description": "用 SCons 编译参数控制 jsb.config.h 的配置项（当前为手工编辑头文件），使引擎组合/特性开关可经构建命令行声明",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "build"
+  }
+}

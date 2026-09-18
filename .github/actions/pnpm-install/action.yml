@@ -6,8 +6,6 @@
 #
 #  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)
 #                 - Contact: daylily-zeleen@foxmail.com
-#  Copyright (c) Contributors of GodotJS
-#                 - <https://github.com/godotjs/GodotJS>
 #
 #  This library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -25,18 +23,25 @@
 
 name: pnpm Install
 description: Setup pnpm, install dependencies
+inputs:
+  pnpm-version:
+    description: 'pnpm version'
+    default: '10.11.0'
+  node-version-file:
+    description: 'Node version file path'
+    default: '.node-version'
 runs:
   using: composite
   steps:
     - name: 🛫 Setup pnpm
       uses: pnpm/action-setup@v6
       with:
-        version: 10.11.0
+        version: ${{ inputs.pnpm-version }}
 
     - name: 🦕❌ Setup node.js
       uses: actions/setup-node@v5
       with:
-        node-version-file: .node-version
+        node-version-file: ${{ inputs.node-version-file }}
         cache: "pnpm"
         cache-dependency-path: scripts/pnpm-lock.yaml
 

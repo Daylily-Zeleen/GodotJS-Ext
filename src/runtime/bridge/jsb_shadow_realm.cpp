@@ -36,6 +36,7 @@
 #	include "jsb_object_handle.h"
 #	include "jsb_ref.h"
 #	include "jsb_type_convert.h"
+#	include "jsb_worker.h"
 
 #	define JSB_SHADOW_REALM_LOG(Severity, Format, ...) JSB_LOG_IMPL(ShadowRealm, Severity, Format, ##__VA_ARGS__)
 #	define JSB_SHADOW_REALM_MODULE_NAME "godot.shadowRealm"
@@ -812,7 +813,7 @@ public:
 };
 
 /** NOTE: 将在 p_host_env 中创建对象，注意提前创建 HandleScope */
-static _FORCE_INLINE_ v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
+static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env, v8::Isolate *p_guest_isolate, const v8::Local<v8::Value> &p_guest_value) {
 	v8::Isolate *host_isolate = p_host_env->get_isolate();
 
 	JSB_ISOLATE_SCOPE(p_guest_isolate);
@@ -920,6 +921,8 @@ class ShadowRealmImpl {
 
 protected:
 	std::shared_ptr<Environment> env_{ nullptr };
+
+	virtual void dispose_environment() {}
 
 	// friend class TransferableShadowRealmImpl;
 
@@ -1056,6 +1059,7 @@ protected:
 					JSB_SHADOW_REALM_LOG(Log, "shadow_realm is terminating %d", id_);
 					return;
 				}
+				dispose_environment();
 				isolate->TerminateExecution();
 			}
 
@@ -1451,6 +1455,11 @@ class TransferableShadowRealmImpl : public ShadowRealmImpl {
 	v8::Global<v8::Object> context_obj_handle_;
 
 protected:
+	virtual void dispose_environment() override {
+		context_obj_handle_.Reset();
+	}
+
+protected:
 	virtual void init_environment() override {
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
@@ -1527,65 +1536,13 @@ private:
 			return { nullptr, 0 };
 		}
 
-		if (info.Length() > 1 && !info[1]->IsUndefined()) {
-			v8::Local<v8::Value> transfer_arg = info[1];
-
-			if (!transfer_arg->IsArray() && !transfer_arg->IsObject()) {
-				jsb_throw(isolate, "transfer list must be an array");
-				return { nullptr, 0 };
-			}
-
-			if (transfer_arg->IsArray()) {
-				v8::Local<v8::Array> transfer_array = transfer_arg.As<v8::Array>();
-
-				for (uint32_t i = 0, len = transfer_array->Length(); i < len; i++) {
-					v8::Local<v8::Value> item = transfer_array->Get(context, i).ToLocalChecked();
-
-					if (!item->IsObject()) {
-						// JS primitive, no underling Variant exists to transfer. Since JS primitives are automatically
-						// coerced to variants, it's more consistent if we permit (but ignore) them.
-						continue;
-					}
-
-					Variant variant;
-
-					if (!TypeConvert::js_to_gd_var(isolate, context, item.As<v8::Object>(), variant)) {
-						jsb_throw(isolate, "transfer list must contain Godot object/variant types only");
-						return { nullptr, 0 };
-					}
-
-					TransferData transfer_data;
-					from_env->prepare_transfer_out(NativeObjectID::none(), transfers.size(), variant, transfer_data);
-					transfers.insert(variant, transfer_data);
-				}
-			} else {
-				Variant transfer_var;
-
-				if (!TypeConvert::js_to_gd_var(isolate, context, transfer_arg.As<v8::Object>(), Variant::Type::ARRAY, transfer_var)) {
-					jsb_throw(isolate, "transfer list must be an array");
-					return std::pair<uint8_t *, size_t>();
-				}
-
-				if (transfer_var.get_type() != Variant::ARRAY) {
-					jsb_throw(isolate, "transfer list must be an array");
-					return std::pair<uint8_t *, size_t>();
-				}
-
-				Array transfer_arr = transfer_var;
-
-				for (int i = 0, size = transfer_arr.size(); i < size; i++) {
-					Variant &variant = transfer_arr[i];
-					TransferData transfer_data;
-					from_env->prepare_transfer_out(NativeObjectID::none(), i, variant, transfer_data);
-					transfers.insert(variant, transfer_data);
-				}
-			}
+		if (!Worker::parse_transfer_list(isolate, context, from_env, info, transfers)) {
+			return { nullptr, 0 };
 		}
 
-		Vector<TransferData> transferred;
+		const impl::TryCatch try_catch(isolate);
 
-		// TODO: Transfer support non-V8.
-#	if JSB_WITH_V8
+#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS
 		Serialization::VariantSerializerDelegate delegate(from_env, transfers);
 		v8::ValueSerializer serializer(isolate, &delegate);
 		delegate.SetSerializer(&serializer);
@@ -1597,6 +1554,11 @@ private:
 		v8::Maybe<bool> write_result = serializer.WriteValue(context, info[0]);
 
 		if (write_result.IsNothing()) {
+			if (try_catch.has_caught()) {
+				JSB_SHADOW_REALM_LOG(Error, "serializer.WriteValue failed: %s", BridgeHelper::get_exception(try_catch));
+			} else {
+				JSB_SHADOW_REALM_LOG(Error, "serializer.WriteValue returned empty result");
+			}
 			return { nullptr, 0 };
 		}
 
@@ -1609,6 +1571,8 @@ private:
 
 	// handle message from master
 	void _on_message(const ShadowRealmMessage &p_message) {
+		jsb_checkf(env_ && !context_obj_handle_.IsEmpty(), "Post message to a dead shadowRealm.");
+
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
@@ -1643,7 +1607,7 @@ private:
 			}
 		}
 
-#	if JSB_WITH_V8
+#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS
 		Serialization::VariantDeserializerDelegate delegate(env, p_message.get_transfers());
 		v8::ValueDeserializer deserializer(isolate, p_message.get_data().ptr(), p_message.get_data().size(), &delegate);
 		delegate.SetSerializer(&deserializer);
@@ -1732,11 +1696,10 @@ private:
 		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
 
 		if (data.first) {
-			std::vector<TransferData> transfers;
-			transfers.reserve(transfer_map.size());
-
+			// Use indexed placement to ensure correct ordering by transfer_index
+			std::vector<TransferData> transfers(transfer_map.size());
 			for (const auto &transfer : transfer_map) {
-				transfers.push_back(transfer.value);
+				transfers[transfer.value.transfer_index] = transfer.value;
 			}
 
 			master->handle_message(Message(Message::TYPE_MESSAGE, handle, Buffer::steal(data.first, data.second), std::move(transfers)));
@@ -1771,11 +1734,10 @@ public:
 		const std::pair<uint8_t *, size_t> data = TransferableShadowRealmImpl::handle_post_message(info, transfer_map);
 
 		if (data.first) {
-			std::vector<TransferData> transfers;
-			transfers.reserve(transfer_map.size());
-
+			// Use indexed placement to ensure correct ordering by transfer_index
+			std::vector<TransferData> transfers(transfer_map.size());
 			for (const auto &transfer : transfer_map) {
-				transfers.push_back(transfer.value);
+				transfers[transfer.value.transfer_index] = transfer.value;
 			}
 
 			TransferableShadowRealmImpl::on_receive(realm->get_id(), ShadowRealmMessage(Buffer::steal(data.first, data.second), std::move(transfers)));

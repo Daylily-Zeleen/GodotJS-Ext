@@ -1,0 +1,28 @@
+{
+  "id": "lowprio-scenetree-quit-mainloop",
+  "name": "lowprio-scenetree-quit-mainloop",
+  "title": "SceneTree quit 改经 MainLoop",
+  "description": "原始愿望条目（代码中无对应实现）：评估 SceneTree::quit 与 MainLoop 的关系，明确退出路径语义",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-improvements",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "runtime"
+  }
+}

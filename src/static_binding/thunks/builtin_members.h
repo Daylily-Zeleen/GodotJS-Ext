@@ -1,0 +1,110 @@
+/************************************************************************/
+/*  builtin_members.h                                                   */
+/************************************************************************/
+/*  This file is part of:                                               */
+/*                                GodotJS-Ext                           */
+/*              https://github.com/Daylily-Zeleen/GodotJS-Ext           */
+/*                                                                      */
+/*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
+/*                 - Contact: daylily-zeleen@foxmail.com                */
+/*                                                                      */
+/*  This library is free software; you can redistribute it and/or       */
+/*  modify it under the terms of the GNU Lesser General Public          */
+/*  License as published by the Free Software Foundation; either        */
+/*  version 2.1 of the License, or (at your option) any later version.  */
+/*                                                                      */
+/*  This library is distributed in the hope that it will be useful,     */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of      */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU   */
+/*  Lesser General Public License for more details.                     */
+/*                                                                      */
+/*  You should have received a copy of the GNU Lesser General Public    */
+/*  License along with this library; if not,                            */
+/*  see <https://www.gnu.org/licenses/>.                                */
+/************************************************************************/
+
+#pragma once
+
+#if JSB_WITH_STATIC_BINDINGS
+
+#	include "internal/jsb_variant_util.h"
+#	include "thunks_common.h"
+#	include <godot_cpp/variant/variant_internal.hpp>
+
+namespace jsb::static_binding::thunks {
+
+template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
+void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	static const GDExtensionPtrGetter getter = ::godot::gdextension_interface::variant_get_ptr_getter(
+			(GDExtensionVariantType)VTC,
+			godot::StringName(NameLit.value)._native_ptr());
+
+	if (!getter) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member getter %s::%s",
+				godot::Variant::get_type_name(VTC), NameLit.value));
+		jsb_throw(isolate, "missing member getter");
+		return;
+	}
+
+	const Variant *p_self = (Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
+
+	// Get opaque pointer to the base Variant's internal data
+	void *base_opaque = get_opaque_typed<VTC>(const_cast<Variant *>(p_self));
+
+	// Ptrcall ABI: base points into the Variant; the result uses EncodeT storage.
+	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_val{};
+	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_val);
+
+	// Convert native slot back to Variant for JS
+	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_val);
+
+	v8::Local<v8::Value> rval;
+	if (!TypeConvert::gd_var_to_js(isolate, context, result, rval)) {
+		jsb_throw(isolate, "bad translate");
+		return;
+	}
+	info.GetReturnValue().Set(rval);
+}
+
+template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
+void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	static const GDExtensionPtrSetter setter = ::godot::gdextension_interface::variant_get_ptr_setter(
+			(GDExtensionVariantType)VTC,
+			godot::StringName(NameLit.value)._native_ptr());
+
+	if (!setter) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member setter %s::%s",
+				godot::Variant::get_type_name(VTC), NameLit.value));
+		jsb_throw(isolate, "missing member setter");
+		return;
+	}
+
+	Variant *p_self = (Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
+	jsb_check(p_self->get_type() == VTC);
+
+	Variant value;
+	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], (godot::Variant::Type)MemberVT, value)) {
+		jsb_throw(isolate, "bad translate");
+		return;
+	}
+
+	// Get opaque pointer to the base Variant's internal data
+	void *base_opaque = get_opaque_typed<VTC>(p_self);
+
+	// The setter reads an EncodeT value, not a boxed Variant.
+	VariantEncodeType<VariantNativeType_t<MemberVT>> encoded_value{};
+	godot::PtrToArg<VariantNativeType_t<MemberVT>>::encode(value, &encoded_value);
+	setter((GDExtensionTypePtr)base_opaque, (GDExtensionConstTypePtr)&encoded_value);
+}
+
+} // namespace jsb::static_binding::thunks
+
+#endif // JSB_WITH_STATIC_BINDINGS

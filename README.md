@@ -24,6 +24,9 @@ For full documentation, visit [godotjs.github.io](https://godotjs.github.io/docu
 
 See [Breaking Changes](https://godotjs.github.io/misc/breaking-changes/) if upgrading from old versions.
 
+> [!IMPORTANT]
+> 本项目要求 **Godot 4.7 及以上版本**（godot-cpp 绑定按 `API_VERSION = "4.7"` 生成；更旧的引擎因 godot-cpp ABI 不匹配无法加载本扩展）。
+
 > [!NOTE]
 > The core functionality is implemented and essentially usable but still under testing.
 
@@ -92,7 +95,7 @@ C++ unit tests use [doctest](https://github.com/doctest/doctest) and are run by 
 scons platform=windows target=editor dev_build=yes tests=yes -j10
 
 # Run tests (requires Godot editor binary)
-Godot_v4.7.1-stable_win64.exe --path project --jsb-run-tests
+godot --path project --jsb-run-tests
 ```
 
 #### TypeScript Integration Tests
@@ -110,7 +113,7 @@ pnpm install
 npx tsc --noCheck
 
 # 3. Run the test project headlessly
-& "godot.windows.editor.x86_64.exe" --audio-driver Dummy --headless --path . --verbose --debug
+& godot --audio-driver Dummy --headless --path . --verbose --debug
 ```
 
 The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).
@@ -126,11 +129,11 @@ must be bootstrapped in two steps:
 # 1. Dump the extension API together with docs. On some Godot versions the
 #    editor aborts during shutdown, but extension_api.json is already
 #    written by then.
-Godot_v4.7.1-stable_win64.exe --headless --editor --path project --dump-extension-api-with-docs
+godot --headless --editor --path project --dump-extension-api-with-docs
 
 # 2. Convert extension_api.json into the binary store. When running
 #    headless, the editor exits automatically once finished.
-Godot_v4.7.1-stable_win64.exe --headless --editor --path project --godotjs-api-generate extension_api.json
+godot --headless --editor --path project --godotjs-api-generate extension_api.json
 ```
 
 `--godotjs-api-generate <extension_api.json>` accepts a path relative to

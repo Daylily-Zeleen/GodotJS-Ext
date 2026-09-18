@@ -383,7 +383,11 @@ void GodotJSScriptInstance::cache_property(const StringName &name, const Variant
 }
 
 bool GodotJSScriptInstance::set(const StringName &p_name, const Variant &p_value) {
-	ERR_FAIL_NULL_V_MSG(env_, false, "ScriptInstance::set: env is null");
+	if (unlikely(env_ == nullptr)) {
+		WARN_PRINT("Call ScriptInstance::set() faild: env is null");
+		return false;
+	}
+
 	GodotJSScript *sptr = script_.ptr();
 	while (sptr) {
 		if (const auto &it = sptr->script_class_info_.properties.find(p_name); it) {
@@ -410,7 +414,11 @@ bool GodotJSScriptInstance::set(const StringName &p_name, const Variant &p_value
 }
 
 bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const {
-	ERR_FAIL_NULL_V_MSG(env_, false, "ScriptInstance::get: env is null");
+	if (unlikely(env_ == nullptr)) {
+		WARN_PRINT("Call ScriptInstance::get() faled: env is null");
+		return false;
+	}
+
 	const Variant *cached_value = property_cache_.getptr(p_name);
 
 	if (cached_value) {
@@ -552,7 +560,11 @@ void GodotJSScriptInstance::validate_property(PropertyInfo &p_property) const {
 }
 
 bool GodotJSScriptInstance::property_can_revert(const StringName &p_name) const {
-	ERR_FAIL_NULL_V_MSG(env_, false, "ScriptInstance::property_can_revert: env is null");
+	if (unlikely(env_ == nullptr)) {
+		WARN_PRINT("Call ScriptInstance::property_can_revert() falled: env is null");
+		return false;
+	}
+
 	GodotJSScript *sptr = script_.ptr();
 	while (sptr) {
 		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_property_can_revert)); it) {
@@ -573,7 +585,11 @@ bool GodotJSScriptInstance::property_can_revert(const StringName &p_name) const 
 }
 
 bool GodotJSScriptInstance::property_get_revert(const StringName &p_name, Variant &r_ret) const {
-	ERR_FAIL_NULL_V_MSG(env_, false, "ScriptInstance::property_get_revert: env is null");
+	if (unlikely(env_ == nullptr)) {
+		WARN_PRINT("Call ScriptInstance::property_get_revert() failed: env is null");
+		return false;
+	}
+
 	GodotJSScript *sptr = script_.ptr();
 	while (sptr) {
 		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_property_get_revert)); it) {
@@ -599,7 +615,13 @@ bool GodotJSScriptInstance::has_method(const StringName &p_method) const {
 }
 
 Variant GodotJSScriptInstance::callp(const StringName &p_method, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error) {
-	ERR_FAIL_NULL_V_MSG(env_, {}, "ScriptInstance::callp: env is null");
+	r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
+
+	if (unlikely(env_ == nullptr)) {
+		WARN_PRINT("Call ScriptInstance::callp() failed: env is null");
+		return false;
+	}
+
 #if JSB_DEBUG
 	if (profiling_info_.path_.is_empty()) {
 		profiling_info_.path_ = script_->get_path();

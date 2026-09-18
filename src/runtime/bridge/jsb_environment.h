@@ -27,7 +27,6 @@
 
 #pragma once
 
-#include <internal/jsb_statistics.h>
 #include "../internal/jsb_internal.h"
 #include "jsb_array_buffer_allocator.h"
 #include "jsb_async_module_manager.h"
@@ -43,6 +42,8 @@
 #include "jsb_string_name_cache.h"
 #include "jsb_type_convert.h"
 #include "jsb_value_move.h"
+#include <internal/jsb_statistics.h>
+
 #if JSB_WITH_ESSENTIALS
 #	include "jsb_timer_action.h"
 #	include "jsb_timer_tags.h"
@@ -53,6 +54,7 @@
 #endif // JSB_WITH_DEBUGGER
 
 #include <compat/thread.h>
+#include <cstddef>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -110,17 +112,18 @@ class EnvironmentRef {
 public:
 	EnvironmentRef(const EnvironmentRef &p_other) {
 		control_block = p_other.control_block;
-		jsb_ensure(control_block);
+		jsb_check(control_block);
 		control_block->refcount++;
 	}
 	~EnvironmentRef() {
-		jsb_ensure(control_block);
+		jsb_check(control_block);
 		if (--control_block->refcount == 0) {
 			memdelete(control_block);
 		}
 	}
 	_FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
-	_FORCE_INLINE_ operator bool() const { return control_block; }
+	_FORCE_INLINE_ operator bool() const { return control_block->env != nullptr; }
+	_FORCE_INLINE_ bool operator==(std::nullptr_t) const { return control_block->env == nullptr; }
 	_FORCE_INLINE_ operator Environment *() const { return control_block->env; }
 };
 
@@ -138,18 +141,16 @@ private:
 			TYPE_REF,
 			TYPE_DEREF,
 
-			TYPE_TRANSFER_,
-
 			// request a full gc from other threads
 			TYPE_GC_REQUEST,
 		};
 
 		Type type_;
 
-		void *binding_;
+		void *user_data_;
 
-		AsyncCall(Type p_type, void *p_binding)
-				: type_(p_type), binding_(p_binding) {}
+		AsyncCall(Type p_type, void *p_user_data)
+				: type_(p_type), user_data_(p_user_data) {}
 		~AsyncCall() = default;
 
 		AsyncCall(AsyncCall &&) noexcept = default;
@@ -223,7 +224,8 @@ private:
 	StringNameCache string_name_cache_;
 
 	BindingObjectDB object_db_;
-	uint32_t persistent_object_count_{ 0 };
+	// Environment 本身只能由创建它的线程操作。
+	int32_t persistent_object_count_{ 0 };
 
 	internal::VariantAllocator variant_allocator_;
 
@@ -397,14 +399,6 @@ public:
 	void transfer_in_bind(const v8::Local<v8::Context> &p_context, const TransferData &p_data);
 	void transfer_in_apply_state(const TransferData &p_data);
 
-	// [EXPERIMENTAL] transfer object between environments.
-	// call this method of the source environment in the source environment thread.
-	// if the transferred object is RefCounted, the reference count will be increased by 1 during the operation.
-	// NOTE: !!! IT MAY CRASH THE ENGINE TO TRANSFER A DEEPLY NESTED OBJECT (such as a godot Array of Objects) !!!
-	//       !!! Ensure all transferred objects are ONLY exist in the source environment !!!
-	// [pseudo] transfer_to_host(worker, master, worker_handle, scene->instantiate());
-	static void transfer_to_host(Environment *p_from, Environment *p_to, NativeObjectID p_worker_handle_id, const Variant &p_variant);
-
 	bool get_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, Variant &r_val);
 	bool set_script_property_value(NativeObjectID p_object_id, const ScriptPropertyInfo &p_info, const Variant &p_val);
 
@@ -520,13 +514,21 @@ private:
 	// p_pointer must be 2-byte aligned (v8 requirement)
 	NativeObjectID bind_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object, templates::BitField<ObjectBindingFlags> p_binding_flags, bool p_fore_weak = false);
 
+	void remove_object_binding(ObjectHandlePtr &p_object_handle_ptr, void *p_pointer);
+
+	// true while we are inside the engine's `Object::free_instance_binding` callback
+	// chain (the engine holds `_instance_binding_mutex` and removes the binding entry
+	// itself; calling `object_free_instance_binding` again would deadlock on the
+	// non-recursive mutex).
+	bool in_engine_binding_callback_ = false;
+
 public:
 	NativeObjectID bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref = false);
 	// Bind a C++ `p_pointer` with a JS `p_object`, they have same lifecycle.
 	// p_type is redundant (could retrieve from class registry with p_class_id), but it's faster to pass it directly
 	// p_pointer must be 2-byte aligned (v8 requirement)
 	NativeObjectID bind_js_owned_pointer(NativeClassID p_class_id, NativeClassType::Type p_type, void *p_pointer, const v8::Local<v8::Object> &p_object) {
-		return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED);
+		return bind_pointer(p_class_id, p_type, p_pointer, p_object, OBF_JS_OWNED, true);
 	}
 	// An optimized binder for Variant. All variant values are not registered in `env`, and completely managed by JS.
 	// The real `p_class_id` of `p_pointer` is unnecessary as an input parameter since `Variant` is used as the underlying type for any `TStruct` (primitive type).
@@ -575,7 +577,7 @@ public:
 
 	// return true if operation is successful
 	bool reference_object(void *p_pointer, bool p_is_inc);
-	void mark_as_persistent_object(void *p_pointer);
+	void mark_as_persistent_object(void *p_pointer, bool p_count_only = false);
 
 	// request a full garbage collection
 	static void gc();
@@ -705,18 +707,17 @@ public:
 	// hook to install the node console trampoline across all environments).
 	static std::vector<std::shared_ptr<Environment>> get_all_environments();
 
-	private:
+private:
 	void exec_async_calls();
-	void exec_async_call(AsyncCall::Type p_type, void *p_binding);
+	void exec_async_call(AsyncCall::Type p_type, void *p_user_data);
 
 	void _on_gc_request();
 
 	/**
 	 * @note execution order is not guaranteed
 	 */
-	bool add_async_call(AsyncCall::Type p_type, void *p_binding);
+	bool add_async_call(AsyncCall::Type p_type, void *p_user_data);
 
-	void _on_worker_transfer(const v8::Local<v8::Context> &p_context, const struct TransferData *p_data);
 #if !JSB_WITH_WEB
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif

@@ -213,7 +213,7 @@ void _add_script_rpc(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		rpc_config_map = val.As<v8::Map>();
 	}
 
-	rpc_config_map->Set(context, info[1], info[2]);
+	rpc_config_map->Set(context, info[1], info[2]).ToLocalChecked();
 	JSB_LOG(VeryVerbose, "script %s (rpc) %s", impl::Helper::to_string_opt(isolate, target->Get(context, jsb_name(environment, name))), impl::Helper::to_string(isolate, info[1]));
 }
 
@@ -499,6 +499,7 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 
 	// internal bridge functions & variables
 	{
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "STATIC_BINDING_ENABLED"), v8::Boolean::New(isolate, bool(JSB_WITH_STATIC_BINDINGS))).Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else

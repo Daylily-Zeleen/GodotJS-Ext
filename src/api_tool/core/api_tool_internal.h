@@ -33,6 +33,67 @@ namespace internal {
 
 static bool double_precision{ false };
 
+namespace _internal {
+template <typename... Ts>
+struct max_sizeof_type;
+template <typename T>
+struct max_sizeof_type<T> {
+	using type = T;
+};
+template <typename T0, typename... Rest>
+struct max_sizeof_type<T0, Rest...> {
+private:
+	using rest = typename max_sizeof_type<Rest...>::type;
+
+public:
+	using type = std::conditional_t<(sizeof(T0) >= sizeof(rest)), T0, rest>;
+};
+} //namespace _internal
+
+// 所有 EncodeT 中 sizeof 最大者（当前为 Projection，64 字节）。
+// 所有会经 var_to_arg_ptr/arg_ptr_to_var 走 ptrcall 的 EncodeT 候选。
+// 新增 Variant 类型的 ptrcall 支持时必须同步此列表。
+using MaxSizeEncodeArgType = typename _internal::max_sizeof_type<godot::Variant, // NIL
+		bool, // BOOL
+		int64_t,
+		double,
+		godot::String,
+		godot::StringName,
+		godot::NodePath,
+		godot::RID,
+		godot::Vector2,
+		godot::Vector2i,
+		godot::Rect2,
+		godot::Rect2i,
+		godot::Vector3,
+		godot::Vector3i,
+		godot::Transform2D,
+		godot::Vector4,
+		godot::Vector4i,
+		godot::Plane,
+		godot::Quaternion,
+		godot::AABB,
+		godot::Basis,
+		godot::Transform3D,
+		godot::Projection,
+		godot::Color,
+		godot::Callable,
+		godot::Signal,
+		godot::Array,
+		godot::Dictionary,
+		godot::PackedByteArray,
+		godot::PackedInt32Array,
+		godot::PackedInt64Array,
+		godot::PackedFloat32Array,
+		godot::PackedFloat64Array,
+		godot::PackedStringArray,
+		godot::PackedVector2Array,
+		godot::PackedVector3Array,
+		godot::PackedColorArray,
+		godot::PackedVector4Array,
+		godot::Object * // OBJECT（PtrToArg<T*>，EncodeT = Object*）
+		>::type;
+
 // 不需要 PtrToArg<Ref<RefCounted>>，UtilityFunctions 与 内建类的函数都不涉及RefCounted参数与返回值，非内建类的调用全都转换成 Variant 了。
 _FORCE_INLINE_ void var_to_arg_ptr(const godot::Variant &p_val, void *r_arg_ptr, godot::Variant::Type p_type = godot::Variant::VARIANT_MAX, const GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE) {
 	using namespace godot;

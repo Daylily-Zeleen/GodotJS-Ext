@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "C++ 测试与 bench 采数验收纪律（md5 前后核验、gcRequested、exit 0 无泄漏）"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "双套件触发与验收标准（单 flag --jsb-run-tests、无 Orphan）"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "codegen 变更后的基线校验链（headless 触发、TS 缓存陷阱）"}

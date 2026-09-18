@@ -51,6 +51,8 @@ declare module "godot.shadowRealm" {
             allowImportAnyModule?: boolean,
         });
 
+        // transfer 用于显式指定要传送的 godot 对象列表。
+        // 用户必须确保这些 godot 对象是有效的，否则会发生崩溃。
         postMessage(message: any, transfer?: GArray | ReadonlyArray<NonNullable<GAny>>): void;
 
         onmessage?: (message: any) => void;
@@ -64,6 +66,8 @@ declare module "godot.shadowRealm" {
     // 仅能在 TransferableShadowRealm 中访问
     const ShadowRealmParent:
         | {
+            // transfer 用于显式指定要传送的 godot 对象列表。
+            // 用户必须确保这些 godot 对象是有效的，否则会发生崩溃。
             postMessage(message: any, transfer?: GArray | ReadonlyArray<NonNullable<GAny>>): void;
 
             onmessage?: (message: any) => void;

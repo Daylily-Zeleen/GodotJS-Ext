@@ -6,8 +6,6 @@
 #
 #  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)
 #                 - Contact: daylily-zeleen@foxmail.com
-#  Copyright (c) Contributors of GodotJS
-#                 - <https://github.com/godotjs/GodotJS>
 #
 #  This library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -67,17 +65,28 @@ jobs:
         run: |
           set -euo pipefail
           source_run_id="${{ github.event.workflow_run.id }}"
+          # Derive the required test count from the workflow itself instead of
+          # hardcoding it: the matrix gained a leg (host-node) after this gate
+          # was written, which silently blocked every release.
+          # NOTE: absolute path - this step runs with working-directory: scripts.
+          require_test_count="$(python3 - <<'PY'
+          import os, yaml
+          path = os.path.join(os.environ['GITHUB_WORKSPACE'], '.github/workflows/ci.yml')
+          wf = yaml.safe_load(open(path, encoding='utf-8'))
+          print(len(wf['jobs']['test']['strategy']['matrix']['include']))
+          PY
+          )"
           test_count="$(gh run view "${source_run_id}" --json jobs -q '[.jobs[] | select(.name | startswith("Test ("))] | length')"
           failed_test_count="$(gh run view "${source_run_id}" --json jobs -q '[.jobs[] | select(.name | startswith("Test (")) | select(.conclusion != "success")] | length')"
           should_publish="$(pnpm run ci:should-publish | tail -n 1)"
           version="$(node release/get-version.js)"
           echo "ci:should-publish=${should_publish}"
           echo "version=${version}"
-          echo "tests=${test_count}, failed_tests=${failed_test_count}"
+          echo "tests=${test_count}, failed_tests=${failed_test_count}, required=${require_test_count}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          if [ "${test_count}" -ne 2 ] || [ "${failed_test_count}" -ne 0 ]; then
+          if [ "${test_count}" -ne "${require_test_count}" ] || [ "${failed_test_count}" -ne 0 ]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Source CI did not complete both test jobs successfully; release blocked."
+            echo "Source CI did not complete all ${require_test_count} test jobs successfully; release blocked."
           elif [ "${should_publish}" = "true" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
@@ -92,7 +101,10 @@ jobs:
       contents: write
     uses: ./.github/workflows/misc_release.yml
     with:
-      versions: '4.6'
+      mode: full
+      version: ${{ needs.should-publish.outputs.version }}
+      run_id: ${{ github.event.workflow_run.id }}
+      versions: "4.6"
       ref: ${{ github.event.workflow_run.head_sha }}
     secrets: inherit
 
@@ -105,8 +117,9 @@ jobs:
     permissions:
       actions: read
       contents: write
-    uses: ./.github/workflows/misc_upload_assets.yml
+    uses: ./.github/workflows/misc_release.yml
     with:
+      mode: upload-only
       version: ${{ needs.should-publish.outputs.version }}
       run_id: ${{ github.event.workflow_run.id }}
     secrets: inherit

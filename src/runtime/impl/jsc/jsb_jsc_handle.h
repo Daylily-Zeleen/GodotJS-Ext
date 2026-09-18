@@ -302,6 +302,11 @@ public:
 	// Return true if no value held by this handle, or dead for a weak handle.
 	bool IsEmpty() const { return !isolate_ || !is_alive(); }
 
+	// v8::Global::IsWeak() counterpart. SetWeak()/ClearWeak() below trap (in
+	// debug builds) unless the handle is in the matching state, so callers that
+	// cannot prove the state must test it first.
+	bool IsWeak() const { return weak_type_ != WeakType::kStrong; }
+
 	Local<T> Get(Isolate *isolate) const {
 		jsb_check(isolate_ == isolate && isolate_ && is_alive());
 		return Local<T>(Data(isolate_, jsb::impl::Broker::push_copy(isolate_, (JSValueRef) * this)));

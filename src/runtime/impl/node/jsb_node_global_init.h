@@ -41,7 +41,7 @@ struct GlobalInitialize {
 public:
 	// the per-process multi-isolate platform (shared by all NodeRuntime instances)
 	static _FORCE_INLINE_ node::MultiIsolatePlatform *get_platform() {
-		jsb_ensure(platform);
+		jsb_check(platform);
 		return platform.get();
 	}
 

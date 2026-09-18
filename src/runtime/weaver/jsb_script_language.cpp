@@ -50,9 +50,9 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_state.hpp>
 
+#include "jsb.config.h"
 #include "jsb_script.h"
 #include "jsb_script_instance.h"
-#include "jsb.config.h"
 
 #ifdef TOOLS_ENABLED
 #	include "editor/weaver-editor/templates/templates.gen.h"
@@ -74,7 +74,7 @@ JSEnvironment::JSEnvironment(const String &p_path_hint, bool p_is_shadow_allowed
 	if (target_) {
 		is_shadow_ = false;
 	} else {
-		jsb_ensuref(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", ThreadEx::get_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
+		jsb_checkf(p_is_shadow_allowed, "no available Environment on thread %d for %s: %s", ThreadEx::get_caller_id(), jsb_typename(GodotJSScript), p_path_hint);
 		is_shadow_ = true;
 	}
 }
@@ -364,7 +364,12 @@ TypedArray<Dictionary> GodotJSScriptLanguage::_get_built_in_templates(const Stri
 	TypedArray<Dictionary> templates;
 #ifdef TOOLS_ENABLED
 	for (const Dictionary &template_dict : (::get_script_templates())) {
-		if (template_dict["inherit"] == p_object) {
+		/**
+			NOTE: Variant 的比较是先比较 类型 再比较具体值，因此如果 template_dict["inherit"] 是 String 的话将不可能会有匹配上 p_object 的机会。
+				虽然脚本模板已经将 inherit 改为 StringName，再次留下注释作为提醒。
+		 */
+		const StringName inherit = template_dict["inherit"];
+		if (p_object == inherit) {
 			templates.append(template_dict);
 		}
 	}
@@ -835,12 +840,15 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 				continue;
 			}
 
+#	if TOOLS_ENABLED
 			if (script_instance->is_placeholder() && scr->_is_placeholder_fallback_enabled()) {
 				PlaceholderScriptInstance *placeholder = static_cast<PlaceholderScriptInstance *>(script_instance);
 				for (const auto &G : saved_state) {
 					// placeholder->property_set_fallback(G.first, G.second); // TODO: Godot 未暴露接口
 				}
-			} else {
+			} else
+#	endif // TOOLS_ENABLED
+			{
 				GodotJSScriptInstanceBase *si = static_cast<GodotJSScriptInstanceBase *>(script_instance);
 				si->set_property_state(saved_state);
 			}

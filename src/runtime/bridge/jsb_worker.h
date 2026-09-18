@@ -113,6 +113,16 @@ public:
 	static void on_thread_enter();
 	static void on_thread_exit();
 
+	// shared master -> worker/shadowRealm postMessage transfer-list parsing.
+	// Worker and TransferableShadowRealm both send Godot objects over postMessage,
+	// so the side-channel variant/object transfer list must be parsed identically.
+	static bool parse_transfer_list(
+			v8::Isolate *isolate,
+			const v8::Local<v8::Context> &context,
+			Environment *from_env,
+			const v8::FunctionCallbackInfo<v8::Value> &info,
+			internal::ReferentialVariantMap<TransferData> &transfers);
+
 #if JSB_WITH_WEB
 	static void on_web_message(jsb::impl::StackPosition p_data_sp, uint32_t p_transfer_id);
 	static void on_web_message_from_pthread(uintptr_t p_sender_pthread_id, jsb::impl::StackPosition p_data_sp, uint32_t p_transfer_id);
@@ -147,13 +157,6 @@ private:
 
 	// terminate a worker
 	static bool terminate(WorkerID p_id);
-
-	static bool parse_transfer_list(
-			v8::Isolate *isolate,
-			const v8::Local<v8::Context> &context,
-			Environment *from_env,
-			const v8::FunctionCallbackInfo<v8::Value> &info,
-			internal::ReferentialVariantMap<TransferData> &transfers);
 
 #if !JSB_WITH_WEB
 	// master -> worker message passing

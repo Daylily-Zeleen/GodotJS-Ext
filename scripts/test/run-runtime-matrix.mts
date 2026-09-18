@@ -26,9 +26,9 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, Server as HttpServer } from "node:http";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename: string = fileURLToPath(import.meta.url);
@@ -38,7 +38,10 @@ const moduleRoot: string = resolve(__dirname, "../..");
 const godotRoot: string = resolve(moduleRoot, "../..");
 const projectPath: string = join(moduleRoot, "project");
 const testsBinDir: string = join(moduleRoot, "tests/bin");
-const godotBinDir: string = join(godotRoot, "bin");
+// Engine source root for scons builds (web templates only). The *host* engine is
+// never built or copied here — it is resolved from PATH as `godot`.
+const godotBuildDir: string = join(godotRoot, "bin");
+const godotExecutable: string = "godot";
 const testSentinel: string = "GODOTJS_TEST_PROJECT_COMPLETED";
 const testFailureSentinelPrefix: string = "GODOTJS_TEST_PROJECT_FAILED:";
 const hostFailurePatterns: RegExp[] = [
@@ -195,45 +198,25 @@ function runCommand(label: string, command: string, args: string[], options: Run
     return combinedOutput;
 }
 
-function listBinFiles() {
-    if (!existsSync(godotBinDir)) {
-        return [];
+/**
+ * 解析宿主引擎：始终用 PATH 中的 `godot`。
+ * 不再扫描 `<repo>/../../bin/`、不再按平台正则找最新文件、不再拷进 `tests/bin`——
+ * 引擎由调用方（CI 或本地环境）提供并置于 PATH。
+ */
+function resolveGodotExecutable(): string {
+    const probe = spawnSync(isWindows ? "where" : "which", [godotExecutable], { encoding: "utf-8" });
+
+    if (probe.status !== 0) {
+        throw new Error(`host engine "${godotExecutable}" not found on PATH`);
     }
 
-    return readdirSync(godotBinDir).map((name) => join(godotBinDir, name));
-}
+    const match = probe.stdout.trim().split(/\r?\n/)[0]?.trim();
 
-function findNewestFile(predicate: (filePath: string) => boolean) {
-    const files = listBinFiles();
-    let newest: null | { filePath: string; mtimeMs: number } = null;
-
-    for (const filePath of files) {
-        if (!predicate(filePath)) {
-            continue;
-        }
-
-        const mtimeMs = statSync(filePath).mtimeMs;
-
-        if (newest === null || mtimeMs > newest.mtimeMs) {
-            newest = { filePath, mtimeMs };
-        }
+    if (!match) {
+        throw new Error(`could not resolve host engine "${godotExecutable}" from PATH`);
     }
 
-    return newest?.filePath ?? null;
-}
-
-function hostBinaryPredicate(filePath: string) {
-    const name = basename(filePath);
-
-    if (isMac) {
-        return /^godot\.macos\.editor/.test(name) && !name.endsWith(".app");
-    }
-
-    if (isLinux) {
-        return /^godot\.linuxbsd\.editor/.test(name);
-    }
-
-    return /^godot\.windows\.editor/.test(name) && name.endsWith(".exe");
+    return match;
 }
 
 function expectedWebTemplateNameForRuntime(runtimeName: string) {
@@ -882,16 +865,12 @@ function isRuntimeSelected(runtimeName: string) {
 }
 
 function buildHostRuntime(runtimeName: string) {
+    // The host engine always comes from PATH. `--skip-builds` only controls
+    // whether the extension is rebuilt locally; it never affects engine lookup.
+    const binaryPath = resolveGodotExecutable();
+
     if (skipBuilds) {
-        const prefix = `godot-host-${runtimeName}`;
-        const files = existsSync(testsBinDir) ? readdirSync(testsBinDir) : [];
-        const match = files.find((name) => name === prefix || name.startsWith(`${prefix}.`));
-
-        if (!match) {
-            throw new Error(`failed to locate copied ${runtimeName} host binary`);
-        }
-
-        return join(testsBinDir, match);
+        return binaryPath;
     }
 
     const args = [
@@ -925,21 +904,13 @@ function buildHostRuntime(runtimeName: string) {
         }
     }
 
-    const binaryPath = findNewestFile(hostBinaryPredicate);
-
-    if (!binaryPath) {
-        throw new Error(`build host ${runtimeName}: failed to locate built host binary`);
-    }
-
-    const targetName = `godot-host-${runtimeName}${extname(binaryPath)}`;
-
-    return copyArtifact(binaryPath, targetName);
+    return binaryPath;
 }
 
 function buildWebRuntime(runtimeName: string) {
     const targetName = `godot-web-${runtimeName}-template_debug.zip`;
     const webBuildSuffix = runtimeName === "qjs" ? "web-qjs" : "web-browser";
-    const expectedTemplatePath = join(godotBinDir, expectedWebTemplateNameForRuntime(runtimeName));
+    const expectedTemplatePath = join(godotBuildDir, expectedWebTemplateNameForRuntime(runtimeName));
 
     if (skipBuilds) {
         const targetPath = join(testsBinDir, targetName);
@@ -1021,15 +992,7 @@ async function main(): Promise<void> {
     if (needsHostNodeRequested && !isWindows) {
         results.push({ runtime: "host-node", status: "FAIL", error: "host-node runtime is only available on Windows" });
     } else if (needsHostNode) {
-        const nodePrefix = join(testsBinDir, "godot-host-node");
-        const candidates = existsSync(testsBinDir)
-            ? [nodePrefix, ...readdirSync(testsBinDir).filter((name) => name.startsWith("godot-host-node.")).map((name) => join(testsBinDir, name))]
-            : [];
-        const hostNodeBinary = candidates.find((p) => existsSync(p));
-        if (!hostNodeBinary) {
-            throw new Error("failed to locate copied host-node binary");
-        }
-        hostRuns.push({ runtime: "host-node", binary: hostNodeBinary });
+        hostRuns.push({ runtime: "host-node", binary: resolveGodotExecutable() });
     }
 
     for (const run of hostRuns) {

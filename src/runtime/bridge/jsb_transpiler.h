@@ -342,7 +342,7 @@ private:
 			Object *gd_object = var;
 
 			// IS IT A TRUTH that ref_count==1 after creation_func??
-			jsb_ensure([=] {
+			jsb_check([=] {
 				RefCounted *ref_counted = Object::cast_to<RefCounted>(gd_object);
 				return ref_counted == nullptr || ref_counted->get_reference_count() == 1;
 			}());
