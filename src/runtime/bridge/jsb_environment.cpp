@@ -698,11 +698,6 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			JSB_LOG(Error, "failed to parse message value");
 			return;
 		}
-
-#	if !JSB_WITH_V8 && !JSB_WITH_JAVASCRIPTCORE && !JSB_WITH_QUICKJS
-		// Restore Godot bindings from transfer markers.
-		value = Worker::restore_transfer_markers(isolate, p_context, value, transfers);
-#	endif
 	}
 
 	const impl::TryCatch try_catch(isolate);
