@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "开发前检查单与质量检查项（命名空间禁令、生成文件禁令、临时文件位置）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "运算符静态绑定双层分发的定形约束：宏 ## 只能拼宏实参、right=NIL 三分类、% 的 NIL 行是真实功能、禁止每调用全局查表；本任务须改写该章节且保持其余约束成立"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "jsb_primitive_operators.def.gen.h 与 src/static_binding/gen/* 的生成器归属，禁止手改生成文件"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "PtrToArg EncodeT 槽与 ptrcall 参数内存规则，改 builtin_operators.h 的 right_slot 提取时须遵循"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "强制编译命令组合、dll 双份部署与 md5 验证、两腿构建切换纪律"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "编辑器 codegen 基线建立与 diff 归因流程（.codegen-baseline 不存在，需先建基线）"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "C++ 双套件、TS 集成哨兵、bench 采数纪律与验收判据"}
