@@ -54,6 +54,7 @@
 #endif // JSB_WITH_DEBUGGER
 
 #include <compat/thread.h>
+#include <cstddef>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -122,7 +123,7 @@ public:
 	}
 	_FORCE_INLINE_ Environment *operator->() const { return control_block->env; }
 	_FORCE_INLINE_ operator bool() const { return control_block->env != nullptr; }
-	_FORCE_INLINE_ bool operator==(nullptr_t) const { return control_block->env == nullptr; }
+	_FORCE_INLINE_ bool operator==(std::nullptr_t) const { return control_block->env == nullptr; }
 	_FORCE_INLINE_ operator Environment *() const { return control_block->env; }
 };
 
