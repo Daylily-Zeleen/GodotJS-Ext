@@ -1,4 +1,4 @@
-import { GAny, GArray, GDictionary, Resource, Vector2 } from 'godot';
+import { GAny, GArray, GDictionary, Object as GodotObject, Resource, Vector2 } from 'godot';
 import type TransferScriptedNode from './transfer-scripted-node';
 
 export type DictionaryPayload = GDictionary<{
@@ -39,7 +39,7 @@ export type CyclicNode = {
 	child?: {
 		parent?: CyclicNode;
 	};
-	workerTag?: string;
+	peerTag?: string;
 };
 
 export type CyclicArray = Array<unknown>;
@@ -59,7 +59,8 @@ export enum MessageType {
 	Full = 'full',
 	Dictionary = 'dictionary',
 	Plain = 'plain',
-	WorkerError = 'workerError',
+	PeerError = 'peerError',
+	ObjectTransfer = 'object-transfer',
 }
 
 export enum TransferType {
@@ -86,12 +87,23 @@ export type PlainMessage = {
 	};
 };
 
-export type WorkerErrorMessage = {
-	type: MessageType.WorkerError;
+export type PeerErrorMessage = {
+	type: MessageType.PeerError;
 	message: string;
 };
 
-export type Message = FullPayloadMessage | DictionaryMessage | PlainMessage | WorkerErrorMessage;
+export type ObjectTransferAction = 'hold' | 'return' | 'control' | 'singleton';
+
+export type ObjectTransferMessage = {
+	type: MessageType.ObjectTransfer;
+	action: ObjectTransferAction;
+	object?: GodotObject;
+	objectId?: number;
+	controlId?: number;
+	singletonName?: string;
+};
+
+export type Message = FullPayloadMessage | DictionaryMessage | PlainMessage | PeerErrorMessage | ObjectTransferMessage;
 
 export function buildGodotTransferList(
 	values: readonly GAny[]

@@ -1,0 +1,5 @@
+[gd_scene format=3 uid="uid://djt3uf7wwrh8c"]
+
+[node name="NativeObject" type="Node"]
+
+[node name="UnboundNativeChild" type="Node" parent="."]

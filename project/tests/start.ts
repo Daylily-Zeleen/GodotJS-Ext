@@ -27,15 +27,15 @@ export default class Start extends Node {
 			const scenes = benchOnly
 				? ["res://tests/benchmark/Benchmark.tscn"]
 				: [
-					  "res://tests/resource/Resource.tscn",
-					  "res://tests/singleton/Singleton.tscn",
-					  "res://tests/extend/Extend.tscn",
-					  "res://tests/papaparse/Papaparse.tscn",
-					  "res://tests/os-executor/OSExecutor.tscn",
-					  "res://tests/worker/Worker.tscn",
-					  "res://tests/中文路径/SourceMapTest.tscn",
-					  "res://tests/default-args/DefaultArgs.tscn",
-				  ];
+					"res://tests/resource/Resource.tscn",
+					"res://tests/singleton/Singleton.tscn",
+					"res://tests/extend/Extend.tscn",
+					"res://tests/papaparse/Papaparse.tscn",
+					"res://tests/os-executor/OSExecutor.tscn",
+					"res://tests/cross-environment/CrossEnvironment.tscn",
+					"res://tests/中文路径/SourceMapTest.tscn",
+					"res://tests/default-args/DefaultArgs.tscn",
+				];
 
 			for (const scene of scenes) {
 				console.warn("START-DIAG loop scene=" + scene + " fail=" + String(hasTestFailure()));
@@ -54,7 +54,7 @@ export default class Start extends Node {
 				await new Promise((resolve) => {
 					if ("completeCallback" in sceneAsNode) {
 						sceneAsNode.completeCallback = resolve;
-					}else{
+					} else {
 						setTimeout(resolve, SCENE_SETTLE_DELAY_MS);
 					}
 				});

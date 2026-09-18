@@ -1,9 +1,11 @@
-import { GDictionary, is_instance_valid, Node, Resource, Vector2 } from 'godot';
+import { GDictionary, is_instance_valid, Node, Object as GodotObject, RefCounted, Resource, Vector2 } from 'godot';
 import { JSWorkerParent } from 'godot.worker';
+import type * as ShadowRealmModule from 'godot.shadowRealm';
 import {
 	buildGodotTransferList,
 	DictionaryMessage,
 	FullPayloadMessage,
+	ObjectTransferMessage,
 	Message,
 	MessageType,
 	PlainMessage,
@@ -13,10 +15,11 @@ import { TEST_FAILURE_SENTINEL_PREFIX } from '../test-status';
 import TransferScriptedNode from './transfer-scripted-node';
 
 function fail(failureMessage: string): never {
-	const detailedMessage = `worker: ${failureMessage}`;
+	const detailedMessage = `cross-environment-test:${JSWorkerParent ? 'worker' : 'shadow'}: ${failureMessage}`;
 	console.error(`${TEST_FAILURE_SENTINEL_PREFIX} ${detailedMessage}`);
 	throw new Error(detailedMessage);
 }
+
 
 function formatUnknownError(error: unknown): string {
 	if (error instanceof Error) {
@@ -111,11 +114,19 @@ function assertDeepMixedGraph(payload: FullPayloadMessage['payload']) {
 	}
 }
 
-if (JSWorkerParent) {
-	JSWorkerParent.onmessage = (rawMessage: Message) => {
+let objectTransferObject: GodotObject | null = null;
+
+// Worker and transferable shadow realms expose the same message protocol.
+// Resolve the shadow module only in a shadow startup, so native/web workers
+// do not depend on a module absent from web builds.
+const shadowModule: typeof ShadowRealmModule | undefined = JSWorkerParent ? undefined : require('godot.shadowRealm');
+const messageParent = JSWorkerParent ?? shadowModule?.ShadowRealmParent;
+
+if (messageParent) {
+	messageParent.onmessage = (rawMessage: Message) => {
 		try {
 			if (!rawMessage || typeof rawMessage !== 'object') {
-				fail('received malformed worker request');
+				fail('received malformed peer request');
 			}
 
 			const message = rawMessage instanceof GDictionary ? rawMessage.proxy() : rawMessage;
@@ -125,6 +136,38 @@ if (JSWorkerParent) {
 			}
 
 			switch (message.type) {
+				case MessageType.ObjectTransfer: {
+					const response: ObjectTransferMessage = { type: MessageType.ObjectTransfer, action: message.action };
+					if (message.action === 'control') {
+						// Never transferred: its deletion proves the peer entered native teardown.
+						response.controlId = new Node().get_instance_id();
+					} else if (message.action === 'singleton') {
+						if (!message.singletonName) fail('missing object-transfer singleton name');
+						// Use the actual Proxy, not an interop namespace copy, to exercise first access.
+						// No typed member exists for user-registered singletons, so this boundary is inherently untyped.
+						const godotModule: Record<string, GodotObject | undefined> = require('godot');
+						objectTransferObject = godotModule[message.singletonName] ?? null;
+					} else if (message.action === 'hold') {
+						objectTransferObject = message.object ?? null;
+					}
+					if (message.action !== 'control') {
+						if (!objectTransferObject || !is_instance_valid(objectTransferObject)) fail('object-transfer object was lost');
+						// Only non-RefCounted IDs are safe for the numeric observation protocol.
+						if (!(objectTransferObject instanceof RefCounted)) response.objectId = objectTransferObject.get_instance_id();
+						if (message.objectId !== undefined && message.objectId !== response.objectId) {
+							fail('object-transfer changed native object identity');
+						}
+						if (message.action === 'return' || message.action === 'singleton') {
+							response.object = objectTransferObject;
+							messageParent.postMessage(response, [objectTransferObject]);
+							objectTransferObject = null;
+							break;
+						}
+					}
+					messageParent.postMessage(response);
+					break;
+				}
+
 				case MessageType.Dictionary: {
 					assertDictionary(rawMessage, 'received dictionary message');
 
@@ -147,7 +190,7 @@ if (JSWorkerParent) {
 						payload: clonedGodotPayload,
 					} as const);
 
-					JSWorkerParent!.postMessage(response, [nestedResource]);
+					messageParent.postMessage(response, [nestedResource]);
 
 					break;
 				}
@@ -166,11 +209,11 @@ if (JSWorkerParent) {
 						type: MessageType.Plain,
 						payload: {
 							value: plainMessage.payload.value + 1,
-							text: `${plainMessage.payload.text}:worker`,
+							text: `${plainMessage.payload.text}:peer`,
 						},
 					};
 
-					JSWorkerParent!.postMessage(response);
+					messageParent.postMessage(response);
 					break;
 				}
 
@@ -204,7 +247,7 @@ if (JSWorkerParent) {
 						fail('map.number mismatch');
 					}
 
-					payload.map.set('workerVector', new Vector2(8, 8));
+					payload.map.set('peerVector', new Vector2(8, 8));
 
 					if (!(payload.set instanceof Set)) {
 						fail('set was not a Set');
@@ -214,7 +257,7 @@ if (JSWorkerParent) {
 						fail('set did not contain alpha');
 					}
 
-					payload.set.add('workerValue');
+					payload.set.add('peerValue');
 
 					if (!(payload.transferBuffer instanceof ArrayBuffer)) {
 						fail(`transferBuffer was not an ArrayBuffer (${describeValueShape(payload.transferBuffer)})`);
@@ -244,10 +287,10 @@ if (JSWorkerParent) {
 					if (!(payload.regExpValue instanceof RegExp)) {
 						fail('regExpValue was not a RegExp');
 					}
-					if (payload.regExpValue.source !== 'worker-roundtrip' || payload.regExpValue.flags !== 'gi') {
+					if (payload.regExpValue.source !== 'peer-roundtrip' || payload.regExpValue.flags !== 'gi') {
 						fail(`regExpValue mismatch: /${payload.regExpValue.source}/${payload.regExpValue.flags}`);
 					}
-					payload.regExpValue = /worker-roundtrip-updated/gi;
+					payload.regExpValue = /peer-roundtrip-updated/gi;
 
 					if (!(payload.typedArrayValue instanceof Uint16Array)) {
 						fail('typedArrayValue was not a Uint16Array');
@@ -275,19 +318,20 @@ if (JSWorkerParent) {
 
 					if (message.transferType === TransferType.Godot) {
 						if (payload.scriptedNodeWithExport.get_child_count() < 1) {
-							fail('scriptedNodeWithExport child was not accessible in worker');
+							fail('scriptedNodeWithExport child was not accessible in peer');
 						}
 						const transferredChild = payload.scriptedNodeWithExport.get_child(0);
 						if (!(transferredChild instanceof Node)) {
-							fail('scriptedNodeWithExport child was not a Node in worker');
+							fail('scriptedNodeWithExport child was not a Node in peer');
 						}
-						if (transferredChild.get_name() !== 'implicit-child') {
-							fail(`scriptedNodeWithExport child name mismatch in worker: ${transferredChild.get_name()}`);
+						const transferredChildName = transferredChild.get_name();
+						if (transferredChildName !== 'implicit-child') {
+							fail(`scriptedNodeWithExport child name mismatch in peer: ${transferredChildName}`);
 						}
-						transferredChild.set_name('implicit-child-worker');
+						transferredChild.set_name('implicit-child-peer');
 					}
 					payload.scriptedNodeWithExport.exportInt = 456;
-					payload.scriptedNodeWithExport.exportText = 'worker-mutated';
+					payload.scriptedNodeWithExport.exportText = 'peer-mutated';
 
 					if (payload.cyclicNode.self !== payload.cyclicNode) {
 						fail('cyclicNode.self identity mismatch');
@@ -295,7 +339,7 @@ if (JSWorkerParent) {
 					if (payload.cyclicNode.child?.parent !== payload.cyclicNode) {
 						fail('cyclicNode.child.parent identity mismatch');
 					}
-					payload.cyclicNode.workerTag = 'seen-in-worker';
+					payload.cyclicNode.peerTag = 'seen-in-peer';
 
 					if (!Array.isArray(payload.cyclicArray)) {
 						fail('cyclicArray was not an Array');
@@ -306,12 +350,12 @@ if (JSWorkerParent) {
 					if (payload.cyclicArray[1] !== payload.cyclicArray) {
 						fail('cyclicArray self-reference mismatch');
 					}
-					payload.cyclicArray.push('worker-mark');
+					payload.cyclicArray.push('peer-mark');
 
 					payload.deepMixedGraph.objectWithVariantAndCollections.marker = new Vector2(77, 88);
 					payload.deepMixedGraph.objectWithVariantAndCollections.typed[0] = 100;
 					payload.deepMixedGraph.objectWithVariantAndCollections.nestedSet.add(new Date('2024-05-06T07:08:09.000Z'));
-					payload.deepMixedGraph.objectWithVariantAndCollections.nestedSet.add(/deep-worker/g);
+					payload.deepMixedGraph.objectWithVariantAndCollections.nestedSet.add(/deep-peer/g);
 
 					const deepCycleNode = payload.deepMixedGraph.objectWithVariantAndCollections.nestedMap.get('cycleNode');
 					if (typeof deepCycleNode !== 'object' || deepCycleNode === null) {
@@ -334,7 +378,7 @@ if (JSWorkerParent) {
 
 					const transfers = [nestedJsResource, nestedDictionaryResource, payload.transferredInDictionary, payload.scriptedNodeWithExport];
 
-					JSWorkerParent!.postMessage(
+					messageParent.postMessage(
 						response,
 						message.transferType === TransferType.Godot ? buildGodotTransferList(transfers) : transfers
 					);
@@ -342,13 +386,13 @@ if (JSWorkerParent) {
 					break;
 				}
 
-				case MessageType.WorkerError:
-					fail(`unexpected worker error envelope: ${message.message}`);
+				case MessageType.PeerError:
+					fail(`unexpected peer error envelope: ${message.message}`);
 					break;
 			}
 		} catch (error) {
-			JSWorkerParent!.postMessage({
-				type: MessageType.WorkerError,
+			messageParent.postMessage({
+				type: MessageType.PeerError,
 				message: formatUnknownError(error),
 			});
 			throw error;
