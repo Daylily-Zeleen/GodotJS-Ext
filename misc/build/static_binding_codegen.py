@@ -1522,6 +1522,10 @@ def emit_ctor_dispatch(m):
                     L.append("\t\t\treturn;")
                     L.append("\t\t}")
             L.append("\t}")  # close the `if (argc == X) {` block
+        # No overload matched: throw instead of falling off the end. Without
+        # this the `new` callback returned a value-less wrapper (IF_Pointer ==
+        # null), which faulted later when anything dereferenced it.
+        L.append(f"\tthunks::internal::throw_no_suitable_ctor({vt_value_to_enum(vt)}, info);")
         L.append("\t}")  # close the function body
         L.append("")
     # Resolve by Variant::Type, avoiding JS aliases such as Array/GArray.

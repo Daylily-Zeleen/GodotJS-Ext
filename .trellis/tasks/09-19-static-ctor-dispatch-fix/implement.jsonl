@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "生成文件纪律：*.gen.* 只改生成器；本任务仅许可 emit_ctor_dispatch 的兜底发射"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "marshal_one/produce_value 分层与失败路径契约（本任务的核心改动面）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "静态腿 ctor 分发陷阱条目 + 运算符右=NIL 语义"}

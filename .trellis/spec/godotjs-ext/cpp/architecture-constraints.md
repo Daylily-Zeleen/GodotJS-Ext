@@ -77,6 +77,12 @@ api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL �
 
 ## 其他陷阱
 
+- **静态腿 ctor 分发：谓词必须 ⊆ 编组器接受面，且 arity 链必须有兜底抛出**（2026-09-19 定位并**已修复**，见任务 `09-19-static-ctor-dispatch-fix`）：
+  - **机制**：`can_be_converted_from<TargetT>`（`type_compatible.h`）是**类型对**判定，镜像引擎 `Variant::can_convert_strict`；而实际编组 `JSToGD<CppT>::convert` 判的是 **JS 值形态**。两者判据不同——`COLOR` 曾放行 `STRING`/`INT`，但 `JSToGD<godot::Color>`（`extract_variant_backed`）只接受 Variant 包装对象；于是 `new Color("abc")` 选中 `Color(Color)` → `marshal_one` 拒绝 → `bad argument 0`（bench `Constructors` 组 `invalid=2`，动态腿同组 `invalid=0`）。
+  - **契约**：`type_compatible.h` 文件头写有「谓词接受面必须 ⊆ 对应 `JSToGD<CppT>` 接受面」及逐目标审计表。**新增/修改目标类型时必须按表核对**——这是防漂移的唯一保证（曾考虑用与 `marshal_one` 同源的探针取代该表，2026-09-19 决定不做：该表本就是为 ctor 参数筛选专设，健全后即足够）。
+  - **兜底抛出**：生成的 `find_ctor_*` 此前在 arity 链后**掉出函数体**，`throw_no_suitable_ctor` 定义了却从未发射，导致返回 `IF_Pointer` 为 null 的空包装，下游解引用即 SIGSEGV。现已由 `static_binding_codegen.py` 的 `emit_ctor_dispatch` 在每个 `find_ctor_*` 末尾发射兜底抛出。
+  - **不变量：Variant 包装的 `IF_Pointer` 恒非空——不要加空指针守卫**。`IF_VariantFieldCount` 的包装由 `bind_valuetype` 写入 `IF_Pointer`，写入即绑定一个有效 Variant；其间没有"已判定为 variant 但指针为空"的合法状态。因此在 `probe_vt`（`thunks_common.h`）、`extract_variant_backed`（`jsb_type_convert_direct.h`）等消费端读 `IF_Pointer` 后判空是**治错对象**：空包装是分发缺陷的**症状**，正解是让分发永不出产它（上文兜底抛出）。2026-09-19 一度在消费端加守卫，经指出后全部回退。唯一的显式置空点是 `Environment::dispose_binding_object`（`jsb_environment.h`）；其 `[Symbol.dispose]` 入口尚未暴露（`jsb_object_bindings.cpp` TODO），届时若需支持"已 dispose 的包装"应在其自身调用点处理，不在此处。
+  - **判别方式**：异常会打印 `GODOTJS_TEST_PROJECT_FAILED:`/JS 异常文本；崩溃则整轮无 `COMPLETED` 且无 Orphan 统计。构造最小复现（静态腿）：`new PackedVector2Array([new Vector2()])`——参数是 JS 数组字面量时无匹配 ctor。实测：已抛 `no suitable constructor` 而非崩溃。
 - 目录搬迁时散落在源码树的陈旧 `.obj` 会被基于 Glob 的 SCons 脚本误收——同一变更里清理干净
 - 两份 `.gdextension` 清单注册重叠类会引发重复注册错误；拆分时审计类注册表
 - Headless 运行跳过部分编辑器流程（确认对话框自动确认）；驱动安装/codegen 路径时要刻意触发，不要按 GUI 行为假设
