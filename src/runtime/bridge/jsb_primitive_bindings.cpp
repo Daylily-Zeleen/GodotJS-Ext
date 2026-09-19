@@ -46,30 +46,30 @@
 // Codegen emits a switch per (left type, operator). Pass type_lit explicitly
 // so token pasting names that switch; operands are probed at runtime and
 // unmatched pairs fall back to Variant::evaluate.
-#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code) \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)   \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, &jsb::static_binding::find_op_##type_lit##_##op_code>);
 #	define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight) // overloads live in the pair-local switch emitted above
 #	define JSB_DEFINE_OVERLOADED_BINARY_END()
-#	define JSB_DEFINE_UNARY(op_code, ret_type)                   \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+#	define JSB_DEFINE_UNARY(op_code, ret_type)                     \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_unary_thunk<Variant::OP_##op_code, CurrentType, ret_type>);
-#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)              \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), \
+#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)                \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), \
 				jsb::static_binding::operator_dispatch_binary<Variant::OP_##op_code, CurrentType, &jsb::static_binding::find_op_##type_lit##_##op_code>);
 #else
 // dynamic path: generic callbacks evaluate through Variant::evaluate
 // (def.gen passes the type literal as the first arg on both paths; unused here)
-#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)                                                          \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+#	define JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)                                                            \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 #	define JSB_DEFINE_BINARY_OVERLOAD(Ret, TLeft, TRight)
 #	define JSB_DEFINE_OVERLOADED_BINARY_END()
-#	define JSB_DEFINE_UNARY(op_code, ret_type)                                                                           \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+#	define JSB_DEFINE_UNARY(op_code, ret_type)                                                                             \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), UnaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
-#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)                                                                       \
-		class_builder.Static().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
+#	define JSB_DEFINE_COMPARATOR(type_lit, op_code)                                                                         \
+		class_builder.Instance().Method(JSB_OPERATOR_NAME(op_code), BinaryOperator::invoke, (int32_t)Variant::OP_##op_code); \
 		JSB_LOG(VeryVerbose, "generate %d: %s", Variant::OP_##op_code, JSB_OPERATOR_NAME(op_code));
 #endif
 
@@ -115,12 +115,12 @@ struct BinaryOperator {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::Local<v8::Context> context = isolate->GetCurrentContext();
 		const Variant::Operator op = (Variant::Operator)info.Data().As<v8::Int32>()->Value();
-		if (info.Length() != 2) {
+		if (info.Length() != 1) {
 			jsb_throw(isolate, "bad param");
 			return;
 		}
 		Variant left, right;
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
+		if (!TypeConvert::js_to_gd_var(isolate, context, info.This(), left) || !TypeConvert::js_to_gd_var(isolate, context, info[0], right)) {
 			jsb_throw(isolate, "bad translation");
 			return;
 		}
@@ -148,13 +148,13 @@ struct UnaryOperator {
 		v8::Isolate *isolate = info.GetIsolate();
 		v8::Local<v8::Context> context = isolate->GetCurrentContext();
 		const Variant::Operator op = (Variant::Operator)info.Data().As<v8::Int32>()->Value();
-		if (info.Length() != 1) {
+		if (info.Length() != 0) {
 			jsb_throw(isolate, "bad param");
 			return;
 		}
 		Variant left;
 		const Variant right; // it's not really used
-		if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left)) {
+		if (!TypeConvert::js_to_gd_var(isolate, context, info.This(), left)) {
 			jsb_throw(isolate, "bad translation");
 			return;
 		}
@@ -947,6 +947,8 @@ public:
 				static_builder.LazyProperty(internal::NamingUtil::get_constant_name(constant.name), _get_constant_value_lazy);
 			}
 		}
+
+		// NOTE: 以工具类形式进行绑定的类型不绑定其操作符（他们通常时 js 内置类型）
 
 		{
 			if (r_class_id) *r_class_id = class_id;

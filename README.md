@@ -107,10 +107,11 @@ TypeScript integration tests run in a Godot project using the test project in `p
 scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=yes -j10
 
 
-# 2. Install JS dependencies and compile TypeScript
+# 2. Install JS dependencies, generate typings, compile TypeScript
 cd project
 pnpm install
-npx tsc --noCheck
+pnpm gen:types       # requires GODOT env var pointing at the engine binary
+npx tsc              # no --noCheck: the test project must type-check cleanly
 
 # 3. Run the test project headlessly
 & godot --audio-driver Dummy --headless --path . --verbose --debug

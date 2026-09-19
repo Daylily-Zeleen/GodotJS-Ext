@@ -137,6 +137,9 @@ struct OperatorDecl {
 	Variant::Type return_type = Variant::NIL;
 	Variant::Type left_type = Variant::NIL;
 	Variant::Type right_type = Variant::NIL;
+	// Unary operators take no right operand. Classified by op code, not by
+	// right_type == NIL: ==/!= and % also carry NIL right rows but stay binary.
+	bool is_unary = false;
 };
 
 struct ClassDecl {
@@ -213,10 +216,8 @@ public:
 	bool is_valid_method_name(const String &p_name) const;
 
 	String make_classname(const String &p_class_name, bool p_internal = false);
-	String make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable,
-			GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
-	String make_arg(const PropertyInfo &p_info, bool p_optional = false,
-			GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+	String make_typename(const PropertyInfo &p_info, bool p_used_as_input, bool p_non_nullable, GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+	String make_arg(const PropertyInfo &p_info, bool p_optional = false, GDExtensionClassMethodArgumentMetadata p_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
 	String make_arg_default_value(const MethodDecl &p_method, int p_index);
 	String make_args(const MethodDecl &p_method);
 	String make_return(const MethodDecl &p_method);

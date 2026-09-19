@@ -30,6 +30,40 @@
  * 编译期目标类型 TargetT + 运行期源类型 p_source_type -> bool。
  *
  * 用法：can_be_converted_from<godot::Variant::VECTOR2>(argts[i])
+ *
+ * ## 契约（改本表前必读）
+ *
+ * 本谓词与"实际编组器"是同一决策的两半：谓词在生成期选出重载
+ * （`find_ctor_<T>` 里的 `can_be_converted_from<...>(argts[i])`），
+ * 编组器在运行期真正转换（`marshal_one<CppT>` -> `try_js_to_gd` ->
+ * `JSToGD<CppT>::convert`，`jsb_type_convert_direct.h`）。
+ *
+ * **谓词的接受面必须 ⊆ 对应 C++ 形参编组器的接受面。**
+ * 违反即"选中某重载后被 marshal 拒绝"，表现为 `bad argument N`
+ * （历史实例：`COLOR` 曾放行 `STRING`/`INT`，而 `JSToGD<godot::Color>`
+ * 只接受 Variant 包装对象，导致 `new Color("abc")` 错选 `Color(Color)`
+ * 后编组失败；see bench `Constructors` 组）。
+ *
+ * 注意两侧判据**不是一回事**：谓词只看 `probe_vt` 得到的 Variant 类型对，
+ * 编组器看 JS 值的实际形态（`IsString` / `IsNumber` / `IsObject && is_variant`）。
+ * 因此标量源（STRING/INT/...）只能放行给**确实接受该标量的编组器**
+ * （`JSToGD<String>` 等），不能放行给仅接受包装对象的编组器。
+ *
+ * ## 审计表（新增/修改目标类型时逐行核对）
+ *
+ * | 目标 | 接受的额外源 | 该目标的编组器 | 是否一致 |
+ * |---|---|---|---|
+ * | `COLOR` | （无） | `extract_variant_backed`（仅包装） | ✓ |
+ * | `RID` | （无） | `extract_variant_backed`（仅包装） | ✓ |
+ * | `STRING_NAME` | `STRING` | `JSToGD<StringName>`（接受 `IsString`） | ✓ |
+ * | `NODE_PATH` | `STRING` | `JSToGD<NodePath>`（接受 `IsString`） | ✓ |
+ * | `BOOL`/`INT`/`FLOAT` | 数值互转 | `JSB_DIRECT_SCALAR`/`int64`（接受 `IsNumber`） | ✓ |
+ * | `ARRAY` / `PACKED_*_ARRAY` | 双向 | `extract_variant_backed` + 容器回退 | ✓ |
+ * | 向量/矩形/变换家族 | 同类互转 | `extract_variant_backed`（仅包装） | ✓ |
+ * | `OBJECT` | （无） | `JSToGD<Object *>`（`is_object`） | ✓ |
+ *
+ * 向量/变换家族之所以一致：其"额外源"本身都是可包装的 Variant 类型，
+ * 而编组器接受任意包装对象——类型不匹配由引擎 ctor 自身拒绝。
  */
 
 #pragma once
@@ -107,11 +141,16 @@ _FORCE_INLINE_ bool can_be_converted_from(godot::Variant::Type p_source_type) {
 		case godot::Variant::BASIS:
 			return p_source_type == godot::Variant::QUATERNION;
 
+		// COLOR / RID: no extra scalar sources. Their ctor marshaller is
+		// extract_variant_backed (jsb_type_convert_direct.h), which accepts only
+		// a Variant-backed wrapper -- never a raw JS string/number/object.
+		// Letting STRING/INT through here made `new Color("abc")` select
+		// Color(Color) and then fail in marshal_one ("bad argument 0").
+		// The scalar constructors live on the String overload, selected by the
+		// STRING predicate once this one declines.
 		case godot::Variant::COLOR:
-			return p_source_type == godot::Variant::STRING || p_source_type == godot::Variant::INT;
-
 		case godot::Variant::RID:
-			return p_source_type == godot::Variant::OBJECT;
+			return false;
 
 		// OBJECT 仅接受同类型或 NIL（均已在开头处理）。
 

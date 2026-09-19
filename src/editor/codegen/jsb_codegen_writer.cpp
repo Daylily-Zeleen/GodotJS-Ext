@@ -526,13 +526,20 @@ void ClassWriter::constructor_ex_() {
 void ClassWriter::operator_(const OperatorDecl &p_info) {
 	separator_line_ = true;
 	const String return_type_name = types_->get_variant_to_name(p_info.return_type);
-	const String left_type_name = types_->primitive_type_name_as_input_public(p_info.left_type);
-	if (p_info.right_type == Variant::NIL) {
-		line("static " + p_info.op_name + "(left: " + left_type_name + "): " + return_type_name);
-	} else {
-		const String right_type_name = types_->primitive_type_name_as_input_public(p_info.right_type);
-		line("static " + p_info.op_name + "(left: " + left_type_name + ", right: " + right_type_name + "): " + return_type_name);
+	// Member form: the receiver is the left operand, so only the right operand
+	// is declared. Unary operators are classified by op code (see OperatorDecl).
+	if (p_info.is_unary) {
+		line(p_info.op_name + String("(): ") + return_type_name);
+		return;
 	}
+	// right=NIL rows are the engine's "Variant" right operand (==/!=/%): any
+	// value, null included. The TS counterpart of godot::Variant is GAny
+	// (godot::Variant is a namespace in the typings, not a type), and GAny
+	// already covers undefined/null -- no extra "| null".
+	const String right_type_name = p_info.right_type == Variant::NIL
+			? String(kGodotAnyType)
+			: types_->primitive_type_name_as_input_public(p_info.right_type);
+	line(p_info.op_name + String("(right: ") + right_type_name + String("): ") + return_type_name);
 }
 
 void ClassWriter::method_(const MethodDecl &p_method, const String &p_category) {

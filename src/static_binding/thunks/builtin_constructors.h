@@ -39,7 +39,9 @@ namespace jsb::static_binding::thunks {
 namespace internal {
 
 // Include the target, argument count and probed types when no overload matches.
-static void throw_no_suitable_ctor(
+// `inline`, not `static`: this header is included by several TUs, and `static`
+// would mint an unused internal-linkage copy in each one.
+inline void throw_no_suitable_ctor(
 		godot::Variant::Type p_target, const v8::FunctionCallbackInfo<v8::Value> &info) {
 	godot::String detail;
 	for (int i = 0; i < info.Length(); ++i) {

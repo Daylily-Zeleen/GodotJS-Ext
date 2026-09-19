@@ -172,7 +172,11 @@ jobs:
           path: /tmp/bench
           pattern: benchmark-*
 
-      - name: Build TypeScript
+      # Bootstrap emit only: this job never builds the api store, so
+      # `project/typings/` cannot be generated here and the emit cannot be
+      # type-checked. The benchmark scene only needs runnable JS; the
+      # type-checking gate lives in the `test` job ("Generate project typings").
+      - name: Build TypeScript (bootstrap emit)
         shell: bash
         run: |
           pnpm install
@@ -615,12 +619,13 @@ jobs:
           mkdir -p project/addons/godotjs-ext.daylily-zeleen/bin
           cp -r runtime-artifacts/. project/addons/godotjs-ext.daylily-zeleen/bin/
 
-      # NOTE: gen:types (gen-godotjs-types.mts) requires a fully running Godot editor
-      # with pre-generated API dump data, which creates a circular dependency in CI
-      # (API dump generation itself needs the extension loaded). CI tests only need
-      # tsc compilation — skip gen:types and use tsc --noCheck instead.
+      # Bootstrap emit ONLY. `project/typings/` does not exist yet — it is
+      # generated from the api store that the next step produces — so this pass
+      # cannot type-check; it exists to emit the JS the editor loads while
+      # generating that data (`noEmitOnError: false` keeps the emit going).
+      # Type checking is enforced by the "Generate project typings" step below.
 
-      - name: Build TypeScript test files
+      - name: Build TypeScript test files (bootstrap emit)
         shell: bash
         run: |
           pnpm install
@@ -662,15 +667,24 @@ jobs:
             fi
             echo "attempt $attempt did not produce the api store, wiping caches and retrying..."
             rm -rf project/.godot
+            # Bootstrap emit only (typings still absent); see the step above.
             rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
             "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
             test -f project/extension_api.json
           done
           test -f project/.godot/.api_dumping/header.capi || { echo "api store missing after retries"; exit 1; }
-          # The editor first-run install can leave .godot/godotjs_ext partially
-          # wiped when it crashes mid-reimport (test_01.js etc. are tsc output,
-          # not part of the runtime install manifest). Re-emit before tests.
-          rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
+
+      - name: Generate project typings (type-check enforced)
+        shell: bash
+        working-directory: project
+        # The api store now exists, so `gen:types` can produce `project/typings/`
+        # and then run its enforcing `tsc` pass — the test project is genuinely
+        # type-checked here. `--generate-types` is known to exit non-zero during
+        # the editor's own shutdown after the files are written; the script
+        # tolerates that and the trailing type-check is what proves success.
+        run: |
+          rm -f project/.godot/.tsbuildinfo
+          pnpm gen:types
 
       # Diagnostic: rerun the exact first-time generation scenario under gdb
       # to capture a symbolized backtrace of the teardown SIGSEGV. Never
@@ -689,8 +703,9 @@ jobs:
           gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
           # The wipe above also removed the compiled JS output (tsc artifacts
           # live under .godot/godotjs_ext); restore them for the test steps.
+          # typings/ is unaffected, so this is an enforcing pass.
           rm -f project/.godot/.tsbuildinfo
-          pnpm -C project exec tsc --noCheck
+          pnpm -C project exec tsc
 
       - name: Run C++ unit tests
         shell: bash
@@ -699,9 +714,10 @@ jobs:
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
-          # and log the directory state for diagnostics.
+          # and log the directory state for diagnostics. typings/ is unaffected,
+          # so this is an enforcing pass.
           rm -f project/.godot/.tsbuildinfo
-          pnpm -C project exec tsc --noCheck
+          pnpm -C project exec tsc
           ls project/.godot/godotjs_ext | head -20 || true
             "$GODOT" --headless --path project --jsb-run-tests
           else
@@ -718,9 +734,10 @@ jobs:
         timeout-minutes: 10
         run: |
           # Editor startup flows may wipe compiled JS output; re-emit defensively
-          # and log the directory state for diagnostics.
+          # and log the directory state for diagnostics. typings/ is unaffected,
+          # so this is an enforcing pass.
           rm -f project/.godot/.tsbuildinfo
-          pnpm -C project exec tsc --noCheck
+          pnpm -C project exec tsc
           ls project/.godot/godotjs_ext | head -20 || true
           node scripts/test/run-runtime-matrix.mts --runtimes ${{ matrix.runtime }} --skip-builds
 

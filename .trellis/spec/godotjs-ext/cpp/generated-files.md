@@ -13,7 +13,7 @@
 | `src/runtime/jsb.gen.h` | `SConstruct` 的 `generate_jsb_gen_header()`（约 435 行起） |
 | `src/runtime/jsb_project_preset.gen.cpp`、`src/editor/weaver-editor/jsb_editor_preset.gen.cpp` | `SConstruct` 的 `PresetTransformer` / `generate_code()`（嵌入 JS bundle） |
 | `src/editor/weaver-editor/templates/templates.gen.h` | `misc/build/generate_templates_header.py`（扫描 `templates/**/*.ts.cs`） |
-| `src/runtime/internal/jsb_primitive_operators.def.gen.h` | `misc/build/generate_primitive_operators.py`（消费 godot-cpp 内置 api json，无条件生成，dynamic 路径也用） |
+| `src/runtime/internal/jsb_primitive_operators.def.gen.h` | `misc/build/generate_primitive_operators.py`（消费 godot-cpp 内置 api json，无条件生成，**两腿共用**：只发 `JSB_TYPE_BEGIN`/`JSB_DEFINE_*` 宏调用声明，不含实现；"静态方法"还是"成员方法"由消费者侧宏实现决定——`jsb_primitive_bindings.cpp` 两腿各挂 `class_builder.Instance()`，与生成文件内容无关） |
 | `src/static_binding/gen/*`（`dispatch_*.gen.cpp`、`registry.gen.h`、`string_names.gen.h`、`manifest.gen.json`） | `misc/build/static_binding_codegen.py`（`static_binding=yes` 时 SConstruct 每次构建自动调用；默认开启，日志见 `OK: static binding tables generated`） |
 | `third/godot-cpp/gen/**`（`*.gen.inc` 等） | `third/godot-cpp/binding_generator.py` |
 | `project/gen/**`、`project/typings/**`（运行期 TS 产物） | 引擎扩展 codegen：`godot --headless --editor --path ./project --generate-types`（入口 `jsb_editor_plugin.cpp` 的 `_generate_types_from_cmdline`） |

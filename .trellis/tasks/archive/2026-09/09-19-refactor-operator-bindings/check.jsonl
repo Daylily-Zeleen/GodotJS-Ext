@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "质量检查项：头文件无 using namespace、未直接编辑 *.gen.*、格式化通过 misc/format_src.py"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "核对改造后是否仍满足运算符分发约束（right=NIL 分类/% 的 nil 行/无每调用查表），并检查 spec 章节已同步成员形态"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "命名与代码风格一致性检查"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "确认本任务未手改生成文件、生成器重跑无意外 diff"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收判据：exit 0、GODOTJS_TEST_PROJECT_COMPLETED、无 Orphan StringName、bench invalid=0"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "d.ts diff 逐条归因与基线刷新流程"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "两腿构建与 dll 部署验证证据"}

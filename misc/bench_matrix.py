@@ -112,11 +112,12 @@ def run_bench(out_path: Path, use_gc: bool, log) -> dict:
 
 def assert_leg(report: dict, expect_static: bool) -> None:
     """Leg identity from the BENCH_JSON itself: benchmark.ts reports
-    staticBinding = Vector2.OP_IN !== undefined (the static operator table
-    exposes OP_* methods; the dynamic path does not). This is authoritative --
-    the old fallback-warning count ('static binding not found') is not: the
-    static table now covers every benchmarked method, so a static leg logs
-    zero fallbacks and the count-based check mislabels it."""
+    staticBinding = the STATIC_BINDING_ENABLED constant exported by the
+    godot-jsb module (true only when the DLL was built with static bindings).
+    This is authoritative -- the old fallback-warning count ('static binding
+    not found') is not: the static table now covers every benchmarked method,
+    so a static leg logs zero fallbacks and the count-based check mislabels
+    it."""
     got = bool(report.get("staticBinding"))
     if expect_static and not got:
         raise SystemExit(f"FATAL: BENCH_JSON staticBinding={got}, expected static leg -- "

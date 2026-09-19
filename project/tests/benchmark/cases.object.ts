@@ -26,7 +26,6 @@ export const OBJECT_CASES: CaseGroup[] = [
             const n = new Node();
             const child = new Node();
             n.add_child(child);
-            (n as any)._bench_child = child;
             return n;
         },
         cases: [
@@ -40,7 +39,7 @@ export const OBJECT_CASES: CaseGroup[] = [
             { name: "find_child(1+2defaults)", fn: (t: any) => t.find_child("missing") },
             { name: "find_children(1+3defaults)", fn: (t: any) => t.find_children("missing") },
             { name: "find_children(4)", fn: (t: any) => t.find_children("missing", "", true, true) },
-            { name: "move_child(2)", fn: (t: any) => t.move_child((t as any)._bench_child, 0) },
+            { name: "move_child(2)", fn: (t: any) => t.move_child(t.get_child(0), 0) },
             { name: "get_instance_id(0)", fn: (t: any) => t.get_instance_id() },
         ],
     },

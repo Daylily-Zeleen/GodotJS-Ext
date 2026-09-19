@@ -343,10 +343,10 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 	if constexpr (probe_prefer == probe_prefer_object_types) {
 		if (val->IsObject()) {
 			const v8::Local<v8::Object> obj = val.As<v8::Object>();
-			if (obj->InternalFieldCount() == IF_VariantFieldCount) {
+			if (TypeConvert::is_variant(obj)) {
 				return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
 			}
-			if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
+			if (TypeConvert::is_object(obj)) return Variant::OBJECT;
 		}
 		if (val->IsNullOrUndefined()) return Variant::NIL;
 	}
@@ -360,10 +360,10 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 		if (val->IsNullOrUndefined()) return Variant::NIL;
 		if (val->IsObject()) {
 			const v8::Local<v8::Object> obj = val.As<v8::Object>();
-			if (obj->InternalFieldCount() == IF_VariantFieldCount) {
+			if (TypeConvert::is_variant(obj)) {
 				return ((const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer))->get_type();
 			}
-			if (obj->InternalFieldCount() == IF_ObjectFieldCount) return Variant::OBJECT;
+			if (TypeConvert::is_object(obj)) return Variant::OBJECT;
 		}
 	}
 

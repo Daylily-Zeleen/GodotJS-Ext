@@ -21,7 +21,7 @@
 
 ## 固化基线的分步规程
 
-前置：扩展 DLL 已构建并安装到 addon（先 scons）；测试项目 TS 已编译（`cd project && node_modules/.bin/tsc --noCheck`）；确认当前 codegen 逻辑**尚未**包含待验证的修改。
+前置：扩展 DLL 已构建并安装到 addon（先 scons）；测试项目 TS 已编译（`cd project && pnpm gen:types && node_modules/.bin/tsc`，不用 `--noCheck`）；确认当前 codegen 逻辑**尚未**包含待验证的修改。
 
 ```bash
 # 步骤 1（可选但推荐）：确认现状干净——与现有基线 diff 应全绿或差异全部可归因为输入漂移
