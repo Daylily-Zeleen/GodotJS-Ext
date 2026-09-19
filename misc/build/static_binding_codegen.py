@@ -1286,9 +1286,11 @@ def emit_operator_pair_tables(m):
     them. right=Variant stays off (untyped fallback, concrete overloads cover
     it -- same rule as the def-file emission).
     Returns (definitions_for_dispatch_builtin_cpp, declarations_h_content)."""
-    # These JS-native left types have no operator static-method surface.
+    # These left types have no operator member surface. String is registered
+    # through reflect_bind_utilities, which never calls
+    # OperatorRegister<TypeName>::generate(), so its tables would be dead code.
     # Keep this exclusion set aligned with generate_primitive_operators.py.
-    JS_NATIVE_LEFT = {"bool", "int", "float", "StringName"}
+    JS_NATIVE_LEFT = {"bool", "int", "float", "StringName", "String"}
 
     groups = {}
     for op in m.operators:

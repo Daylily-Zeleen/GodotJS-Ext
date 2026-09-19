@@ -42,27 +42,37 @@ Godot **不会**原地加载构建出的扩展 DLL。对 `.gdextension` 里每�
 
 引用仓库里既有的"接缝"前，先问它是否依赖进程级单例或"本会成为另一个扩展"中的可变静态状态——此类模式在 `~` 副本模型下是**设计性损坏**，不得引为可行先例。
 
-## 静态绑定运算符双层分发（定形依据）
+## 内置类型运算符：成员形态 + 双层分发（定形依据）
 
-JS 运算符静态方法（统一命名 `OP_XXX`，由 `JSB_OPERATOR_NAME` 加前缀，jsb_macros.h）的调用路径分两层，均在**注册期/生成期定形**，调用时零查表：
+JS 运算符是**成员方法**，统一命名 `OP_XXX`（由 `JSB_OPERATOR_NAME` 加前缀，jsb_macros.h），调用形态 `left.OP_ADD(right)`。**接收者 `this` 即左操作数**，唯一实参 `info[0]` 即右操作数；挂载面为 `class_builder.Instance()`（`prototype_template_`），不是 `Static()`。调用路径分两层，均在**注册期/生成期定形**，调用时零查表：
 
-1. **一元运算符**（NEGATE/POSITIVE/NOT/BIT_NEGATE）：无"右参重载"概念，注册期直挂 `operator_unary_thunk<OpCode, LeftType, RetType>`（`JSB_DEFINE_UNARY`，`jsb_primitive_bindings_reflect.cpp` static 分支宏）。没有 dispatch 层。
-2. **二元运算符**：实参类型运行时才可知，**probe 不可消除，可消除的是查表**。生成器（`misc/build/static_binding_codegen.py` `emit_operator_pair_tables`）按 (left, op) 预展开全部 right 重载，每对生成一个 `find_op_<Left>_<Op>(Variant::Type)` 紧凑 switch 函数：定义发射进 `dispatch_builtin.gen.cpp`，声明发射进 `operator_tables.gen.h`（由 `dispatch.h` 在 `jsb::static_binding` 内 include）；`JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)` 宏用 `##` 把**宏实参**（类型字面量）拼成表函数名，挂 `operator_dispatch_binary<Op, Left, &find_op_...>`——dispatch 退化为"probe right 类型 → switch 取 thunk"，miss 回退 `Variant::evaluate`（与 dynamic 路径一致）。
-   `def.gen`（`generate_primitive_operators.py`）只发两腿共用的宏调用声明（`JSB_TYPE_BEGIN`/`JSB_DEFINE_OVERLOADED_BINARY_BEGIN` 等），不含任何 C++ 实现。
-3. **`==`/`!=` 对 null/undefined 的短路**：`operator_thunk` 内 constexpr 分支（`OpC == OP_EQUAL || OP_NOT_EQUAL` 且右参 `IsNullOrUndefined`）直接返回 false/true，不进引擎求值器。
+1. **一元运算符**（NEGATE/POSITIVE/NOT/BIT_NEGATE）：无"右参重载"概念，注册期直挂 `operator_unary_thunk<OpCode, LeftType, RetType>`（`JSB_DEFINE_UNARY`，`jsb_primitive_bindings.cpp` 的 static 分支宏），thunk 从 `info.This()` 取操作数。没有 dispatch 层。
+2. **二元运算符**：**接收者类型注册期已知**（每个内置类各挂自己的方法），右实参类型运行时才可知，**probe 不可消除，可消除的是查表**。生成器（`misc/build/static_binding_codegen.py` `emit_operator_pair_tables`）按 (left, op) 预展开全部 right 重载，每对生成一个 `find_op_<Left>_<Op>(Variant::Type)` 紧凑 switch 函数：定义发射进 `dispatch_builtin.gen.cpp`，声明发射进 `operator_tables.gen.h`（由 `dispatch.h` 在 `jsb::static_binding` 内 include）；`JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)` 宏用 `##` 把**宏实参**（类型字面量）拼成表函数名，挂 `operator_dispatch_binary<Op, Left, &find_op_...>`——dispatch 退化为"probe 右实参 `info[0]` 的类型 → switch 取 thunk"，miss 回退 `Variant::evaluate`（与 dynamic 路径一致）。
+   `def.gen`（`generate_primitive_operators.py`）只发两腿共用的宏调用声明（`JSB_TYPE_BEGIN`/`JSB_DEFINE_OVERLOADED_BINARY_BEGIN` 等），不含任何 C++ 实现——**"静态方法"还是"成员方法"由消费者侧的宏实现决定，与生成文件内容无关**。
+3. **`==`/`!=` 对 null/undefined 的短路**：`operator_thunk` 内 constexpr 分支（`OpC == OP_EQUAL || OP_NOT_EQUAL` 且右实参 `info[0]` `IsNullOrUndefined`）直接返回 false/true，不进引擎求值器。短路判定按**实参个数** `< 1`（成员形态下右操作数是唯一实参）。
+
+### 左操作数取用（成员形态）
+
+- 静态腿 `operator_thunk` 经 `left_backing_of<L>(info.This())` 取左操作数：仅接受 `IF_VariantFieldCount` 的内置包装（读 `IF_Pointer` 指向的 Variant，并校验其 `get_type() == GetTypeInfo<L>::VARIANT_TYPE`）；**不匹配即抛 "operator: bad left operand"**（不回退）。动态兜底发生在更外层的 `operator_dispatch_binary`：仅当 probe 到的接收者类型 ≠ `LeftT` 时转 `evaluate_dynamic_binary`。
+- 动态腿 `TypeConvert::js_to_gd_var(isolate, context, info.This(), left)`，与同文件 `_getter`/`_setter` 同路径。
+- 右操作数**恒为 `info[0]`**；`R = godot::Variant` 的 NIL 行不读实参，传默认构造 Variant。
+
+### 挂载排除集（两生成器必须一致）
+
+无运算符成员面的左类型：`Nil`（无 JS 类对象）、`bool`/`int`/`float`/`StringName`（JS 原生运算符已覆盖）、**`String`**（经 `reflect_bind_utilities` 注册，从不调用 `OperatorRegister<>::generate()`，发射即死代码）。排除集在两处各自硬编码并互相注释对齐：`generate_primitive_operators.py` 的 skip 集与 `static_binding_codegen.py` 的 `JS_NATIVE_LEFT`——增删必须同步。
 
 ### right=Nil 行的语义（引擎源码查证，勿再误写为"无类型回退"）
 
 api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL 档（extension_api_dump.cpp:749，`get_builtin_or_variant_type_name` 把 NIL 改名 "Variant"）。引擎里每条都有具体求值器，分三类：
 
-- `==`/`!=` × NIL：恒 false/true（`OperatorEvaluatorAlwaysTrue/False`，variant_op.cpp:487/571-585）——`nil==nil`、`X==nil` 的比较规则。静态绑定由 thunk 短路覆盖，**不发表行**。
+- `==`/`!=` × NIL：恒 false/true（`OperatorEvaluatorAlwaysFalse` 注册 `X==nil`，variant_op.cpp:533-569；`OperatorEvaluatorAlwaysTrue` 注册 `X!=nil`，variant_op.cpp:655-691；`nil==nil` 为 `AlwaysTrue`，variant_op.cpp:487）——`nil==nil`、`X==nil` 的比较规则。静态绑定由 thunk 短路覆盖，**不发表行**。
 - `and`/`or`/`xor` × NIL：nil 参与逻辑运算（`NilXBoolOr` 等，variant_op.cpp:795-804）。JS 用原生 `&&/||/^`，静态方法不会被调用——**不发表行**，dynamic 兜底。
-- `%` × (String/StringName, NIL)：**真实功能**——字符串格式化 `"fmt" % null` 即 `sprintf([null])`（`register_string_modulo_op(void, Variant::NIL)`，variant_op.h:771 void 特化）。**保留**，发 `case godot::Variant::NIL` 行，thunk 以 `R = godot::Variant` 直传未初始化 Variant。
+- `%` × (String/StringName, NIL)：引擎侧是**真实功能**——字符串格式化 `"fmt" % null` 即 `sprintf([null])`（注册调用 `register_string_modulo_op(void, Variant::NIL)`，variant_op.cpp:408；其展开指向 variant_op.h:771 的 `OperatorEvaluatorStringFormat<S, void>` 特化）。但 **String/StringName 都不挂载运算符**（String 走 utilities 注册），故该行对已挂载类型**无活代码**：生成器去 String 后不再产出这张表。thunk 内 `R = godot::Variant` 的处理保留为防御性逻辑（与本分类语义一致），不是当前可达路径。
 
 定形约束（改动前必读）：
 - **宏 `##` 只能拼接宏实参**：表函数名靠 `JSB_DEFINE_OVERLOADED_BINARY_BEGIN(type_lit, op_code)` 的类型字面量实参拼接；不能拼接宏体内引用的宏名（MSVC 展开顺序不可靠，C2162）。表函数定义在 `dispatch_builtin.gen.cpp`（static 腿专用），声明头 `operator_tables.gen.h` 由 `dispatch.h` include——def.gen（两腿共用）内不得出现任何 C++ 实现。
 - **比较器与二元运算符同构**：并入同一 bin_groups 生成 switch；每个 token 只发一个 `JSB_DEFINE_OVERLOADED_BINARY_BEGIN` 块（json 每 overload 一条，多 right 重载共享一块）——重复注册同名 JS 方法会触发 V8 name collision 崩溃。
-- **`right=Variant` 行按三类分治**（见上节）：`==`/`!=`、`and`/`or`/`xor` 不发表行；`%` 发 `Variant::NIL` case。不得笼统跳过——`%` 的 nil 行是真实功能。
+- **`right=Variant` 行按三类分治**（见上节）：`==`/`!=`、`and`/`or`/`xor` 不发表行；`%` 的 NIL 行只属 String/StringName（不挂载），故去 String 后已无此类行。引擎侧 `%` 的 nil 语义仍是真实功能，thunk 内的对应处理保留为防御性逻辑。
 - 旧全局二分表 `find_operator_thunk` 已从 `dispatch_builtin.gen.cpp` 移除，`dispatch.h` 中亦无声明；新代码不得再引入每调用查表。
 
 ## 其他陷阱

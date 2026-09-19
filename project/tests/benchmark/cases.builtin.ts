@@ -5,8 +5,9 @@
  * each lambda and skips timing if it throws. Constructors inside lambdas are
  * part of the measured work, unlike makeTarget().
  *
- * Operator cases call the JS-side static methods `OP_XXX` (naming unified
- * with the editor typings; see JSB_OPERATOR_NAME in src/internal/jsb_macros.h).
+ * Operator cases call the JS-side member methods `OP_XXX` on the left operand
+ * (naming unified with the editor typings; see JSB_OPERATOR_NAME in
+ * src/internal/jsb_macros.h).
  */
 import { CaseGroup } from "./benchmark";
 import {
@@ -296,50 +297,50 @@ export const BUILTIN_CASES: CaseGroup[] = [
             vector3: new Vector3(),
         }),
         cases: [
-            { name: "Vector2.OP_EQUAL(Vector2)", fn: (t: any) => Vector2.OP_EQUAL(t.vector2, t.vector2) },
-            { name: "Vector2.OP_ADD(Vector2)", fn: (t: any) => Vector2.OP_ADD(t.vector2, t.vector2) },
-            { name: "Vector2.OP_MULTIPLY(Vector2)", fn: (t: any) => Vector2.OP_MULTIPLY(t.vector2, t.vector2) },
-            { name: "Vector2.OP_MULTIPLY(int)", fn: (t: any) => Vector2.OP_MULTIPLY(t.vector2, 0) },
-            { name: "Vector2i.OP_LESS(Vector2i)", fn: (t: any) => Vector2i.OP_LESS(t.vector2i, t.vector2i) },
-            { name: "Vector3.OP_ADD(Vector3)", fn: (t: any) => Vector3.OP_ADD(t.vector3, t.vector3) },
-            { name: "Vector3.OP_MULTIPLY(Vector3)", fn: (t: any) => Vector3.OP_MULTIPLY(t.vector3, t.vector3) },
+            { name: "Vector2.OP_EQUAL(Vector2)", fn: (t: any) => t.vector2.OP_EQUAL(t.vector2) },
+            { name: "Vector2.OP_ADD(Vector2)", fn: (t: any) => t.vector2.OP_ADD(t.vector2) },
+            { name: "Vector2.OP_MULTIPLY(Vector2)", fn: (t: any) => t.vector2.OP_MULTIPLY(t.vector2) },
+            { name: "Vector2.OP_MULTIPLY(int)", fn: (t: any) => t.vector2.OP_MULTIPLY(0) },
+            { name: "Vector2i.OP_LESS(Vector2i)", fn: (t: any) => t.vector2i.OP_LESS(t.vector2i) },
+            { name: "Vector3.OP_ADD(Vector3)", fn: (t: any) => t.vector3.OP_ADD(t.vector3) },
+            { name: "Vector3.OP_MULTIPLY(Vector3)", fn: (t: any) => t.vector3.OP_MULTIPLY(t.vector3) },
             {
                 name: "Transform2D.OP_MULTIPLY(Transform2D)",
-                fn: (t: any) => Transform2D.OP_MULTIPLY(t.transform2d, t.transform2d),
+                fn: (t: any) => t.transform2d.OP_MULTIPLY(t.transform2d),
             },
             {
                 name: "Transform2D.OP_MULTIPLY(Vector2)",
-                fn: (t: any) => Transform2D.OP_MULTIPLY(t.transform2d, t.vector2),
+                fn: (t: any) => t.transform2d.OP_MULTIPLY(t.vector2),
             },
             {
                 name: "Quaternion.OP_MULTIPLY(Quaternion)",
-                fn: (t: any) => Quaternion.OP_MULTIPLY(t.quaternion, t.quaternion),
+                fn: (t: any) => t.quaternion.OP_MULTIPLY(t.quaternion),
             },
-            { name: "AABB.OP_MULTIPLY(Transform3D)", fn: (t: any) => AABB.OP_MULTIPLY(t.aabb, t.transform3d) },
-            { name: "Plane.OP_MULTIPLY(Transform3D)", fn: (t: any) => Plane.OP_MULTIPLY(t.plane, t.transform3d) },
-            { name: "Basis.OP_MULTIPLY(Basis)", fn: (t: any) => Basis.OP_MULTIPLY(t.basis, t.basis) },
-            { name: "Basis.OP_MULTIPLY(Vector3)", fn: (t: any) => Basis.OP_MULTIPLY(t.basis, t.vector3) },
-            { name: "Basis.OP_MULTIPLY(float)", fn: (t: any) => Basis.OP_MULTIPLY(t.basis, 1.5) },
-            { name: "Basis.OP_EQUAL(Basis)", fn: (t: any) => Basis.OP_EQUAL(t.basis, t.basis) },
+            { name: "AABB.OP_MULTIPLY(Transform3D)", fn: (t: any) => t.aabb.OP_MULTIPLY(t.transform3d) },
+            { name: "Plane.OP_MULTIPLY(Transform3D)", fn: (t: any) => t.plane.OP_MULTIPLY(t.transform3d) },
+            { name: "Basis.OP_MULTIPLY(Basis)", fn: (t: any) => t.basis.OP_MULTIPLY(t.basis) },
+            { name: "Basis.OP_MULTIPLY(Vector3)", fn: (t: any) => t.basis.OP_MULTIPLY(t.vector3) },
+            { name: "Basis.OP_MULTIPLY(float)", fn: (t: any) => t.basis.OP_MULTIPLY(1.5) },
+            { name: "Basis.OP_EQUAL(Basis)", fn: (t: any) => t.basis.OP_EQUAL(t.basis) },
             {
                 name: "Transform3D.OP_MULTIPLY(Transform3D)",
-                fn: (t: any) => Transform3D.OP_MULTIPLY(t.transform3d, t.transform3d),
+                fn: (t: any) => t.transform3d.OP_MULTIPLY(t.transform3d),
             },
             {
                 name: "Transform3D.OP_MULTIPLY(Vector3)",
-                fn: (t: any) => Transform3D.OP_MULTIPLY(t.transform3d, t.vector3),
+                fn: (t: any) => t.transform3d.OP_MULTIPLY(t.vector3),
             },
-            { name: "Transform3D.OP_MULTIPLY(Plane)", fn: (t: any) => Transform3D.OP_MULTIPLY(t.transform3d, t.plane) },
+            { name: "Transform3D.OP_MULTIPLY(Plane)", fn: (t: any) => t.transform3d.OP_MULTIPLY(t.plane) },
             {
                 name: "Projection.OP_MULTIPLY(Projection)",
-                fn: (t: any) => Projection.OP_MULTIPLY(t.projection, t.projection),
+                fn: (t: any) => t.projection.OP_MULTIPLY(t.projection),
             },
             {
                 name: "Projection.OP_MULTIPLY(Vector4)",
-                fn: (t: any) => Projection.OP_MULTIPLY(t.projection, new Vector4(1, 2, 3, 4)),
+                fn: (t: any) => t.projection.OP_MULTIPLY(new Vector4(1, 2, 3, 4)),
             },
-            { name: "Color.OP_ADD(Color)", fn: (t: any) => Color.OP_ADD(t.color, t.color) },
-            { name: "Color.OP_MULTIPLY(Color)", fn: (t: any) => Color.OP_MULTIPLY(t.color, t.color) },
+            { name: "Color.OP_ADD(Color)", fn: (t: any) => t.color.OP_ADD(t.color) },
+            { name: "Color.OP_MULTIPLY(Color)", fn: (t: any) => t.color.OP_MULTIPLY(t.color) },
         ],
     },
     // 23 operator cases (Operators group)

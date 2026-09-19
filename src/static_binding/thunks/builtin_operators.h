@@ -46,7 +46,7 @@ template <typename L>
 const Variant *left_backing_of(const v8::Local<v8::Value> &val) {
 	if (!val->IsObject()) return nullptr;
 	const v8::Local<v8::Object> obj = val.As<v8::Object>();
-	if (obj->InternalFieldCount() != IF_VariantFieldCount) return nullptr;
+	if (!TypeConvert::is_variant(obj)) return nullptr;
 	const Variant *v = (const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer);
 	if (v->get_type() != (Variant::Type)GetTypeInfo<L>::VARIANT_TYPE) return nullptr;
 	return v;
@@ -66,19 +66,21 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const Variant *left_var = left_backing_of<L>(info[0]);
+	const Variant *left_var = left_backing_of<L>(info.This());
 	if (!left_var) {
 		jsb_throw(isolate, "operator: bad left operand");
 		return;
 	}
 	void *left_opaque = left_opaque_of<L>((Variant *)left_var);
 
-	// This short-circuit returns true for == and false for != when the right
-	// operand is missing or null/undefined, without calling the evaluator.
+	// Engine rule for equality against nil/undefined: `X == nil` is always
+	// false and `X != nil` is always true (OperatorEvaluatorAlwaysFalse /
+	// AlwaysTrue, registered for every concrete left type). Short-circuit for a
+	// missing or null/undefined right operand, which the NIL case label of the
+	// dispatch table otherwise routes to the same-type evaluator thunk.
 	if constexpr (OpC == Variant::OP_EQUAL || OpC == Variant::OP_NOT_EQUAL) {
-		if (info.Length() < 2 || info[1]->IsNullOrUndefined()) {
-			const bool equal = OpC == Variant::OP_EQUAL;
-			info.GetReturnValue().Set(v8::Boolean::New(isolate, equal));
+		if (info.Length() < 1 || info[0]->IsNullOrUndefined()) {
+			info.GetReturnValue().Set(v8::Boolean::New(isolate, OpC == Variant::OP_NOT_EQUAL));
 			return;
 		}
 	}
@@ -95,20 +97,20 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	typename godot::PtrToArg<R>::EncodeT right_slot{};
 	if constexpr (std::is_same_v<R, int64_t>) {
-		right_slot = (int64_t)info[1].As<v8::Int32>()->Value();
+		right_slot = (int64_t)info[0].As<v8::Int32>()->Value();
 	} else if constexpr (std::is_same_v<R, double>) {
-		right_slot = info[1].As<v8::Number>()->Value();
+		right_slot = info[0].As<v8::Number>()->Value();
 	} else if constexpr (std::is_same_v<R, bool>) {
-		right_slot = info[1].As<v8::Boolean>()->Value();
+		right_slot = info[0].As<v8::Boolean>()->Value();
 	} else if constexpr (std::is_same_v<R, godot::String>) {
-		right_slot = impl::Helper::to_string(isolate, info[1]);
+		right_slot = impl::Helper::to_string(isolate, info[0]);
 	} else if constexpr (std::is_same_v<R, godot::Variant>) {
 		// NIL dispatch rows (e.g. String % null) pass a default-constructed
 		// Variant, not a wrapper's native payload.
 		(void)info;
 	} else {
 		// Copy the matched wrapper's native value into the right operand slot.
-		const v8::Local<v8::Object> obj = info[1].As<v8::Object>();
+		const v8::Local<v8::Object> obj = info[0].As<v8::Object>();
 		const Variant *bv = (const Variant *)obj->GetAlignedPointerFromInternalField(IF_Pointer);
 		if (bv->get_type() != (Variant::Type)GetTypeInfo<R>::VARIANT_TYPE) {
 			jsb_throw(isolate, "operator: right operand type changed");
@@ -136,7 +138,7 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const Variant *left_var = left_backing_of<L>(info[0]);
+	const Variant *left_var = left_backing_of<L>(info.This());
 	if (!left_var) {
 		jsb_throw(isolate, "operator: bad left operand");
 		return;
@@ -167,9 +169,11 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 // Dynamic fallback: convert both operands to Variants and use generic evaluation.
 static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &info,
-		v8::Isolate *isolate, const v8::Local<v8::Context> &context, Variant::Operator op) {
+		v8::Isolate *isolate,
+		const v8::Local<v8::Context> &context,
+		Variant::Operator op) {
 	Variant left, right;
-	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], left) || !TypeConvert::js_to_gd_var(isolate, context, info[1], right)) {
+	if (!TypeConvert::js_to_gd_var(isolate, context, info.This(), left) || !TypeConvert::js_to_gd_var(isolate, context, info[0], right)) {
 		jsb_throw(isolate, "bad translation");
 		return;
 	}
@@ -177,9 +181,7 @@ static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &i
 	bool r_valid = false;
 	Variant::evaluate(op, left, right, ret, r_valid);
 	if (!r_valid) {
-		jsb_throw(isolate, jsb_format("bad operation between %s and %s.",
-				Variant::get_type_name(left.get_type()),
-				Variant::get_type_name(right.get_type())));
+		jsb_throw(isolate, jsb_format("bad operation between %s and %s.", Variant::get_type_name(left.get_type()), Variant::get_type_name(right.get_type())));
 		return;
 	}
 	v8::Local<v8::Value> rval;
@@ -199,8 +201,8 @@ void operator_dispatch_binary(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-	const Variant::Type left_vt = probe_vt<probe_prefer_object_types>(info[0]);
-	const Variant::Type right_vt = probe_vt<probe_prefer_primitive_types>(info[1]);
+	const Variant::Type left_vt = probe_vt<probe_prefer_object_types>(info.This());
+	const Variant::Type right_vt = probe_vt<probe_prefer_primitive_types>(info[0]);
 	if (left_vt == Variant::VARIANT_MAX || right_vt == Variant::VARIANT_MAX) {
 		evaluate_dynamic_binary(info, isolate, context, OpC);
 		return;

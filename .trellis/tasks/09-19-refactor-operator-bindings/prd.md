@@ -25,11 +25,11 @@
 ### 规模（生成器实跑产物实测，4.7 api json）
 
 - `jsb_primitive_types.def.h` 声明 **32 个挂载类**（String 另走 `reflect_bind_utilities`，见 `jsb_primitive_bindings.cpp:965-971`）。
-- **JS 可见运算符方法 = 236 个（类 × 运算符名）**：一元 50 + 二元 186。取证：`generate_primitive_operators.py` 产出的 def.gen.h 有 33 个 `JSB_TYPE_BEGIN` 块（246 方法），剔除 String 块（10 个）即得。
-- 静态腿 `find_op_*` 表 **186** 张（`static_binding_codegen.py` 产出 195 张，剔除 String 的 9 张），表内 `case` 标签合计 **344** 个可选 (左,op,右) 组合（401 − String 57）。
+- **JS 可见运算符方法 = 236 个（类 × 运算符名）**：一元 50 + 二元 186。取证：`generate_primitive_operators.py` 产出的 def.gen.h 去 String 后 32 个 `JSB_TYPE_BEGIN` 块（原 33 块含 String 的 10 个不挂载方法）。
+- 静态腿 `find_op_*` 表 **186** 张、表内 `case` 标签合计 **344** 个可选 (左,op,右) 组合（`static_binding_codegen.py` 去 String 后产物）。
 - json 在 32 个挂载类上声明 394 条重载行；与 344 的差异来自生成器刻意跳过：`==`/`!=` 的 NIL 行（thunk 短路覆盖，不发表行）、`and`/`or`/`xor` 的 NIL 行（JS 用原生 `&&`/`||`/`^`）、其余 `Variant` 右参行。
 - 一元运算符（`unary-`/`unary+`/`not`/`~`）不进表，注册期直挂。
-- `%` 的 NIL 行是**真实功能**（`"fmt" % null`），静态腿发 `Variant::NIL` case。
+- `%` 的 NIL 行（`"fmt" % null`）**只存在于 String/StringName**，两者均不挂载运算符 → 对已挂载类型无活代码；R6 去 String 后静态腿不再产出该 case。thunk 内的 `R = godot::Variant` 处理保留为防御性逻辑。
 - 运算符名 `OP_*` 与既有实例方法/成员**无冲突**（`OP_` 前缀天然保证唯一性）。
 
 ### 现状缺陷（item 2）
@@ -87,9 +87,9 @@ R5.2 **覆盖全部已绑定运算符**，不抽样。下表是**去 String 之�
 | 维度 | 数量 | 取证 |
 |---|---:|---|
 | 挂载类（`jsb_primitive_types.def.h`） | 32 | def.h 32 条 `DEF`，String 另走 utilities |
-| **JS 可见运算符方法（类 × 运算符名）** | **236**（一元 50 / 二元 186） | def.gen.h 33 块剔除 String 块（其 9 二元 + 1 一元不挂载） |
-| 静态腿 `find_op_*` 表 | 186 | `dispatch_builtin.gen.cpp` 195 表 − String 9 表 |
-| **静态腿可选 (左,op,右) 组合** | **344** | 401 个 `case` 标签 − String 57 |
+| **JS 可见运算符方法（类 × 运算符名）** | **236**（一元 50 / 二元 186） | def.gen.h 去 String 后 32 块（原 33 块含 String 的 10 个不挂载方法） |
+| 静态腿 `find_op_*` 表 | 186 | `dispatch_builtin.gen.cpp` 去 String 后 186 表 |
+| **静态腿可选 (左,op,右) 组合** | **344** | 去 String 后 344 个 `case` 标签 |
 | json 声明的重载行（32 类） | 394 | api json；含被生成器刻意跳过的行（见下） |
 
 两类数字差异必须理解，否则会把"覆盖率不足"误判为缺陷：
@@ -101,7 +101,7 @@ R5.3 每个绑定方法至少断言三件事：
 2. **静态形态已移除**：`(Class as any).OP_X === undefined`；
 3. **调用可用**：以一个合法操作数调用，不抛异常，且返回值的 Variant 型别与 api json 声明的 `return_type` 一致。
 
-R5.4 二元运算符按**右参类型**逐个覆盖静态腿全部可选组合（每个表内每个 `case` 标签各一个代表操作数，去 String 后目标 287），而非只测每方法首个重载；覆盖表由 `dispatch_builtin.gen.cpp` 机械抽取（R6 落地后重抽）。
+R5.4 二元运算符按**右参类型**逐个覆盖静态腿全部可选组合（每个表内每个 `case` 标签各一个代表操作数，去 String 后目标 344），而非只测每方法首个重载；覆盖表由 `dispatch_builtin.gen.cpp` 机械抽取（R6 落地后重抽）。
 R5.5 语义正确性**双重取证**：
 - **精确值断言**：对当前 bench 已覆盖的 23 条 + 各类型若干代表，断言具体取值（如 `new Vector2(1,2).OP_ADD(new Vector2(3,4))` 等于 `(4,6)`）；
 - **不变量断言**：对其余全部方法，断言与引擎取值器无关的自洽不变量——`a.OP_EQUAL(a) === true`、`a.OP_NOT_EQUAL(a) === false`、比较类反对称（`a.OP_LESS(b)` 与 `b.OP_GREATER(a)` 同真值）、`a.OP_ADD(a)` 返回型别正确等。
@@ -109,7 +109,7 @@ R5.5 语义正确性**双重取证**：
 R5.6 **边界与短路**：`OP_EQUAL(null)` / `OP_NOT_EQUAL(undefined)` 的短路语义。（注：原拟的 `"%s".OP_MODULE(null)` **不成立**——String 不挂载运算符，见 R6；已从验收项移除。）
 R5.7 **完整性守卫**：测试内声明期望的覆盖集合（按类列出该类的运算符名集合与总数），运行时把"实际发现的成员方法集合"与之比对，任何一侧增减都报失败——防止 api json 升级或绑定面变化后测试静默漏测。
 R5.8 测试表由**生成器产物**机械推导生成（一次性脚本产出数据表嵌入测试文件，脚本留在 `.agent_tmp/`，不入库），**不手写**以免人工遗漏。
-R5.9 覆盖集合按 R6 去掉 String 之后的目标值界定：**226 个 JS 可见方法**（一元 49 + 二元 177）、**177 张静态腿表**、**287 个可选组合**（下文 R6.6）。实施时以重新抽取的实际值为准。
+R5.9 覆盖集合（去 String 后实测，下文 R6.6）：**236 个 JS 可见方法**（一元 50 + 二元 186）、**186 张静态腿表**、**344 个可选组合**。实施时以重新抽取的实际值为准。
 
 ### R6 去掉 String 的运算符生成（绑定与声明代码生成都用不上）
 
@@ -123,15 +123,23 @@ R5.9 覆盖集合按 R6 去掉 String 之后的目标值界定：**226 个 JS �
 
 根因：两个生成器各自维护排除集且互相对齐（`static_binding_codegen.py:1289` 注释 "Keep this exclusion set aligned with generate_primitive_operators.py"），但**两边都漏了 String**——`JS_NATIVE_LEFT` 含 `bool/int/float/StringName`，`generate_primitive_operators.py:196` 的 skip 集合同样是这 4 个。
 
-R6.1 `generate_primitive_operators.py`：把一个类是否发射运算符块，从「不在硬编码 skip 集合」改为**「该类型属于 primitive 挂载表且有运算符静态面」**——即 String 加入 skip（其走 utilities 注册，不挂运算符）。
+R6.1 `generate_primitive_operators.py`：skip 集合加入 `String`（其走 utilities 注册，不挂运算符）。
 R6.2 `static_binding_codegen.py`：`JS_NATIVE_LEFT` 加入 `"String"`（与 R6.1 同步，保持两生成器排除集一致）。
-R6.3 **两生成器的排除判据必须同源**（同一集合语义），不再各写一份易漂移的硬编码列表。可选做法：把"无运算符静态面的左类型"定义在一处（如生成器共享的常量）并双向引用；至少要在两处加交叉引用注释并各自断言。
+R6.3 **两生成器的排除集合必须一致**：两处各加指向对方的交叉引用注释，后续引擎增删时同步。
 R6.4 不修改 `jsb_primitive_types.def.h`（String 仍参与 primitive 绑定，只是不参与运算符生成）。
 R6.5 `TypeDB` 侧无改动（本来就对）；但 R3 的单源化完成后顺带确认 String 仍走 utilities 模式。
 
-R6.6 预期收益：`def.gen.h` 少 33 行 String 块；`dispatch_builtin.gen.cpp` 少 9 张表 + 55 个 thunk 实例化；`builtin_operator_tables.gen.h` 少 9 行声明。规模数字随之更新：JS 可见方法 236 → **226**（一元 50 → 49、二元 186 → 177），静态腿表 186 → 177，可选组合 344 → 287（344 − 57）。
+R6.6 实测收益（生成器实跑，实施时已核对）：
 
-> 注：上列 226/177/287 是**去 String 之后**的目标值；R5 的覆盖矩阵与完整性守卫按更新后的集合重新抽取，不引用本文档的冻结数字。
+| 维度 | 去 String 前 | 去 String 后 |
+|---|---:|---:|
+| `def.gen.h` 类型块 | 33 | **32** |
+| JS 可见运算符方法 | 246（一元 51 / 二元 195） | **236（一元 50 / 二元 186）** |
+| 静态腿 `find_op_*` 表 | 195 | **186** |
+| 静态腿可选 `case` 组合 | 401 | **344** |
+| `operator_thunk` 不同实例化 | 335 | **280** |
+
+> **勘误**：本节原写"236 → 226 / 186 → 177 / 344 → 287"，是把 String 减了两次（R5 基线表的 236/186/344 **本就已剔除 String**）。上表为实跑实测值。
 
 ### R7 `cases.builtin.ts` 运算符相关调用形态同步
 
@@ -146,9 +154,9 @@ R7.3 文件头注释中"调用静态方法"的表述同步更新。
 - [ ] `==`/`!=` 对 `null`/`undefined` 短路不变（`v.OP_EQUAL(null)` → false、`v.OP_NOT_EQUAL(undefined)` → true）。
 - [ ] **String 运算符生成已移除**：`def.gen.h` 无 `JSB_TYPE_BEGIN(String)` 块；`dispatch_builtin.gen.cpp` / `builtin_operator_tables.gen.h` 无 `find_op_String_*`；`operator_thunk` 实例化总数从 335 降至 ≤280（去掉 55 个 String 独有）。String 的 primitive 绑定/utilities 注册**不受影响**。
 - [ ] 两腿（`static_binding=yes` / `no`）**均在 quickjs-ng 下**构建通过且上述行为一致。
-- [ ] 编辑器 d.ts 重新生成后：`Vector2` 含成员签名 `OP_ADD(right: Vector2): Vector2`、`OP_NEGATE(): Vector2`；全文 **零** `static OP_*`；`right=NIL` 的二元重载仍带右参（`right: Variant | null`）。
+- [ ] 编辑器 d.ts 重新生成后：`Vector2` 含成员签名 `OP_ADD(right: Vector2): Vector2`、`OP_NEGATE(): Vector2`；全文 **零** `static OP_*`；`right=NIL` 的二元重载仍带右参（`right: GAny`；2026-09-19 修正，原为 `Variant | null`）。
 - [ ] 类型清单单源验证：`jsb_primitive_types.def.h` 增删一项 → 编辑器 d.ts 输出随之变化；`kPrimitiveTypes` 与 `JSB_CODEGEN_DEF_UTIL` 已不存在。
-- [ ] **运算符专项测试覆盖去 String 后的全部已绑定运算符**（目标 226 方法：一元 49 + 二元 177）与**全部静态腿可选组合**（目标 287 个），实际值以重新抽取为准；完整性守卫在覆盖集合被削减时失败。
+- [ ] **运算符专项测试覆盖去 String 后的全部已绑定运算符**（236 方法：一元 50 + 二元 186）与**全部静态腿可选组合**（344 个），实际值以重新抽取为准；完整性守卫在覆盖集合被削减时失败。
 - [ ] C++ 双套件全绿（`godot --path ./project --jsb-run-tests`，dev 构建，quickjs-ng）。
 - [ ] TS 集成测试 `GODOTJS_TEST_PROJECT_COMPLETED`（含新增运算符专项场景）；bench case 全量 `invalid=0`。
 - [ ] 两个生成器改动仅限 String 排除（R6）；除该范围外输出字节不变。
@@ -165,10 +173,10 @@ R7.3 文件头注释中"调用静态方法"的表述同步更新。
 
 ## Notes / 依赖
 
-- 既存任务 `09-08-member-form-operators`（planning, P3）目标相同，但**其描述中的 `vec.add(other)` 命名方案本次不采纳**（用户要求命名不变）。本任务为其落地承接者；**归档/取代需用户确认后执行**，不擅自改动他人任务记录。
+- 既存任务 `09-08-member-form-operators`（planning, P3）目标相同，但**其描述中的 `vec.add(other)` 命名方案本次不采纳**（用户要求命名不变）。经用户确认，本任务**已取代**它：该任务已归档至 `.trellis/tasks/archive/2026-09/09-08-member-form-operators/`（status: completed），并从父任务 `09-08-lowprio-static-improvements` 的 children 移除。
 - `09-12-form-a-default-handling` 正在 `in_progress`，改动落在 `thunks_common.h` / `builtin_methods.h`。与 `builtin_operators.h` 无文件重叠，但两任务均改 `jsb_primitive_bindings.cpp`——实施前先确认该文件未被并行编辑。
 - 生成文件纪律：`*.gen.*` 一律改生成器，禁止手改；本任务对生成器的改动**仅限 R6 的 String 排除**，其他任何 diff 即为越界。
-- 覆盖矩阵数字（去 String 后目标 226 方法 / 177 表 / 287 组合）由生成器实跑产物机械抽取得出，实施时**重新抽取核对**，不引用本文档的冻结值。抽取命令：
+- 覆盖矩阵数字（去 String 后：236 JS 方法 / 186 表 / 344 组合 / 280 thunk 实例化）由生成器实跑产物机械抽取得出，实施时**重新抽取核对**，不引用本文档的冻结值。抽取命令：
   - `python misc/build/generate_primitive_operators.py --input third/godot-cpp/gdextension/extension_api-4-7.json --interface third/godot-cpp/gdextension/gdextension_interface.json --out <tmp>`
   - `python misc/build/static_binding_codegen.py --input third/godot-cpp/gdextension/extension_api-4-7.json --interface third/godot-cpp/gdextension/gdextension_interface.json --out <tmp>`
 - 本 worktree 为全新检出（无 `bin/`、无 obj、无 `.sconsign`），首次 scons 是**全量构建 + 下载 v8 预编译包**，耗时远超增量。实施前先评估；quickjs-ng 腿可避免 v8 下载。

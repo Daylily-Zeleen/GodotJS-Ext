@@ -283,64 +283,22 @@ void TypeDB::load_classes() {
 }
 
 void TypeDB::load_primitive_types() {
-#define JSB_CODEGEN_DEF(TypeName)                                                                   \
-	{                                                                                               \
-		constexpr Variant::Type type_id = Variant::TypeName;                                        \
-		_load_primitive_type(Variant::get_type_name(type_id), type_id, false /* utilities_mode */); \
+	// Single source with the runtime leg (register_primitive_bindings in
+	// jsb_primitive_bindings.cpp): jsb_primitive_types.def.h drives both.
+	// Its order is also the d.ts emission order.
+#pragma push_macro("DEF")
+#undef DEF
+#define DEF(TypeName)                                                                                      \
+	{                                                                                                      \
+		constexpr Variant::Type type_id = static_cast<Variant::Type>(GetTypeInfo<TypeName>::VARIANT_TYPE); \
+		_load_primitive_type(Variant::get_type_name(type_id), type_id, false /* utilities_mode */);        \
 	}
-#define JSB_CODEGEN_DEF_UTIL(TypeName)                                                             \
-	{                                                                                              \
-		constexpr Variant::Type type_id = Variant::TypeName;                                       \
-		_load_primitive_type(Variant::get_type_name(type_id), type_id, true /* utilities_mode */); \
-	}
+#include "jsb_primitive_types.def.h"
+#pragma pop_macro("DEF")
 
-	// mirror of jsb_primitive_types.def.h order + the extra String utilities entry
-	static const struct {
-		const char *name;
-		Variant::Type type;
-		bool utilities_mode;
-	} kPrimitiveTypes[] = {
-		{ "Vector2", Variant::VECTOR2, false },
-		{ "Vector2i", Variant::VECTOR2I, false },
-		{ "Rect2", Variant::RECT2, false },
-		{ "Rect2i", Variant::RECT2I, false },
-		{ "Vector3", Variant::VECTOR3, false },
-		{ "Vector3i", Variant::VECTOR3I, false },
-		{ "Transform2D", Variant::TRANSFORM2D, false },
-		{ "Vector4", Variant::VECTOR4, false },
-		{ "Vector4i", Variant::VECTOR4I, false },
-		{ "Plane", Variant::PLANE, false },
-		{ "Quaternion", Variant::QUATERNION, false },
-		{ "AABB", Variant::AABB, false },
-		{ "Basis", Variant::BASIS, false },
-		{ "Transform3D", Variant::TRANSFORM3D, false },
-		{ "Projection", Variant::PROJECTION, false },
-		{ "Color", Variant::COLOR, false },
-		{ "NodePath", Variant::NODE_PATH, false },
-		{ "RID", Variant::RID, false },
-		{ "Callable", Variant::CALLABLE, false },
-		{ "Signal", Variant::SIGNAL, false },
-		{ "Dictionary", Variant::DICTIONARY, false },
-		{ "Array", Variant::ARRAY, false },
-		{ "PackedByteArray", Variant::PACKED_BYTE_ARRAY, false },
-		{ "PackedInt32Array", Variant::PACKED_INT32_ARRAY, false },
-		{ "PackedInt64Array", Variant::PACKED_INT64_ARRAY, false },
-		{ "PackedFloat32Array", Variant::PACKED_FLOAT32_ARRAY, false },
-		{ "PackedFloat64Array", Variant::PACKED_FLOAT64_ARRAY, false },
-		{ "PackedStringArray", Variant::PACKED_STRING_ARRAY, false },
-		{ "PackedVector2Array", Variant::PACKED_VECTOR2_ARRAY, false },
-		{ "PackedVector3Array", Variant::PACKED_VECTOR3_ARRAY, false },
-		{ "PackedVector4Array", Variant::PACKED_VECTOR4_ARRAY, false },
-		{ "PackedColorArray", Variant::PACKED_COLOR_ARRAY, false },
-		{ "String", Variant::STRING, true }, // generate_primitive_type_utilities<String>
-	};
-
-	for (const auto &entry : kPrimitiveTypes) {
-		_load_primitive_type(entry.name, entry.type, entry.utilities_mode);
-	}
-
-#undef JSB_CODEGEN_DEF
-#undef JSB_CODEGEN_DEF_UTIL
+	// String matches the runtime side: registered separately in utilities mode
+	// (no constructors, operators or property members are generated for it).
+	_load_primitive_type(Variant::get_type_name(Variant::STRING), Variant::STRING, true /* utilities_mode */);
 }
 
 PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode) {
@@ -444,6 +402,10 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		op_decl.return_type = op.return_type;
 		op_decl.left_type = op.left_type;
 		op_decl.right_type = op.right_type;
+		// Unary rows have a NIL right type, but so do some binary rows
+		// (==/!=/%); classify by op code, not by right_type.
+		op_decl.is_unary = op.op == Variant::OP_NEGATE || op.op == Variant::OP_POSITIVE
+				|| op.op == Variant::OP_NOT || op.op == Variant::OP_BIT_NEGATE;
 		decl->operators.push_back(op_decl);
 	}
 

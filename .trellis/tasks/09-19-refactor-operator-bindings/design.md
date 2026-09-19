@@ -51,7 +51,7 @@ void ClassWriter::operator_(const OperatorDecl &p_info) {
 		return;
 	}
 	const String right_type_name = p_info.right_type == Variant::NIL
-			? "Variant | null"
+			? String(kGodotAnyType)
 			: types_->primitive_type_name_as_input_public(p_info.right_type);
 	line(p_info.op_name + "(right: " + right_type_name + "): " + return_type_name);
 }
@@ -59,7 +59,7 @@ void ClassWriter::operator_(const OperatorDecl &p_info) {
 
 - 删 `static` 前缀与 `left` 形参（接收者即 left）。
 - `is_unary` 判据不能只看 `right_type == NIL`（`%` 与 `==`/`!=` 的 NIL 行是二元），必须按 op code：`NEGATE`/`POSITIVE`/`NOT`/`BIT_NEGATE`。
-- `right=NIL` 的二元重载输出 `right: Variant | null`（承接 `09-07-fix-editor-dts-operator-overloads` 的既定语义）。
+- `right=NIL` 的二元重载的右参类型是 `GAny`（2026-09-19 修正）：`godot::Variant` 在 typings 里只是命名空间（`Variant.Type`/`Variant.Operator`），**不是类型**，故原写法 `Variant | null` 引用了一个不存在的类型；TS 侧与 `godot::Variant` 对等的是 `GAny`（已含 `undefined | null`）。原任务曾输出 `Variant | null`（承接 `09-07-fix-editor-dts-operator-overloads`），本工作区改为 `GAny` 并重新生成 typings 验证。
 - `OperatorDecl`（`jsb_codegen_type_db.h:135`）新增 `bool is_unary = false`；`op_name` 沿用（已是 `api_tool::get_variant_operator_name(op.op)` = `"OP_ADD"`，`type_db.cpp:443` 不改）。
 - `p_info.left_type` 不再被 `operator_` 使用；字段保留（`ApiOperatorInfo` 有同名成员，删除会牵动 api_tool 序列化，超出本任务）。
 
@@ -127,13 +127,13 @@ JS_NATIVE_LEFT = {"bool", "int", "float", "StringName", "String"}
 
 ### 规模影响
 
-| 维度 | 现在 | 去 String 后 |
+| 维度 | 去 String 前 | 去 String 后（实测） |
 |---|---:|---:|
-| `def.gen.h` 类型块 | 33 | 32 |
-| JS 可见运算符方法 | 236（一元 50 / 二元 186） | **226（一元 49 / 二元 177）** |
-| 静态腿 `find_op_*` 表 | 186 | **177** |
-| 静态腿可选组合（`case` 标签） | 344 | **287** |
-| `operator_thunk` 不同实例化 | 335 | ≤280 |
+| `def.gen.h` 类型块 | 33 | **32** |
+| JS 可见运算符方法 | 246（一元 51 / 二元 195） | **236（一元 50 / 二元 186）** |
+| 静态腿 `find_op_*` 表 | 195 | **186** |
+| 静态腿可选组合（`case` 标签） | 401 | **344** |
+| `operator_thunk` 不同实例化 | 335 | **280** |
 
 > 注：`%` 的 `right=Variant` NIL 行**只在 String/StringName**（已核实全部 76 条 `right_type=Variant` 行的归属）。两者都不挂载，故该分支对已挂载类型无活代码；`operator_thunk` 里的 `R = godot::Variant` 处理保留为防御性逻辑。
 
@@ -173,12 +173,12 @@ scons platform=windows target=editor compiledb=yes debug_symbols=yes dev_build=y
 
 ### 断言分层
 
-1. **形态**（全部方法覆盖，去 String 后目标 226）：`typeof value.OP_X === "function"`；`(Class as any).OP_X === undefined`。
-2. **契约**（全部可选组合覆盖，去 String 后目标 287）：用该 `case` 对应的代表操作数调用，不抛；返回值的 Variant 型别与声明一致（用 `typeof`/构造器名/`instanceof` 判定，按类型分派）。
+1. **形态**（全部方法覆盖，去 String 后 236）：`typeof value.OP_X === "function"`；`(Class as any).OP_X === undefined`。
+2. **契约**（全部可选组合覆盖，去 String 后 344）：用该 `case` 对应的代表操作数调用，不抛；返回值的 Variant 型别与声明一致（用 `typeof`/构造器名/`instanceof` 判定，按类型分派）。
 3. **精确值**（代表性子集）：`new Vector2(1,2).OP_ADD(new Vector2(3,4))` == `(4,6)`、`new Vector2(1,-2).OP_NEGATE()` == `(-1,2)` 等，含当前 bench 已覆盖的 23 条。
 4. **不变量**（对其余全部类型通用）：`a.OP_EQUAL(a) === true`、`a.OP_NOT_EQUAL(a) === false`、比较反对称（`a.OP_LESS(b)` 与 `b.OP_GREATER(a)` 同真值）、结果型别正确。
 5. **边界**：`OP_EQUAL(null)` → false、`OP_NOT_EQUAL(undefined)` → true。（String 的 `%`-NIL 行不测——String 不挂载运算符。）
-6. **完整性守卫**：测试内声明期望集合（32 类 + 每类运算符名列表 + 总数，去 String 后目标 226 方法 / 287 组合），运行时比对实际发现的成员方法集合与覆盖计数，任一方向差异即 `reportTestFailure`（防止 api json 升级或绑定面变化后静默漏测）。
+6. **完整性守卫**：测试内声明期望集合（32 类 + 每类运算符名列表 + 总数，去 String 后实测 236 方法 / 344 组合），运行时比对实际发现的成员方法集合与覆盖计数，任一方向差异即 `reportTestFailure`（防止 api json 升级或绑定面变化后静默漏测）。
 
 ### 代表操作数构造
 

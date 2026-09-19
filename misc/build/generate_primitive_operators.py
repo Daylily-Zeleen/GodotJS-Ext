@@ -184,10 +184,12 @@ def generate(api_path, interface_path, preferred_only=False):
             # Nil has no JS class object or VariantInternalType<Variant>;
             # emitting its block would instantiate unsupported internal access.
             continue
-        if class_name in ("bool", "int", "float", "StringName"):
-            # These JS-native types have no operator static-method surface.
-            # String is not in PREFERRED_TYPE_ORDER, but is emitted unless
-            # --preferred-only is selected.
+        if class_name in ("bool", "int", "float", "StringName", "String"):
+            # These types have no operator member surface.
+            # String is registered through reflect_bind_utilities, which never
+            # calls OperatorRegister<TypeName>::generate() -- its block would be
+            # dead code. Keep this set aligned with static_binding_codegen.py's
+            # JS_NATIVE_LEFT.
             continue
         L.extend(emit_type_block(class_name, by_class[class_name], variant_ops))
         L.append("")

@@ -92,3 +92,5 @@ terminate called after throwing an instance of 'std::system_error'  what():  Res
 - [ ] 验收：exit code == 0、无资源泄漏（无未释放 Resource、无 Orphan StringName）
 - [ ] 改 TS 后重跑了 `tsc --noCheck`（引擎加载的是编译产物）
 - [ ] 临时日志/脚本在 `.agent_tmp/`，未污染项目
+- [ ] **覆盖守卫必须断言数量，不能只打印**：把期望计数插进日志（`calls=${EXPECTED}`）不构成覆盖证明——独立删掉一行后测试仍会绿。补 `if (rows.length !== EXPECTED) fail(...)` 形式断言
+- [ ] **新守卫要负向验证**：断言写完立刻人为削减一次（删一个成员/一行组合）确认它 `FAILED`，再还原确认绿；没失败过的守卫不授权"覆盖完整"的结论

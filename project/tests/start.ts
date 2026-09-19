@@ -23,7 +23,6 @@ export default class Start extends Node {
 			// --bench is a USER argument (after `--`, read via
 			// get_cmdline_user_args) so the engine itself never sees it.
 			const benchOnly = OS.get_cmdline_user_args().has("--bench");
-			console.warn("START-DIAG benchOnly=" + String(benchOnly) + " args=" + JSON.stringify(OS.get_cmdline_user_args()) + " scenes=" + String(benchOnly ? 1 : 8));
 			const scenes = benchOnly
 				? ["res://tests/benchmark/Benchmark.tscn"]
 				: [
@@ -35,7 +34,11 @@ export default class Start extends Node {
 					"res://tests/cross-environment/CrossEnvironment.tscn",
 					"res://tests/中文路径/SourceMapTest.tscn",
 					"res://tests/default-args/DefaultArgs.tscn",
+					"res://tests/operators/Operators.tscn",
 				];
+			// Count derived from the list: a hardcoded literal here silently
+			// desyncs whenever a scene is added (the whole point of the DIAG).
+			console.warn("START-DIAG benchOnly=" + String(benchOnly) + " args=" + JSON.stringify(OS.get_cmdline_user_args()) + " scenes=" + String(scenes.length));
 
 			for (const scene of scenes) {
 				console.warn("START-DIAG loop scene=" + scene + " fail=" + String(hasTestFailure()));
