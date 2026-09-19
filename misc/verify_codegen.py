@@ -15,7 +15,7 @@ verify_codegen.py —— codegen 端到端基线校验（规范见 .trellis/spec
           注意 api-generate 本身以该 json 为输入，所以是先复制备份、
           消费完再放回，不能提前移走（首轮跑批踩坑）。
      c. --generate-types                    （完成后进程自行退出）
-       前提：测试项目的 TS 已编译（cd project && pnpm install && npx tsc --noCheck），
+       前提：测试项目的 TS 已编译（cd project && pnpm install && pnpm gen:types && npx tsc，不要加 --noCheck），
        否则场景 d.ts 解析不到挂脚本的类型。
   3. 与 <检出根>/.codegen-baseline/ 递归 diff：
      - gen/、typings/ 全量比对（内容按 CRLF→LF 归一化后比较，纯行尾差异单独归类不算失败）

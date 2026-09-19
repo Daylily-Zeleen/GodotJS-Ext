@@ -42,6 +42,6 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 本地测试命令速查（详细判据与陷阱见 [../test/index.md](../test/index.md) 与 [../test/doctest.md](../test/doctest.md)）：
 
 - C++ 测试（需 `tests=yes` 构建）：`godot --path ./project --jsb-run-tests`（editor 构建同时跑 runtime + editor 两套件）
-- TS 编译：`cd project && node_modules/.bin/tsc --noCheck`
+- TS 编译：`cd project && pnpm gen:types && node_modules/.bin/tsc`（`gen:types` 需要 `GODOT` 环境变量指向引擎；`tsconfig.json` 的 `typeRoots` 指向 `./typings`，缺 typings 必须先 `gen:types`。**不要用 `--noCheck`**——那会跳过类型检查，本项目要求测试项目真实过检）
 - TS 集成测试：先生成 api 数据并编译 TS，再 `godot --path ./project --verbose`
 - Benchmark：`godot --audio-driver Dummy --headless --path ./project -- --bench [--gc] [--only=<组>]`——**所有开关都是 user args**（`--` 之后）：`--bench`（`start.ts` 用 `OS.get_cmdline_user_args()` 判断，选中只跑 benchmark 场景）、`--gc`、`--only`（`benchmark.ts` 同源解析）。把 `--bench` 写在 `--` 之前引擎会试图解析它而测试项目收不到（判别：`START-DIAG benchOnly=false` 即未生效）；详细纪律见 [../test/index.md](../test/index.md) Benchmark 专项

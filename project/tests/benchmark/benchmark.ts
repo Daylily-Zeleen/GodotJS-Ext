@@ -200,7 +200,9 @@ export default class Benchmark extends Node {
         const report = {
             staticBinding,
             gcRequested: GC_REQUESTED && gcAvailable,
-            engine: String(Engine.get_version_info() as unknown as { full_name: string }["full_name"]),
+            // GDictionary access needs no cast; "string" is the engine's own
+            // full version string (e.g. "4.7.2.stable.official."+hash).
+            engine: String(Engine.get_version_info().get("string")),
             invalid: results.filter((r) => r.error).length,
             results,
         };

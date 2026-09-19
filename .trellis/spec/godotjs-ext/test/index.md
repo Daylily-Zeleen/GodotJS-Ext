@@ -12,7 +12,7 @@
 
 - 命令：`cd project && godot --audio-driver Dummy --headless --path . -- --bench [--gc] [--only=<组>]`
 - **所有开关都是 user args**（在 `--` 之后）：`--bench`（start.ts 用 `get_cmdline_user_args()` 判断，选择只跑 benchmark 场景）、`--gc`、`--only=<组>`（benchmark.ts 用 `get_cmdline_user_args()` 解析）。引擎参数区（`--` 之前）不放任何 bench 开关——把 `--bench` 写在 `--` 之前会让引擎试图解析它而测试项目收不到
-- `cases.builtin.ts` 为**手维护**（原 `generate_benchmark_cases.py` 生成器已移除，新增 case 直接编辑该文件）；改动后 `cd project && node node_modules/typescript/bin/tsc --noCheck` 重编
+- `cases.builtin.ts` 为**手维护**（原 `generate_benchmark_cases.py` 生成器已移除，新增 case 直接编辑该文件）；改动后 `cd project && node node_modules/typescript/bin/tsc`（**不加 `--noCheck`**；typings 缺失时先 `pnpm gen:types`）重编
 - `--gc`：每个 case 计时前通过 JS 全局 `gc()` 请求回收（`Builtins::_gc` → `Environment::gc` → 各环境 `add_async_call(TYPE_GC_REQUEST)`）。同线程立即执行 `_on_gc_request`，其他线程入队；返回不保证 worker 已回收。跨线程生命周期回归应有界等待可观测状态，不用任意 sleep 代替完成信号。未暴露 gc 的 benchmark 构建降级 no-op 并 WARNING；`gcRequested` 只表示请求。
 - **采数纪律**：用 `python misc/bench_matrix.py --rounds 4 --out .agent_tmp/matrix` 固化流程——脚本自动执行 dll md5 前后双查（后台 scons 中途完成会即时拦截）、按日志指纹（"static binding not found" 回退警告数）验证腿身份、`gcRequested` 字段验证 `--gc` 生效、COMPLETED/exit/invalid 逐轮核验，最后产出 `report.md` 中位数表。双腿/双开关对比必须各采 ≥3 轮取中位数，且全程同一 dll；报告 JSON 的 `staticBinding` 字段不可信，dll 身份只认 md5 + 构建命令
 - 验收：exit code == 0 且无 Orphan StringName（`--verbose` 下 grep Orphan）
@@ -20,7 +20,7 @@
 
 ## TS 集成测试前提
 
-- 先生成 api 数据（dump → api-generate，见 [codegen-baseline.md](./codegen-baseline.md) 触发链）并编译 TS（`cd project && node_modules/.bin/tsc --noCheck`），再 `godot --path ./project --verbose`
+- 先生成 api 数据（dump → api-generate，见 [codegen-baseline.md](./codegen-baseline.md) 触发链）并编译 TS（`cd project && node node_modules/typescript/bin/tsc`，**不加 `--noCheck`**；typings 缺失时先 `pnpm gen:types`），再 `godot --path ./project --verbose`
 - 结尾哨兵：`GODOTJS_TEST_PROJECT_COMPLETED` 为成功、`GODOTJS_TEST_PROJECT_FAILED:` 为失败
 
 ## 跨环境通信测试后端选择
@@ -90,7 +90,7 @@ terminate called after throwing an instance of 'std::system_error'  what():  Res
 ## 质量检查（所有测试通用）
 
 - [ ] 验收：exit code == 0、无资源泄漏（无未释放 Resource、无 Orphan StringName）
-- [ ] 改 TS 后重跑了 `tsc --noCheck`（引擎加载的是编译产物）
+- [ ] 改 TS 后重跑了 `tsc`（**不加 `--noCheck`**，类型检查必须真过；引擎加载的是编译产物）
 - [ ] 临时日志/脚本在 `.agent_tmp/`，未污染项目
 - [ ] **覆盖守卫必须断言数量，不能只打印**：把期望计数插进日志（`calls=${EXPECTED}`）不构成覆盖证明——独立删掉一行后测试仍会绿。补 `if (rows.length !== EXPECTED) fail(...)` 形式断言
 - [ ] **新守卫要负向验证**：断言写完立刻人为削减一次（删一个成员/一行组合）确认它 `FAILED`，再还原确认绿；没失败过的守卫不授权"覆盖完整"的结论

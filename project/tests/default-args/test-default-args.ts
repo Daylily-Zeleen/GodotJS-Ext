@@ -47,6 +47,21 @@ function expectThrows(context: string, fn: () => void): void {
     }
 }
 
+/**
+ * Invoke a member with an argument list the declared signature rejects.
+ *
+ * The arity boundary is exactly what these assertions probe, so the call
+ * cannot be typed. `Reflect.get`/`Reflect.apply` express that without an
+ * `as any` suppression.
+ */
+function callWithArity(target: object, name: string, args: unknown[]): void {
+    const fn: unknown = Reflect.get(target, name);
+    if (typeof fn !== "function") {
+        throw new Error(`member '${name}' is not a function`);
+    }
+    Reflect.apply(fn, target, args);
+}
+
 function expectPasses(context: string, fn: () => void): void {
     try {
         fn();
@@ -171,21 +186,21 @@ export default class TestDefaultArgs extends Node {
             arr.append(2);
             arr.append(3);
             // GArray.bsearch: M = 1, N = 2
-            expectThrows("GArray.bsearch() [M-1 throws]", () => (arr as any).bsearch());
+            expectThrows("GArray.bsearch() [M-1 throws]", () => callWithArity(arr, "bsearch", []));
             expectPasses("GArray.bsearch(2) [M passes]", () => arr.bsearch(2));
             expectPasses("GArray.bsearch(2, true) [N passes]", () => arr.bsearch(2, true));
-            expectThrows("GArray.bsearch(2, true, 0) [N+1 throws]", () => (arr as any).bsearch(2, true, 0));
+            expectThrows("GArray.bsearch(2, true, 0) [N+1 throws]", () => callWithArity(arr, "bsearch", [2, true, 0]));
 
             const curve = new Curve2D();
             const p = new Vector2(1, 2);
             // Curve2D.add_point: M = 1, N = 4
-            expectThrows("Curve2D.add_point() [M-1 throws]", () => (curve as any).add_point());
+            expectThrows("Curve2D.add_point() [M-1 throws]", () => callWithArity(curve, "add_point", []));
             expectPasses("Curve2D.add_point(p) [M passes]", () => curve.add_point(p));
             expectPasses("Curve2D.add_point 4 args [N passes]", () =>
                 curve.add_point(p, p, p, -1),
             );
             expectThrows("Curve2D.add_point 5 args [N+1 throws]", () =>
-                (curve as any).add_point(p, p, p, -1, 0),
+                callWithArity(curve, "add_point", [p, p, p, -1, 0]),
             );
         });
 
