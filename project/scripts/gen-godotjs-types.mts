@@ -10,8 +10,8 @@ if (!godotBinary) {
   throw new Error('GODOT environment variable is required. Example: GODOT=/Applications/Godot47.app/Contents/MacOS/Godot');
 }
 
-const runTsc = () =>
-  execFileSync('pnpm', ['exec', 'tsc'], {
+const runTsc = (...extraArgs: string[]) =>
+  execFileSync('pnpm', ['exec', 'tsc', ...extraArgs], {
     cwd: testsProjectRoot,
     stdio: 'inherit',
     shell: process.platform === 'win32',
@@ -21,14 +21,12 @@ const runTsc = () =>
 // Phase 1 — bootstrap emit. `--generate-types` resolves scene/resource scripts
 // by reading their emitted JS, so the JS must exist before it runs. On a clean
 // tree `typings/` (and therefore the `godot` module declarations) does not
-// exist yet, so this pass cannot type-check; it exists only to emit. Its
-// failures are expected and ignored — phase 3 is what proves the project
-// type-checks.
-try {
-  runTsc();
-} catch {
-  console.warn('[gen-godotjs-types] bootstrap emit reported errors (expected before typings exist)');
-}
+// exist yet, so a bare `tsc` here cannot type-check: it would print the same
+// ~160 TS2307 lines on every run, and GitHub's TypeScript problem matcher
+// turns each into a `##[error]` annotation on a job that is otherwise green.
+// `--noCheck` emits exactly the same JS without that noise. Phase 3 is the
+// enforcing check, and it is the only pass that judges types.
+runTsc('--noCheck');
 
 // The editor is known to crash during its own shutdown/reimport phase *after*
 // the types have been written (tracked separately; same tolerance as

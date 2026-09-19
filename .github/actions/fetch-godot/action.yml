@@ -42,13 +42,25 @@ inputs:
 runs:
   using: composite
   steps:
+    # Plain curl instead of a release-fetch action: the asset is a public
+    # release file reachable by tag, and third-party fetch actions are the only
+    # Node-20-era dependency left in this workflow (dsaltares/
+    # fetch-gh-release-asset@1.1.2 is unmaintained since 2024-04, and the
+    # runner forces it onto Node 24 with a deprecation warning).
     - name: Download Godot
-      uses: dsaltares/fetch-gh-release-asset@1.1.2
-      with:
-        repo: godotengine/godot
-        version: ${{ inputs.version }}
-        file: ${{ inputs.asset }}
-        target: godot/godot.zip
+      shell: bash
+      env:
+        GODOT_VERSION: ${{ inputs.version }}
+        GODOT_ASSET: ${{ inputs.asset }}
+      run: |
+        set -euo pipefail
+        mkdir -p godot
+        # `version` is a git ref like tags/4.7.1-stable; the download path uses
+        # the bare tag (4.7.1-stable).
+        TAG="${GODOT_VERSION#tags/}"
+        URL="https://github.com/godotengine/godot/releases/download/$TAG/$GODOT_ASSET"
+        echo "Downloading $URL"
+        curl -fL --retry 3 --retry-delay 2 -o godot/godot.zip "$URL"
 
     - name: Extract Godot
       shell: bash
