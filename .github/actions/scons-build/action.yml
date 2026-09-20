@@ -69,7 +69,7 @@ inputs:
   flags:
     description: >-
       Extra raw scons arguments for this leg. Use this instead of adding
-      per-platform conditionals to the workflow, e.g. "static_binding=no".
+      per-platform conditionals to the workflow, e.g. "binding_mode=dynamic".
     required: false
     default: ""
   scons-cache:

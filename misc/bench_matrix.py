@@ -110,21 +110,18 @@ def run_bench(out_path: Path, use_gc: bool, log) -> dict:
     return report
 
 
-def assert_leg(report: dict, expect_static: bool) -> None:
+def assert_leg(report: dict, expect_mode: str) -> None:
     """Leg identity from the BENCH_JSON itself: benchmark.ts reports
-    staticBinding = the STATIC_BINDING_ENABLED constant exported by the
-    godot-jsb module (true only when the DLL was built with static bindings).
-    This is authoritative -- the old fallback-warning count ('static binding
-    not found') is not: the static table now covers every benchmarked method,
-    so a static leg logs zero fallbacks and the count-based check mislabels
+    bindingMode = the BINDING_MODE constant exported by the godot-jsb module
+    ("static" | "shared" | "dynamic" -- the scons binding_mode value). This
+    is authoritative -- the old fallback-warning count ('static binding not
+    found') is not: the static table now covers every benchmarked method, so
+    a static leg logs zero fallbacks and the count-based check mislabels
     it."""
-    got = bool(report.get("staticBinding"))
-    if expect_static and not got:
-        raise SystemExit(f"FATAL: BENCH_JSON staticBinding={got}, expected static leg -- "
-                         f"DLL is NOT the static leg (or the OP_* probe failed).")
-    if not expect_static and got:
-        raise SystemExit(f"FATAL: BENCH_JSON staticBinding={got}, expected dynamic leg -- "
-                         f"DLL is NOT the dynamic leg.")
+    got = report.get("bindingMode")
+    if got != expect_mode:
+        raise SystemExit(f"FATAL: BENCH_JSON bindingMode={got!r}, expected {expect_mode!r} -- "
+                         f"DLL is NOT the {expect_mode} leg (or the OP_* probe failed).")
 
 
 def build_and_deploy(leg: str, log) -> None:
@@ -132,7 +129,7 @@ def build_and_deploy(leg: str, log) -> None:
     deployment tree. With --build this runs automatically between legs;
     without it the caller must have already built+deployed the right leg
     (the log-fingerprint guard verifies it either way)."""
-    flag = "static_binding=yes" if leg == "static" else "static_binding=no"
+    flag = f"binding_mode={leg}"
     cmd = ["scons", f"target={SCONS_TARGET}", "compiledb=no", "debug_symbols=no",
            "dev_build=no", "verbose=no", flag, "-j6"]
     log(f" [build command] {" ".join(cmd)}")
@@ -168,7 +165,7 @@ def collect(args, log):
             pass
 
     manifest = {"runs": []}
-    legs = ["static", "dynamic"] if args.leg in (None, "both") else [args.leg]
+    legs = [args.leg] if args.leg and args.leg != "both" else ["static", "shared", "dynamic"]
     gcs =  [True] if args.gc_only else ([False] if args.no_gc_only else [True, False])
 
     if args.build:
@@ -193,7 +190,7 @@ def collect(args, log):
                     raise SystemExit(f"FATAL: dll changed DURING run {tag} r{rnd} "
                                      f"({before[DLL_MAIN]['md5'][:8]} -> {after[DLL_MAIN]['md5'][:8]}) -- "
                                      f"rebuild finished mid-run; matrix aborted, discard this batch")
-                assert_leg(report, expect_static=(leg == "static"))
+                assert_leg(report, expect_mode=leg)
                 manifest["runs"].append({
                     "leg": leg, "gc": use_gc, "round": rnd,
                     "log": str(log_path), "dll_md5": after[DLL_MAIN]["md5"][:8],
@@ -345,7 +342,7 @@ def main():
     ap.add_argument("--rounds", type=int, default=4, help="runs per matrix cell (default 4)")
     ap.add_argument("--out", default=".agent_tmp/matrix", help="output directory")
     ap.add_argument("--report", help="summarize an existing matrix directory, no runs")
-    ap.add_argument("--leg", choices=["static", "dynamic", "both"], default="both")
+    ap.add_argument("--leg", choices=["static", "shared", "dynamic", "both"], default="both")
     ap.add_argument("--build", action="store_true",
                     help="full pipeline: scons each leg (--leg both = build static, "
                          "collect, rebuild dynamic, collect) and deploy before collecting")
