@@ -846,13 +846,43 @@ struct ApiNativeStructure {
 //
 // If a deliberate change moves a size, update both the assert and the numbers
 // in design.md §11 / .trellis/tasks/.../report.md.
+//
+// Sizes are ABI-specific, so only the ones that are genuinely portable are
+// asserted as equalities everywhere:
+//   - MSVC does not reuse base-class tail padding, so `default_count_` pushes
+//     ApiMemberMethodBase to 48 there;
+//   - the Itanium ABI (GCC/Clang on Linux, macOS, Android, iOS) does reuse it,
+//     giving 40 -- and 48 / 56 for the two subclasses;
+//   - 32-bit targets (wasm32, android armv7) halve the pointers: 28 / 28 / 32 /
+//     36.
+// An exact equality on the non-MSVC ABIs therefore rejects perfectly correct
+// builds. Keep the measured MSVC numbers exact (that is the ABI they were
+// measured on, and the one the memory budget in design.md §11 is derived from)
+// and enforce a bound elsewhere: it still fails the build when a member creeps
+// back -- the godot::MethodInfo this task removed was 120 B plus three heap
+// arrays, far past any bound below.
 static_assert(sizeof(api_tool::internal::ApiMethodArg) == 2, "ApiMethodArg must stay 2 bytes");
+
+#if defined(_MSC_VER)
 static_assert(sizeof(api_tool::ApiMethodBase) == 40, "ApiMethodBase hot layout drifted");
 static_assert(sizeof(api_tool::ApiMemberMethodBase) == 48, "ApiMemberMethodBase hot layout drifted");
 static_assert(sizeof(api_tool::ApiClassMethod) == 56, "ApiClassMethod hot layout drifted");
 static_assert(sizeof(api_tool::ApiBuiltInMethod) == 64, "ApiBuiltInMethod hot layout drifted");
 static_assert(sizeof(api_tool::ApiUtilityFunction) == 56, "ApiUtilityFunction hot layout drifted");
 static_assert(sizeof(api_tool::internal::ApiMethodDetail) == 64, "ApiMethodDetail cold layout drifted");
+#else
+// Measured here: 40 / 40 / 48 / 56 / 56 on the 64-bit Itanium ABIs (Linux,
+// macOS) and 28 / 28 / 32 / 36 / 36 on 32-bit (wasm32, android armv7). The
+// bounds are deliberately generous -- they exist to catch a heavyweight member
+// creeping back, not to pin an exact byte count off-MSVC -- but they are far
+// below what re-adding godot::MethodInfo (120 B plus three heap arrays) costs.
+static_assert(sizeof(api_tool::ApiMethodBase) <= 56, "ApiMethodBase hot layout drifted");
+static_assert(sizeof(api_tool::ApiMemberMethodBase) <= 64, "ApiMemberMethodBase hot layout drifted");
+static_assert(sizeof(api_tool::ApiClassMethod) <= 72, "ApiClassMethod hot layout drifted");
+static_assert(sizeof(api_tool::ApiBuiltInMethod) <= 80, "ApiBuiltInMethod hot layout drifted");
+static_assert(sizeof(api_tool::ApiUtilityFunction) <= 72, "ApiUtilityFunction hot layout drifted");
+static_assert(sizeof(api_tool::internal::ApiMethodDetail) <= 128, "ApiMethodDetail cold layout drifted");
+#endif
 
 // ============================================================================
 // Cache invalidation callback types (global scope for cross-namespace use)
