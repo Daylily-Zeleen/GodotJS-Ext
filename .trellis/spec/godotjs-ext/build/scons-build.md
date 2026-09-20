@@ -24,7 +24,7 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 - `project/.godot` 删除后的重建三件套：①手工写 `project/.godot/extension_list.cfg`（两行：runtime 与 editor 的 .gdextension 路径）；②重新编译 TS；③重新生成 api 数据。
 - **测试项目重置**（需要完整初始环境时，先删除）：`./project/.godot`、`./project/gen`、`./project/typings`（如果有）；`./project/tsconfig.json` **只有**要执行 `GodotJSEditorPlugin::try_install_project_files()` 的测试才删除（git 跟踪的预设文件）。
 
-- `static_binding=yes`（默认）时每次构建自动跑 codegen（`misc/build/static_binding_codegen.py`），产出 `src/static_binding/gen/dispatch_*.gen.cpp`（glob 编译）；切分支后 gen 目录残留 obj 会被覆盖，无需手动清理
+- `binding_mode=static|shared`（默认 `shared`，2026-09-20 起）时每次构建自动跑 codegen 单态发射（`misc/build/static_binding_codegen.py --binding-mode <mode>`），产出 `src/static_binding/gen/dispatch_*.gen.cpp`（glob 编译）；`binding_mode=dynamic` 不跑 codegen。切分支后 gen 目录残留 obj 会被覆盖，无需手动清理
 - codegen 源数据 = godot-cpp 子模块内置 `third/godot-cpp/gdextension/extension_api-4-7.json`；`SConstruct` 的 `API_VERSION = "4.7"` 是唯一硬编码点——改它须同步 `.gdextension` 的 `compatibility_minimum`。**CI 无 api-dump job**
 - 生成文件一律不入库（`*.gen.*`），详见 [../cpp/generated-files.md](../cpp/generated-files.md)
 - Linux 平台 lws 被禁用（预编译库非 PIC；Linux 上 v8 debugger 的 websocket 功能失效，不影响构建/测试）——自建 PIC 版 lws 的修正方案见 Trellis 任务 backlog（lws PIC）

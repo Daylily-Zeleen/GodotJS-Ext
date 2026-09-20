@@ -52,8 +52,7 @@ void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<ClassLit, MethodLit, HashC>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, MethodLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, MethodLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, MethodLit.value));
 		return;
 	}
 
@@ -97,8 +96,7 @@ void indexed_property_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<ClassLit, MethodLit, HashC>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, MethodLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, MethodLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, MethodLit.value));
 		return;
 	}
 

@@ -30,6 +30,7 @@
 #	include "thunks_common.h"
 
 #	include <array>
+#	include <atomic>
 #	include <godot_cpp/classes/object.hpp>
 
 #	include "static_binding/dispatch.h"
@@ -53,6 +54,59 @@ _FORCE_INLINE_ GDExtensionMethodBindPtr resolve_class_method(const godot::String
 }
 
 // ---------------------------------------------------------------------------
+// Signature-shared class method binding (binding_mode=shared, JSB_WITH_SHARED_THUNKS).
+// One per-method data blob in DLL .data (codegen-emitted parallel to the
+// signature thunk table). Shared thunks read identity (class/method names,
+// hash) for lazy method-bind resolution and min-arity for the lower-bound
+// check through info.Data() -- the template parameters carry only the
+// signature.
+struct SharedClassMethodData {
+	mutable std::atomic<GDExtensionMethodBindPtr> method_bind; // lazy, filled on first call
+	const char *class_name;
+	const char *method_name;
+	int32_t min_argc;
+	// Defaulted-position values for explicit-`undefined` substitution
+	// ([M, N) positions). Populated once at mount time (shared mount forwards
+	// the method record's defaults, see class_method_defaults); null for
+	// methods with no defaulted position. The backend is the api_tool method
+	// record, which outlives the process, so the pointers are stable for the
+	// DLL's lifetime.
+	const godot::Variant *defaults;
+	uint32_t default_count;
+};
+
+// Resolve-and-cache the method bind. Called EAGERLY at mount time from the
+// single top-level find_shared_class_method_binding (after the binary search
+// hits the class and the nested find_cls_* does a pure lookup), ONCE per
+// registered method while the class template is being built -- the class name
+// and method hash are already in hand there (PRD: eager resolution is the
+// parent-task ruling). Multiple worker Environments share the same static
+// table (one DLL .data copy), so concurrent first writes to the same slot need
+// well-defined semantics: the CAS keeps that (same value written,
+// memory_order_relaxed, single-word aligned -- zero cost).
+//
+// The hot path (shared_class_*_thunk) does NOT call this; it only
+// relaxed-loads the result.
+_FORCE_INLINE_ GDExtensionMethodBindPtr ensure_class_method_bind(uint32_t p_hash, const SharedClassMethodData &md) {
+	GDExtensionMethodBindPtr mb = md.method_bind.load(std::memory_order_relaxed);
+	if (mb) {
+		return mb; // already resolved by a previous Environment
+	}
+	mb = ::godot::gdextension_interface::classdb_get_method_bind(
+			godot::StringName(md.class_name)._native_ptr(),
+			godot::StringName(md.method_name)._native_ptr(),
+			(GDExtensionInt)p_hash);
+	if (mb) {
+		GDExtensionMethodBindPtr expected = nullptr;
+		if (md.method_bind.compare_exchange_strong(expected, mb, std::memory_order_relaxed)) {
+			return mb;
+		}
+		return expected; // another worker won the race with the same value
+	}
+	return nullptr;
+}
+
+// ---------------------------------------------------------------------------
 // Fixed-arity class method. Marshal only provided arguments: MethodBind owns
 // and applies missing defaults. M is the minimum arity, not a default-value
 // descriptor. Keep the lower-bound check: engine missing-argument checks may
@@ -68,8 +122,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<ClassLit, NameLit, HashC>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, NameLit.value));
 		return;
 	}
 
@@ -173,8 +226,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 
 	static GDExtensionMethodBindPtr method_bind = resolve_class_method(godot::StringName(ClassLit.value), godot::StringName(NameLit.value), HashC);
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, NameLit.value));
 		return;
 	}
 
@@ -245,6 +297,186 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		RetT::translate_return(isolate, context, ret, info);
 	}
 }
+
+#	if JSB_WITH_SHARED_THUNKS
+// ---------------------------------------------------------------------------
+// Signature-shared class methods (binding_mode=shared): one thunk instance
+// per unique (IsStaticC, RetT, ArgsT...) signature; per-method identity
+// (class/method names, hash, min arity) and the lazily-resolved method bind
+// arrive through info.Data() (SharedClassMethodData) instead of template
+// parameters. Marshal semantics identical to the per-method thunks above.
+
+// Fixed-arity signature-shared class method.
+template <bool IsStaticC, class RetT, class AllArgsT>
+void shared_class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedClassMethodData &md =
+			*static_cast<const SharedClassMethodData *>(info.Data().As<v8::External>()->Value());
+
+	// Resolved eagerly at mount time: find_shared_class_method_binding fills
+	// method_bind (via ensure_class_method_bind) BEFORE returning this thunk,
+	// and returns nullptr on failure so the mount point falls back to dynamic.
+	// A mounted thunk's slot is therefore always populated. The hot path is a
+	// single relaxed load -- identical codegen to reading a raw pointer.
+	const GDExtensionMethodBindPtr method_bind = md.method_bind.load(std::memory_order_relaxed);
+
+	const int provided = (int)info.Length();
+	if (provided < md.min_argc || provided > N) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", md.class_name, md.method_name, md.min_argc, N, provided));
+		return;
+	}
+
+	godot::Object *instance = nullptr;
+	if constexpr (!IsStaticC) {
+		if (!TypeConvert::js_to_gd_obj(isolate, context, info.This(), instance) || !instance) {
+			jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. Bad this", md.class_name, md.method_name));
+			return;
+		}
+	}
+
+	// An explicit `undefined` over a defaulted position [M, N) means "use THAT
+	// position's default" (md.min_argc == M). Required positions [0, M) keep
+	// converting `undefined` normally -- md.defaults only spans [0, default_count)
+	// == [M, N), so the mask never claims them. A method with no defaulted
+	// position has md.defaults == nullptr and skips the whole probe.
+	uint32_t use_default_mask = 0;
+	if (md.defaults != nullptr) {
+		const int probe_n = provided < N ? provided : N;
+		for (int i = md.min_argc; i < probe_n; ++i) {
+			if (info[i]->IsUndefined()) {
+				use_default_mask |= 1u << i;
+			}
+		}
+	}
+
+	// RAII Variant slots remain NIL if conversion fails; the engine fills
+	// trailing defaults. Mask-claimed positions are filled with the stored
+	// default below and skipped by the marshal pass.
+	godot::Variant argv[N > 0 ? N : 1];
+	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = ok && ((int)I < provided && !((use_default_mask >> I) & 1u) ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
+	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return; // JS exception already thrown by produce_variant
+	}
+	for (int i = 0; i < N; ++i) {
+		if ((use_default_mask >> i) & 1u) {
+			argv[i] = md.defaults[(uint32_t)i - (uint32_t)md.min_argc];
+		}
+		arg_ptrs[i] = &argv[i];
+	}
+
+	godot::Variant ret;
+	GDExtensionCallError call_error{};
+	::godot::gdextension_interface::object_method_bind_call(
+			method_bind, IsStaticC ? nullptr : instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, provided, &ret, &call_error);
+	if (call_error.error != GDEXTENSION_CALL_OK) {
+		jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. engine error %d", md.class_name, md.method_name, (int)call_error.error));
+		return;
+	}
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret, info);
+	}
+}
+
+// Vararg signature-shared class method: unroll the fixed prefix, loop the tail.
+// The generated fixed prefix carries no defaults, so min_argc == F.
+template <bool IsStaticC, class RetT, class AllArgsT>
+void shared_class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int F = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedClassMethodData &md =
+			*static_cast<const SharedClassMethodData *>(info.Data().As<v8::External>()->Value());
+
+	// Resolved eagerly at mount time: find_shared_class_method_binding fills
+	// method_bind (via ensure_class_method_bind) BEFORE returning this thunk,
+	// and returns nullptr on failure so the mount point falls back to dynamic.
+	// A mounted thunk's slot is therefore always populated. The hot path is a
+	// single relaxed load -- identical codegen to reading a raw pointer.
+	const GDExtensionMethodBindPtr method_bind = md.method_bind.load(std::memory_order_relaxed);
+
+	const int provided = (int)info.Length();
+	if (provided < md.min_argc) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", md.class_name, md.method_name, md.min_argc, provided));
+		return;
+	}
+
+	godot::Object *instance = nullptr;
+	if constexpr (!IsStaticC) {
+		if (!TypeConvert::js_to_gd_obj(isolate, context, info.This(), instance) || !instance) {
+			jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. Bad this", md.class_name, md.method_name));
+			return;
+		}
+	}
+
+	// MethodBind takes Variant pointers; array-owned prefix slots clean up on exit.
+	std::array<godot::Variant, F> prefix;
+	const int fixed_count = provided < F ? provided : F;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = ok && ((int)I < fixed_count ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, prefix[I], provided) : true)) && ...);
+	}(std::make_index_sequence<F>{});
+	if (!ok) {
+		return;
+	}
+
+	// Runtime-sized tail slots need placement construction and manual destruction.
+	const int argc = provided;
+	godot::Variant *tail_args = (godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
+	const godot::Variant **arg_ptrs =
+			(const godot::Variant **)jsb_stackalloc(const godot::Variant *, argc > 0 ? argc : 1);
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)((int)I < fixed_count
+						 ? (void)(arg_ptrs[I] = &prefix[I])
+						 : (void)0),
+				...);
+	}(std::make_index_sequence<F>{});
+	for (int i = F; i < argc; ++i) {
+		memnew_placement(&tail_args[i - F], godot::Variant);
+		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], tail_args[i - F])) {
+			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
+			// constructed tail slots form the contiguous [0, i - F]
+			for (int j = 0; j <= i - F; ++j) {
+				tail_args[j].~Variant();
+			}
+			return;
+		}
+		arg_ptrs[i] = &tail_args[i - F];
+	}
+
+	godot::Variant ret;
+	GDExtensionCallError call_error{};
+	::godot::gdextension_interface::object_method_bind_call(
+			method_bind, IsStaticC ? nullptr : instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, argc, &ret, &call_error);
+
+	// Only the constructed tail needs manual cleanup; prefix is a RAII array.
+	for (int i = F; i < argc; ++i) {
+		tail_args[i - F].~Variant();
+	}
+	if (call_error.error != GDEXTENSION_CALL_OK) {
+		jsb_throw(isolate, jsb_errorf("Failed to call: %s::%s. engine error %d", md.class_name, md.method_name, (int)call_error.error));
+		return;
+	}
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret, info);
+	}
+}
+#	endif // JSB_WITH_SHARED_THUNKS
 
 } // namespace jsb::static_binding::thunks
 

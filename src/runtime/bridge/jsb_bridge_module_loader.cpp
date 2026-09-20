@@ -499,7 +499,16 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 
 	// internal bridge functions & variables
 	{
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "STATIC_BINDING_ENABLED"), v8::Boolean::New(isolate, bool(JSB_WITH_STATIC_BINDINGS))).Check();
+		const char *binding_mode =
+#if JSB_WITH_SHARED_THUNKS
+				"shared"
+#elif JSB_WITH_STATIC_BINDINGS
+				"static"
+#else
+				"dynamic"
+#endif
+				;
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BINDING_MODE"), impl::Helper::new_string_ascii(isolate, binding_mode)).Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else

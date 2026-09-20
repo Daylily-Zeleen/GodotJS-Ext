@@ -130,7 +130,11 @@
 #define JSB_CONSTRUCT_DEFAULT_VARIANT_SLOW 0
 
 #ifndef JSB_WITH_STATIC_BINDINGS
-#define JSB_WITH_STATIC_BINDINGS 0
+#	define JSB_WITH_STATIC_BINDINGS 0
+#endif
+
+#ifndef JSB_WITH_SHARED_THUNKS
+#	define JSB_WITH_SHARED_THUNKS 0
 #endif
 
 // utf16 conversion may have less overhead, but uses more memory?

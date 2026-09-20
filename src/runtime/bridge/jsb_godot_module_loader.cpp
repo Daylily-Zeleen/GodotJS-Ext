@@ -99,8 +99,16 @@ static void _load_godot_object_class(const v8::FunctionCallbackInfo<v8::Value> &
 		jsb_check(method_info.utility_func);
 
 #if JSB_WITH_STATIC_BINDINGS
-		if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->get_name(), api_utility_function->get_hash())) {
-			info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
+		const void *sb_data = nullptr;
+#	if JSB_WITH_SHARED_THUNKS
+		const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_shared_utility_binding(
+				api_utility_function->get_name(), api_utility_function->get_hash(), &sb_data);
+#	else
+		const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(
+				api_utility_function->get_name(), api_utility_function->get_hash());
+#	endif
+		if (sb_thunk) {
+			info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::External::New(isolate, (void *)sb_data)));
 			return;
 		}
 		JSB_LOG(Warning, "static binding not found: utility.%s [utility], falling back to dynamic binding", original_name);

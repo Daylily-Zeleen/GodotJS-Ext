@@ -20,7 +20,7 @@
 import { SceneTree, Engine, Node, OS, Time, Vector2 } from "godot";
 import { BUILTIN_CASES } from "./cases.builtin";
 import { OBJECT_CASES } from "./cases.object";
-import { STATIC_BINDING_ENABLED } from "godot-jsb";
+import { BINDING_MODE } from "godot-jsb";
 
 export interface CaseGroup {
     group: string;
@@ -120,7 +120,7 @@ export default class Benchmark extends Node {
     public completeCallback: (() => any) | null = null;
 
     async _ready() {
-        const staticBinding = STATIC_BINDING_ENABLED;
+        const bindingMode = BINDING_MODE;
         const results: CaseResult[] = [];
         let checksum = 0;
 
@@ -198,7 +198,7 @@ export default class Benchmark extends Node {
         }
 
         const report = {
-            staticBinding,
+            bindingMode,
             gcRequested: GC_REQUESTED && gcAvailable,
             // GDictionary access needs no cast; "string" is the engine's own
             // full version string (e.g. "4.7.2.stable.official."+hash).

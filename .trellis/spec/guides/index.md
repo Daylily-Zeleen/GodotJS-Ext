@@ -27,6 +27,14 @@
 
 → 读 [workflow-rules.md](./workflow-rules.md)「后台 job 与等待循环」
 
+## 何时思考后台 job 与等待循环
+
+- [ ] 要跑长命令（构建/测试）→ **发一次 `async: true`**，结果自动投递；**不发** `for … sleep` 等待循环（它自己会转后台）
+- [ ] 收到 `Background job bg_N has completed` → 先问「这产生什么新信息，谁会因此改变决定？」答不出就**不产出文本、直接结束**
+- [ ] 收尾汇报已发过一次 → 后续投递**不重发汇报**
+
+→ 读 [workflow-rules.md](./workflow-rules.md)「后台 job 与等待循环」
+
 ---
 
 ## 何时思考跨层问题

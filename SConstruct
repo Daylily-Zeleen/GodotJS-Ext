@@ -11,6 +11,7 @@ import urllib.request
 import zipfile
 import zlib
 
+from SCons.Variables import EnumVariable
 from misc.methods import print_error, print_warning
 from misc.copyright import read_copyright_text, generate_copyright_header_cpp
 
@@ -33,7 +34,7 @@ opts.Add(BoolVariable("use_node", "Build with Node.js (libnode) support. libnode
 opts.Add(BoolVariable("use_typescript", "Build with typescript support", True))
 opts.Add(BoolVariable("skip_js_runtime", "Skip building GodotJS JavaScript runtime files", False))
 opts.Add(BoolVariable("tests", "Build and run C++ unit tests", False))
-opts.Add(BoolVariable("static_binding", "Compile static binding tables into the build (requires src/static_binding/gen; regenerate with scons static_binding_gen)", True))
+opts.Add(EnumVariable("binding_mode", "Class method binding mode: static (per-method thunks), shared (signature-shared thunks + per-method callback data), dynamic (runtime reflection). Requires the static binding gen tables for static/shared.", "shared", ["static", "shared", "dynamic"]))
 opts.Add(BoolVariable("embedded_natvis", "Embed natvis files into the PDB via /NATVIS (MSVC/clang-cl linkers only). If no, merge all natvis files into a single root-level godotjs-ext.natvis instead.", True))
 opts.Update(localEnv)
 
@@ -824,17 +825,19 @@ subprocess.run([sys.executable, _sb_ops_codegen, "--input", _sb_ops_api_json,
 # submodule (gdextension/extension_api-<API_VERSION>.json) -- the exact file
 # godot-cpp's own binding generator uses (tools/godotcpp.py _get_api_file).
 # It is always present, so no engine dump and no CI pre-step are needed.
-if env.get("static_binding", False):
+if env.get("binding_mode", "dynamic") != "dynamic":
     _sb_gen_dir = os.path.join(src_dir, "static_binding", "gen")
     _sb_api_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension",
             "extension_api-%s.json" % API_VERSION.replace(".", "-"))
     _sb_interface_json = os.path.join(root_dir, "third", "godot-cpp", "gdextension", "gdextension_interface.json")
     _sb_codegen = os.path.join(root_dir, "misc", "build", "static_binding_codegen.py")
+    _sb_binding_mode = env.get("binding_mode", "static")
     if not os.path.exists(_sb_api_json):
-        print_error("static_binding=yes requires " + _sb_api_json +
+        print_error("binding_mode=%s requires " % _sb_binding_mode + _sb_api_json +
                     " (derived from API_VERSION=%s). Update API_VERSION or the godot-cpp submodule." % API_VERSION)
     subprocess.run([sys.executable, _sb_codegen, "--input", _sb_api_json,
                     "--interface", _sb_interface_json,
+                    "--binding-mode", _sb_binding_mode,
                     "--out", _sb_gen_dir], check=True)
     runtime_globs += [
         os.path.join(src_dir, "static_binding", "*.cpp"),
@@ -852,6 +855,8 @@ if env.get("static_binding", False):
         # .text ...: 'file too big'". -mbig-obj selects the extended format.
         env.Append(CCFLAGS=["-Wa,-mbig-obj"])
     env.Append(CPPDEFINES=["JSB_WITH_STATIC_BINDINGS"])
+    if env.get("binding_mode", "static") == "shared":
+        env.Append(CPPDEFINES=["JSB_WITH_SHARED_THUNKS"])
 
 editor_globs = [
     os.path.join(editor_dir, "*.cpp"),

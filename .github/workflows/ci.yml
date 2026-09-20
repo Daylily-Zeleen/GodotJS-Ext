@@ -93,14 +93,14 @@ jobs:
   # of the BENCH_JSON line (jsb teardown can crash after a heavy scene, a known
   # engine-side issue).
   benchmark-build:
-    name: Benchmark build (${{ matrix.static-binding }})
+    name: Benchmark build (${{ matrix.binding-mode }})
     if: github.event_name == 'workflow_dispatch'
     needs: [environment]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        static-binding: ["yes", "no"]
+        binding-mode: ["static", "dynamic"]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -128,7 +128,7 @@ jobs:
           target: editor
           engine: v8
           profile: release
-          flags: static_binding=${{ matrix.static-binding }}
+          flags: binding_mode=${{ matrix.binding-mode }}
           stage-artifact: "false"
 
       - name: Stage benchmark binary
