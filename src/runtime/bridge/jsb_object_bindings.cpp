@@ -30,6 +30,7 @@
 #include "jsb_transpiler.h"
 #include "jsb_type_convert.h"
 #include "static_binding/dispatch.h"
+#include "static_binding/thunks/class_methods.h"
 
 // TODO: Refactor. Violates isolation of bridge.
 #include "../weaver/jsb_script_instance.h"
@@ -147,6 +148,17 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 			const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_shared_class_method_binding(
 					p_class_name, method_info.get_name(), method_info.get_hash(), &sb_data);
 			if (sb_thunk) {
+				// Shared class thunks resolve explicit `undefined` over defaulted
+				// positions from the method record's defaults (see
+				// shared_class_method_thunk). Store them in the data row once at
+				// mount time so the thunk does not need the api_tool record.
+				if (method_info.get_default_count() > 0) {
+					jsb::static_binding::thunks::SharedClassMethodData *md =
+							static_cast<jsb::static_binding::thunks::SharedClassMethodData *>(const_cast<void *>(sb_data));
+					uint32_t n = 0;
+					md->defaults = jsb::static_binding::class_method_defaults((const void *)&method_info, n);
+					md->default_count = n;
+				}
 				if (method_info.is_static()) {
 					static_builder.Method(method_name, sb_thunk, (void *)sb_data);
 				} else {

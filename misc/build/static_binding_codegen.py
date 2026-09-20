@@ -1506,10 +1506,11 @@ def _emit_shared_class_dispatch(m):
                 nlit = cxx_str(m.pool.strings[e["name_id"]])
                 name_to_row[(h, nlit)] = row_index
                 min_argc = len(e["args"]) - default_count(e)
-                # {method_bind, class_name, method_name, min_argc}; the hash is
-                # passed through ensure_class_method_bind (mount-time finder
-                # has it), not stored in the row.
-                L.append("\t{nullptr, %s, %s, %d},"
+                # {method_bind, class_name, method_name, min_argc, defaults,
+                # default_count}; hash passes through ensure (mount finder has
+                # it); defaults/default_count are filled at mount time only for
+                # methods with defaulted positions (else stay null/0).
+                L.append("\t{nullptr, %s, %s, %d, nullptr, 0},"
                          % (cxx_str(cname), nlit, min_argc))
                 row_index += 1
         L.append("};")

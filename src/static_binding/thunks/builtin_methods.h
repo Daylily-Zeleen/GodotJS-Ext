@@ -350,21 +350,42 @@ void shared_builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		base_ptr = get_opaque_typed<VTC>(self);
 	}
 
-	// Marshal only provided positions into tuple-owned EncodeT slots.
+	// An explicit `undefined` over a defaulted position [M, N) means "use THAT
+	// position's default". Compute a per-position mask first so a defaulted
+	// position is never tested twice (each re-test costs an out-of-line
+	// `Value::IsUndefined` call) and the marshal pass can skip those positions
+	// -- an explicit Undefined does not convert into the declared type. Required
+	// positions [0, M) keep converting `undefined` normally (md.defaults[I] is
+	// nullptr there, so the mask never claims them).
+	uint32_t use_default_mask = 0;
+	if (N > 0) {
+		const int probe_n = provided < N ? provided : N;
+		for (int i = 0; i < probe_n; ++i) {
+			if (info[i]->IsUndefined() && md.defaults[i] != nullptr) {
+				use_default_mask |= 1u << i;
+			}
+		}
+	}
+
+	// Marshal only provided non-undefined positions into tuple-owned EncodeT
+	// slots; mask-claimed positions keep their slot value (unused).
 	typename AllArgsT::encode_slots slots;
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
+		(void)((ok = ok && ((int)I < provided && !((use_default_mask >> I) & 1u) ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return;
 	}
 
 	void *arg_ptrs[N > 0 ? N : 1];
-	// Provided positions come from conversion slots; missing optionals take
-	// the codegen-owned default slot through the accessor (defaults[i]()).
+	// Provided positions come from conversion slots unless the mask claims them
+	// (then the codegen-owned default slot); missing optionals take the default.
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = (int)I < provided ? (void *)&std::get<I>(slots) : md.defaults[I]()), ...);
+		((void)(arg_ptrs[I] = ((int)I < provided && !((use_default_mask >> I) & 1u))
+						 ? (void *)&std::get<I>(slots)
+						 : md.defaults[I]()),
+				...);
 	}(std::make_index_sequence<N>{});
 
 	typename RetT::encoded_type ret_val{};

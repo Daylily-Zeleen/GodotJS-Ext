@@ -65,6 +65,14 @@ struct SharedClassMethodData {
 	const char *class_name;
 	const char *method_name;
 	int32_t min_argc;
+	// Defaulted-position values for explicit-`undefined` substitution
+	// ([M, N) positions). Populated once at mount time (shared mount forwards
+	// the method record's defaults, see class_method_defaults); null for
+	// methods with no defaulted position. The backend is the api_tool method
+	// record, which outlives the process, so the pointers are stable for the
+	// DLL's lifetime.
+	const godot::Variant *defaults;
+	uint32_t default_count;
 };
 
 // Resolve-and-cache the method bind. Called EAGERLY at mount time from the
@@ -334,19 +342,39 @@ void shared_class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 		}
 	}
 
-	// RAII Variant slots remain NIL if conversion fails; the engine fills defaults.
+	// An explicit `undefined` over a defaulted position [M, N) means "use THAT
+	// position's default" (md.min_argc == M). Required positions [0, M) keep
+	// converting `undefined` normally -- md.defaults only spans [0, default_count)
+	// == [M, N), so the mask never claims them. A method with no defaulted
+	// position has md.defaults == nullptr and skips the whole probe.
+	uint32_t use_default_mask = 0;
+	if (md.defaults != nullptr) {
+		const int probe_n = provided < N ? provided : N;
+		for (int i = md.min_argc; i < probe_n; ++i) {
+			if (info[i]->IsUndefined()) {
+				use_default_mask |= 1u << i;
+			}
+		}
+	}
+
+	// RAII Variant slots remain NIL if conversion fails; the engine fills
+	// trailing defaults. Mask-claimed positions are filled with the stored
+	// default below and skipped by the marshal pass.
 	godot::Variant argv[N > 0 ? N : 1];
 	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	bool ok = true;
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && (N <= (int)provided || (int)I < provided ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
+		(void)((ok = ok && ((int)I < provided && !((use_default_mask >> I) & 1u) ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
 	}(std::make_index_sequence<N>{});
 	if (!ok) {
 		return; // JS exception already thrown by produce_variant
 	}
-	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		((void)(arg_ptrs[I] = &argv[I]), ...);
-	}(std::make_index_sequence<N>{});
+	for (int i = 0; i < N; ++i) {
+		if ((use_default_mask >> i) & 1u) {
+			argv[i] = md.defaults[(uint32_t)i - (uint32_t)md.min_argc];
+		}
+		arg_ptrs[i] = &argv[i];
+	}
 
 	godot::Variant ret;
 	GDExtensionCallError call_error{};
