@@ -46,10 +46,7 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			godot::StringName(NameLit.value)._native_ptr());
 
 	if (!getter) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member getter %s::%s",
-				godot::Variant::get_type_name(VTC),
-				NameLit.value));
-		jsb_throw(isolate, "missing member getter");
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load member getter %s::%s: missing member getter", godot::Variant::get_type_name(VTC), NameLit.value));
 		return;
 	}
 
@@ -84,10 +81,7 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 			godot::StringName(NameLit.value)._native_ptr());
 
 	if (!setter) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member setter %s::%s",
-				godot::Variant::get_type_name(VTC),
-				NameLit.value));
-		jsb_throw(isolate, "missing member setter");
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load member setter %s::%s: missing member setter", godot::Variant::get_type_name(VTC), NameLit.value));
 		return;
 	}
 
@@ -153,10 +147,7 @@ void shared_member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info)
 
 	const GDExtensionPtrGetter getter = md.getter.load(std::memory_order_relaxed);
 	if (!getter) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member getter %s::%s",
-				godot::Variant::get_type_name(VTC),
-				md.name));
-		jsb_throw(isolate, "missing member getter");
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load member getter %s::%s: missing member getter", godot::Variant::get_type_name(VTC), md.name));
 		return;
 	}
 
@@ -186,10 +177,7 @@ void shared_member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info)
 
 	const GDExtensionPtrSetter setter = md.setter.load(std::memory_order_relaxed);
 	if (!setter) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load member setter %s::%s",
-				godot::Variant::get_type_name(VTC),
-				md.name));
-		jsb_throw(isolate, "missing member setter");
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load member setter %s::%s: missing member setter", godot::Variant::get_type_name(VTC), md.name));
 		return;
 	}
 

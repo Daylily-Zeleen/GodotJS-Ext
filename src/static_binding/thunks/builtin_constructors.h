@@ -69,10 +69,7 @@ void builtin_ctor_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	static const GDExtensionPtrConstructor ctor = ::godot::gdextension_interface::variant_get_ptr_constructor(
 			(GDExtensionVariantType)VTC, CtorIndex);
 	if (!ctor) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin constructor %s (index %d)",
-				godot::Variant::get_type_name(VTC),
-				CtorIndex));
-		jsb_throw(isolate, jsb_errorf("missing builtin constructor: %s (index %d)", godot::Variant::get_type_name(VTC), CtorIndex));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load builtin constructor %s (index %d): missing builtin constructor", godot::Variant::get_type_name(VTC), CtorIndex));
 		return;
 	}
 

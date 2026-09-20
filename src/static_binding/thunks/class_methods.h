@@ -122,8 +122,7 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	GDExtensionMethodBindPtr method_bind = resolve_class_method<ClassLit, NameLit, HashC>();
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, NameLit.value));
 		return;
 	}
 
@@ -227,8 +226,7 @@ void class_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) 
 
 	static GDExtensionMethodBindPtr method_bind = resolve_class_method(godot::StringName(ClassLit.value), godot::StringName(NameLit.value), HashC);
 	if (!method_bind) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load method bind %s::%s", ClassLit.value, NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing method bind: %s::%s", ClassLit.value, NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load method bind %s::%s: missing method bind", ClassLit.value, NameLit.value));
 		return;
 	}
 

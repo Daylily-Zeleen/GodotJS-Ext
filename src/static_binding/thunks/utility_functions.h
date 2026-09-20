@@ -54,8 +54,7 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	static const GDExtensionPtrUtilityFunction fn = resolve_utility_function(godot::StringName(NameLit.value), HashC);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load utility function %s: missing utility function", NameLit.value));
 		return;
 	}
 
@@ -145,8 +144,7 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	static const GDExtensionPtrUtilityFunction fn = resolve_utility_function(godot::StringName(NameLit.value), HashC);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", NameLit.value));
-		jsb_throw(isolate, jsb_errorf("missing utility function: %s", NameLit.value));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load utility function %s: missing utility function", NameLit.value));
 		return;
 	}
 
@@ -248,8 +246,7 @@ void shared_utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 
 	const GDExtensionPtrUtilityFunction fn = data.fn.load(std::memory_order_relaxed);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", data.name));
-		jsb_throw(isolate, jsb_errorf("missing utility function: %s", data.name));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load utility function %s: missing utility function", data.name));
 		return;
 	}
 
@@ -297,8 +294,7 @@ void shared_utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Val
 
 	const GDExtensionPtrUtilityFunction fn = data.fn.load(std::memory_order_relaxed);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", data.name));
-		jsb_throw(isolate, jsb_errorf("missing utility function: %s", data.name));
+		jsb_throw(isolate, jsb_errorf("static binding: failed to load utility function %s: missing utility function", data.name));
 		return;
 	}
 
