@@ -83,17 +83,24 @@ movl   (%rcx,%rax,4), %eax   ; 对照：Variant::Type 直读，同为 1 条
 
 ### 1.5 `ApiMethodDetailStorage` 的归属（2026-09-20 抽离）
 
-`api_tool_types.h` 是**直接面向调用方**的热层头，除强制内联的热访问器外**不含内部实现细节**。`ApiMethodDetailStorage` 因此**不在**它里面：
+`api_tool_types.h` 是**直接面向调用方**的热层头，除强制内联的热访问器外**不含内部实现细节**。`ApiMethodDetailStorage` 因此**不在**它里面，其 editor-only 面也不在它自己的 `public` 段里：
 
 | 文件 | 内容 | 编译归属 |
 |---|---|---|
-| `core/api_tool_detail_storage.h` | 类声明（唯一） | 两侧都 include |
+| `core/api_tool_detail_storage.h` | 类声明（唯一）：runtime 接口 + `push_injected` 等两侧共用项 | 两侧都 include |
 | `core/api_tool_detail_storage.cpp` | runtime 路径：`configure_lazy` / `push_injected` / `ensure_details` / `ensure_defaults` / `get_detail` / `get_defaults` | **runtime + editor**（`core/*.cpp` 在两侧 glob） |
-| `editor/api_tool_detail_storage_editor.cpp` | editor 路径：`push_cold` / `seal_cold` | **仅 editor**（`editor/*.cpp` 只在 `editor_globs`） |
+| `editor/api_tool_detail_storage_editor.h` | editor 访问器 `ApiMethodColdAccess` 声明（单 friend struct，`ApiMethodDetailStorage&` 作入参） | **仅 editor** |
+| `editor/api_tool_detail_storage_editor.cpp` | editor 路径定义：`push_cold` / `seal_cold` | **仅 editor**（`editor/*.cpp` 只在 `editor_globs`） |
 
 `api_tool_types.h` 里只留 `class ApiMethodDetailStorage;` 前向声明（热层成员是 `storage_` 裸指针）。
 
-> **为什么 editor 路径必须单独成 TU**：`push_cold`/`seal_cold` 是 JSON 解析期的填充路径，运行时不存在——放在 `core/` 会让 runtime 扩展也链进这份代码。SConstruct 的 glob 是唯一接线点（`runtime_globs` 不含 `api_tool/editor/*.cpp`）；验证方式：`ls .build/runtime/ | grep detail_storage_editor` 应为 **0**。
+**editor 面由单 friend struct 收口**（2026-09-20）：`push_cold` / `seal_cold` / `cold_details` / `cold_default_count` / `cold_defaults` 从类的 `public` 段移到 `ApiMethodColdAccess`，类里只加一行 `friend struct ApiMethodColdAccess;`。理由：这 5 个的调用点全在 editor（`api_tool_parser.cpp`、`api_tool_store_writer.cpp`），而 `core/api_tool_detail_storage.h` 是 runtime 也编译的头，不该向 runtime 消费者公示 editor-only 接口。形态照 `ApiMethodHotWriter` 先例（`api_tool_types.h` 前置声明 → 单一 friend → 定义在 `editor/`）。
+
+- **`cold_*` 三个必须保持类内 `_FORCE_INLINE_`**（现位于 `ApiMethodColdAccess` 头内）：writer 在 `for (i < p_method_count)` 循环里逐方法调用，量级 16k+；移成外部函数会变成每方法一次调用。
+- **`seal_cold()` 的 `details_loaded_.store(true)` / `defaults_loaded_.store(true)` 不是 editor 状态**：那是 runtime 的「已就绪，别再读文件」短路位（见 `ensure_details` / `ensure_defaults`）。editor 路径靠「已用内存填好」达到同一状态。抽离时不可删。
+- 验证 runtime 侧隔离：`ls .build/runtime/ | grep detail_storage_editor` 应为 **0**；`.build/runtime/api_tool*.obj` 中 `ApiMethodColdAccess` 符号数应为 **0**。
+
+> **为什么 editor 路径必须单独成 TU**：`push_cold`/`seal_cold` 是 JSON 解析期的填充路径，运行时不存在——放在 `core/` 会让 runtime 扩展也链进这份代码。SConstruct 的 glob 是唯一接线点（`runtime_globs` 不含 `api_tool/editor/*.cpp`）。
 
 ## 2. `METHOD_FLAG_NO_RETURN`：内部编码的写入与屏蔽
 
@@ -105,7 +112,7 @@ enum MethodFlagsExt : uint32_t {
 };
 ```
 
-- **写入单点**：`internal::encode_flags(godot_flags, has_returns)`（自由函数，3 处调用：`api_tool_parser.cpp` ×2、`api_tool_loader.cpp` ×1）。绝不手写 `| METHOD_FLAG_NO_RETURN`。
+- **写入单点**：`internal::ApiMethodAccess::setup(...)`（internal 访问器，3 处调用：`api_tool_parser.cpp` ×2、`api_tool_loader.cpp` ×1）；NO_RETURN 位的合入发生在其内部。绝不手写 `| METHOD_FLAG_NO_RETURN`。
 - **内部查询**：`has_returns()` 与子类 `validated_call()` 读**原始** `flags_`。
 - **对外契约**：`get_flags()` **必须屏蔽**该位（`flags_ & ~METHOD_FLAG_NO_RETURN`），api_tool 的内部编码不得外泄。
 - **store 往返**：writer 直读原始 `flags_`（`serialize_method_hot` 是 `ApiMethodBase` 的 friend）。**不得**用 `get_flags()` 写 store——那会屏蔽掉内部位，往返后 `has_returns()` 无法恢复。
@@ -115,7 +122,19 @@ bit 256 空闲的依据：引擎 `MethodFlags` 用 1/2/4/8/16/32/64/128，GDExte
 
 ### `ApiMethodAccess` 是唯一写入点
 
-`ApiMethodBase` 故意不暴露 setter。写入只经 `internal::ApiMethodAccess` 的静态函数（`setup` / `set_index` / `set_args` / `set_storage` / `set_default_count`）；`encode_flags` 是同命名空间的自由函数（加载期每方法推导一次）。
+`ApiMethodBase` 故意不暴露 setter。写入只经 `internal::ApiMethodAccess` 的静态函数（`setup` / `set_index` / `set_args` / `set_storage` / `set_default_count` / `get_flags_raw`）；`setup` 内部完成 `METHOD_FLAG_NO_RETURN` 的编码（单点，`p_has_returns` 为假时或入该位）。
+
+定义位置（2026-09-20 迁出 `api_tool_types.h`）：
+
+| 文件 | 内容 |
+|---|---|
+| `core/api_tool_access.h` | `ApiMethodAccess` 声明（`api_tool_types.h` 只留 `struct ApiMethodAccess;` 前向声明） |
+| `core/api_tool_access.cpp` | 全部 6 个静态函数实现（原在 `api_tool_types.cpp`） |
+
+理由与 `ApiStoreReader` / `ApiLoader`（core）、`ApiMethodHotWriter`（editor）一致：这四个 friend 访问器都应是「`api_tool_types.h` 前置声明 + 定义归所属子目录」。`ApiMethodAccess` 此前是唯一就地定义在 `api_tool_types.h` 的例外。
+
+- **`friend struct internal::ApiMethodAccess;` 两行不用改**（`ApiMethodBase` / `ApiMemberMethodBase`）：朋友关系与定义位置无关。
+- 使用方需 include `api_tool/core/api_tool_access.h`（`core/api_tool_loader.cpp`、`core/api_tool_store.cpp`、`editor/api_tool_parser.cpp`）。`core/*.cpp` 在两侧 glob 内，两侧链接结果不变。
 
 > 用 friend struct 而非 friend class `ApiParser`：parser 侧用**自由函数**填充，`friend class ApiParser` 覆盖不到。
 
@@ -254,7 +273,13 @@ grep -rn "get_defaults(" src/editor/codegen/                # codegen 的正常�
 2. **替换辅助函数必须是单个非泛型可调用体**（如 `auto substitute_default = [&](int i) -> bool`），**不能**写成 per-position 泛型 lambda（`helper.template operator()<I>()`）——后者为每个可选位各生成一份完整函数体。实测差异：泛型版 TARGET 家族 +198 条，非泛型版 **+130** 条。
 3. **无缺省位的方法（`M == N`）必须是零增量**。这是「1040 个带缺省位 vs 14330 个不带」的数量级差距决定的——任何 per-instantiation 固定开销都会被后者放大 14 倍。
 
-**builtin thunk 同样适用约束 1**：`use_default_mask` 的构造循环与 marshal / arg_ptrs 两趟必须整体落在 `if constexpr (M < N)` 内。`slots` / `ok` / `arg_ptrs` 三个声明提到 `if constexpr` 外（两分支都要用），`use_default_mask` 留在内层。
+**builtin thunk 同样适用约束 1**：`use_default_mask` 的构造循环、marshal 趟、可选位 arg_ptrs 趟必须整体落在 `if constexpr (M < N)` 内。`slots` / `ok` / `arg_ptrs` 三个声明提到 `if constexpr` 外（两分支都要用），`use_default_mask` 留在内层。
+
+> **`use_default_mask` 必须声明在 `if constexpr` 内——已实测代价。** 试图把它提到分支外（配合 `!(M < N && ...)` 的形式消掉两分支重复）会让 680 个无缺省位实例在 `/Od` 下各付一个栈槽：`dispatch_builtin.gen.obj` `.text` **+29,010 B**。改为「mask 留在分支内、marshal 趟写两遍」后回到 **+0**。
+>
+> **唯一已确认可安全共用的是 `[0, M)` 前缀指针趟**（2026-09-20）：它只写 `[0, M)`，与分支内写的 `[M, N)` 下标不重叠、先后无关，故提到分支外共享。共享的是这一趟，**不是** marshal 趟——marshal 趟读 mask，且必须在 `if (!ok) return;` 之前。`default_arg_slot<>` 有惰性初始化副作用，其调用位置相对 `ok` 检查的次序**不可重排**（改动前次序为：先判 `ok`，再构造可选位指针）。
+
+**utility thunk（全局 utility 函数，见下文第 1 类）已于 2026-09-20 统一为与 builtin 相同的形态**：同一个 `if constexpr (M < N)` 栅栏、同一个 mask 判定、同样的 `[0, M)` 共享趟。此前它无栅栏，可选位机制无条件存在，且判据是「`(M+J) < provided`」（只看有没有传，**不**把显式 `undefined` 视为取默认），与 builtin 的 mask 语义不一致。实测该改动使 `dispatch_utility.gen.obj` `.text` **294,973 → 278,428 B（−16,545 B）**：102 个实例全是 `DefVs<>`（`M == N`）→ 全走新 `else` 分支，不再实例化可选位机制。
 
 > 与 class thunk 不同，builtin 的 `else` 分支**不与改动前等价，而是更小**：改动前即使 `[M, N)` 为空区间也照样实例化可选位辅助 lambda，`else` 分支不再引用它们。实测（同位置构建 `dispatch_builtin.gen.obj`）：`.text` 2,904,967 → 2,814,296 B（**−89 KiB**），无缺省位的 680 个实例化共省 23,800 条指令，带缺省位的 87 个实例化付出 4,776 条。class 侧相反：对照方法家族 **521 → 521（Δ 0）**，因为改动前的 class thunk 本就没有可选位机制。**两侧合计 `.text` +617 KiB**（class +691 KiB、builtin −89 KiB）；dll 端到端 **112,743,424 → 113,382,912 B（+625 KiB）**。
 
@@ -266,7 +291,7 @@ grep -rn "get_defaults(" src/editor/codegen/                # codegen 的正常�
 | 1 | **全局 utility 函数**（`sin` / `print` / `type_convert` …，共 114 个） | 静态：`thunks/utility_functions.h` + `dispatch_utility.gen.cpp`；动态：`ObjectReflectBindingUtil::_godot_utility_func` | **恒 0** | **否**（无可命中位，分支数学上不可达 → 死代码） |
 | 2 | **String / StringName 的内建方法**（`strip_edges` / `substr` / `split` …） | `VariantBind<String>::reflect_bind_utilities` → `_utility_method` → `call_builtin_function(..., utility = true)` | **有**（如 `strip_edges(left=true, right=true)`、`substr(from, len=-1)`） | **是**（它们是带缺省值的 builtin 方法，只是绑定形式借用 `utility=true`；`info[0]` 是接收者） |
 
-- 第 1 类**无需替换**：json 实测全部无缺省值 ⇒ 无可命中位；静态 thunk 里同样 `M == N`。`thunks/utility_functions.h` 因此**有意保持原样**。
+- 第 1 类**无需替换**：json 实测全部无缺省值 ⇒ 无可命中位；静态 thunk 里同样 `M == N`。`thunks/utility_functions.h` 因此**无替换语义可命中**（2026-09-20 已把它的静态形态统一为与 builtin 相同的栅栏+mask 形式，见上文 §3.5 那条注记；该改动不改变任何可达语义，只是消除死代码与形态漂移）。
 - 第 2 类**必须替换**：走的是 `call_builtin_function`，`p_base = 1`（`info[0]` 是接收者），命中判定与 builtin 方法同源。`reflect_bind_utilities` **不查静态表**（实测该函数内 `find_builtin_thunk` 命中 0），所以 String 方法**永远走动态腿**——这条正是 `call_builtin_function` 里 `utility ? 1 : 0` 的用途，也是「两个 utility 不是一回事」的直接证据。
 
 ### 3.6 `owner_name_` 必须放堆上宿主
@@ -368,8 +393,9 @@ method.flags_ = godot_flags | internal::METHOD_FLAG_NO_RETURN;
 ### Correct：单点编码
 
 ```cpp
-// ✅ 写入只经 encode_flags（internal 自由函数）；判别只经 has_returns()
-ApiMethodAccess::setup(m, name, hash, internal::encode_flags(json_flags, has_return), ...);
+// ✅ 写入只经 ApiMethodAccess（internal 访问器）；判别只经 has_returns()
+//    NO_RETURN 位的编码在 setup 内部完成，调用方不接触该位
+ApiMethodAccess::setup(m, name, hash, json_flags, has_return, ...);
 ```
 
 ## 9. 相关规范
