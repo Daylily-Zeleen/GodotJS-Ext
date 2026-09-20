@@ -10,6 +10,7 @@
 - [ ] 读 [coding-standards.md](./coding-standards.md)（命名空间禁令、临时文件位置、格式化）
 - [ ] 涉及 `.gen.` / `.def.` 文件？读 [generated-files.md](./generated-files.md) —— 禁止直接编辑
 - [ ] 涉及 ptrcall / api_tool / 静态绑定？读 [ptrcall-encoding.md](./ptrcall-encoding.md)
+- [ ] 涉及 api store 格式 / 方法记录字段 / 惰性加载？读 [api-tool-lazy-layout.md](./api-tool-lazy-layout.md)
 - [ ] 涉及 GDExtension 生命周期 / 跨库共享 / DLL 拆分？读 [architecture-constraints.md](./architecture-constraints.md)
 - [ ] 修改导出符号或公共头前，先用 LSP 查全部引用点
 
