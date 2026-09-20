@@ -718,9 +718,9 @@ function buildTaskContext(projectRoot: string, taskDir: string, agentType?: Agen
 // Prompt injection config (escape hatch)
 // ---------------------------------------------------------------------------
 
-// Mirrors DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD in inject-workflow-state.py:
-// the skip keyword defaults to "no-trellis"; an explicit "" disables the
-// escape hatch entirely.
+// The skip keyword defaults to "no-trellis" and can be overridden in
+// `.trellis/config.yaml` (`prompt_injection.skip_keyword`); an explicit ""
+// disables the escape hatch entirely.
 const DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD = "no-trellis";
 
 // PyYAML-compatible resolution of scalars that parse as non-strings: null
@@ -772,9 +772,9 @@ function readPromptInjectionSkipKeyword(projectRoot: string): string {
    return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD;
 }
 
-// Mirrors prompt_has_skip_keyword() in inject-workflow-state.py: hyphen counts
-// as a word char so "no-trellisx" / "xno-trellis" / "foo-no-trellis" don't
-// match, but punctuation/whitespace boundaries do. Empty keyword never matches.
+// Hyphen counts as a word char so "no-trellisx" / "xno-trellis" /
+// "foo-no-trellis" don't match, but punctuation/whitespace boundaries do.
+// Empty keyword never matches.
 function shouldSkipWorkflowState(
    userInput: string,
    skipKeyword: string,

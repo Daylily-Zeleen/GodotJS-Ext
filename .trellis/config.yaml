@@ -154,8 +154,10 @@ channel:
 # skipped for that turn only. Does not affect SessionStart or sub-agent
 # context injection.
 #
-# prompt_injection:
-#   skip_keyword: "no-trellis"   # "" disables the escape hatch entirely
+# Set explicitly (instead of relying on the built-in default) so the switch is
+# discoverable; `AGENTS.md`「Trellis 入口」refers to it.
+prompt_injection:
+  skip_keyword: "no-trellis"   # "" disables the escape hatch entirely
 
 # Auto-detected monorepo packages
 # 项目包映射：主扩展代码 + 两个第三方子模块。
