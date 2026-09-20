@@ -84,6 +84,22 @@ const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
 		const godot::StringName &p_name,
 		uint32_t p_hash);
 
+#	if JSB_WITH_SHARED_THUNKS
+// binding_mode=shared: signature-shared class method lookup. On success
+// resolves-and-caches the method bind EAGERLY (mount-time; classdb_get_method_bind,
+// see ensure_class_method_bind) and sets *r_method_data to the per-method
+// SharedClassMethodData that the mount point forwards verbatim as v8 callback
+// data -- the shared thunk reads it back through info.Data() with a single
+// relaxed load. The caller never dereferences the payload; a failed resolve
+// or a "not found" hit returns nullptr (mount falls back to dynamic binding)
+// and leaves *r_method_data untouched. Defined in the generated dispatch TU
+// (parallel const data tables).
+const ThunkFn find_shared_class_method_binding(const godot::StringName &p_class,
+		const godot::StringName &p_name,
+		uint32_t p_hash,
+		const void **r_method_data);
+#	endif
+
 // Indexed property accessors: one thunk per property side; the
 // constant index lives on the accessor, not on the shared backing method.
 // p_name is the PROPERTY name as exposed in the api json. Either side may be

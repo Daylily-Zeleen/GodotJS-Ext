@@ -142,6 +142,19 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 #endif
 			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.get_name());
 #if JSB_WITH_STATIC_BINDINGS
+#	if JSB_WITH_SHARED_THUNKS
+			const void *sb_data = nullptr;
+			const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_shared_class_method_binding(
+					p_class_name, method_info.get_name(), method_info.get_hash(), &sb_data);
+			if (sb_thunk) {
+				if (method_info.is_static()) {
+					static_builder.Method(method_name, sb_thunk, (void *)sb_data);
+				} else {
+					class_builder.Instance().Method(method_name, sb_thunk, (void *)sb_data);
+				}
+				continue;
+			}
+#	else
 			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.get_name(), method_info.get_hash())) {
 				// A class thunk carries no default literal, so an explicit
 				// `undefined` over a defaulted position has to reach the method
@@ -159,6 +172,7 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 				}
 				continue;
 			}
+#	endif
 			JSB_LOG(Warning, "static binding not found: %s.%s [class], falling back to dynamic binding", p_class_name, method_name);
 #endif
 
