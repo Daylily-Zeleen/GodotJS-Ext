@@ -64,7 +64,6 @@ struct SharedClassMethodData {
 	mutable std::atomic<GDExtensionMethodBindPtr> method_bind; // lazy, filled on first call
 	const char *class_name;
 	const char *method_name;
-	uint32_t hash;
 	int32_t min_argc;
 };
 
@@ -80,7 +79,7 @@ struct SharedClassMethodData {
 //
 // The hot path (shared_class_*_thunk) does NOT call this; it only
 // relaxed-loads the result.
-_FORCE_INLINE_ GDExtensionMethodBindPtr ensure_class_method_bind(const SharedClassMethodData &md) {
+_FORCE_INLINE_ GDExtensionMethodBindPtr ensure_class_method_bind(uint32_t p_hash, const SharedClassMethodData &md) {
 	GDExtensionMethodBindPtr mb = md.method_bind.load(std::memory_order_relaxed);
 	if (mb) {
 		return mb; // already resolved by a previous Environment
@@ -88,7 +87,7 @@ _FORCE_INLINE_ GDExtensionMethodBindPtr ensure_class_method_bind(const SharedCla
 	mb = ::godot::gdextension_interface::classdb_get_method_bind(
 			godot::StringName(md.class_name)._native_ptr(),
 			godot::StringName(md.method_name)._native_ptr(),
-			(GDExtensionInt)md.hash);
+			(GDExtensionInt)p_hash);
 	if (mb) {
 		GDExtensionMethodBindPtr expected = nullptr;
 		if (md.method_bind.compare_exchange_strong(expected, mb, std::memory_order_relaxed)) {

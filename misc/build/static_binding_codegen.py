@@ -1506,8 +1506,11 @@ def _emit_shared_class_dispatch(m):
                 nlit = cxx_str(m.pool.strings[e["name_id"]])
                 name_to_row[(h, nlit)] = row_index
                 min_argc = len(e["args"]) - default_count(e)
-                L.append("\t{nullptr, %s, %s, %du, %d},"
-                         % (cxx_str(cname), nlit, e["hash"], min_argc))
+                # {method_bind, class_name, method_name, min_argc}; the hash is
+                # passed through ensure_class_method_bind (mount-time finder
+                # has it), not stored in the row.
+                L.append("\t{nullptr, %s, %s, %d},"
+                         % (cxx_str(cname), nlit, min_argc))
                 row_index += 1
         L.append("};")
         L.append("")
@@ -1567,7 +1570,7 @@ def _emit_shared_class_dispatch(m):
     L.append("\t\t\t// Exactly one source call site for the whole table: the nested")
     L.append("\t\t\t// find_cls_* resolvers are pure lookups. A failed resolve falls back")
     L.append("\t\t\t// to dynamic binding (nullptr).")
-    L.append("\t\t\tif (!thunks::ensure_class_method_bind(*static_cast<const thunks::SharedClassMethodData *>(*r_method_data))) return nullptr;")
+    L.append("\t\t\tif (!thunks::ensure_class_method_bind(p_hash, *static_cast<const thunks::SharedClassMethodData *>(*r_method_data))) return nullptr;")
     L.append("\t\t\treturn thunk;")
     L.append("\t\t}")
     L.append("\t\tif (cmp < 0) hi = mid - 1; else lo = mid + 1;")

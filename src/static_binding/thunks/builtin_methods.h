@@ -321,8 +321,8 @@ void shared_builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 
 	const GDExtensionPtrBuiltInMethod fn = md.fn.load(std::memory_order_relaxed);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
-		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt), md.method_name));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt), md.method_name));
 		return;
 	}
 
@@ -334,7 +334,7 @@ void shared_builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		while (m > 0 && md.defaults[m - 1] != nullptr) {
 			--m;
 		}
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name, m, N, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", godot::Variant::get_type_name(md.vt), md.method_name, m, N, provided));
 		return;
 	}
 
@@ -395,14 +395,14 @@ void shared_builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value
 
 	const GDExtensionPtrBuiltInMethod fn = md.fn.load(std::memory_order_relaxed);
 	if (!fn) {
-		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
-		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt), md.method_name));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt), md.method_name));
 		return;
 	}
 
 	const int provided = (int)info.Length();
 	if (provided < F) {
-		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name, F, provided));
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(md.vt), md.method_name, F, provided));
 		return;
 	}
 
