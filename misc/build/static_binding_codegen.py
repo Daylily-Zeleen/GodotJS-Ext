@@ -1212,7 +1212,7 @@ def emit_builtin_dispatch_cpp(m, op_tables="", binding_mode="static"):
         L.append("}")
         L.append("")
 
-    _emit_builtin_member_accessors(m, L)
+    _emit_builtin_member_accessors(m, L, binding_mode)
 
     # main() supplies operator and constructor resolvers for this builtin TU.
     # Keep them inside jsb::static_binding.
@@ -1223,15 +1223,25 @@ def emit_builtin_dispatch_cpp(m, op_tables="", binding_mode="static"):
     return "\n".join(L)
 
 
-def _emit_builtin_member_accessors(m, L):
-    """Builtin member-accessor lookups (§4.1), emitted identically for both
-    binding modes and shared with the Form A resolver function."""
+def _emit_builtin_member_accessors(m, L, binding_mode="static"):
+    """Builtin member-accessor lookups (§4.1).
+
+    Form A (static) emits one per-member accessor thunk + a
+    find_builtin_member_getter/setter_thunk resolver. Form B (shared) emits
+    one accessor thunk per unique (VTC, MemberVT) signature, a parallel
+    per-type SharedMemberAccessorData table, and a top-level
+    find_shared_member_getter/setter_binding that eagerly resolves+caches both
+    ptrcall functions (see ensure_member_accessor)."""
     L.append("// ---- builtin member accessors (P3) ----")
     by_vt = collections.OrderedDict()
     for e in m.members:
         if m.vt_names[e["vt"]] in ("String", "StringName"):
             continue  # JS string aliases: no member-accessor static bindings
         by_vt.setdefault(e["vt"], []).append(e)
+
+    if binding_mode == "shared":
+        _emit_shared_builtin_member_accessors(m, L, by_vt)
+        return
 
     def emit_member_lookup(fn_name, side):
         tmpl = ("thunks::member_getter_thunk" if side == "g"
@@ -1254,6 +1264,85 @@ def _emit_builtin_member_accessors(m, L):
 
     emit_member_lookup("find_builtin_member_getter_thunk", "g")
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
+
+
+def _emit_shared_builtin_member_accessors(m, L, by_vt):
+    """Form B (binding_mode=shared) member accessor emission: one
+    shared_member_getter/setter_thunk per unique (VTC, MemberVT) signature, a
+    parallel per-type SharedMemberAccessorData table (one row per member,
+    serving both accessor thunks of the property), and top-level
+    find_shared_member_getter/setter_binding that eagerly resolves+caches both
+    ptrcall functions before returning."""
+    # ---- shared accessor thunk instantiations (dedup by (VTC, MemberVT)) ----
+    sigs = sorted({(vt, e["member_type"]) for vt, es in by_vt.items() for e in es})
+    sig_id = {(vt, mt): i for i, (vt, mt) in enumerate(sigs)}
+    L.append("static const ThunkFn k_shared_member_getters[] = {")
+    for vt, mt in sigs:
+        L.append("\t(ThunkFn)&thunks::shared_member_getter_thunk<%s, %s>,"
+                 % (vt_value_to_enum(vt), vt_value_to_enum(mt)))
+    L.append("};")
+    L.append("static const ThunkFn k_shared_member_setters[] = {")
+    for vt, mt in sigs:
+        L.append("\t(ThunkFn)&thunks::shared_member_setter_thunk<%s, %s>,"
+                 % (vt_value_to_enum(vt), vt_value_to_enum(mt)))
+    L.append("};")
+    L.append("")
+
+    # ---- per-type data table + pure-lookup resolvers -----------------------
+    # Resolver: match the member name; write the per-member data row and return
+    # the signature accessor thunk. NO resolution here -- that happens ONCE in
+    # the top-level find_shared_member_*_binding (ensure_member_accessor), so
+    # each accessor family has exactly one ensure call site.
+    member_name_to_row = {}
+    for vt in sorted(by_vt):
+        entries = by_vt[vt]
+        vt_ident = class_ident(m.vt_names[vt])
+        L.append("static thunks::SharedMemberAccessorData k_member_data_%s[] = {" % vt_ident)
+        for row, e in enumerate(entries):
+            nlit = cxx_str(e["name_str"])
+            member_name_to_row[(vt, nlit)] = (vt_ident, row)
+            L.append("\t{nullptr, nullptr, %s}," % nlit)
+        L.append("};")
+        L.append("")
+        L.append("static ThunkFn resolve_shared_member_getter_%s(const char *p_name, const void **r_method_data) {" % vt_ident)
+        for row, e in enumerate(entries):
+            nlit = cxx_str(e["name_str"])
+            L.append("\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_member_data_%s[%d]; return k_shared_member_getters[%d]; }"
+                     % (nlit, vt_ident, row, sig_id[(vt, e["member_type"])]))
+        L.append("\treturn nullptr;")
+        L.append("}")
+        L.append("")
+        L.append("static ThunkFn resolve_shared_member_setter_%s(const char *p_name, const void **r_method_data) {" % vt_ident)
+        for row, e in enumerate(entries):
+            nlit = cxx_str(e["name_str"])
+            L.append("\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_member_data_%s[%d]; return k_shared_member_setters[%d]; }"
+                     % (nlit, vt_ident, row, sig_id[(vt, e["member_type"])]))
+        L.append("\treturn nullptr;")
+        L.append("}")
+        L.append("")
+
+    # ---- top-level lookups: eager resolve + cache --------------------------
+    max_vt = max(VARIANT_TYPE_VALUES.values())
+    for side in ("getter", "setter"):
+        fn = "find_shared_member_%s_binding" % side
+        resolve_tmpl = ("resolve_shared_member_getter_" if side == "getter" else "resolve_shared_member_setter_")
+        L.append("const ThunkFn %s(godot::Variant::Type p_vt, const godot::StringName &p_name, const void **r_method_data) {" % fn)
+        L.append("\tusing Resolver = ThunkFn (*)(const char *, const void **);")
+        L.append("\tstatic const Resolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+        for vtx in range(max_vt + 1):
+            r = ("resolve_shared_member_%s_%s" % (side, class_ident(m.vt_names[vtx]))) if vtx in by_vt else "nullptr"
+            L.append("\t\t%s," % r)
+        L.append("\t};")
+        L.append("\tif (unsigned(p_vt) >= std::size(k_by_type)) return nullptr;")
+        L.append("\tconst Resolver resolve = k_by_type[unsigned(p_vt)];")
+        L.append("\tif (!resolve) return nullptr;")
+        L.append("\tconst godot::CharString name_utf8 = godot::String(p_name).utf8();")
+        L.append("\tconst ThunkFn thunk = resolve(name_utf8.get_data(), r_method_data);")
+        L.append("\tif (!thunk) return nullptr;")
+        L.append("\tif (!thunks::ensure_member_accessor(p_vt, p_name, *static_cast<thunks::SharedMemberAccessorData *>(const_cast<void *>(*r_method_data)))) return nullptr;")
+        L.append("\treturn thunk;")
+        L.append("}")
+        L.append("")
 
 
 def emit_utility_dispatch_cpp(m, binding_mode="static"):

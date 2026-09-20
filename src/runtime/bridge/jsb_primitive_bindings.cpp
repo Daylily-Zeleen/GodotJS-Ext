@@ -645,10 +645,20 @@ public:
 
 #if JSB_WITH_STATIC_BINDINGS
 				// static-first: bind the generated accessor thunks directly
+#	if JSB_WITH_SHARED_THUNKS
+				const void *m_data = nullptr;
+				const jsb::static_binding::ThunkFn sb_getter = jsb::static_binding::find_shared_member_getter_binding(TYPE, name, &m_data);
+				const jsb::static_binding::ThunkFn sb_setter = jsb::static_binding::find_shared_member_setter_binding(TYPE, name, &m_data);
+				if (sb_getter && sb_setter) {
+					class_builder.Instance().Property(internal::NamingUtil::get_member_name(name), sb_getter, sb_setter, (void *)m_data);
+					continue;
+				}
+#	else
 				if (jsb::static_binding::ThunkFn sb_getter = jsb::static_binding::find_builtin_member_getter_thunk(TYPE, name)) {
 					class_builder.Instance().Property(internal::NamingUtil::get_member_name(name), sb_getter, jsb::static_binding::find_builtin_member_setter_thunk(TYPE, name), (int32_t)0);
 					continue;
 				}
+#	endif
 #endif
 				const Variant::Type member_type = member.type;
 
@@ -793,7 +803,7 @@ public:
 				method_info_storage.method_info = &method_info;
 
 #if JSB_WITH_STATIC_BINDINGS
-const void *sb_data = nullptr;
+				const void *sb_data = nullptr;
 #	if JSB_WITH_SHARED_THUNKS
 				const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_shared_builtin_binding(
 						TYPE, method_info.get_name(), method_info.get_hash(), &sb_data);

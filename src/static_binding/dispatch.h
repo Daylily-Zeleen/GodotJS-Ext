@@ -124,6 +124,22 @@ const ThunkFn find_shared_builtin_binding(godot::Variant::Type p_vt,
 const ThunkFn find_shared_utility_binding(const godot::StringName &p_name,
 		uint32_t p_hash,
 		const void **r_method_data);
+
+// binding_mode=shared: signature-shared builtin member accessors (one thunk per
+// unique (VTC, MemberVT) signature). On success resolves-and-caches both
+// getter/setter ptrcall functions EAGERLY (mount-time; variant_get_ptr_getter/
+// variant_get_ptr_setter, see ensure_member_accessor) and sets *r_method_data
+// to the per-member SharedMemberAccessorData that the mount point forwards
+// verbatim as v8 callback data (one row serves both the getter and setter
+// thunks of a property). The caller never dereferences the payload; a failed
+// resolve or a "not found" hit returns nullptr (mount falls back to dynamic
+// binding). Defined in the generated dispatch TU.
+const ThunkFn find_shared_member_getter_binding(godot::Variant::Type p_vt,
+		const godot::StringName &p_name,
+		const void **r_method_data);
+const ThunkFn find_shared_member_setter_binding(godot::Variant::Type p_vt,
+		const godot::StringName &p_name,
+		const void **r_method_data);
 #	endif
 
 // Indexed property accessors: one thunk per property side; the
