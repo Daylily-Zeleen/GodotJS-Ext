@@ -41,9 +41,11 @@
 
 ## Out of Scope
 
-- builtin / utility / vararg / ctor / operator 族（子任务 2、3）
+- builtin / utility / ctor / operator 族（子任务 2、3）
 - 形态 A 默认值处理改动（已拆至 09-12-form-a-default-handling 先行实施）
 - d.ts 生成与 JS 侧任何行为变化
+
+> 2026-09-20 裁决（用户）：原把 **class vararg 划入子任务 3** 是 PRD 错误。子任务 3（utility-thunk-sweep）只处理 **utility 函数**（的函数指针执行方式与 class 族不同，不能混淆）。**class 族的 vararg 方法也纳入本任务**：`class_vararg_method_thunk` 一并按签名共享（`shared_class_vararg_method_thunk`），共享签名数即减 class_vararg 族 15→10。
 
 ## Notes
 
