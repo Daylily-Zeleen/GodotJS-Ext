@@ -6,6 +6,7 @@ import {
     FileAccess,
     GArray,
     GDictionary,
+    ImageTexture,
     Node,
     PackedByteArray,
     TabBar,
@@ -235,10 +236,14 @@ export default class TestDefaultArgs extends Node {
 
             // class, undefined FIRST with the later position still supplied:
             // the defaulted `title` must fall back without disturbing `icon`.
-            tabBar.add_tab(undefined, null);
-            check("TabBar.tab_count [add_tab(undefined, null)]", tabBar.tab_count, 2);
+            // (`icon` is a Texture2D, not a nullable one: pass a real texture,
+            // and the non-null icon readback below is what proves the value in
+            // that position survived while `title` fell back.)
+            const iconTexture = new ImageTexture();
+            tabBar.add_tab(undefined, iconTexture);
+            check("TabBar.tab_count [add_tab(undefined, icon)]", tabBar.tab_count, 2);
             check("TabBar.get_tab_title(1)", tabBar.get_tab_title(1), "");
-            check("TabBar.get_tab_icon(1)", tabBar.get_tab_icon(1), null);
+            check("TabBar.get_tab_icon(1)", tabBar.get_tab_icon(1), iconTexture);
 
             // class String slots, undefined trailed by a real value -- this is
             // the case the old arity-trimming semantics got wrong (it threw
