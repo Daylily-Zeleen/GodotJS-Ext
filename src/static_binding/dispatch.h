@@ -91,6 +91,21 @@ const ThunkFn find_class_method_thunk(const godot::StringName &p_class,
 const IndexedPropertyThunks find_indexed_property_thunk(const godot::StringName &p_class,
 		const godot::StringName &p_name);
 
+// Default values of the class method carried as a class thunk's data payload.
+//
+// A class thunk holds no default literal of its own (the engine MethodBind fills
+// trailing omitted arguments), so a defaulted position the caller covered with an
+// explicit `undefined` is resolved through the method record that registration
+// attaches for methods which have defaults. The thunk substitutes the value into
+// its own argument slot and keeps calling on the static path.
+//
+// Returns the record's default-value array and, through r_count, its length;
+// nullptr when there is nothing to substitute from.
+//
+// Defined in the runtime bridge (jsb_object_bindings.cpp), which keeps the
+// api_tool types out of the static-binding headers.
+const godot::Variant *class_method_defaults(const void *p_method_info, uint32_t &r_count);
+
 } // namespace jsb::static_binding
 
 #endif // JSB_WITH_STATIC_BINDINGS

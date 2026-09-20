@@ -143,10 +143,19 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 			const StringName &method_name = internal::NamingUtil::get_member_name(method_info.get_name());
 #if JSB_WITH_STATIC_BINDINGS
 			if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_class_method_thunk(p_class_name, method_info.get_name(), method_info.get_hash())) {
+				// A class thunk carries no default literal, so an explicit
+				// `undefined` over a defaulted position has to reach the method
+				// record itself: methods that have defaults carry their record as
+				// the thunk's data payload, and the thunk substitutes the value into
+				// its own argument slot (see thunks::class_method_thunk). The
+				// others carry no payload and never look at it.
+				void *thunk_data = method_info.get_default_count() > 0 ? (void *)&method_info : nullptr;
 				if (method_info.is_static()) {
-					static_builder.Method(method_name, sb_thunk);
+					if (thunk_data) static_builder.Method(method_name, sb_thunk, thunk_data);
+					else static_builder.Method(method_name, sb_thunk);
 				} else {
-					class_builder.Instance().Method(method_name, sb_thunk);
+					if (thunk_data) class_builder.Instance().Method(method_name, sb_thunk, thunk_data);
+					else class_builder.Instance().Method(method_name, sb_thunk);
 				}
 				continue;
 			}
@@ -386,7 +395,9 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	const api_tool::ApiClassMethod *method_info = (api_tool::ApiClassMethod *)info.Data().As<v8::External>()->Value();
-	const int argc = info.Length();
+	// Raw count as passed by the caller: the arity check below must still reject
+	// an over-long call, so only the effective count is normalized later.
+	const int argc_passed = info.Length();
 
 	jsb_check(method_info);
 	Environment::wrap(isolate)->check_internal_state();
@@ -404,11 +415,26 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 	const bool method_is_vararg = method_info->is_vararg();
 	const uint16_t method_default_count = method_info->get_default_count();
 
-	if (!internal::VariantUtil::check_argc(method_is_vararg, argc, method_default_count, method_argc)) {
+	if (!internal::VariantUtil::check_argc(method_is_vararg, argc_passed, method_default_count, method_argc)) {
 		const String error_message = jsb_errorf("Failed to call: %s. %d arguments are required", method_info->get_name(), method_argc - method_default_count);
 		jsb_throw(isolate, error_message);
 		return;
 	}
+	// An explicit `undefined` on a defaulted position means "use THIS position's
+	// default" (JS default-parameter semantics), and it must not shift the
+	// arguments around it: `f(true, undefined, false)` still passes three
+	// positions. The caller's arity is therefore left untouched, and the
+	// substitution happens before conversion (a Variant cannot represent
+	// "explicit undefined", so this is the only place it is still visible).
+	// Trailing positions the caller did not supply at all are still completed by
+	// the engine itself (MethodBind::call -> call_with_variant_args_dv with the
+	// method's default arguments).
+	const int argc = argc_passed;
+	const int min_argc = (int)method_argc - (int)method_default_count;
+	// Loaded at most once and only if a defaulted position actually needs it, so
+	// a call that supplies every argument never touches the block.
+	const Variant *defaults = nullptr;
+	uint32_t defaults_size = 0;
 	const Variant **argv = jsb_stackalloc(const Variant *, argc);
 	Variant *args = jsb_stackalloc(Variant, argc);
 	for (int index = 0; index < argc; ++index) {
@@ -420,6 +446,14 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 
 		const v8::Local<v8::Value> &argument = info[index];
 
+		if (method_default_count > 0 && index >= min_argc && index < (int)method_argc && argument->IsUndefined()) {
+			if (defaults == nullptr) defaults = method_info->get_defaults(defaults_size);
+			const int default_index = index - min_argc;
+			if (defaults != nullptr && default_index < (int)defaults_size) {
+				args[index] = defaults[default_index];
+				continue;
+			}
+		}
 		if (!TypeConvert::js_to_gd_var(isolate, context, argument, type, args[index])) {
 			// revert all constructors
 			const String error_message = jsb_errorf("Failed to call: %s. Bad argument: %d. Unable to convert JS %s to Godot %s", method_info->get_name(), index, TypeConvert::js_debug_typeof(isolate, info[index]), Variant::get_type_name(type));
@@ -459,6 +493,26 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 			Variant::get_type_name(crval.get_type()));
 	jsb_throw(isolate, error_message);
 }
+
+#if JSB_WITH_STATIC_BINDINGS
+namespace static_binding {
+
+// Defaults of the class method whose record rides along as a class thunk's data
+// payload (declared in static_binding/dispatch.h). A class thunk carries no
+// default literal of its own -- the engine MethodBind fills trailing omitted
+// arguments -- so this is how an explicit `undefined` over a defaulted position
+// gets resolved without leaving the static path.
+//
+// Defined here rather than in the thunk header so the api_tool types stay out of
+// the static-binding includes. The array stays lazily loaded: it is fetched when
+// the thunk first hits a defaulted position, never at registration.
+const godot::Variant *class_method_defaults(const void *p_method_info, uint32_t &r_count) {
+	jsb_check(p_method_info != nullptr);
+	return ((const api_tool::ApiClassMethod *)p_method_info)->get_defaults(r_count);
+}
+
+} // namespace static_binding
+#endif
 
 void ObjectReflectBindingUtil::_godot_object_get2(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	jsb_check(info.Data()->IsInt32());

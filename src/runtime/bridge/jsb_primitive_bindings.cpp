@@ -464,6 +464,18 @@ public:
 		// and only when something was actually omitted), so padding here would
 		// duplicate that work and force the defaults to load twice.
 		const int known_argc = (int)method->get_argument_count();
+		const int default_count = (int)method->get_default_count();
+		// An explicit `undefined` on a defaulted position means "use THIS
+		// position's default" (JS default-parameter semantics), and it must not
+		// shift the arguments around it: `f(true, undefined, false)` still passes
+		// three positions. The caller's arity is therefore left untouched, and
+		// the substitution happens before conversion (a Variant cannot represent
+		// "explicit undefined", so this is the only place it is still visible).
+		const int min_argc = known_argc - default_count;
+		// Loaded at most once and only if a defaulted position actually needs it,
+		// so a call that supplies every argument never touches the block.
+		const Variant *defaults = nullptr;
+		uint32_t defaults_size = 0;
 		const int argc = provided;
 		const Variant **argv = jsb_stackalloc(const Variant *, argc);
 		Variant *args = jsb_stackalloc(Variant, argc);
@@ -471,6 +483,14 @@ public:
 			memnew_placement(&args[index], Variant);
 			argv[index] = &args[index];
 			const v8::Local<v8::Value> &argument = info[utility ? index + 1 : index];
+			if (default_count > 0 && index >= min_argc && index < known_argc && argument->IsUndefined()) {
+				if (defaults == nullptr) defaults = method->get_defaults(defaults_size);
+				const int default_index = index - min_argc;
+				if (defaults != nullptr && default_index < (int)defaults_size) {
+					args[index] = defaults[default_index];
+					continue;
+				}
+			}
 			// Declared arguments convert against their declared type; anything
 			// beyond them belongs to a vararg tail and converts untyped.
 			const bool converted = index < known_argc

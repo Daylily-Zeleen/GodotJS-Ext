@@ -32,6 +32,8 @@
 #	include <array>
 #	include <godot_cpp/classes/object.hpp>
 
+#	include "static_binding/dispatch.h"
+
 namespace jsb::static_binding::thunks {
 
 template <FixedString ClassLit, FixedString NameLit, uint32_t HashC>
@@ -85,13 +87,57 @@ void class_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		}
 	}
 
-	// RAII Variant slots remain NIL if conversion fails; the engine fills defaults.
+	// A class thunk carries no default literal of its own -- the engine MethodBind
+	// fills the *trailing omitted* arguments -- so an explicit `undefined` the
+	// caller passed over a defaulted position [M, N) is resolved from the method
+	// record that registration attached as this thunk's data payload. The value
+	// lands in this thunk's OWN argument slot and the call stays on the static
+	// path: nothing re-dispatches.
+	//
+	// A method with no defaulted position takes the plain path below unchanged --
+	// `M == N` discards the whole substitution block, so those instantiations carry
+	// no extra code or state at all.
+	//
+	// Positions the caller omitted altogether stay below `provided` and keep the
+	// engine's trailing fill.
 	godot::Variant argv[N > 0 ? N : 1];
 	const godot::Variant *arg_ptrs[N > 0 ? N : 1];
 	bool ok = true;
-	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && (N <= (int)provided || (int)I < provided ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
-	}(std::make_index_sequence<N>{});
+	if constexpr (M < N) {
+		// The method record is attached once at registration and is stable for the
+		// process lifetime, so it is fetched on the first hit and never again; both
+		// statics are constant-initialized (no guard variable, no atomic). A method
+		// with no defaulted position discards this whole block, state included.
+		static const godot::Variant *cached_defaults = nullptr;
+		static uint32_t cached_count = 0;
+		// Deliberately non-generic: one out-of-line helper serves every optional
+		// position. A per-position template would emit a separate copy of the whole
+		// body for each one, which for 15370 instantiations dominates the object.
+		auto substitute_default = [&](int i) -> bool {
+			if (i < M || !info[i]->IsUndefined()) {
+				return false;
+			}
+			if (cached_defaults == nullptr) {
+				jsb_check(info.Data()->IsExternal());
+				cached_defaults = class_method_defaults(info.Data().As<v8::External>()->Value(), cached_count);
+			}
+			// A record too short for this position (corrupt store) falls through to
+			// the normal conversion -- the per-position range check the dynamic path
+			// does, minus the out-of-bounds read.
+			if ((uint32_t)(i - M) < cached_count) {
+				argv[i] = cached_defaults[i - M];
+				return true;
+			}
+			return false;
+		};
+		[&]<std::size_t... I>(std::index_sequence<I...>) {
+			(void)((ok = ok && (N <= (int)provided || (int)I < provided ? (substitute_default((int)I) ? true : produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided)) : true)) && ...);
+		}(std::make_index_sequence<N>{});
+	} else {
+		[&]<std::size_t... I>(std::index_sequence<I...>) {
+			(void)((ok = ok && (N <= (int)provided || (int)I < provided ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, argv[I], provided) : true)) && ...);
+		}(std::make_index_sequence<N>{});
+	}
 	if (!ok) {
 		return; // JS exception already thrown by produce_variant
 	}
