@@ -79,7 +79,7 @@ movl   (%rcx,%rax,4), %eax   ; 对照：Variant::Type 直读，同为 1 条
 
 ### 1.4 布局由 `static_assert` 强制，不靠注释
 
-`api_tool_types.h` 末尾对上述全部尺寸有 `static_assert`。**布局漂移必须编译失败**（多一个热字段、`godot::MethodInfo` 成员被加回来，都会立刻暴露，而不是悄悄把这次优化撤销）。若刻意改变尺寸 → 同步更新 assert 与 `design.md` §11 / 任务 `report.md` 数字。
+- `api_tool_types.h` 内对 `ApiMethodArg` 有 `static_assert(sizeof(...) == 2)`（§1.3）。**布局漂移必须编译失败**（多一个热字段、`godot::MethodInfo` 成员被加回来，都会立刻暴露，而不是悄悄把这次优化撤销）。若刻意改变尺寸 → 同步更新 assert 与 `design.md` §11 / 任务 `report.md` 数字。
 
 ### 1.5 `ApiMethodDetailStorage` 的归属（2026-09-20 抽离）
 
