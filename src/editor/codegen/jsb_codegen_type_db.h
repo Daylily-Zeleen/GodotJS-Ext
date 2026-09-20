@@ -47,11 +47,11 @@ namespace codegen {
 
 using namespace godot;
 
-// GodotJsb.editor.MethodBind equivalent. Built from godot::MethodInfo plus
+// GodotJsb.editor.MethodBind equivalent. Built from `api_tool::ApiMethodBase`
+// accessors (hot fields) plus the lazily loaded full `PropertyInfo` detail, and
 // marshalled default argument values.
 struct MethodDecl {
 	String internal_name;
-	uint32_t id = 0;
 	String name;
 	uint32_t hint_flags = 0;
 	bool is_static = false;
@@ -252,7 +252,7 @@ private:
 	void load_globals();
 	void load_utilities();
 
-	void build_method_decl(MethodDecl &r_decl, const MethodInfo &p_method);
+	void build_method_decl(MethodDecl &r_decl, const api_tool::ApiMethodBase &p_method, const godot::Variant *p_defaults, uint16_t p_default_count);
 	PrimitiveClassDecl *_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode);
 
 	// get_primitive_type_name_as_input()

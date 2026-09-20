@@ -91,24 +91,15 @@ static void _load_godot_object_class(const v8::FunctionCallbackInfo<v8::Value> &
 		env->get_variant_info_collection().utility_funcs.append({});
 		internal::FUtilityMethodInfo &method_info = env->get_variant_info_collection().utility_funcs.write[utility_func_index];
 
-		const godot::MethodInfo &method = api_utility_function->method;
-
-		const int argument_count = method.arguments.size();
-		method_info.argument_types.resize(argument_count);
-		for (int index = 0, num = argument_count; index < num; ++index) {
-			method_info.argument_types.write[index] = method.arguments[index].type;
-		}
 		//NOTE currently, utility functions have no default argument.
-		// method_info.default_arguments = ...
-		method_info.return_type = method.return_val.type;
-		method_info.is_vararg = api_utility_function->is_vararg();
-		method_info.set_debug_name(internal::NamingUtil::get_member_name(original_name));
+		// The method's hot data (name/vararg/return type/argument types) is read
+		// straight from the api_tool record through the accessors below.
 		method_info.utility_func = api_utility_function;
 		JSB_LOG(VeryVerbose, "expose godot utility function %s (%d)", original_name, utility_func_index);
 		jsb_check(method_info.utility_func);
 
 #if JSB_WITH_STATIC_BINDINGS
-		if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->method.name, api_utility_function->hash)) {
+		if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_utility_thunk(api_utility_function->get_name(), api_utility_function->get_hash())) {
 			info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, sb_thunk, v8::Int32::New(isolate, utility_func_index)));
 			return;
 		}

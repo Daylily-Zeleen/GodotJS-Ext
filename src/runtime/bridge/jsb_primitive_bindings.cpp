@@ -450,39 +450,33 @@ public:
 
 	template <bool HasReturnValueT>
 	static void call_builtin_function(Variant *self, const internal::FBuiltinMethodInfo &method_info, const v8::FunctionCallbackInfo<v8::Value> &info, v8::Isolate *isolate, const v8::Local<v8::Context> &context, const bool utility = false) {
-		const int argc = utility ? info.Length() - 1 : info.Length();
-		if (!method_info.check_argc(argc)) {
-			jsb_throw(isolate, "num of arguments does not meet the requirement: " + self->stringify() + " - " + Variant::get_type_name(self->get_type()) + "::" + method_info.method_info->method.name);
+		const api_tool::ApiBuiltInMethod *const method = method_info.method_info;
+		// Arity is checked on what the caller literally passed; only the effective
+		// count is normalized (a raw N+1 call must keep failing, as before).
+		const int provided = utility ? info.Length() - 1 : info.Length();
+		if (!method_info.check_argc(provided)) {
+			jsb_throw(isolate, "num of arguments does not meet the requirement: " + self->stringify() + " - " + Variant::get_type_name(self->get_type()) + "::" + method->get_name());
 			return;
 		}
 
-		// prepare argv
-		const auto &default_arguments = method_info.method_info->method.default_arguments;
-		const int known_argc = (int)method_info.argument_types.size();
-		const int allocated_argc = MAX(known_argc, argc);
-		const Variant **argv = jsb_stackalloc(const Variant *, allocated_argc);
-		Variant *args = jsb_stackalloc(Variant, allocated_argc);
-		for (int index = 0; index < allocated_argc; ++index) {
+		// Convert exactly what the caller passed. Trailing omitted arguments are
+		// NOT padded here: validated_call fills its own default values (lazily,
+		// and only when something was actually omitted), so padding here would
+		// duplicate that work and force the defaults to load twice.
+		const int known_argc = (int)method->get_argument_count();
+		const int argc = provided;
+		const Variant **argv = jsb_stackalloc(const Variant *, argc);
+		Variant *args = jsb_stackalloc(Variant, argc);
+		for (int index = 0; index < argc; ++index) {
 			memnew_placement(&args[index], Variant);
 			argv[index] = &args[index];
-			if (index < known_argc) {
-				if (index < argc) {
-					if (TypeConvert::js_to_gd_var(isolate, context, info[utility ? index + 1 : index], method_info.argument_types[index], args[index])) {
-						continue;
-					}
-				} else {
-					// Defaults correspond to the trailing declared parameters.
-					const int default_index = index - (int)(known_argc - default_arguments.size());
-					if (default_index >= 0) {
-						args[index] = default_arguments[default_index];
-						continue;
-					}
-				}
-			} else {
-				if (TypeConvert::js_to_gd_var(isolate, context, info[utility ? index + 1 : index], args[index])) {
-					continue;
-				}
-			}
+			const v8::Local<v8::Value> &argument = info[utility ? index + 1 : index];
+			// Declared arguments convert against their declared type; anything
+			// beyond them belongs to a vararg tail and converts untyped.
+			const bool converted = index < known_argc
+					? TypeConvert::js_to_gd_var(isolate, context, argument, method->get_argument_type((uint16_t)index), args[index])
+					: TypeConvert::js_to_gd_var(isolate, context, argument, args[index]);
+			if (converted) continue;
 
 			// revert all constructored arguments.
 			const String error_message = jsb_errorf("bad argument: %d", utility ? index + 1 : index);
@@ -496,11 +490,11 @@ public:
 		// call godot method
 		if constexpr (HasReturnValueT) {
 			Variant crval;
-			internal::VariantUtil::construct_variant(crval, method_info.return_type);
-			method_info.method_info->validated_call(self, argv, allocated_argc, &crval);
+			internal::VariantUtil::construct_variant(crval, method->get_return_type());
+			method_info.method_info->validated_call(self, argv, argc, &crval);
 
 			// don't forget to destruct all stack allocated variants
-			for (int index = 0; index < allocated_argc; ++index) {
+			for (int index = 0; index < argc; ++index) {
 				args[index].~Variant();
 			}
 
@@ -511,10 +505,10 @@ public:
 			}
 			jsb_throw(isolate, "failed to translate godot variant to v8 value");
 		} else {
-			method_info.method_info->validated_call(self, argv, allocated_argc, nullptr);
+			method_info.method_info->validated_call(self, argv, argc, nullptr);
 
 			// don't forget to destruct all stack allocated variants
-			for (int index = 0; index < allocated_argc; ++index) {
+			for (int index = 0; index < argc; ++index) {
 				args[index].~Variant();
 			}
 		}
@@ -663,10 +657,10 @@ public:
 		// methods
 		{
 			for (const api_tool::ApiBuiltInMethod &method_info : api_builtin_class->methods) {
-				const StringName &name = method_info.method.name;
-				const int argument_count = method_info.method.arguments.size();
+				const StringName &name = method_info.get_name();
+				const uint16_t argument_count = method_info.get_argument_count();
 				const bool has_return_value = method_info.has_returns();
-				const Variant::Type return_type = (Variant::Type)method_info.method.return_val.type;
+				const Variant::Type return_type = method_info.get_return_type();
 				const String member_name = internal::NamingUtil::get_member_name(name);
 
 #if JSB_FAST_REFLECTION
@@ -689,7 +683,7 @@ public:
 								continue;
 							}
 							if (argument_count == 1) {
-								const Variant::Type arg_type_0 = (Variant::Type)method_info.method.arguments[0].type;
+								const Variant::Type arg_type_0 = method_info.get_argument_type(0);
 								if (arg_type_0 == Variant::FLOAT) {
 									// func: float (float);
 									void *func_ptr = (void *)method_info.get_func_ptr();
@@ -752,7 +746,7 @@ public:
 							continue;
 						}
 						if (argument_count == 1) {
-							const Variant::Type arg_type_0 = (Variant::Type)method_info.method.arguments[0].type;
+							const Variant::Type arg_type_0 = method_info.get_argument_type(0);
 							if (arg_type_0 == Variant::FLOAT) {
 								// func: void (float);
 								void *func_ptr = (void *)method_info.get_func_ptr();
@@ -776,18 +770,10 @@ public:
 				const int collection_index = (int)GetVariantInfoCollection(p_env.env).methods.size();
 				GetVariantInfoCollection(p_env.env).methods.append({});
 				internal::FBuiltinMethodInfo &method_info_storage = GetVariantInfoCollection(p_env.env).methods.write[collection_index];
-				method_info_storage.set_debug_name(member_name);
 				method_info_storage.method_info = &method_info;
-				method_info_storage.return_type = return_type;
-				method_info_storage.argument_types.resize(argument_count);
-				method_info_storage.is_vararg = method_info.is_vararg();
-				for (int argument_index = 0; argument_index < argument_count; ++argument_index) {
-					const Variant::Type type = (Variant::Type)method_info.method.arguments[argument_index].type;
-					method_info_storage.argument_types.write[argument_index] = type;
-				}
 
 #if JSB_WITH_STATIC_BINDINGS
-				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.method.name, method_info.hash)) {
+				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.get_name(), method_info.get_hash())) {
 					if (method_info.is_static()) {
 						class_builder.Static().Method(member_name, sb_thunk);
 					} else {
@@ -884,10 +870,10 @@ public:
 
 		// methods
 		for (const api_tool::ApiBuiltInMethod &method_info : api_builtin_class->methods) {
-			const StringName &name = method_info.method.name;
-			const int argument_count = method_info.method.arguments.size();
+			const StringName &name = method_info.get_name();
+			const uint16_t argument_count = method_info.get_argument_count();
 			const bool has_return_value = method_info.has_returns();
-			const Variant::Type return_type = method_info.method.return_val.type;
+			const Variant::Type return_type = method_info.get_return_type();
 			String member_name = internal::NamingUtil::get_member_name(name);
 
 			if (member_name == "length") {
@@ -900,15 +886,7 @@ public:
 			const int collection_index = (int)GetVariantInfoCollection(p_env.env).methods.size();
 			GetVariantInfoCollection(p_env.env).methods.append({});
 			internal::FBuiltinMethodInfo &method_info_storage = GetVariantInfoCollection(p_env.env).methods.write[collection_index];
-			method_info_storage.set_debug_name(member_name);
 			method_info_storage.method_info = &method_info;
-			method_info_storage.return_type = return_type;
-			method_info_storage.argument_types.resize(argument_count);
-			method_info_storage.is_vararg = method_info.is_vararg();
-			for (int argument_index = 0; argument_index < argument_count; ++argument_index) {
-				const Variant::Type type = method_info.method.arguments[argument_index].type;
-				method_info_storage.argument_types.write[argument_index] = type;
-			}
 
 			// function wrapper
 			if (has_return_value) {

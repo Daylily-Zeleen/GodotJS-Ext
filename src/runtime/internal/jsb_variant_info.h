@@ -31,33 +31,22 @@
 #include "jsb_variant_util.h"
 
 namespace jsb::internal {
-struct FMethodInfoBase {
-	bool is_vararg;
-	Variant::Type return_type;
-	Vector<Variant::Type> argument_types;
-
-#if JSB_DEBUG
-	// only for debug
-	StringName name_;
-	_FORCE_INLINE_ void set_debug_name(const StringName &p_name) { name_ = p_name; }
-#else
-	_FORCE_INLINE_ void set_debug_name(const StringName &p_name) {}
-#endif
-};
-
-struct FBuiltinMethodInfo : FMethodInfoBase {
+// The method's own hot data (name/vararg/return type/argument types) is served
+// straight from the api_tool method record, which is already an inline,
+// lock-free hot container -- there is no cached copy to keep in sync here.
+struct FBuiltinMethodInfo {
 	const api_tool::ApiBuiltInMethod *method_info = nullptr;
 
 	_FORCE_INLINE_ bool check_argc(int p_argc) const {
-		return VariantUtil::check_argc(is_vararg, p_argc, method_info->method.default_arguments.size(), argument_types.size());
+		return VariantUtil::check_argc(method_info->is_vararg(), p_argc, method_info->get_default_count(), method_info->get_argument_count());
 	}
 };
 
-struct FUtilityMethodInfo : FMethodInfoBase {
+struct FUtilityMethodInfo {
 	const api_tool::ApiUtilityFunction *utility_func = nullptr;
 
 	_FORCE_INLINE_ bool check_argc(int p_argc) const {
-		return is_vararg ? p_argc >= argument_types.size() : p_argc == argument_types.size();
+		return utility_func->is_vararg() ? p_argc >= (int)utility_func->get_argument_count() : p_argc == (int)utility_func->get_argument_count();
 	}
 };
 

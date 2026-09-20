@@ -188,6 +188,9 @@ private:
 
 	// Caches
 	TypedCache<godot::StringName, ApiUtilityFunction> utility_function_cache_;
+	// All utility functions share one storage (they come from a single file and
+	// together form one entity), so their lazy cold data is read once.
+	std::shared_ptr<internal::ApiMethodDetailStorage> utility_storage_;
 	bool all_utility_functions_loaded_ = false;
 
 	// Fixed-size array for O(1) builtin class lookup by Variant::Type

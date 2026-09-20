@@ -30,6 +30,7 @@
 
 #include "api_tool_loader.h"
 #include "api_tool_store.h"
+#include "api_tool/core/api_tool_detail_storage.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -207,13 +208,14 @@ void ApiLoader::ensure_all_utility_functions() {
 
 	String path = base_dir_ + "/" + FILE_UTILITY_FUNCTIONS;
 	LocalVector<ApiUtilityFunction> funcs;
-	Error err = ApiStoreReader::read_utility_functions(path, funcs);
+	utility_storage_ = std::make_shared<internal::ApiMethodDetailStorage>();
+	Error err = ApiStoreReader::read_utility_functions(path, funcs, utility_storage_.get());
 	all_utility_functions_loaded_ = true; // 防止无用的尝试加载，等待重新生成清除缓存
 
 	ERR_FAIL_COND_MSG(err, "[API Tool] load utility functions failed: " + UtilityFunctions::error_string(err));
 
 	for (int i = 0; i < funcs.size(); i++) {
-		const StringName &name = funcs[i].method.name;
+		const StringName &name = funcs[i].get_name();
 		if (!utility_function_cache_.name_to_index.has(name)) {
 			utility_function_cache_.insert(name, funcs[i]);
 		}
@@ -297,20 +299,64 @@ const ApiClass *ApiLoader::ensure_class(const StringName &p_name) {
 		// 补充 GDExtension 未暴露的 FLAG_OBJECT_CORE 虚函数。
 		const auto is_exists = [&](const StringName &p_name) {
 			for (const auto &m : data.methods) {
-				if (m.method.name == p_name) return true; // Found
+				if (m.get_name() == p_name) return true; // Found
 			}
 			return false;
 		};
 
+		// Injected methods exist in no store file, so their cold detail (and the
+		// compact argument block) is built here and kept in memory; the storage
+		// appends it after the file records.
+		LocalVector<ApiClassMethod> injected;
+		LocalVector<internal::ApiMethodDetail> injected_details;
+		LocalVector<internal::ApiMethodArg> injected_args;
 		for (const Dictionary &mdict : ClassDB::class_get_method_list(Object::get_class_static())) {
 			uint32_t flags = mdict.get("flags", 0);
 			if ((flags & METHOD_FLAG_VIRTUAL) && (flags & METHOD_FLAG_OBJECT_CORE)) {
 				if (is_exists(mdict["name"])) continue;
 
-				MethodInfo minfo = MethodInfo::from_dict(mdict);
+				const MethodInfo minfo = MethodInfo::from_dict(mdict);
+
+				internal::ApiMethodDetail detail;
+				detail.return_val = minfo.return_val;
+				detail.arguments = minfo.arguments;
+				for (uint32_t a = 0; a < detail.arguments.size(); a++) {
+					const PropertyInfo &pi = detail.arguments[a];
+					internal::ApiMethodArg arg{};
+					arg.type = (VariantType)pi.type;
+					arg.meta = (ArgMeta)(a < minfo.arguments_metadata.size() ? minfo.arguments_metadata[a] : GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+					injected_args.push_back(arg);
+				}
+
+				const bool has_return_value = internal::has_returns(minfo);
 				ApiClassMethod method_data;
-				method_data.method = minfo;
-				data.methods.push_back(method_data);
+				// godot::MethodInfo carries no hash, so these synthesised methods keep
+				// hash 0 exactly as the previous implementation did (the old code copied
+				// the MethodInfo and left ApiMethodBase::hash at its default).
+				ApiMethodAccess::setup(method_data, minfo.name, (MethodHash)0, minfo.flags, has_return_value, minfo.return_val.type, minfo.return_val_metadata, (uint16_t)minfo.arguments.size());
+				ApiMethodAccess::set_default_count(method_data, (uint16_t)minfo.default_arguments.size());
+				injected_details.push_back(detail);
+				injected.push_back(method_data);
+			}
+		}
+		if (injected.size() > 0) {
+			// The owner storage is created by read_class; the injected tail is
+			// appended to it so all methods share one index space.
+			if (data.storage_ == nullptr) data.storage_ = std::make_shared<internal::ApiMethodDetailStorage>();
+			for (uint32_t i = 0; i < injected_details.size(); i++) {
+				data.storage_->push_injected(injected_details[i], nullptr, 0);
+			}
+			internal::ApiMethodArg *injected_block = data.storage_->build_injected_arg_block((uint32_t)injected_args.size());
+			for (uint32_t i = 0; i < injected_args.size(); i++) injected_block[i] = injected_args[i];
+
+			const uint32_t base_index = (uint32_t)data.methods.size();
+			uint32_t arg_offset = 0;
+			for (uint32_t i = 0; i < injected.size(); i++) {
+				ApiMethodAccess::set_index(injected[i], (uint16_t)(base_index + i));
+				ApiMethodAccess::set_storage(injected[i], data.storage_.get());
+				ApiMethodAccess::set_args(injected[i], injected_block + arg_offset);
+				arg_offset += injected[i].get_argument_count();
+				data.methods.push_back(injected[i]);
 			}
 		}
 	}
@@ -647,7 +693,7 @@ godot::HashSet<godot::StringName> ApiLoader::list_utility_functions() {
 	ensure_all_utility_functions();
 	HashSet<StringName> result;
 	for (const auto &item : utility_function_cache_.items) {
-		result.insert(item.method.name);
+		result.insert(item.get_name());
 	}
 	return result;
 }
