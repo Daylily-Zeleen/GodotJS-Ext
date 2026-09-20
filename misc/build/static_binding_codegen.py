@@ -1281,23 +1281,28 @@ def emit_utility_dispatch_cpp(m, binding_mode="static"):
     for u in m.utility_funcs:
         util_by_hash.setdefault(u["hash"], []).append(u)
 
-    L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash) {")
-    L.append("\tswitch (p_hash) {")
-    for h, group in util_by_hash.items():
-        if len(group) == 1:
-            L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0], True)))
-        else:
-            L.append("\tcase %du: {" % h)
-            for u in group:
-                nlit = cxx_str(m.pool.strings[u["name_id"]])
-                L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
-                L.append("\t\t\treturn %s;" % builtin_entry_expr(m, u, True))
-            L.append("\t\treturn nullptr;")
-            L.append("\t}")
-    L.append("\tdefault: return nullptr;")
-    L.append("\t}")
-    L.append("}")
-    L.append("")
+    if binding_mode != "shared":
+        # Form A (per-method utility_function_thunk). In shared mode the
+        # signature-shared form below replaces this entirely -- emitting both
+        # would carry the form-A instantiations as unreachable dead code and
+        # eat the size win (mirrors the builtin/class emission split).
+        L.append("const ThunkFn find_utility_thunk(const godot::StringName &p_name, uint32_t p_hash) {")
+        L.append("\tswitch (p_hash) {")
+        for h, group in util_by_hash.items():
+            if len(group) == 1:
+                L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0], True)))
+            else:
+                L.append("\tcase %du: {" % h)
+                for u in group:
+                    nlit = cxx_str(m.pool.strings[u["name_id"]])
+                    L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
+                    L.append("\t\t\treturn %s;" % builtin_entry_expr(m, u, True))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
 
     if binding_mode == "shared":
         _emit_shared_utility_dispatch(m, L)
