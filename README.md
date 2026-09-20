@@ -253,6 +253,37 @@ are built by the same `SConstruct` invocation (`target=editor` builds both;
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
+## Updating Trellis Files
+
+This repository uses [Trellis](https://github.com/mindfoldhq/trellis) for task/workflow management. Before running an update, know how it treats your local edits:
+
+- **Managed files are overwritten, not merged.** Everything listed in `.trellis/.template-hashes.json` (`.trellis/workflow.md`, `.trellis/config.yaml`, `.omp/agents/*.md`, `.omp/extensions/trellis/index.ts`, `.omp/skills/**`, `.trellis/scripts/**`, …) is replaced by the upstream template on update. Your customizations to them do **not** survive unless you skip them.
+- **Free files are never touched.** Files outside the hash table — `.trellis/spec/**`, `.trellis/workspace/**`, `.trellis/tasks/**`, `.omp/hooks/**`, and the content of `AGENTS.md` outside its managed block — are preserved by design.
+
+Recommended update flow:
+
+```bash
+# 1. Preview what the update will change
+trellis update --dry-run
+
+# 2. Apply, but skip every file you have customized
+trellis update -s        # skip all modified-by-you files
+# NEVER use -f here: it force-overwrites managed files and drops local edits
+```
+
+After updating:
+
+1. Re-check `git status` for the files you customized (`.trellis/workflow.md`, `.trellis/config.yaml`, `.omp/agents/*.md`, `.omp/extensions/trellis/index.ts`, …). If `trellis update` was run with `-s`, they are untouched; if you had to let one be overwritten, re-apply your edits.
+2. `AGENTS.md` is the exception: update performs a **block-level merge** between `<!-- TRELLIS:START -->` and `<!-- TRELLIS:END -->`. Content outside that block is always preserved, so your project rules there are safe.
+3. `.trellis/spec/**`, `.trellis/tasks/**`, `.trellis/workspace/**` are protected (user data) and are never modified by update.
+
+Where to keep durable rules:
+
+- Put rules that must survive updates in **free files**: `.trellis/spec/guides/` (e.g. `workflow-rules.md`) or `.omp/hooks/`. They are never overwritten.
+- If a rule must live in a managed file (e.g. the per-turn breadcrumb in `.trellis/workflow.md`, because the injector parses it there), keep a copy of the rule text in a free file and re-apply it after an update. The repository keeps this guidance in `.trellis/spec/guides/workflow-rules.md` under "工作流面包屑的维护规则".
+
+`trellis update` also writes its own backup under `.trellis/.backup-*/` (gitignored) before changing anything, so a botched run can be inspected there.
+
 ## License
 
 MIT License - see [LICENSE](GodotJS/LICENSE) for details.
