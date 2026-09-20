@@ -933,12 +933,186 @@ def builtin_entry_expr(m, e, is_utility=False):
     return "(ThunkFn)&%s<%s%du, %s, %s%s%s>" % (
                 tmpl_name, vt_part, e["hash"], name_lit, static_part, ret_expr, packs)
 
-def emit_builtin_dispatch_cpp(m, op_tables=""):
-    """Builtin-method dispatch: one resolver per Variant type, keyed by the
-    official method hash; the name participates only where signature-derived
-    hashes collide within a type. Also emits the builtin member accessor
-    lookups (§4.1)."""
-    L = [
+
+# Default values shared by (T, Literal): scalar/POD/cowdata slots are reusable
+# across every method carrying the same default (same accessor -> same lazily
+# materialized EncodeT slot). Referential defaults (Array/Dictionary/Variant)
+# get a unique per-occurrence IdentifierT so one method's default object is
+# never the other's (PRD: more-refined isolation).
+_PER_OCCURRENCE_DEFAULT = {"godot::Array", "godot::Dictionary", "godot::Variant"}
+
+
+def shared_builtin_entry_expr(m, e):
+    """Shared builtin thunk instantiation: signature-typed template args only
+    (VTC, IsStaticC, RetT, ArgsT...). Per-method identity / defaults live in the
+    SharedBuiltinMethodData descriptor, not the template."""
+    return "thunks::shared_builtin_method_thunk<%s, %s, %s, %s>" % (
+        vt_value_to_enum(e["vt"]),
+        cxx_bool(e["is_static"]),
+        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta")),
+        args_pack_expr(e["args"]))
+
+
+def _emit_shared_builtin_dispatch(m):
+    """Form B (binding_mode=shared) builtin emission: one shared_builtin_method
+    thunk per unique (VTC, IsStaticC, RetT, ArgsT...) signature, plus per-type
+    parallel Data tables (SharedBuiltinMethodData) and per-method default-slot
+    accessor tables (default_arg_slot<DefT, IdT> pointers; null = required),
+    and find_builtin_<VT>* pure-lookup resolvers. Vararg builtin methods keep
+    their Form A template (Out of Scope). A single top-level
+    find_shared_builtin_binding does the by-type lookup then eagerly
+    resolves+caches the ptrcall function before returning.
+
+    Returns source lines INSIDE the anonymous namespace (the caller supplies
+    includes + namespace header/closer), mirroring _emit_shared_class_dispatch."""
+    L = []
+    occ = 0
+
+    fixed = [e for e in m.builtin_methods
+             if m.vt_names[e["vt"]] not in ("String", "StringName") and not e.get("is_vararg")]
+    sign_expr = lambda e: shared_builtin_entry_expr(m, e)
+    sig_keys = sorted({sign_expr(e) for e in fixed})
+    sig_id = {sig: i for i, sig in enumerate(sig_keys)}
+
+    L.append("// ---- shared builtin thunk instantiations (one per unique signature) ----")
+    L.append("static const ThunkFn k_shared_thunks[] = {")
+    line = "   "
+    for sig in sig_keys:
+        piece = " (ThunkFn)&" + sig + ","
+        if len(line) + len(piece) > 100:
+            L.append(line)
+            line = "   "
+        line += piece
+    if line.strip():
+        L.append(line)
+    L.append("};")
+    L.append("")
+
+    by_vt = collections.OrderedDict()
+    for e in fixed:
+        by_vt.setdefault(e["vt"], []).append(e)
+
+    # Shared all-nullptr table for methods with NO optional (defaulted)
+    # parameters: every position is required, so all accessors are null. One
+    # table serves all such methods (they otherwise differ only in name/hash,
+    # not in default layout); length = global max arity (>=1, so defaults[provided]
+    # for provided in [0,N) never reads out of bounds). Only methods that
+    # actually carry defaults emit their own k_defs_* table.
+    max_n = max((len(e["args"]) for e in fixed), default=0)
+    L.append("// ---- shared all-nullptr default table (no-optional-parameter methods) ----")
+    L.append("static void *(*const k_shared_no_defaults[])(void) = {")
+    for _ in range(max(1, max_n)):
+        L.append("\tnullptr,")
+    L.append("};")
+    L.append("")
+
+    for vt in sorted(by_vt):
+        entries = by_vt[vt]
+        cname = m.vt_names[vt]
+        vt_ident = class_ident(cname)
+        by_hash = collections.OrderedDict()
+        for e in entries:
+            by_hash.setdefault(e["hash"], []).append(e)
+
+        # per-method default accessor tables: one entry per parameter position
+        # i in [0, N) -- nullptr for required positions, an accessor
+        # (function-local magic static) for optional ones. Only methods with
+        # actual defaults emit a table; all-required methods point at
+        # k_shared_no_defaults.
+        for e in entries:
+            acc = []
+            has_default = False
+            for a in e["args"]:
+                if "default" not in a:
+                    acc.append("nullptr")
+                    continue
+                has_default = True
+                deft = def_ctor_expr(a)
+                t = arg_template_expr(a)
+                if t in _PER_OCCURRENCE_DEFAULT:
+                    idt = "std::integral_constant<int, %d>" % occ
+                    occ += 1
+                else:
+                    idt = "void"
+                acc.append(" &::jsb::static_binding::default_arg_slot<%s, %s>" % (deft, idt))
+            if has_default:
+                mident = class_ident(m.pool.strings[e["name_id"]])
+                L.append("static void *(*const k_defs_%s_%s%du[])(void) = {" % (vt_ident, mident, e["hash"]))
+                for item in acc:
+                    L.append("\t%s," % item)
+                L.append("};")
+                L.append("")
+
+        # per-type data table
+        L.append("static thunks::SharedBuiltinMethodData k_data_%s[] = {" % vt_ident)
+        name_to_row = {}
+        row = 0
+        for e in entries:
+            nlit = cxx_str(m.pool.strings[e["name_id"]])
+            mident = class_ident(m.pool.strings[e["name_id"]])
+            name_to_row[(e["hash"], nlit)] = row
+            defs = ("k_shared_no_defaults" if not any("default" in a for a in e["args"])
+                    else "k_defs_%s_%s%du" % (vt_ident, mident, e["hash"]))
+            L.append("\t{nullptr, %s, %s, %s}," % (vt_value_to_enum(vt), nlit, defs))
+            row += 1
+        L.append("};")
+        L.append("")
+
+        # pure-lookup resolver (hash + name for same-hash overloads)
+        L.append("ThunkFn find_builtin_%s(const char *p_name, uint32_t p_hash, const void **r_method_data) {" % vt_ident)
+        L.append("\tswitch (p_hash) {")
+        for h, group in by_hash.items():
+            if len(group) == 1:
+                e = group[0]
+                nlit = cxx_str(m.pool.strings[e["name_id"]])
+                L.append("\tcase %du: { *r_method_data = &k_data_%s[%d]; return k_shared_thunks[%d]; }"
+                         % (h, vt_ident, name_to_row[(h, nlit)], sig_id[sign_expr(e)]))
+            else:
+                L.append("\tcase %du: {" % h)
+                for e in group:
+                    nlit = cxx_str(m.pool.strings[e["name_id"]])
+                    L.append("\t\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_data_%s[%d]; return k_shared_thunks[%d]; }"
+                             % (nlit, vt_ident, name_to_row[(h, nlit)], sig_id[sign_expr(e)]))
+                L.append("\t\treturn nullptr;")
+                L.append("\t}")
+        L.append("\tdefault: return nullptr;")
+        L.append("\t}")
+        L.append("}")
+        L.append("")
+
+    L.append("} // namespace")
+    L.append("")
+    # top-level by-type lookup + eager resolve (mirrors find_shared_class_method_binding)
+    L.append("const ThunkFn find_shared_builtin_binding(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash, const void **r_method_data) {")
+    L.append("\tusing Resolver = ThunkFn (*)(const char *, uint32_t, const void **);")
+    L.append("\tstatic const Resolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+    max_vt = max(VARIANT_TYPE_VALUES.values())
+    for vtx in range(max_vt + 1):
+        fn = ("find_builtin_" + class_ident(m.vt_names[vtx])) if vtx in by_vt else "nullptr"
+        L.append("\t\t%s," % fn)
+    L.append("\t};")
+    L.append("\tif (unsigned(p_vt) >= std::size(k_by_type)) return nullptr;")
+    L.append("\tconst Resolver resolve = k_by_type[unsigned(p_vt)];")
+    L.append("\tif (!resolve) return nullptr;")
+    L.append("\tconst godot::CharString name_utf8 = godot::String(p_name).utf8();")
+    L.append("\tconst ThunkFn thunk = resolve(name_utf8.get_data(), p_hash, r_method_data);")
+    L.append("\tif (!thunk) return nullptr;")
+    L.append("\tif (!thunks::ensure_builtin_method(p_vt, p_name, p_hash, *static_cast<const thunks::SharedBuiltinMethodData *>(*r_method_data))) return nullptr;")
+    L.append("\treturn thunk;")
+    L.append("}")
+    L.append("")
+    return L
+
+
+def emit_builtin_dispatch_cpp(m, op_tables="", binding_mode="static"):
+    """Builtin-method dispatch. Form A (static) emits one per-method
+    builtin_method_thunk instantiation per (type, hash[, name]); Form B
+    (shared) emits one shared_builtin_method_thunk per unique (VTC, IsStaticC,
+    RetT, ArgsT...) signature plus per-type Data tables and per-method
+    default-slot accessor tables, with a single eager top-level resolve.
+    Member-accessor lookups and the operator/constructor tables are emitted
+    identically in both modes."""
+    header = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/builtin_methods.h"',
          '#include "static_binding/thunks/builtin_members.h"',
@@ -950,51 +1124,70 @@ def emit_builtin_dispatch_cpp(m, op_tables=""):
          "namespace {",
          ""]
 
-    by_vt = collections.OrderedDict()
-    for e in m.builtin_methods:
-        if m.vt_names[e["vt"]] in ("String", "StringName"):
-            continue  # JS string aliases: no builtin-method static bindings
-        by_vt.setdefault(e["vt"], []).append(e)
+    L = list(header)
+    if binding_mode == "shared":
+        # _emit_shared_builtin_dispatch closes the anonymous namespace and
+        # emits find_shared_builtin_binding below it (jsb::static_binding).
+        L += _emit_shared_builtin_dispatch(m)
+    else:
+        by_vt = collections.OrderedDict()
+        for e in m.builtin_methods:
+            if m.vt_names[e["vt"]] in ("String", "StringName"):
+                continue  # JS string aliases: no builtin-method static bindings
+            by_vt.setdefault(e["vt"], []).append(e)
 
-    for vt in sorted(by_vt):
-        entries = by_vt[vt]
-        by_hash = collections.OrderedDict()
-        for e in entries:
-            by_hash.setdefault(e["hash"], []).append(e)
-        L.append("ThunkFn find_%s(const godot::StringName &p_name, uint32_t p_hash) {" % m.vt_names[vt])
-        L.append("\tswitch (p_hash) {")
-        for h, group in by_hash.items():
-            if len(group) == 1:
-                L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0])))
-            else:
-                L.append("\tcase %du: {" % h)
-                for e in group:
-                    nlit = cxx_str(m.pool.strings[e["name_id"]])
-                    L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
-                    L.append("\t\t\treturn %s;" % builtin_entry_expr(m, e))
-                L.append("\t\treturn nullptr;")
-                L.append("\t}")
-        L.append("\tdefault: return nullptr;")
-        L.append("\t}")
+        for vt in sorted(by_vt):
+            entries = by_vt[vt]
+            by_hash = collections.OrderedDict()
+            for e in entries:
+                by_hash.setdefault(e["hash"], []).append(e)
+            L.append("ThunkFn find_%s(const godot::StringName &p_name, uint32_t p_hash) {" % m.vt_names[vt])
+            L.append("\tswitch (p_hash) {")
+            for h, group in by_hash.items():
+                if len(group) == 1:
+                    L.append("\tcase %du: return %s;" % (h, builtin_entry_expr(m, group[0])))
+                else:
+                    L.append("\tcase %du: {" % h)
+                    for e in group:
+                        nlit = cxx_str(m.pool.strings[e["name_id"]])
+                        L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
+                        L.append("\t\t\treturn %s;" % builtin_entry_expr(m, e))
+                    L.append("\t\treturn nullptr;")
+                    L.append("\t}")
+            L.append("\tdefault: return nullptr;")
+            L.append("\t}")
+            L.append("}")
+            L.append("")
+
+        L.append("} // namespace")
+        L.append("")
+        L.append("const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
+        L.append("\tstatic_assert((int)godot::Variant::VARIANT_MAX <= 64, \"slot table sized for 64 variant types\");")
+        L.append("\tusing PerVtResolver = ThunkFn (*)(const godot::StringName &, uint32_t);")
+        L.append("\tstatic const PerVtResolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
+        max_vt = max(VARIANT_TYPE_VALUES.values())
+        for vt in range(max_vt + 1):
+            fn = ("find_" + m.vt_names[vt]) if vt in by_vt else "nullptr"
+            L.append("\t\t%s," % fn)
+        L.append("\t};")
+        L.append("\treturn unsigned(p_vt) < std::size(k_by_type) ? k_by_type[unsigned(p_vt)](p_name, p_hash) : nullptr;")
         L.append("}")
         L.append("")
 
-    L.append("} // namespace")
-    L.append("")
-    L.append("const ThunkFn find_builtin_thunk(godot::Variant::Type p_vt, const godot::StringName &p_name, uint32_t p_hash) {")
-    L.append("\tstatic_assert((int)godot::Variant::VARIANT_MAX <= 64, \"slot table sized for 64 variant types\");")
-    L.append("\tusing PerVtResolver = ThunkFn (*)(const godot::StringName &, uint32_t);")
-    L.append("\tstatic const PerVtResolver k_by_type[(int)godot::Variant::VARIANT_MAX] = {")
-    max_vt = max(VARIANT_TYPE_VALUES.values())
-    for vt in range(max_vt + 1):
-        fn = ("find_" + m.vt_names[vt]) if vt in by_vt else "nullptr"
-        L.append("\t\t%s," % fn)
-    L.append("\t};")
-    L.append("\treturn unsigned(p_vt) < std::size(k_by_type) ? k_by_type[unsigned(p_vt)](p_name, p_hash) : nullptr;")
-    L.append("}")
-    L.append("")
+    _emit_builtin_member_accessors(m, L)
 
-    # ---- builtin member accessors -------------------------------------------
+    # main() supplies operator and constructor resolvers for this builtin TU.
+    # Keep them inside jsb::static_binding.
+    L.append("")
+    L.append(op_tables)
+    L.append("} // namespace jsb::static_binding")
+    L.append("")
+    return "\n".join(L)
+
+
+def _emit_builtin_member_accessors(m, L):
+    """Builtin member-accessor lookups (§4.1), emitted identically for both
+    binding modes and shared with the Form A resolver function."""
     L.append("// ---- builtin member accessors (P3) ----")
     by_vt = collections.OrderedDict()
     for e in m.members:
@@ -1023,15 +1216,6 @@ def emit_builtin_dispatch_cpp(m, op_tables=""):
 
     emit_member_lookup("find_builtin_member_getter_thunk", "g")
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
-
-
-    # main() supplies operator and constructor resolvers for this builtin TU.
-    # Keep them inside jsb::static_binding.
-    L.append("")
-    L.append(op_tables)
-    L.append("} // namespace jsb::static_binding")
-    L.append("")
-    return "\n".join(L)
 
 
 def emit_utility_dispatch_cpp(m):
@@ -1903,7 +2087,7 @@ def main():
     op_tables, op_tables_h = emit_operator_pair_tables(m)
     ctor_tables, _ = emit_ctor_dispatch(m)  # No separate constructor header.
     cpp_outputs = {
-        "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables + ctor_tables),
+        "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables + ctor_tables, ns.binding_mode),
         "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m, ns.binding_mode),
     }

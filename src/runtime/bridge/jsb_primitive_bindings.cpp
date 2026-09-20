@@ -793,17 +793,24 @@ public:
 				method_info_storage.method_info = &method_info;
 
 #if JSB_WITH_STATIC_BINDINGS
-				if (const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(TYPE, method_info.get_name(), method_info.get_hash())) {
+const void *sb_data = nullptr;
+#	if JSB_WITH_SHARED_THUNKS
+				const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_shared_builtin_binding(
+						TYPE, method_info.get_name(), method_info.get_hash(), &sb_data);
+#	else
+				const jsb::static_binding::ThunkFn sb_thunk = jsb::static_binding::find_builtin_thunk(
+						TYPE, method_info.get_name(), method_info.get_hash());
+#	endif
+				if (sb_thunk) {
 					if (method_info.is_static()) {
-						class_builder.Static().Method(member_name, sb_thunk);
+						class_builder.Static().Method(member_name, sb_thunk, (void *)sb_data);
 					} else {
-						class_builder.Instance().Method(member_name, sb_thunk);
+						class_builder.Instance().Method(member_name, sb_thunk, (void *)sb_data);
 					}
 					continue;
 				}
 				JSB_LOG(Warning, "static binding not found: %s.%s [builtin], falling back to dynamic binding", class_name, member_name);
 #endif
-				// function wrapper
 				if (has_return_value) {
 					if (method_info.is_static()) {
 						class_builder.Static().Method(member_name, _static_method<true>, collection_index);

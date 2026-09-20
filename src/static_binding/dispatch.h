@@ -98,6 +98,20 @@ const ThunkFn find_shared_class_method_binding(const godot::StringName &p_class,
 		const godot::StringName &p_name,
 		uint32_t p_hash,
 		const void **r_method_data);
+
+// binding_mode=shared: signature-shared builtin method lookup (one thunk per
+// unique (VTC, IsStaticC, RetT, ArgsT...) signature). On success resolves-and
+// -caches the ptrcall function EAGERLY (mount-time; variant_get_ptr_builtin_method,
+// see ensure_builtin_method) and sets *r_method_data to the per-method
+// SharedBuiltinMethodData that the mount point forwards verbatim as v8
+// callback data -- the shared thunk reads it back through info.Data() with a
+// single relaxed load. The caller never dereferences the payload; a failed
+// resolve or a "not found" hit returns nullptr (mount falls back to dynamic
+// binding). Defined in the generated dispatch TU.
+const ThunkFn find_shared_builtin_binding(godot::Variant::Type p_vt,
+		const godot::StringName &p_name,
+		uint32_t p_hash,
+		const void **r_method_data);
 #	endif
 
 // Indexed property accessors: one thunk per property side; the

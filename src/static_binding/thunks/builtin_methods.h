@@ -31,6 +31,7 @@
 
 #	include <godot_cpp/variant/variant_internal.hpp>
 #	include <array>
+#	include <atomic>
 
 namespace jsb::static_binding::thunks {
 
@@ -253,6 +254,127 @@ void builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		RetT::translate_return(isolate, context, ret_val, info);
 	}
 }
+
+#	if JSB_WITH_SHARED_THUNKS
+// ---------------------------------------------------------------------------
+// Signature-shared builtin methods (binding_mode=shared): one thunk instance
+// per unique (VTC, IsStaticC, RetT, ArgsT...) signature; per-method identity
+// (type/method names, hash) and the eagerly-resolved ptrcall function arrive
+// through info.Data() (SharedBuiltinMethodData) instead of template params.
+// Default handling is moved out of the thunk into a codegen-emitted table of
+// owned default slots (see design.md); each optional parameter position holds
+// an accessor function pointer (lazily materializing the PtrToArg<T>::EncodeT
+// slot through a function-local magic static). A null entry marks a required
+// position, which also drives the arity check.
+
+struct SharedBuiltinMethodData {
+	using DefaultAccessor = void *(*)();
+	mutable std::atomic<GDExtensionPtrBuiltInMethod> fn; // eagerly resolved at mount
+	godot::Variant::Type vt; // error text: Variant::get_type_name(vt)
+	const char *method_name; // error text
+	// codegen emits k_defs_* as an array of const accessor pointers; the
+	// decayed type is DefaultAccessor const* (pointer to const element).
+	// Methods with no optional (defaulted) parameters point at a single
+	// shared all-nullptr long table (length == max arity, so defaults[provided]
+	// never reads out of bounds); only methods with defaults own a distinct
+	// table.
+	DefaultAccessor const *defaults; // per-position accessor; null = required
+};
+
+// Resolve-and-cache the ptrcall function. Eager, called ONCE at mount time from
+// the single top-level find_shared_builtin_binding (Variant type / name / hash
+// already in hand). Multiple worker Environments share one DLL .data copy, so
+// concurrent first writes need well-defined semantics: the CAS keeps that
+// (same value written, memory_order_relaxed, single-word aligned -- zero cost).
+_FORCE_INLINE_ GDExtensionPtrBuiltInMethod ensure_builtin_method(godot::Variant::Type p_vt, const godot::StringName &p_method_name, uint32_t p_hash, const SharedBuiltinMethodData &md) {
+	GDExtensionPtrBuiltInMethod fn = md.fn.load(std::memory_order_relaxed);
+	if (fn) {
+		return fn; // already resolved by a previous Environment
+	}
+	fn = resolve_builtin_method(p_vt, p_method_name, p_hash);
+	if (fn) {
+		GDExtensionPtrBuiltInMethod expected = nullptr;
+		if (md.fn.compare_exchange_strong(expected, fn, std::memory_order_relaxed)) {
+			return fn;
+		}
+		return expected; // another worker won the race with the same value
+	}
+	return nullptr;
+}
+
+// Fixed-arity shared builtin method. Marshal only provided positions; missing
+// optionals take their codegen-owned default slot through the accessor
+// pointer (defaults[i]()). Arity: provided > N is an error; provided < N is an
+// error iff defaults[provided] == nullptr (missing first optional == the
+// minimum arity bound, tail-contiguous defaults guaranteed at generation time).
+template <godot::Variant::Type VTC, bool IsStaticC, class RetT, class AllArgsT>
+void shared_builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedBuiltinMethodData &md =
+			*static_cast<const SharedBuiltinMethodData *>(info.Data().As<v8::External>()->Value());
+
+	const GDExtensionPtrBuiltInMethod fn = md.fn.load(std::memory_order_relaxed);
+	if (!fn) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		return;
+	}
+
+	const int provided = (int)info.Length();
+	if (provided > N || (provided < N && md.defaults[provided] == nullptr)) {
+		// Error path only (cold): derive the minimum arity M by scanning the
+		// tail-contiguous defaults, for a clear message.
+		int m = N;
+		while (m > 0 && md.defaults[m - 1] != nullptr) {
+			--m;
+		}
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects %d..%d, got %d", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name, m, N, provided));
+		return;
+	}
+
+	void *base_ptr = nullptr;
+	if constexpr (!IsStaticC) {
+		godot::Variant *self = TypeConvert::is_variant(info.This())
+				? (godot::Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer)
+				: nullptr;
+		if (!self) {
+			jsb_throw(isolate, "no bound this");
+			return;
+		}
+		base_ptr = get_opaque_typed<VTC>(self);
+	}
+
+	// Marshal only provided positions into tuple-owned EncodeT slots.
+	typename AllArgsT::encode_slots slots;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
+	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return;
+	}
+
+	void *arg_ptrs[N > 0 ? N : 1];
+	// Provided positions come from conversion slots; missing optionals take
+	// the codegen-owned default slot through the accessor (defaults[i]()).
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (int)I < provided ? (void *)&std::get<I>(slots) : md.defaults[I]()), ...);
+	}(std::make_index_sequence<N>{});
+
+	typename RetT::encoded_type ret_val{};
+	fn(base_ptr, arg_ptrs, &ret_val, N);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
+}
+#	endif // JSB_WITH_SHARED_THUNKS
 
 } // namespace jsb::static_binding::thunks
 
