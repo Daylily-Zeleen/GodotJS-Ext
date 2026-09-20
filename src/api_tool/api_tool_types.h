@@ -54,6 +54,7 @@ class ApiStoreReader;
 class ApiLoader;
 class ApiParser;
 class ApiMethodDetailStorage;
+struct ApiMethodAccess;
 // The store writer reads the hot fields directly (payload write/read templates
 // encode by the argument's own type, so it must see the concrete member types,
 // not accessor returns). External-linkage struct: a static free function cannot
@@ -96,29 +97,6 @@ static_assert(sizeof(ApiMethodArg) == 2, "ApiMethodArg must stay 2 bytes");
 struct ApiMethodDetail {
 	godot::PropertyInfo return_val;
 	godot::LocalVector<godot::PropertyInfo> arguments;
-};
-
-// Forward declarations for the accessor signatures below. Declared here rather
-// than at the top of the namespace: a forward declaration at the top SHADOWS the
-// real definition in api_tool (inner-namespace unqualified lookup resolves to
-// the incomplete declaration and never finds the outer definition), which broke
-// the build with "undefined type ApiMethodBase".
-// Sole writer of ApiMethodBase's hot fields. Both directions of the store
-// (JSON parse on the editor side, file read at runtime) must populate a method
-// that intentionally exposes no setters, and the internal NO_RETURN bit must be
-// folded in exactly one place. The parser uses free functions, so a friend
-// declaration for ApiParser alone would not cover it.
-struct ApiMethodAccess {
-	// p_flags is the RAW Godot flags word; the internal NO_RETURN bit is folded
-	// in here (the single place) from p_has_returns.
-	static void setup(ApiMethodBase &r_method, const godot::StringName &p_name, uint32_t p_hash, uint32_t p_flags, bool p_has_returns, godot::Variant::Type p_return_type, GDExtensionClassMethodArgumentMetadata p_return_meta, uint16_t p_arg_count);
-	static void set_index(ApiMethodBase &r_method, uint16_t p_index);
-	static void set_args(ApiMethodBase &r_method, const ApiMethodArg *p_args);
-	static void set_storage(ApiMethodBase &r_method, ApiMethodDetailStorage *p_storage);
-	static void set_default_count(ApiMemberMethodBase &r_method, uint16_t p_default_count);
-	// Store round-trip only: the internal NO_RETURN bit has no other home, so it
-	// must survive a rewrite. Never use this for the external flags contract.
-	static uint32_t get_flags_raw(const ApiMethodBase &p_method);
 };
 
 } //namespace internal

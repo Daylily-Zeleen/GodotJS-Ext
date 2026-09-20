@@ -29,6 +29,7 @@
 #include "api_tool_store_writer.h"
 #include "api_tool/core/api_tool_payload.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool_detail_storage_editor.h"
 
 using namespace godot;
 
@@ -83,7 +84,7 @@ void ApiMethodHotWriter::serialize_method_hot(PayloadWriter &w, const ApiMethodB
 // Default count of a method, taken from the entity's cold data (the hot record
 // is written from the same source, so the two can never disagree).
 static uint16_t cold_default_count_of(const internal::ApiMethodDetailStorage *p_storage, uint32_t p_index) {
-	return p_storage != nullptr ? (uint16_t)p_storage->cold_default_count(p_index) : 0;
+	return p_storage != nullptr ? (uint16_t)internal::ApiMethodColdAccess::cold_default_count(*p_storage, p_index) : 0;
 }
 
 // The cold detail record: the faithful remainder of the JSON method object.
@@ -110,7 +111,7 @@ static void serialize_cold_sections(PayloadWriter &w, const internal::ApiMethodD
 	const uint64_t detail_start = w.get_position();
 	for (uint32_t i = 0; i < p_method_count; i++) {
 		if (p_storage != nullptr) {
-			serialize_method_detail(w, p_storage->cold_details()[i]);
+			serialize_method_detail(w, internal::ApiMethodColdAccess::cold_details(*p_storage)[i]);
 		} else {
 			serialize_method_detail(w, internal::ApiMethodDetail());
 		}
@@ -128,7 +129,7 @@ static void serialize_cold_sections(PayloadWriter &w, const internal::ApiMethodD
 	}
 	for (uint32_t i = 0; i < p_method_count; i++) {
 		const uint32_t n = cold_default_count_of(p_storage, i);
-		const Variant *values = p_storage != nullptr ? p_storage->cold_defaults(i) : nullptr;
+		const Variant *values = p_storage != nullptr ? internal::ApiMethodColdAccess::cold_defaults(*p_storage, i) : nullptr;
 		for (uint32_t j = 0; j < n; j++) {
 			w.write(values[j]);
 		}

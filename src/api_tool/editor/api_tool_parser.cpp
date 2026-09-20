@@ -32,7 +32,9 @@
 // All functions return Error with proper error messages.
 
 #include "api_tool/api_tool_types.h"
+#include "api_tool/core/api_tool_access.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool_detail_storage_editor.h"
 #include "api_tool_parser.h"
 #include "api_tool_store_writer.h"
 #include <godot_cpp/classes/dir_access.hpp>
@@ -464,7 +466,7 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
 		ApiMethodAccess::set_index(func, (uint16_t)i);
 		func.category = fd.get("category", "");
 
-		storage->push_cold(detail, nullptr, 0);
+		ApiMethodColdAccess::push_cold(*storage, detail, nullptr, 0);
 		all_funcs.push_back(func);
 
 		// Write document file (single pass, no separate document parsing)
@@ -476,7 +478,7 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
 	}
 
 	// One flat argument block for the whole utility-function entity.
-	storage->seal_cold();
+	ApiMethodColdAccess::seal_cold(*storage);
 	internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
 	uint32_t arg_offset = 0;
 	for (uint32_t i = 0; i < all_funcs.size(); i++) {
@@ -600,7 +602,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
 				parse_method<ApiBuiltInMethod>(md, mbi, detail, defaults, flat_args, &compat_data);
 				ApiMethodAccess::set_index(mbi, (uint16_t)bt.methods.size());
 				mbi.set_variant_type(bt.type);
-				storage->push_cold(detail, defaults.ptr(), (uint32_t)defaults.size());
+				ApiMethodColdAccess::push_cold(*storage, detail, defaults.ptr(), (uint32_t)defaults.size());
 				bt.methods.push_back(mbi);
 				ApiMethodDocument mdoc;
 				mdoc.name = md["name"];
@@ -609,7 +611,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
 			}
 		}
 
-		storage->seal_cold();
+		ApiMethodColdAccess::seal_cold(*storage);
 		internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
 		{
 			uint32_t arg_offset = 0;
@@ -716,7 +718,7 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
 				LocalVector<Variant> defaults;
 				parse_method<ApiClassMethod>(md, mcm, detail, defaults, flat_args, &compat_data);
 				ApiMethodAccess::set_index(mcm, (uint16_t)cls.methods.size());
-				storage->push_cold(detail, defaults.ptr(), (uint32_t)defaults.size());
+				ApiMethodColdAccess::push_cold(*storage, detail, defaults.ptr(), (uint32_t)defaults.size());
 				cls.methods.push_back(mcm);
 				ApiMethodDocument mdoc;
 				mdoc.name = md["name"];
@@ -725,7 +727,7 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
 			}
 		}
 
-		storage->seal_cold();
+		ApiMethodColdAccess::seal_cold(*storage);
 		internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
 		{
 			uint32_t arg_offset = 0;

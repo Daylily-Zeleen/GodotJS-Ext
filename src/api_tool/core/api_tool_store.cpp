@@ -28,6 +28,7 @@
 
 #include "api_tool_store.h"
 #include "api_tool_payload.h"
+#include "api_tool/core/api_tool_access.h"
 #include "api_tool/core/api_tool_detail_storage.h"
 
 using namespace godot;

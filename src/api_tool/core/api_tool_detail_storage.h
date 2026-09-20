@@ -41,6 +41,10 @@
 
 namespace api_tool::internal {
 
+// Editor-only access to the cold fill path; declared in
+// editor/api_tool_detail_storage_editor.h, same shape as ApiMethodHotWriter.
+struct ApiMethodColdAccess;
+
 // Owns one entity's hot argument block plus the cold per-method data (the full
 // PropertyInfo detail and default values).
 //
@@ -72,12 +76,10 @@ public:
 		return block;
 	}
 
-	// ---- editor path ----
-	void push_cold(const ApiMethodDetail &p_detail, const godot::Variant *p_defaults, uint32_t p_default_count);
-	void seal_cold();
-	_FORCE_INLINE_ const godot::LocalVector<ApiMethodDetail> &cold_details() const { return details_; }
-	_FORCE_INLINE_ uint32_t cold_default_count(uint32_t p_index) const { return p_index + 1 < default_offsets_.size() ? default_offsets_[p_index + 1] - default_offsets_[p_index] : 0; }
-	_FORCE_INLINE_ const godot::Variant *cold_defaults(uint32_t p_index) const { return default_offsets_[p_index] < default_values_.size() ? default_values_.ptr() + default_offsets_[p_index] : nullptr; }
+	// ---- editor path: see editor/api_tool_detail_storage_editor.h ----
+	// push_cold / seal_cold / cold_details / cold_default_count / cold_defaults
+	// live on ApiMethodColdAccess, a friend of this class, so the editor-only
+	// surface is not declared in the header the runtime also compiles.
 
 	// ---- runtime path ----
 	void configure_lazy(const godot::String &p_path, uint64_t p_detail_offset, uint64_t p_detail_size, uint64_t p_defaults_offset, uint32_t p_file_method_count);
@@ -105,6 +107,8 @@ public:
 	const godot::Variant *get_defaults(uint32_t p_index, uint32_t &r_count) const;
 
 private:
+	friend struct ApiMethodColdAccess;
+
 	void ensure_details() const;
 	void ensure_defaults() const;
 
