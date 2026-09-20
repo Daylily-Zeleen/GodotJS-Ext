@@ -953,24 +953,62 @@ def shared_builtin_entry_expr(m, e):
         args_pack_expr(e["args"]))
 
 
+def shared_builtin_vararg_entry_expr(m, e):
+    """Shared builtin vararg thunk instantiation: same signature dims as the
+    fixed-arity twin (VTC, IsStaticC, RetT, ArgsT...) but the vararg template
+    name. Per-method identity (type/method names, hash) and the eagerly-resolved
+    ptrcall function live in the SharedBuiltinMethodData descriptor. The
+    generated fixed prefix carries no defaults, so the minimum arity equals the
+    prefix length (compile-time F)."""
+    return "thunks::shared_builtin_vararg_method_thunk<%s, %s, %s, %s>" % (
+        vt_value_to_enum(e["vt"]),
+        cxx_bool(e["is_static"]),
+        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta")),
+        args_pack_expr(e["args"]))
+
+
+def shared_utility_entry_expr(m, e):
+    """Shared utility function thunk instantiation: signature-typed template
+    args only (RetT, ArgsT...). Utility functions carry no defaults. Per-function
+    identity (name) and the eagerly-resolved ptrcall function live in the
+    SharedUtilityFunctionData descriptor."""
+    return "thunks::shared_utility_function_thunk<%s, %s>" % (
+        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta")),
+        args_pack_expr(e["args"]))
+
+
+def shared_utility_vararg_entry_expr(m, e):
+    """Shared utility vararg function thunk instantiation: signature-typed
+    template args only (RetT, AllArgsT...). The generated fixed prefix carries
+    no defaults, so the minimum arity equals the prefix length (compile-time)."""
+    return "thunks::shared_utility_vararg_function_thunk<%s, %s>" % (
+        ret_template_expr(m.pool.strings[e["ret_id"]], e.get("ret_usage", 0), e.get("ret_meta")),
+        args_pack_expr(e["args"]))
+
+
 def _emit_shared_builtin_dispatch(m):
     """Form B (binding_mode=shared) builtin emission: one shared_builtin_method
     thunk per unique (VTC, IsStaticC, RetT, ArgsT...) signature, plus per-type
     parallel Data tables (SharedBuiltinMethodData) and per-method default-slot
     accessor tables (default_arg_slot<DefT, IdT> pointers; null = required),
-    and find_builtin_<VT>* pure-lookup resolvers. Vararg builtin methods keep
-    their Form A template (Out of Scope). A single top-level
-    find_shared_builtin_binding does the by-type lookup then eagerly
-    resolves+caches the ptrcall function before returning.
+    and find_builtin_<VT>* pure-lookup resolvers. Vararg builtin methods are
+    signature-shared too (same signature dims, vararg thunk template). A
+    single top-level find_shared_builtin_binding does the by-type lookup then
+    eagerly resolves+caches the ptrcall function before returning.
 
     Returns source lines INSIDE the anonymous namespace (the caller supplies
     includes + namespace header/closer), mirroring _emit_shared_class_dispatch."""
     L = []
     occ = 0
 
+    # Fixed-arity AND vararg builtin methods are signature-shared. Vararg
+    # methods use the vararg thunk template (same signature dims); their data
+    # rows are identical SharedBuiltinMethodData (defaults points at the
+    # all-nullptr shared table -- vararg fixed prefixes carry no defaults).
     fixed = [e for e in m.builtin_methods
-             if m.vt_names[e["vt"]] not in ("String", "StringName") and not e.get("is_vararg")]
-    sign_expr = lambda e: shared_builtin_entry_expr(m, e)
+             if m.vt_names[e["vt"]] not in ("String", "StringName")]
+    sign_expr = lambda e: (shared_builtin_vararg_entry_expr(m, e) if e.get("is_vararg")
+                           else shared_builtin_entry_expr(m, e))
     sig_keys = sorted({sign_expr(e) for e in fixed})
     sig_id = {sig: i for i, sig in enumerate(sig_keys)}
 
@@ -1218,15 +1256,26 @@ def _emit_builtin_member_accessors(m, L):
     emit_member_lookup("find_builtin_member_setter_thunk", "s")
 
 
-def emit_utility_dispatch_cpp(m):
+def emit_utility_dispatch_cpp(m, binding_mode="static"):
     """Utility-function dispatch (§4.2): flat hash switch, the method name
-    disambiguates the rare same-hash collisions."""
-    L = [
+    disambiguates the rare same-hash collisions.
+
+    binding_mode="shared" (Form B) additionally emits a signature-shared form:
+    one shared_utility_function_thunk / shared_utility_vararg_function_thunk
+    per unique (RetT, ArgsT...) signature, a parallel SharedUtilityFunctionData
+    table, and a top-level find_shared_utility_binding that eagerly resolves+
+    caches the ptrcall function before returning."""
+    headers = [
          '#include "static_binding/dispatch.h"',
          '#include "static_binding/thunks/utility_functions.h"',
          "",
          "namespace jsb::static_binding {",
          ""]
+    if binding_mode == "shared":
+        # strcmp for the same-hash name disambiguation in resolve_shared_utility.
+        headers.insert(2, "#include <cstring>")
+        headers.insert(3, "")
+    L = headers
 
     util_by_hash = collections.OrderedDict()
     for u in m.utility_funcs:
@@ -1249,9 +1298,88 @@ def emit_utility_dispatch_cpp(m):
     L.append("\t}")
     L.append("}")
     L.append("")
+
+    if binding_mode == "shared":
+        _emit_shared_utility_dispatch(m, L)
+
     L.append("} // namespace jsb::static_binding")
     L.append("")
     return "\n".join(L)
+
+
+def _emit_shared_utility_dispatch(m, L):
+    """Form B (binding_mode=shared) utility emission: one shared utility thunk
+    per unique (RetT, ArgsT...) signature, plus a parallel
+    SharedUtilityFunctionData table and find_shared_utility_binding. Utility
+    functions carry no defaults. Vararg utility functions use the vararg thunk
+    template (same signature dims)."""
+    # ---- shared utility thunk instantiations -------------------------------
+    sign_expr = lambda e: (shared_utility_vararg_entry_expr(m, e) if e.get("is_vararg")
+                           else shared_utility_entry_expr(m, e))
+    sig_keys = sorted({sign_expr(e) for e in m.utility_funcs})
+    sig_id = {sig: i for i, sig in enumerate(sig_keys)}
+    L.append("// ---- shared utility thunk instantiations (one per unique signature) ----")
+    L.append("static const ThunkFn k_shared_utility_thunks[] = {")
+    line = "   "
+    for sig in sig_keys:
+        piece = " (ThunkFn)&" + sig + ","
+        if len(line) + len(piece) > 100:
+            L.append(line)
+            line = "   "
+        line += piece
+    if line.strip():
+        L.append(line)
+    L.append("};")
+    L.append("")
+
+    # ---- per-function data table (SharedUtilityFunctionData rows) ----------
+    L.append("static thunks::SharedUtilityFunctionData k_utility_data[] = {")
+    name_to_row = {}
+    for row, u in enumerate(m.utility_funcs):
+        nlit = cxx_str(m.pool.strings[u["name_id"]])
+        name_to_row[(u["hash"], nlit)] = row
+        L.append("\t{nullptr, %s}," % nlit)
+    L.append("};")
+    L.append("")
+
+    # ---- top-level lookup: eager resolve + cache, mirror builtin/class -----
+    # Resolver: hash switch; same-hash overloads disambiguated by strcmp on
+    # the name. Fill *r_method_data (per-function data row) and return the
+    # signature thunk. Pure lookup -- no resolution here.
+    util_by_hash = collections.OrderedDict()
+    for u in m.utility_funcs:
+        util_by_hash.setdefault(u["hash"], []).append(u)
+    L.append("static ThunkFn resolve_shared_utility(const char *p_name, uint32_t p_hash, const void **r_method_data) {")
+    L.append("\tswitch (p_hash) {")
+    for h, group in util_by_hash.items():
+        if len(group) == 1:
+            u = group[0]
+            nlit = cxx_str(m.pool.strings[u["name_id"]])
+            L.append("\tcase %du: { *r_method_data = &k_utility_data[%d]; return k_shared_utility_thunks[%d]; }"
+                     % (h, name_to_row[(h, nlit)], sig_id[sign_expr(u)]))
+        else:
+            L.append("\tcase %du: {" % h)
+            for u in group:
+                nlit = cxx_str(m.pool.strings[u["name_id"]])
+                L.append("\t\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_utility_data[%d]; return k_shared_utility_thunks[%d]; }"
+                         % (nlit, name_to_row[(h, nlit)], sig_id[sign_expr(u)]))
+            L.append("\t\treturn nullptr;")
+            L.append("\t}")
+    L.append("\tdefault: return nullptr;")
+    L.append("\t}")
+    L.append("}")
+    L.append("")
+    L.append("const ThunkFn find_shared_utility_binding(const godot::StringName &p_name, uint32_t p_hash, const void **r_method_data) {")
+    L.append("\tconst godot::CharString name_utf8 = godot::String(p_name).utf8();")
+    L.append("\tconst ThunkFn thunk = resolve_shared_utility(name_utf8.get_data(), p_hash, r_method_data);")
+    L.append("\tif (!thunk) return nullptr;")
+    L.append("\t// Eagerly resolve-and-cache the ptrcall function (mount-time).")
+    L.append("\t// Exactly one source call site; a failed resolve falls back to")
+    L.append("\t// dynamic binding (nullptr).")
+    L.append("\tif (!thunks::ensure_utility_function(p_name, p_hash, *static_cast<const thunks::SharedUtilityFunctionData *>(*r_method_data))) return nullptr;")
+    L.append("\treturn thunk;")
+    L.append("}")
+    L.append("")
 
 
 def class_ident(name):
@@ -2088,7 +2216,7 @@ def main():
     ctor_tables, _ = emit_ctor_dispatch(m)  # No separate constructor header.
     cpp_outputs = {
         "dispatch_builtin.gen.cpp": emit_builtin_dispatch_cpp(m, op_tables + ctor_tables, ns.binding_mode),
-        "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m),
+        "dispatch_utility.gen.cpp": emit_utility_dispatch_cpp(m, ns.binding_mode),
         "dispatch_class.gen.cpp": emit_class_dispatch_cpp(m, ns.binding_mode),
     }
     outputs = {}

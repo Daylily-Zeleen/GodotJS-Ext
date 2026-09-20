@@ -29,6 +29,8 @@
 
 #	include "thunks_common.h"
 
+#	include <atomic>
+
 namespace jsb::static_binding::thunks {
 
 _FORCE_INLINE_ GDExtensionPtrUtilityFunction resolve_utility_function(const godot::StringName &p_function_name, uint32_t p_hash) {
@@ -196,6 +198,159 @@ void utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		RetT::translate_return(isolate, context, ret_val, info);
 	}
 }
+
+#	if JSB_WITH_SHARED_THUNKS
+// ---------------------------------------------------------------------------
+// Signature-shared utility functions (binding_mode=shared): one thunk instance
+// per unique (RetT, ArgsT...) signature; per-function identity (name) and the
+// eagerly-resolved ptrcall function arrive through info.Data()
+// (SharedUtilityFunctionData) instead of template params. Utility functions
+// carry no defaults (only 0 non-empty DefVs in the API), so the fixed-arity
+// thunk requires exactly N arguments and the vararg thunk has a compile-time
+// minimum F (prefix length).
+
+struct SharedUtilityFunctionData {
+	mutable std::atomic<GDExtensionPtrUtilityFunction> fn; // eagerly resolved at mount
+	const char *name; // error text
+};
+
+// Resolve-and-cache the ptrcall function (eager, mount-time; mirrors
+// ensure_builtin_method for the shared worker-environment CAS semantics).
+_FORCE_INLINE_ GDExtensionPtrUtilityFunction ensure_utility_function(const godot::StringName &p_function_name, uint32_t p_hash, const SharedUtilityFunctionData &data) {
+	GDExtensionPtrUtilityFunction fn = data.fn.load(std::memory_order_relaxed);
+	if (fn) {
+		return fn;
+	}
+	fn = resolve_utility_function(p_function_name, p_hash);
+	if (fn) {
+		GDExtensionPtrUtilityFunction expected = nullptr;
+		if (data.fn.compare_exchange_strong(expected, fn, std::memory_order_relaxed)) {
+			return fn;
+		}
+		return expected;
+	}
+	return nullptr;
+}
+
+// Fixed-arity signature-shared utility function. Exact-arity (no defaults):
+// provided must equal N.
+template <class RetT, class AllArgsT>
+void shared_utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int N = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedUtilityFunctionData &data =
+			*static_cast<const SharedUtilityFunctionData *>(info.Data().As<v8::External>()->Value());
+
+	const GDExtensionPtrUtilityFunction fn = data.fn.load(std::memory_order_relaxed);
+	if (!fn) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", data.name));
+		jsb_throw(isolate, jsb_errorf("missing utility function: %s", data.name));
+		return;
+	}
+
+	const int provided = (int)info.Length();
+	if (provided != N) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects %d, got %d", data.name, N, provided));
+		return;
+	}
+
+	typename AllArgsT::encode_slots slots;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
+	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return;
+	}
+
+	void *arg_ptrs[N > 0 ? N : 1];
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
+	}(std::make_index_sequence<N>{});
+
+	typename RetT::encoded_type ret_val{};
+	fn(&ret_val, arg_ptrs, N);
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
+}
+
+// Vararg signature-shared utility function: unroll the fixed prefix, loop the
+// tail. Compile-time minimum F (prefix length, no defaults).
+template <class RetT, class AllArgsT>
+void shared_utility_vararg_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int F = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedUtilityFunctionData &data =
+			*static_cast<const SharedUtilityFunctionData *>(info.Data().As<v8::External>()->Value());
+
+	const GDExtensionPtrUtilityFunction fn = data.fn.load(std::memory_order_relaxed);
+	if (!fn) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load utility function %s", data.name));
+		jsb_throw(isolate, jsb_errorf("missing utility function: %s", data.name));
+		return;
+	}
+
+	const int provided = (int)info.Length();
+	if (provided < F) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s expects >= %d, got %d", data.name, F, provided));
+		return;
+	}
+
+	typename AllArgsT::encode_slots prefix_slots;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(prefix_slots), provided)) && ...);
+	}(std::make_index_sequence<F>{});
+	if (!ok) {
+		return;
+	}
+
+	const int argc = provided > F ? provided : F;
+	godot::Variant *tail_args =
+			(godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
+	for (int i = F; i < argc; ++i) {
+		memnew_placement(&tail_args[i - F], godot::Variant);
+		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], tail_args[i - F])) {
+			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
+			for (int j = F; j <= i; ++j) {
+				tail_args[j - F].~Variant();
+			}
+			return;
+		}
+	}
+
+	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (void *)&std::get<I>(prefix_slots)), ...);
+	}(std::make_index_sequence<F>{});
+	for (int i = F; i < argc; ++i) {
+		arg_ptrs[i] = &tail_args[i - F];
+	}
+
+	typename RetT::encoded_type ret_val{};
+	fn(&ret_val, arg_ptrs, argc);
+
+	for (int i = F; i < argc; ++i) {
+		tail_args[i - F].~Variant();
+	}
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
+}
+#	endif // JSB_WITH_SHARED_THUNKS
 
 } // namespace jsb::static_binding::thunks
 

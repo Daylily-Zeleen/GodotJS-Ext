@@ -112,6 +112,18 @@ const ThunkFn find_shared_builtin_binding(godot::Variant::Type p_vt,
 		const godot::StringName &p_name,
 		uint32_t p_hash,
 		const void **r_method_data);
+
+// binding_mode=shared: signature-shared utility function lookup (one thunk per
+// unique (RetT, ArgsT...) signature; utility functions carry no defaults). On
+// success resolves-and-caches the ptrcall function EAGERLY (mount-time;
+// variant_get_ptr_utility_function, see ensure_utility_function) and sets
+// *r_method_data to the per-function SharedUtilityFunctionData that the mount
+// point forwards verbatim as v8 callback data. The caller never dereferences
+// the payload; a failed resolve or a "not found" hit returns nullptr (mount
+// falls back to dynamic binding). Defined in the generated dispatch TU.
+const ThunkFn find_shared_utility_binding(const godot::StringName &p_name,
+		uint32_t p_hash,
+		const void **r_method_data);
 #	endif
 
 // Indexed property accessors: one thunk per property side; the

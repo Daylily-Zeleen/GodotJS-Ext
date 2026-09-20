@@ -374,6 +374,95 @@ void shared_builtin_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info
 		RetT::translate_return(isolate, context, ret_val, info);
 	}
 }
+
+// Vararg signature-shared builtin method: unroll the fixed prefix (all
+// Variant slots, like the fixed-arity builtin vararg), loop the tail. The
+// generated fixed prefix carries no defaults, so the minimum arity is F
+// (compile-time). Identity + eagerly-resolved ptrcall function arrive through
+// info.Data() (SharedBuiltinMethodData); the hot path is one relaxed load of
+// fn.
+template <godot::Variant::Type VTC, bool IsStaticC, class RetT, class AllArgsT>
+void shared_builtin_vararg_method_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	using AllArgsTuple = typename AllArgsT::tuple;
+	constexpr int F = (int)std::tuple_size_v<AllArgsTuple>;
+
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	const SharedBuiltinMethodData &md =
+			*static_cast<const SharedBuiltinMethodData *>(info.Data().As<v8::External>()->Value());
+
+	const GDExtensionPtrBuiltInMethod fn = md.fn.load(std::memory_order_relaxed);
+	if (!fn) {
+		ERR_PRINT_ONCE(jsb_errorf("static binding: failed to load builtin method %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		jsb_throw(isolate, jsb_errorf("missing builtin method: %s::%s", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name));
+		return;
+	}
+
+	const int provided = (int)info.Length();
+	if (provided < F) {
+		jsb_throw(isolate, jsb_errorf("num of arguments does not meet the requirement: %s::%s expects >= %d, got %d", godot::Variant::get_type_name(md.vt).utf8().get_data(), md.method_name, F, provided));
+		return;
+	}
+
+	void *base_ptr = nullptr;
+	if constexpr (!IsStaticC) {
+		godot::Variant *self = TypeConvert::is_variant(info.This())
+				? (godot::Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer)
+				: nullptr;
+		if (!self) {
+			jsb_throw(isolate, "no bound this");
+			return;
+		}
+		base_ptr = get_opaque_typed<VTC>(self);
+	}
+
+	// Builtin vararg ptrcalls consume Variant slots for the fixed prefix as
+	// well as the tail (see builtin_vararg_method_thunk).
+	std::array<godot::Variant, F> prefix;
+	const int fixed_count = provided < F ? provided : F;
+	bool ok = true;
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		(void)((ok = ok && ((int)I < fixed_count ? produce_variant<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, prefix[I], provided) : true)) && ...);
+	}(std::make_index_sequence<F>{});
+	if (!ok) {
+		return;
+	}
+
+	const int argc = provided > F ? provided : F;
+	godot::Variant *tail_args =
+			(godot::Variant *)jsb_stackalloc(godot::Variant, argc > F ? argc - F : 1);
+	for (int i = F; i < argc; ++i) {
+		memnew_placement(&tail_args[i - F], godot::Variant);
+		if (!TypeConvert::js_to_gd_var(isolate, context, info[i], tail_args[i - F])) {
+			jsb_throw(isolate, jsb_errorf("bad argument %d", i));
+			for (int j = F; j <= i; ++j) {
+				tail_args[j - F].~Variant();
+			}
+			return;
+		}
+	}
+
+	void **arg_ptrs = (void **)jsb_stackalloc(void *, argc > 0 ? argc : 1);
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+		((void)(arg_ptrs[I] = (void *)&prefix[I]), ...);
+	}(std::make_index_sequence<F>{});
+	for (int i = F; i < argc; ++i) {
+		arg_ptrs[i] = &tail_args[i - F];
+	}
+
+	typename RetT::encoded_type ret_val{};
+	fn(base_ptr, arg_ptrs, &ret_val, argc);
+
+	for (int i = F; i < argc; ++i) {
+		tail_args[i - F].~Variant();
+	}
+
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret_val, info);
+	}
+}
 #	endif // JSB_WITH_SHARED_THUNKS
 
 } // namespace jsb::static_binding::thunks
