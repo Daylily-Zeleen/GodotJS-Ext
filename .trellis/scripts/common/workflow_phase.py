@@ -88,7 +88,7 @@ def get_phase_index() -> str:
 
     section = "\n".join(lines[start:end]).rstrip()
     # Strip [workflow-state:STATUS]...[/workflow-state:STATUS] blocks since
-    # they're injected separately by inject-workflow-state.py per-turn.
+    # they're injected separately by the platform's per-turn injector.
     import re as _re
     tag_re = _re.compile(
         r"\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n.*?\n\s*\[/workflow-state:\1\]\n?",

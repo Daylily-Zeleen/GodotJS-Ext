@@ -27,14 +27,34 @@
 
 ## 汇报
 
-- **区分「中途进度」与「收尾汇报」**：任务尚未结束 → 只写 1~2 行进度（做了什么、下一步）并立即继续，不做完整汇报；任务真正结束 → 才按下条格式做完整汇报
+- **对话只承载两种输出：需要用户决策的问题，以及任务结束时的一次收尾汇报。** 工具调用卡片本身就是进度，不再为「说明正在做什么」产出文本；后续自动投递到达且无新动作时，**不产出文本、直接结束**
+- 任务结束 → 按次条格式做完整汇报，不做中途完整汇报
 - 收尾覆盖全流程：**目标 → 动作+证据 → 最终状态 → 遗留**，禁止只汇报最后一步
 - 「已修复 / 已验证 / 配置会生效」这类断言必须有实测证据；机制性断言未实测不得声称
-- 进度落文件（任务 → `.trellis/tasks/<任务>/report.md`；否则 `.agent_tmp/progress.md`），汇报从文件出——对话会被压缩，文件不会
+- **进度落文件**（任务 → `.trellis/tasks/<任务>/report.md`；否则 `.agent_tmp/progress.md`）：每完成一个可验证的步骤追加一行——原来写进对话的那句进度，改为写进这里。汇报从文件出——对话会被压缩，文件不会
 
 ## Trellis 入口
 
-- 开发工作流：`.trellis/workflow.md`（阶段、任务生命周期、spec 注入）
-- 编码规范（spec）：`.trellis/spec/godotjs-ext/`（主代码 cpp / build / test 三层）、`.trellis/spec/godot-cpp/`、`.trellis/spec/third/quickjs-ng/`、`.trellis/spec/guides/`（流程守则 + 思维指南）
-- 任务目录：`.trellis/tasks/`（`python ./.trellis/scripts/task.py list` 查看；已完成任务在 `archive/<年-月>/`）
-- 包映射：`.trellis/config.yaml`（godotjs-ext / godot-cpp / third/quickjs-ng，默认包 godotjs-ext）
+- 工作流/规范/任务/配置见 `.trellis/`（`workflow.md`、`spec/`、`tasks/`、`config.yaml`）；每轮面包屑可用 `no-trellis` 跳过
+
+<!-- TRELLIS:START -->
+# Trellis Instructions
+
+These instructions are for AI assistants working in this project.
+
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+
+<!-- TRELLIS:END -->

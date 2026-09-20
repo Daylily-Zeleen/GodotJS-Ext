@@ -70,9 +70,41 @@
 2. **合同先行**：把已核实的事实（符号、行号、不变量、宏体语义）**原样**塞进 `context`，并明写「**不要重新推导这些**」。落在 `report.md` / `.agent_tmp/*.log` 里的结论直接标 `accepted from log`。
 3. **写死收尾条件**（**最重要**）：prompt 必须含「**达到 N 次工具调用立即 yield 已得结论，未决项标 `UNVERIFIED`**」。上限不强制，这句才保命——两次惨败的根因正是「被杀时零输出」而非「跑太久」。
 4. **给 `outputSchema`**：结构化、有界的答案，比开放式提问收敛。
-5. **派单后主动监工**：`history://<id>` 看 transcript、`jobs` 看进度；**只 `wait` 等于没监工**。明显偏离预期立即 `hub cancel`（这是唯一的硬杀开关）。
+5. **派单后按需监工，不轮询**（与 `AGENTS.md`「不轮询 job」是同一条规则，此处不再另立对立条款）：默认靠自动投递；仅在长时间无投递、或结果明显偏离预期时，才用 `history://<id>` 看 transcript，并用 `hub cancel` 硬杀（这是唯一的硬杀开关）。**反复 `jobs`/`wait` 会顶掉自动投递**——实测本任务因此被 harness 判为工具调用循环 14 次。
 6. **优先复用已有子代理**：`hub` 消息给 idle/parked 的（它已持有上下文），而非重新 spawn。
 7. **agent 侧预算**优于 prompt 侧：类级 `## Investigation Budget`（见 `.omp/agents/trellis-check.md`）在每个该类型 spawn 的 system prompt 里，比派单文本写一遍粘性强得多。
+
+## 压缩摘要的 `Next Steps` 不是待办清单（2026-09-20 实例分析）
+
+> **实例**：本会话中一份 2831 字符的推理块被**逐字重复 225 次**（跨 34 小时、8 种近似变体），内容是把 compaction 摘要的 `Next Steps` 清单逐项重述。该现象在 Trellis 引入前的三个对照会话里重复数为 **0 / 2 / 0**。
+
+- **格式来自 omp，不是 Trellis**：内置的 compaction 提示词强制输出 `### In Progress` / `### Blocked` / `## Next Steps` 等段（`You MUST output only the structured summary`）。
+- **内容由 Trellis 决定**：计划被规定成一条不可跳过的链（`implement -> check -> update-spec -> commit`），而 `task.py archive` 之前 `status` 恒为 `in_progress`，于是"下一步"永远关不掉——`report.md` 字样横跨本会话 9 份摘要中的 7 份。
+- **规则**：进入某一步之前，先确认它**没有被用户当轮指令否决、且未被已完成的工作覆盖**。摘要里的 `Next Steps` 是上一轮的意图快照，不是必须逐项偿还的欠账；发现某步已完成时，**直接做下一步，不复述这一步**。
+
+## 工作流面包屑的维护规则（2026-09-21 沉淀）
+
+> 背景：`.trellis/workflow.md` 是 **trellis 模板管理的文件**（在 `.trellis/.template-hashes.json` 的 managed 表里），`trellis update` 会整文件覆盖它。`[workflow-state:*]` 块又是面包屑注入器（`.omp/extensions/trellis/index.ts`）逐行正则消费的——**位置不能挪，只能编辑**。所以这里沉淀的是**规则本体**，workflow.md 里只保留每轮注入用的短句。
+
+### 用户当轮指令优先于工作流流程
+
+- 面包屑里的 `Flow: implement -> check -> update-spec -> commit` 是**默认顺序**，不是硬约束。**用户当轮指令优先**：例如用户说"不要提交"则 Phase 3.4 不适用、说"先只解答不改代码"则所有编辑步不适用。
+- 进入任何一步前先确认：它**未被用户当轮指令否决**、**未被已完成的工作覆盖**。
+- 发现某步已完成或被否决时，**直接做下一步，不复述这一步**——不要花输出复述"workflow 说要做 X 但用户说不要"。
+
+### 不要复述面包屑内容
+
+- `[workflow-state:*]` 块**每轮注入**，是当前上下文的一部分。不要 re-derive / restate / re-list 它或它的步骤；它已经在上下文里了。
+
+### 维护流程：trellis update 后怎么保住定制
+
+1. 始终用 `trellis update -s`（跳过所有用户改过的文件），**不要用 `-f`**——`-f` 会把 workflow.md 等 managed 文件整文件覆盖，抹掉本段和面包屑里的定制。
+2. `trellis update` 对 `AGENTS.md` 是**块级合并**（`<!-- TRELLIS:START -->…<!-- TRELLIS:END -->` 之间可覆盖，块外保留），所以 AGENTS.md 的定制安全。
+3. 万一 workflow.md 被覆盖：面包屑里需要重贴的是两行——`Flow (default order — the user's instruction for this turn overrides it…): …` 和 `Do not re-derive, restate, or re-list this flow…`。全文见本文件，复制回去即可。
+
+### workflow.md 的死指针（已被替换为实际存在的路径）
+
+- `.trellis/spec/cli/backend/workflow-state-contract.md` 与 `.trellis/scripts/inject-workflow-state.py` **在本检出中不存在**（上游模板的历史引用；本平台注入器是 `.omp/extensions/trellis/index.ts`，状态写者是 `.trellis/scripts/task.py`）。检索到这两个名字说明引用已过期，不要去找。
 
 ## 最终汇报（细则）
 
