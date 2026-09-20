@@ -35,11 +35,7 @@
 
 ## Trellis 入口
 
-- 开发工作流：`.trellis/workflow.md`（阶段、任务生命周期、spec 注入）
-- 编码规范（spec）：`.trellis/spec/godotjs-ext/`（主代码 cpp / build / test 三层）、`.trellis/spec/godot-cpp/`、`.trellis/spec/third/quickjs-ng/`、`.trellis/spec/guides/`（流程守则 + 思维指南）
-- 任务目录：`.trellis/tasks/`（`python ./.trellis/scripts/task.py list` 查看；已完成任务在 `archive/<年-月>/`）
-- 包映射：`.trellis/config.yaml`（godotjs-ext / godot-cpp / third/quickjs-ng，默认包 godotjs-ext）
-- **每轮的工作流面包屑可跳过**：用户 prompt 里单独出现 `no-trellis` 时，该轮不注入 `<workflow-state>`（开关见 `.trellis/config.yaml` 的 `prompt_injection.skip_keyword`）。用户说"这轮别管工作流"即用此词
+- 工作流/规范/任务/配置见 `.trellis/`（`workflow.md`、`spec/`、`tasks/`、`config.yaml`）；每轮面包屑可用 `no-trellis` 跳过
 
 <!-- TRELLIS:START -->
 # Trellis Instructions
