@@ -65,28 +65,62 @@ void utility_function_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	typename AllArgsT::encode_slots slots;
 	bool ok = true;
-	[&]<std::size_t... I>(std::index_sequence<I...>) {
-		(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
-	}(std::make_index_sequence<N>{});
-	if (!ok) {
-		return;
+	void *arg_ptrs[N > 0 ? N : 1];
+
+	static_assert(N <= 32, "the default-substitution mask assumes at most 32 parameters");
+	// Same optional-position handling as builtin_method_thunk, and deliberately the
+	// same shape: an explicit `undefined` over [M, N) means "use THAT position's
+	// default" (JS default-parameter semantics) and must not shift the positions
+	// around it. No Godot utility function has a default value today, so every
+	// instantiation takes the branch below, but the shape is kept identical so the
+	// two thunk families cannot drift apart.
+	//
+	// The mask only ever covers [M, N); required positions [0, M) keep converting
+	// `undefined` normally -- there it is a value, not an omission.
+	if constexpr (M < N) {
+		// The mask stays inside this branch (see builtin_method_thunk): hoisting it
+		// out would make every no-default instance pay for a stack slot.
+		uint32_t use_default_mask = 0;
+		for (int i = M; i < N; ++i) {
+			// `info[i]` is only valid below the passed arity; the short circuit
+			// keeps that dereference off the out-of-range positions.
+			if (i >= provided || info[i]->IsUndefined()) {
+				use_default_mask |= 1u << i;
+			}
+		}
+
+		// Marshal only the positions that carry a caller-supplied value.
+		[&]<std::size_t... I>(std::index_sequence<I...>) {
+			(void)((ok = ok && ((int)I < provided && !((use_default_mask >> I) & 1u) ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return;
+		}
+
+		// Instantiate default_arg_slot only for optional positions [M, N).
+		[&]<std::size_t... J>(std::index_sequence<J...>) {
+			((void)(arg_ptrs[M + J] = ((use_default_mask >> (M + J)) & 1u)
+							 ? default_arg_slot<std::tuple_element_t<J, typename DefsT::tuple>,
+									   std::conditional_t<GDReferentialBuiltinType<std::tuple_element_t<J, typename DefsT::tuple>>,
+											   decltype(utility_function_thunk<HashC, NameLit, RetT, AllArgsT, DefsT>),
+											   void>>()
+							 : (void *)&std::get<M + J>(slots)),
+					...);
+		}(std::make_index_sequence<N - M>{});
+	} else {
+		// No optional position: plain marshal.
+		[&]<std::size_t... I>(std::index_sequence<I...>) {
+			(void)((ok = ok && ((int)I < provided ? marshal_one<std::tuple_element_t<I, AllArgsTuple>>(isolate, context, info, (int)I, std::get<I>(slots), provided) : true)) && ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return;
+		}
 	}
 
-	void *arg_ptrs[N > 0 ? N : 1];
-	// required prefix [0, M): the arity check guarantees these are provided
+	// required prefix [0, M): the arity check guarantees these are provided.
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 		((void)(arg_ptrs[I] = (void *)&std::get<I>(slots)), ...);
 	}(std::make_index_sequence<M>{});
-	// Instantiate default_arg_slot only for optional positions [M, N).
-	[&]<std::size_t... J>(std::index_sequence<J...>) {
-		((void)(arg_ptrs[M + J] = (int)(M + J) < provided
-						 ? (void *)&std::get<M + J>(slots)
-						 : default_arg_slot<std::tuple_element_t<J, typename DefsT::tuple>,
-								   std::conditional_t<GDReferentialBuiltinType<std::tuple_element_t<J, typename DefsT::tuple>>,
-										   decltype(utility_function_thunk<HashC, NameLit, RetT, AllArgsT, DefsT>),
-										   void>>),
-				...);
-	}(std::make_index_sequence<N - M>{});
 
 	typename RetT::encoded_type ret_val{};
 	fn(&ret_val, arg_ptrs, N);

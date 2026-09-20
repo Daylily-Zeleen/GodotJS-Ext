@@ -43,6 +43,13 @@ private:
 public:
 	ApiToolPayload(const godot::Ref<godot::FileAccess> &p_file) : file(p_file) {}
 
+	// Random access (decompressed offsets). The lazy detail/defaults sections
+	// are read by seeking to an offset recorded while the hot section was read;
+	// FileAccessCompressed::seek decompresses the containing 4096 B block only.
+	uint64_t get_position() const { return file->get_position(); }
+	uint64_t get_length() const { return file->get_length(); }
+	void seek(uint64_t p_position) { file->seek(p_position); }
+
 	static std::unique_ptr<ApiToolPayload> open(const godot::String &p_path, godot::Error &r_error) {
 		using namespace godot;
 		Ref<FileAccess> file;

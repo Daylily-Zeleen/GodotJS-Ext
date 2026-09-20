@@ -11,6 +11,7 @@
 | cpp | [coding-standards.md](./cpp/coding-standards.md) | 头文件命名空间禁令、临时文件位置、格式化 |
 | cpp | [generated-files.md](./cpp/generated-files.md) | `*.gen.*`/`*.def.*` 生成文件保护与生成逻辑映射 |
 | cpp | [ptrcall-encoding.md](./cpp/ptrcall-encoding.md) | ptrcall EncodeT 编码、缓冲区溢出修复规则 |
+| cpp | [api-tool-lazy-layout.md](./cpp/api-tool-lazy-layout.md) | api_tool 热/冷字段约定、惰性加载、三段式 store 格式 |
 | cpp | [architecture-constraints.md](./cpp/architecture-constraints.md) | GDExtension `~` 副本陷阱、共享库约束、桥接规则 |
 | build | [index.md](./build/index.md) | 构建接线检查单（编译命令、dll 部署） |
 | build | [scons-build.md](./build/scons-build.md) | 强制编译命令、静态绑定 codegen 接线、dll 部署验证 |

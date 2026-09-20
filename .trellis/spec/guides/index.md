@@ -17,7 +17,15 @@
 |-------|------|--------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | 先搜索再写新代码，消灭重复 | 发现自己在复制/重写既有逻辑时 |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | 跨层数据流推演 | 功能跨越多层（JS ↔ 桥接 ↔ api_tool ↔ godot-cpp ↔ 引擎）时 |
-| [workflow-rules.md](./workflow-rules.md) | git / 临时文件 / 任务管理 / 执行节奏硬约束 | 任何涉及 git 操作、文件创建、启动后台 job 或收尾汇报的时刻 |
+| [workflow-rules.md](./workflow-rules.md) | git / 临时文件 / 任务管理 / 执行节奏 / 子代理派单硬约束 | 任何涉及 git 操作、文件创建、启动后台 job、**派子代理**或收尾汇报的时刻 |
+
+## 何时思考后台 job 与等待循环
+
+- [ ] 要跑长命令（构建/测试）→ **发一次 `async: true`**，结果自动投递；**不发** `for … sleep` 等待循环（它自己会转后台）
+- [ ] 收到 `Background job bg_N has completed` → 先问「这产生什么新信息，谁会因此改变决定？」答不出就**不产出文本、直接结束**
+- [ ] 收尾汇报已发过一次 → 后续投递**不重发汇报**
+
+→ 读 [workflow-rules.md](./workflow-rules.md)「后台 job 与等待循环」
 
 ---
 

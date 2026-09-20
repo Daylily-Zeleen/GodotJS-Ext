@@ -33,14 +33,31 @@
 #include "api_tool_doc_types.h"
 #include <godot_cpp/variant/string.hpp>
 
-namespace api_tool::internal {
+namespace api_tool {
 
+struct ApiMethodBase;
+
+namespace internal {
+
+template <bool ReadMode>
+class ApiToolPayload;
+
+// Hot method record writer; a friend of ApiMethodBase so it can read the
+// concrete hot members (see serialize_method_hot).
+struct ApiMethodHotWriter {
+	static void serialize_method_hot(ApiToolPayload<false> &, const ApiMethodBase &, uint16_t p_default_count);
+};
+
+// (ApiStoreWriter stays inside api_tool::internal)
 class ApiStoreWriter {
 public:
 	static godot::Error write_header(const godot::String &p_path, const ApiHeader &p_data);
-	static godot::Error write_utility_functions(const godot::String &p_path, const godot::LocalVector<ApiUtilityFunction> &p_data);
-	static godot::Error write_builtin_class(const godot::String &p_path, const ApiBuiltinClass &p_data);
-	static godot::Error write_class(const godot::String &p_path, const ApiClass &p_data);
+	// The cold sections (full PropertyInfo detail + default values) come from the
+	// entity's storage: the parser filled it while decoding the JSON, and the same
+	// accessor pair is used at runtime after a lazy load (design.md §6/§7).
+	static godot::Error write_utility_functions(const godot::String &p_path, const godot::LocalVector<ApiUtilityFunction> &p_data, const internal::ApiMethodDetailStorage *p_storage);
+	static godot::Error write_builtin_class(const godot::String &p_path, const ApiBuiltinClass &p_data, const internal::ApiMethodDetailStorage *p_storage);
+	static godot::Error write_class(const godot::String &p_path, const ApiClass &p_data, const internal::ApiMethodDetailStorage *p_storage);
 	static godot::Error write_global_enum(const godot::String &p_path, const ApiEnumInfo &p_data);
 	static godot::Error write_global_constant(const godot::String &p_path, const ApiConstantInfo &p_data);
 	static godot::Error write_singletons(const godot::String &p_path, const godot::LocalVector<ApiSingleton> &p_data);
@@ -54,4 +71,5 @@ public:
 	static godot::Error write_global_constant_document(const godot::String &p_path, const ApiGlobalConstantDocument &p_data);
 };
 
-} //namespace api_tool::internal
+} //namespace internal
+} //namespace api_tool

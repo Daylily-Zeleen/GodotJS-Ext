@@ -108,47 +108,49 @@ bool TypeDB::is_valid_method_name(const String &p_name) const {
 	return true;
 }
 
-void TypeDB::build_method_decl(MethodDecl &r_decl, const MethodInfo &p_method) {
-	r_decl.internal_name = p_method.name;
-	r_decl.id = p_method.id;
-	r_decl.name = NamingUtil::get_member_name(p_method.name);
-	r_decl.hint_flags = p_method.flags;
-	r_decl.is_static = (p_method.flags & METHOD_FLAG_STATIC) != 0;
-	r_decl.is_const = (p_method.flags & METHOD_FLAG_CONST) != 0;
-	r_decl.is_vararg = (p_method.flags & METHOD_FLAG_VARARG) != 0;
+void TypeDB::build_method_decl(MethodDecl &r_decl, const api_tool::ApiMethodBase &p_method, const godot::Variant *p_defaults, uint16_t p_default_count) {
+	const uint32_t flags = p_method.get_flags();
+	r_decl.internal_name = p_method.get_name();
+	r_decl.name = NamingUtil::get_member_name(p_method.get_name());
+	r_decl.hint_flags = flags;
+	r_decl.is_static = (flags & METHOD_FLAG_STATIC) != 0;
+	r_decl.is_const = (flags & METHOD_FLAG_CONST) != 0;
+	r_decl.is_vararg = (flags & METHOD_FLAG_VARARG) != 0;
 
-	const bool has_return_value =
-			p_method.return_val.type != Variant::NIL
-			|| (p_method.return_val.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
-	if (has_return_value) {
-		PropertyInfo return_info = p_method.return_val;
+	// `has_returns()` is derived once at parse/load time from the faithful
+	// PropertyInfo and carried in the hot flags, so the common "no return"
+	// case never touches the lazily loaded detail.
+	if (p_method.has_returns()) {
+		PropertyInfo return_info = p_method.get_detail().return_val;
 		// exposed names (mirrors build_property_info(..., method=true))
 		return_info.name = NamingUtil::get_parameter_name(return_info.name);
 		return_info.class_name = NamingUtil::get_class_name(return_info.class_name);
 		r_decl.return_ = return_info;
 	}
-	r_decl.return_meta = p_method.return_val_metadata;
+	r_decl.return_meta = p_method.get_return_metadata();
 
-	r_decl.args.reserve(p_method.arguments.size());
-	const int arg_count = (int)p_method.arguments.size();
-	const int meta_count = (int)p_method.arguments_metadata.size();
-	for (int index = 0; index < arg_count; ++index) {
-		const PropertyInfo &arg = p_method.arguments[index];
-		PropertyInfo info = arg;
-		info.name = NamingUtil::get_parameter_name(info.name);
-		info.class_name = NamingUtil::get_class_name(info.class_name);
-		r_decl.args.push_back(info);
-		// aligned with `args`; NONE when the source list is shorter/absent
-		r_decl.args_meta.push_back(index < meta_count
-						? p_method.arguments_metadata[index]
-						: GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+	// The argument count is a hot field; the full PropertyInfo list and the
+	// compact metadata block are both 1:1 with it (everything comes from the
+	// same entity-level detail load).
+	const uint16_t arg_count = p_method.get_argument_count();
+	if (arg_count > 0) {
+		// one lazy load for the whole method, then plain array walks
+		const api_tool::internal::ApiMethodDetail &detail = p_method.get_detail();
+		r_decl.args.reserve(arg_count);
+		for (uint16_t index = 0; index < arg_count; ++index) {
+			PropertyInfo info = detail.arguments[index];
+			info.name = NamingUtil::get_parameter_name(info.name);
+			info.class_name = NamingUtil::get_class_name(info.class_name);
+			r_decl.args.push_back(info);
+			r_decl.args_meta.push_back(p_method.get_argument_metadata(index));
+		}
 	}
 
-	// default values aligned with trailing arguments
-	const int argc = p_method.default_arguments.size();
-	for (int index = 0; index < argc; ++index) {
+	// default values aligned with the trailing arguments
+	const uint16_t argc = p_default_count;
+	for (uint16_t index = 0; index < argc; ++index) {
 		MethodDecl::DefaultValue dv;
-		dv.value = p_method.default_arguments[index];
+		dv.value = p_defaults[index];
 		dv.type = r_decl.args[r_decl.args.size() - (argc - index)].type;
 		dv.valid = true;
 		r_decl.default_arguments.push_back(dv);
@@ -208,18 +210,22 @@ void TypeDB::load_classes() {
 		}
 
 		for (const auto &api_method : api_class->methods) {
-			MethodInfo method_info = api_method.method;
 			const bool is_virtual = api_method.is_virtual();
 
 #if JSB_EXCLUDE_GETSET_METHODS
 			// property accessors already emitted via PropertySetGetDecl
-			if (!is_virtual && omitted_methods.has(method_info.name)) {
+			if (!is_virtual && omitted_methods.has(api_method.get_name())) {
 				continue;
 			}
 #endif
 
+			// `default_count` is hot; only a method that actually has defaults
+			// pays for loading the cold default-value block.
+			uint32_t default_count = api_method.get_default_count();
+			const godot::Variant *defaults = default_count > 0 ? api_method.get_defaults(default_count) : nullptr;
+
 			MethodDecl md;
-			build_method_decl(md, method_info);
+			build_method_decl(md, api_method, defaults, (uint16_t)default_count);
 
 			if (is_virtual) {
 				decl->virtual_methods.push_back(md);
@@ -319,19 +325,29 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 
 	// methods
 	for (const auto &api_method : builtin_class->methods) {
-		MethodInfo method_info = api_method.method;
+		// `default_count` is hot; only a method that actually has defaults
+		// pays for loading the cold default-value block.
+		uint32_t default_count = api_method.get_default_count();
+		const godot::Variant *defaults = default_count > 0 ? api_method.get_defaults(default_count) : nullptr;
 
-		if (p_utilities_mode && !(method_info.flags & METHOD_FLAG_STATIC)) {
-			// utility variants prepend an implicit `target` argument and are forced static
+		MethodDecl md;
+		build_method_decl(md, api_method, defaults, (uint16_t)default_count);
+
+		if (p_utilities_mode && !api_method.is_static()) {
+			// utility variants prepend an implicit `target` argument and are
+			// forced static. The mutation happens at MethodDecl level, i.e.
+			// AFTER the decl was built, so it cannot disturb the default values
+			// already aligned with the trailing arguments (identical result to
+			// inserting `target` into the source method before building).
 			PropertyInfo target;
 			target.name = "target";
 			target.type = p_type;
-			method_info.arguments.insert(0, target);
-			method_info.flags |= METHOD_FLAG_STATIC;
+			md.args.insert(0, target);
+			md.args_meta.insert(0, GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE);
+			md.hint_flags |= METHOD_FLAG_STATIC;
+			md.is_static = true;
 		}
 
-		MethodDecl md;
-		build_method_decl(md, method_info);
 		decl->methods.push_back(md);
 	}
 
@@ -479,7 +495,10 @@ void TypeDB::load_utilities() {
 
 		MethodDecl *md = memnew(MethodDecl);
 		owned_utilities_.push_back(md);
-		build_method_decl(*md, utility_func->method);
+		// utility functions never carry default values (none of the 114 entries
+		// in extension_api.json declares one), and ApiUtilityFunction has no
+		// default_count accessor at all.
+		build_method_decl(*md, *utility_func, nullptr, 0);
 		utilities.insert(md->name, md);
 	}
 }

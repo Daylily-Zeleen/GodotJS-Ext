@@ -40,7 +40,7 @@ namespace api_tool::internal {
 class ApiStoreReader {
 public:
 	static godot::Error read_header(const godot::String &p_path, ApiHeader &r_data);
-	static godot::Error read_utility_functions(const godot::String &p_path, godot::LocalVector<ApiUtilityFunction> &r_data);
+	static godot::Error read_utility_functions(const godot::String &p_path, godot::LocalVector<ApiUtilityFunction> &r_data, internal::ApiMethodDetailStorage *p_storage);
 	static godot::Error read_builtin_class(const godot::String &p_path, ApiBuiltinClass &r_data);
 	static godot::Error read_class(const godot::String &p_path, ApiClass &r_data);
 	static godot::Error read_global_enum(const godot::String &p_path, ApiEnumInfo &r_data);
@@ -49,6 +49,15 @@ public:
 	static godot::Error read_native_structures(const godot::String &p_path, godot::LocalVector<ApiNativeStructure> &r_data);
 
 	static godot::Error read_compatibility_hashes(const godot::String &p_path, ApiCompatibilityHashData &r_data);
+
+	// ---- lazily loaded cold sections ----
+	// Both verify what they consume (AC7): the detail section must be consumed
+	// exactly (p_detail_size bytes) and every record's argument count must equal
+	// the hot count it belongs to; the defaults section's per-method count must
+	// equal the hot count. A mismatch is ERR_FILE_CORRUPT, never a silent
+	// truncation.
+	static bool read_method_details(const godot::String &p_path, uint64_t p_offset, uint64_t p_detail_size, uint32_t p_method_count, const godot::LocalVector<uint16_t> &p_hot_arg_counts, godot::LocalVector<internal::ApiMethodDetail> &r_details);
+	static bool read_method_defaults(const godot::String &p_path, uint64_t p_offset, uint32_t p_method_count, const godot::LocalVector<uint16_t> &p_hot_default_counts, godot::LocalVector<godot::Variant> &r_values, godot::LocalVector<uint32_t> &r_offsets);
 };
 
 } //namespace api_tool::internal

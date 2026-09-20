@@ -32,6 +32,9 @@
 // All functions return Error with proper error messages.
 
 #include "api_tool/api_tool_types.h"
+#include "api_tool/core/api_tool_access.h"
+#include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool_detail_storage_editor.h"
 #include "api_tool_parser.h"
 #include "api_tool_store_writer.h"
 #include <godot_cpp/classes/dir_access.hpp>
@@ -182,10 +185,15 @@ static PropertyInfo parse_property_info(const Dictionary &d) {
 	return pi;
 }
 
+// Parses one method object into the hot fields of r_method plus its cold detail
+// (the faithful PropertyInfo remainder) and default values.
+//
+// extension_api.json stores two shapes: classes use a nested "return_value"
+// object (which also carries the return meta), builtin classes use a flat
+// "return_type" plus a method-level "meta".
 template <typename TApiMethodInfo>
-static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData *r_compat_data = nullptr) {
-	TApiMethodInfo ami;
-	ami.method.name = d["name"];
+static void parse_method(const Dictionary &d, TApiMethodInfo &r_method, internal::ApiMethodDetail &r_detail, LocalVector<Variant> &r_defaults, LocalVector<internal::ApiMethodArg> &r_flat_args, ApiCompatibilityHashData *r_compat_data = nullptr) {
+	const StringName name = d["name"];
 
 	// Build flags from JSON booleans
 	uint32_t flags = GDEXTENSION_METHOD_FLAG_NORMAL;
@@ -194,16 +202,15 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 	if (d.get("is_static", false)) flags |= GDEXTENSION_METHOD_FLAG_STATIC;
 	if (d.get("is_virtual", false)) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL;
 	if (d.get("is_required", false)) flags |= GDEXTENSION_METHOD_FLAG_VIRTUAL_REQUIRED;
-	ami.method.flags = flags;
 
-	ami.hash = MethodHash(d.get("hash", 0));
+	GDExtensionClassMethodArgumentMetadata return_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 
 #ifndef DISABLE_DEPRECATED
 	if (d.has("hash_compatibility")) {
 		Array compat = d["hash_compatibility"];
 		if (r_compat_data) {
 			ApiMethodCompatibilityHashes mch;
-			mch.method_name = ami.method.name;
+			mch.method_name = name;
 			mch.hashes.reserve(compat.size());
 			for (int i = 0; i < compat.size(); i++) {
 				mch.hashes.push_back(MethodHash(compat[i]));
@@ -216,28 +223,32 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 	// return_val: builtin_classes uses "return_type", classes uses "return_value"
 	if (d.has("return_value")) {
 		Dictionary rv = d["return_value"];
-		ami.method.return_val = parse_property_info(rv);
+		r_detail.return_val = parse_property_info(rv);
 		// NOTE: the meta lives INSIDE the return_value object
 		// ({"return_value": {"type": "int", "meta": "int16"}}), not at the
 		// method level.
-		ami.method.return_val_metadata = parse_argument_metadata(rv.get("meta", ""));
+		return_meta = parse_argument_metadata(rv.get("meta", ""));
 	} else if (d.has("return_type")) {
 		// Builtin class methods use "return_type" directly (not nested "return_value")
 		String ret_type = d.get("return_type", "");
-		ami.method.return_val.type = parse_variant_type(ret_type, &ami.method.return_val);
-		ami.method.return_val_metadata = parse_argument_metadata(d.get("meta", ""));
+		r_detail.return_val.type = parse_variant_type(ret_type, &r_detail.return_val);
+		return_meta = parse_argument_metadata(d.get("meta", ""));
 	}
 
 	// arguments
+	uint16_t arg_count = 0;
 	if (d.has("arguments")) {
 		Array args = d["arguments"];
-		ami.method.arguments.reserve(args.size());
-		ami.method.arguments_metadata.reserve(args.size());
+		r_detail.arguments.reserve(args.size());
 		for (int i = 0; i < args.size(); i++) {
 			Dictionary ad = args[i];
-			PropertyInfo pi = parse_property_info(ad);
-			ami.method.arguments.push_back(pi);
-			ami.method.arguments_metadata.push_back(parse_argument_metadata(ad.get("meta", "")));
+			const PropertyInfo pi = parse_property_info(ad);
+			r_detail.arguments.push_back(pi);
+			// compact hot record: exactly what the runtime needs for ptrcall
+			internal::ApiMethodArg arg{};
+			arg.type = (VariantType)pi.type;
+			arg.meta = (ArgMeta)parse_argument_metadata(ad.get("meta", ""));
+			r_flat_args.push_back(arg);
 			// Parse default_value for optional trailing arguments.
 			// JSON stores these as string representations (e.g. "0", "true", "PackedByteArray()").
 			if (ad.has("default_value")) {
@@ -246,11 +257,24 @@ static TApiMethodInfo parse_method(const Dictionary &d, ApiCompatibilityHashData
 				// back to a Variant for every type, STRING included: the dump
 				// writes String defaults quoted ("" / "region"), which decode
 				// through the same path as every other type.
-				ami.method.default_arguments.push_back(UtilityFunctions::str_to_var(dv_str));
+				r_defaults.push_back(UtilityFunctions::str_to_var(dv_str));
 			}
 		}
+		arg_count = (uint16_t)args.size();
 	}
-	return ami;
+
+	// The "has a return value" decision is derived exactly once, here, from the
+	// faithful PropertyInfo; it is stored as the internal NO_RETURN bit so no
+	// reader ever needs the cold detail to answer has_returns().
+	const bool has_return_value = (r_detail.return_val.type != Variant::NIL) || (r_detail.return_val.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
+
+	ApiMethodAccess::setup(r_method, name, MethodHash(d.get("hash", 0)), flags, has_return_value,
+			r_detail.return_val.type, return_meta, arg_count);
+	// The compact argument records are not part of the detail; the caller emits
+	// them straight into the entity-level block (see write_* in the store writer).
+	if constexpr (std::is_base_of_v<ApiMemberMethodBase, TApiMethodInfo>) {
+		ApiMethodAccess::set_default_count(r_method, (uint16_t)r_defaults.size());
+	}
 }
 
 static ApiEnumInfo parse_enum(const Dictionary &d) {
@@ -398,48 +422,72 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
 	LocalVector<ApiUtilityFunction> all_funcs;
 	all_funcs.reserve(funcs.size());
 
+	// Utility functions have no default values (json: 0 of 114), but they still
+	// own cold detail (parameter names), so they share one storage.
+	auto storage = std::make_shared<internal::ApiMethodDetailStorage>();
+	LocalVector<internal::ApiMethodArg> flat_args;
+
 	String doc_dir = p_output_dir + String("/") + String(DIR_DOC_UTILITY_FUNCTIONS);
 
 	for (int i = 0; i < funcs.size(); i++) {
 		Dictionary fd = funcs[i];
 		ApiUtilityFunction func;
-		func.method.name = fd["name"];
+		internal::ApiMethodDetail detail;
+		LocalVector<Variant> defaults;
 
-		// Build flags
-		if (fd.get("is_vararg", false)) func.method.flags |= GDEXTENSION_METHOD_FLAG_VARARG;
-
-		func.hash = MethodHash(fd.get("hash", 0));
-		func.category = fd.get("category", "");
+		// Build flags: utility functions only ever carry VARARG.
+		uint32_t flags = GDEXTENSION_METHOD_FLAG_NORMAL;
+		if (fd.get("is_vararg", false)) flags |= GDEXTENSION_METHOD_FLAG_VARARG;
 
 		// return_type -> return_val PropertyInfo
 		if (fd.has("return_type")) {
 			String ret_type = fd.get("return_type", "");
-			func.method.return_val.type = parse_variant_type(ret_type, &func.method.return_val);
+			detail.return_val.type = parse_variant_type(ret_type, &detail.return_val);
 		}
 
 		if (fd.has("arguments")) {
 			Array args = fd["arguments"];
-			func.method.arguments.reserve(args.size());
-			func.method.arguments_metadata.reserve(args.size());
+			detail.arguments.reserve(args.size());
 			for (int j = 0; j < args.size(); j++) {
 				Dictionary ad = args[j];
-				func.method.arguments.push_back(parse_property_info(ad));
-				func.method.arguments_metadata.push_back(parse_argument_metadata(ad.get("meta", "")));
+				const PropertyInfo pi = parse_property_info(ad);
+				detail.arguments.push_back(pi);
+				internal::ApiMethodArg arg{};
+				arg.type = (VariantType)pi.type;
+				arg.meta = (ArgMeta)parse_argument_metadata(ad.get("meta", ""));
+				flat_args.push_back(arg);
 			}
 		}
 
+		const bool has_return_value = (detail.return_val.type != Variant::NIL) || (detail.return_val.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
+		ApiMethodAccess::setup(func, fd["name"], MethodHash(fd.get("hash", 0)),
+				flags, has_return_value, detail.return_val.type,
+				GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, (uint16_t)detail.arguments.size());
+		ApiMethodAccess::set_index(func, (uint16_t)i);
+		func.category = fd.get("category", "");
+
+		ApiMethodColdAccess::push_cold(*storage, detail, nullptr, 0);
 		all_funcs.push_back(func);
 
 		// Write document file (single pass, no separate document parsing)
 		ApiUtilityFunctionDocument doc;
-		doc.name = String(func.method.name);
+		doc.name = String(func.get_name());
 		doc.description = fd.get("description", "");
-		String doc_path = doc_dir + String("/") + String(func.method.name) + String(FILE_EXT_DOC);
+		String doc_path = doc_dir + String("/") + String(func.get_name()) + String(FILE_EXT_DOC);
 		ApiStoreWriter::write_utility_function_document(doc_path, doc);
 	}
 
+	// One flat argument block for the whole utility-function entity.
+	ApiMethodColdAccess::seal_cold(*storage);
+	internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
+	uint32_t arg_offset = 0;
+	for (uint32_t i = 0; i < all_funcs.size(); i++) {
+		ApiMethodAccess::set_args(all_funcs[i], arg_block + arg_offset);
+		arg_offset += all_funcs[i].get_argument_count();
+	}
+
 	String path = p_output_dir + String("/") + String(FILE_UTILITY_FUNCTIONS);
-	return ApiStoreWriter::write_utility_functions(path, all_funcs);
+	return ApiStoreWriter::write_utility_functions(path, all_funcs, storage.get());
 }
 
 // ============================================================================
@@ -539,18 +587,37 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
 			}
 		}
 
+		auto storage = std::make_shared<internal::ApiMethodDetailStorage>();
+		LocalVector<internal::ApiMethodArg> flat_args;
+
 		if (cd.has("methods")) {
 			Array methods = cd["methods"];
 			bt.methods.reserve(methods.size());
 			doc.methods.reserve(methods.size());
 			for (int j = 0; j < methods.size(); j++) {
 				Dictionary md = methods[j];
-				ApiBuiltInMethod mbi = parse_method<ApiBuiltInMethod>(md, &compat_data);
+				ApiBuiltInMethod mbi;
+				internal::ApiMethodDetail detail;
+				LocalVector<Variant> defaults;
+				parse_method<ApiBuiltInMethod>(md, mbi, detail, defaults, flat_args, &compat_data);
+				ApiMethodAccess::set_index(mbi, (uint16_t)bt.methods.size());
+				mbi.set_variant_type(bt.type);
+				ApiMethodColdAccess::push_cold(*storage, detail, defaults.ptr(), (uint32_t)defaults.size());
 				bt.methods.push_back(mbi);
 				ApiMethodDocument mdoc;
 				mdoc.name = md["name"];
 				mdoc.description = md.get("description", "");
 				doc.methods.push_back(mdoc);
+			}
+		}
+
+		ApiMethodColdAccess::seal_cold(*storage);
+		internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
+		{
+			uint32_t arg_offset = 0;
+			for (uint32_t i = 0; i < bt.methods.size(); i++) {
+				ApiMethodAccess::set_args(bt.methods[i], arg_block + arg_offset);
+				arg_offset += bt.methods[i].get_argument_count();
 			}
 		}
 
@@ -584,7 +651,7 @@ Error ApiParser::parse_and_write_builtin_classes(const Dictionary &p_root, const
 
 		// Write main data file
 		String path = dir + String("/") + Variant::get_type_name(bt.type) + String(FILE_EXT_DATA);
-		Error err = ApiStoreWriter::write_builtin_class(path, bt);
+		Error err = ApiStoreWriter::write_builtin_class(path, bt, storage.get());
 		if (err != OK) {
 			ERR_PRINT("[API Tool] Failed to write builtin type: " + Variant::get_type_name(bt.type));
 			overall = err;
@@ -637,19 +704,40 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
 		// Collect compatibility hashes for this class
 		ApiCompatibilityHashData compat_data;
 
+		auto storage = std::make_shared<internal::ApiMethodDetailStorage>();
+		LocalVector<internal::ApiMethodArg> flat_args;
+
 		if (cd.has("methods")) {
 			Array methods = cd["methods"];
 			cls.methods.reserve(methods.size());
 			doc.methods.reserve(methods.size());
 			for (int j = 0; j < methods.size(); j++) {
 				Dictionary md = methods[j];
-				cls.methods.push_back(parse_method<ApiClassMethod>(md, &compat_data));
+				ApiClassMethod mcm;
+				internal::ApiMethodDetail detail;
+				LocalVector<Variant> defaults;
+				parse_method<ApiClassMethod>(md, mcm, detail, defaults, flat_args, &compat_data);
+				ApiMethodAccess::set_index(mcm, (uint16_t)cls.methods.size());
+				ApiMethodColdAccess::push_cold(*storage, detail, defaults.ptr(), (uint32_t)defaults.size());
+				cls.methods.push_back(mcm);
 				ApiMethodDocument mdoc;
 				mdoc.name = md["name"];
 				mdoc.description = md.get("description", "");
 				doc.methods.push_back(mdoc);
 			}
 		}
+
+		ApiMethodColdAccess::seal_cold(*storage);
+		internal::ApiMethodArg *arg_block = storage->build_arg_block_from(flat_args);
+		{
+			uint32_t arg_offset = 0;
+			for (uint32_t i = 0; i < cls.methods.size(); i++) {
+				ApiMethodAccess::set_args(cls.methods[i], arg_block + arg_offset);
+				arg_offset += cls.methods[i].get_argument_count();
+			}
+		}
+		// The owning class name is stored once per class, not once per method.
+		storage->set_owner_name(cls.name);
 
 		if (cd.has("signals")) {
 			Array signals = cd["signals"];
@@ -724,7 +812,7 @@ Error ApiParser::parse_and_write_classes(const Dictionary &p_root, const String 
 
 		// Write main data file
 		String path = dir + String("/") + String(cls.name) + String(FILE_EXT_DATA);
-		Error err = ApiStoreWriter::write_class(path, cls);
+		Error err = ApiStoreWriter::write_class(path, cls, storage.get());
 		if (err != OK) {
 			ERR_PRINT("[API Tool] Failed to write class: " + String(cls.name));
 			overall = err;

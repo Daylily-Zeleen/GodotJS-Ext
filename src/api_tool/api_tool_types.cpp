@@ -24,6 +24,8 @@
 /************************************************************************/
 
 #include "api_tool_types.h"
+#include "core/api_tool_store.h"
+#include "api_tool/core/api_tool_detail_storage.h"
 #include <godot_cpp/templates/hash_map.hpp>
 
 #ifndef DISABLE_DEPRECATED
@@ -84,7 +86,7 @@ godot::String get_variant_operator_name(godot::Variant::Operator p_op) {
 
 void ApiBuiltInMethod::try_load_compatible_func_ptr() const {
 #ifndef DISABLE_DEPRECATED
-	const StringName &method_name = method.name;
+	const StringName &method_name = get_name();
 	const LocalVector<MethodHash> *compatibility_hashes = get_builtin_method_compatibility_hashes(variant_type, method_name);
 	if (compatibility_hashes) {
 		for (const MethodHash hash : *compatibility_hashes) {
@@ -102,12 +104,13 @@ void ApiBuiltInMethod::try_load_compatible_func_ptr() const {
 
 void ApiClassMethod::try_load_compatible_method_bind() const {
 #ifndef DISABLE_DEPRECATED
-	const StringName &method_name = method.name;
-	const LocalVector<MethodHash> *compatibility_hashes = get_class_method_compatibility_hashes(owner_class_name, method_name);
+	const StringName &method_name = get_name();
+	const StringName &owner_name = get_owner_name();
+	const LocalVector<MethodHash> *compatibility_hashes = get_class_method_compatibility_hashes(owner_name, method_name);
 	if (compatibility_hashes) {
 		for (const MethodHash hash : *compatibility_hashes) {
 			method_bind = ::godot::gdextension_interface::classdb_get_method_bind(
-					owner_class_name._native_ptr(),
+					owner_name._native_ptr(),
 					method_name._native_ptr(),
 					(GDExtensionInt)hash);
 			if (method_bind != nullptr) {
@@ -116,6 +119,30 @@ void ApiClassMethod::try_load_compatible_method_bind() const {
 		}
 	}
 #endif // DISABLE_DEPRECATED
+}
+
+// ============================================================================
+// Cold access
+// ============================================================================
+
+const internal::ApiMethodDetail &ApiMethodBase::get_detail() const {
+	static const internal::ApiMethodDetail kEmpty;
+	if (unlikely(storage_ == nullptr)) return kEmpty;
+	return storage_->get_detail(method_index_);
+}
+
+const Variant *ApiMethodBase::get_defaults(uint32_t &r_count) const {
+	if (unlikely(storage_ == nullptr)) {
+		r_count = 0;
+		return nullptr;
+	}
+	return storage_->get_defaults(method_index_, r_count);
+}
+
+const StringName &ApiClassMethod::get_owner_name() const {
+	static const StringName kEmpty;
+	const internal::ApiMethodDetailStorage *storage = get_storage();
+	return storage != nullptr ? storage->get_owner_name() : kEmpty;
 }
 
 } //namespace api_tool

@@ -1,3 +1,4 @@
+// uid://v3m5ylct6oaf This line is generated, don't modify or remove it.
 import {
     AStar2D,
     CodeEdit,
@@ -5,6 +6,7 @@ import {
     FileAccess,
     GArray,
     GDictionary,
+    ImageTexture,
     Node,
     PackedByteArray,
     TabBar,
@@ -179,6 +181,128 @@ export default class TestDefaultArgs extends Node {
             check("Node.tr('hello')", this.tr("hello"), "hello");
         });
 
+
+        section("explicit undefined takes the position's default", () => {
+            // JS default-parameter semantics: an explicit `undefined` at a
+            // DEFAULTED position means "use THIS position's default" -- and it
+            // must not shift the arguments around it, so
+            // `set_code_region_tags(undefined, "END")` is legal and keeps
+            // `end = "END"` while `start` falls back to "region".
+            //
+            // Both legs implement that, by different means: the dynamic path
+            // substitutes the position before conversion, the static builtin
+            // thunks divert the position to their shared default slot, and the
+            // static class thunks (which carry no default literals) hand the
+            // call to the dynamic callback. This section therefore asserts the
+            // same behavior on both legs.
+
+            // builtin float slot, whole optional tail:
+            // Vector2.limit_length(length = 1.0)
+            const limited = new Vector2(3, 0).limit_length(undefined);
+            check("Vector2.limit_length(undefined).x", limited.x, 1);
+            check("Vector2.limit_length(undefined).y", limited.y, 0);
+
+            // builtin bool slot: GArray.bsearch(value, before = true)
+            const arr = new GArray();
+            arr.append(1);
+            arr.append(2);
+            arr.append(3);
+            check("GArray.bsearch(2, undefined)", arr.bsearch(2, undefined), 1);
+
+            // builtin Variant slot: GDictionary.get(key, default = null)
+            check("GDictionary.get('missing', undefined)", new GDictionary().get("missing", undefined), null);
+
+            // builtin, undefined BETWEEN supplied positions -- the previous
+            // argument order must survive:
+            // GArray.slice(begin, end = 2147483647, step = 1, deep = false)
+            const seq = new GArray();
+            seq.append(1);
+            seq.append(2);
+            seq.append(3);
+            seq.append(4);
+            seq.append(5);
+            const stepped = seq.slice(0, undefined, 2);
+            check("GArray.slice(0, undefined, 2).size()", stepped.size(), 3);
+            check("GArray.slice(0, undefined, 2).get(0)", stepped.get(0), 1);
+            check("GArray.slice(0, undefined, 2).get(1)", stepped.get(1), 3);
+            check("GArray.slice(0, undefined, 2).get(2)", stepped.get(2), 5);
+
+            // class String + Object slots, whole optional tail:
+            // TabBar.add_tab(title = "", icon = null)
+            const tabBar = new TabBar();
+            tabBar.add_tab(undefined, undefined);
+            check("TabBar.tab_count [add_tab(undefined, undefined)]", tabBar.tab_count, 1);
+            check("TabBar.get_tab_title(0)", tabBar.get_tab_title(0), "");
+
+            // class, undefined FIRST with the later position still supplied:
+            // the defaulted `title` must fall back without disturbing `icon`.
+            // (`icon` is a Texture2D, not a nullable one: pass a real texture,
+            // and the non-null icon readback below is what proves the value in
+            // that position survived while `title` fell back.)
+            const iconTexture = new ImageTexture();
+            tabBar.add_tab(undefined, iconTexture);
+            check("TabBar.tab_count [add_tab(undefined, icon)]", tabBar.tab_count, 2);
+            check("TabBar.get_tab_title(1)", tabBar.get_tab_title(1), "");
+            check("TabBar.get_tab_icon(1)", tabBar.get_tab_icon(1), iconTexture);
+
+            // class String slots, undefined trailed by a real value -- this is
+            // the case the old arity-trimming semantics got wrong (it threw
+            // "bad argument: 0" because only a contiguous tail was trimmed):
+            // CodeEdit.set_code_region_tags(start = "region", end = "endregion")
+            const codeEdit = new CodeEdit();
+            codeEdit.set_code_region_tags(undefined, "END");
+            check("CodeEdit.get_code_region_start_tag() [undefined, 'END']", codeEdit.get_code_region_start_tag(), "region");
+            check("CodeEdit.get_code_region_end_tag() [undefined, 'END']", codeEdit.get_code_region_end_tag(), "END");
+
+            // class String + Object slots, whole optional tail omitted entirely
+            // (engine-side fill, must keep working alongside substitution):
+            const codeEdit2 = new CodeEdit();
+            codeEdit2.set_code_region_tags();
+            check("CodeEdit.get_code_region_start_tag() [no args]", codeEdit2.get_code_region_start_tag(), "region");
+            check("CodeEdit.get_code_region_end_tag() [no args]", codeEdit2.get_code_region_end_tag(), "endregion");
+
+            // class Vector2 + int slots: undefined on the trailing `index` must
+            // still resolve to -1, i.e. append, not insert at 0.
+            const curve = new Curve2D();
+            curve.add_point(new Vector2(10, 20));
+            curve.add_point(new Vector2(30, 40), undefined, undefined, undefined);
+            check("Curve2D.point_count", curve.point_count, 2);
+            check("Curve2D.get_point_position(1).x", curve.get_point_position(1).x, 30);
+            check("Curve2D.get_point_in(1).x", curve.get_point_in(1).x, 0);
+
+            // class undefined inside the defaulted run while later positions are
+            // left out: substitution and engine-side filling in one call.
+            // Curve2D.add_point(position, in = (0,0), out = (0,0), index = -1)
+            curve.add_point(new Vector2(50, 60), undefined);
+            check("Curve2D.point_count [add_point(p, undefined)]", curve.point_count, 3);
+            check("Curve2D.get_point_position(2).x", curve.get_point_position(2).x, 50);
+            check("Curve2D.get_point_out(2).x", curve.get_point_out(2).x, 0);
+
+            // class String type "" + bool recursive/owned: Node.find_children
+            check(
+                "Node.find_children('zzz_nomatch*', undefined).size()",
+                this.find_children("zzz_nomatch*", undefined).size(),
+                0,
+            );
+
+            // boundary: undefined over a REQUIRED position is still a value.
+            // Substitution only applies at defaulted positions, so a
+            // non-convertible one keeps failing instead of silently becoming a
+            // default. These probes are deliberately invalid calls that the
+            // generated typings reject, so they need one unchecked cast:
+            // reason = arity/type violations are exactly what is under test.
+            const callable = (target: object): Record<string, (...args: unknown[]) => unknown> =>
+                target as unknown as Record<string, (...args: unknown[]) => unknown>;
+            expectThrows("Curve2D.get_point_position(undefined) [required int]", () => callable(curve).get_point_position(undefined));
+            // boundary: arity is still checked on what the caller literally
+            // passed, so an N+1 call stays rejected.
+            expectThrows("Vector2.limit_length(undefined, undefined) [N+1 throws]", () => callable(limited).limit_length(undefined, undefined));
+            // boundary: an undefined on a required position of a class method
+            // with defaults elsewhere is still not a defaulted position.
+            // CodeEdit.set_code_region_tags is all-optional, so use a method
+            // with a required prefix: Curve2D.add_point(position, ...).
+            expectThrows("Curve2D.add_point(undefined) [required Vector2]", () => callable(curve).add_point(undefined));
+        });
 
         section("arity boundaries", () => {
             const arr = new GArray();
