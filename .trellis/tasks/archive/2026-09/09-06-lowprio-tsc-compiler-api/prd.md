@@ -1,5 +1,7 @@
 # TypeScript Compiler API 替代外部 tsc
 
+> **取消（2026-09-21）**：用户取消本任务，不再评估/实施 Compiler API 替代。保留本 PRD 作为需求记录。
+
 > 来源：`.本地文档/低优先级.md` TSC Compiler API 条目（P3，编辑器优化）。
 
 ## Goal

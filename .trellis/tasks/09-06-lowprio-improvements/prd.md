@@ -11,8 +11,8 @@
 | 子任务 | 内容 | 类型 |
 |---|---|---|
 | `lowprio-lws-pic` | lws 非 PIC（Linux） | 构建/上游重打包 |
-| `lowprio-hermes-engine` | 添加 Hermes 引擎与 NAPI | 新功能（大） |
-| `lowprio-tsc-compiler-api` | TSC Compiler API 替代外部 tsc | 编辑器优化 |
+| ~~`lowprio-hermes-engine`~~ | ~~添加 Hermes 引擎与 NAPI~~ | ~~新功能（大）~~ **已取消（2026-09-21）** |
+| ~~`lowprio-tsc-compiler-api`~~ | ~~TSC Compiler API 替代外部 tsc~~ | ~~编辑器优化~~ **已取消（2026-09-21）** |
 | `lowprio-tree-sitter-ast` | tree-sitter 解析 AST 替代正则 | 编辑器优化 |
 | `lowprio-scenetree-quit-mainloop` | quit SceneTree <- MainLoop | 原始愿望（代码无对应实现，启动前先评估必要性） |
 | `lowprio-node-orphan-stringname` | node 构建 Orphan StringName 泄漏 | 缺陷排查 |

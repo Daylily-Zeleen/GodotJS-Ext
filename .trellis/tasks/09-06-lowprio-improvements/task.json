@@ -20,8 +20,6 @@
   "subtasks": [],
   "children": [
     "09-06-lowprio-lws-pic",
-    "09-06-lowprio-hermes-engine",
-    "09-06-lowprio-tsc-compiler-api",
     "09-06-lowprio-tree-sitter-ast",
     "09-06-lowprio-scenetree-quit-mainloop",
     "09-06-lowprio-node-orphan-stringname",
