@@ -232,7 +232,7 @@ public:
 			if (unlikely(!func)) try_load_compatible_func_ptr(); // 虽然不太可能用到，保险起见
 
 			if (func == nullptr) {
-				ERR_PRINT_ONCE("Failed to load built in function: " + Variant::get_type_name(variant_type) + "::" + get_name());
+				ERR_PRINT("Failed to load built in function: " + Variant::get_type_name(variant_type) + "::" + get_name());
 				return func;
 			}
 		}
@@ -341,7 +341,7 @@ public:
 			if (unlikely(!method_bind)) try_load_compatible_method_bind(); // 虽然不太可能用到，保险起见
 
 			if (method_bind == nullptr) {
-				ERR_PRINT_ONCE("Failed to load function: " + owner_name + "::" + get_name());
+				ERR_PRINT("Failed to load function: " + owner_name + "::" + get_name());
 				return method_bind;
 			}
 		}
@@ -384,7 +384,7 @@ public:
 					get_name()._native_ptr(),
 					static_cast<GDExtensionInt>(get_hash()));
 			if (func == nullptr) {
-				ERR_PRINT_ONCE("Failed to load utility function: " + get_name());
+				ERR_PRINT("Failed to load utility function: " + get_name());
 				return nullptr;
 			}
 		}
@@ -692,7 +692,7 @@ public:
 			indexed_getter = ::godot::gdextension_interface::variant_get_ptr_indexed_getter(
 					(GDExtensionVariantType)type);
 			if (!indexed_getter) {
-				ERR_PRINT_ONCE("Failed to load indexed getter for type  " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed getter for type  " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -713,7 +713,7 @@ public:
 			indexed_setter = ::godot::gdextension_interface::variant_get_ptr_indexed_setter(
 					(GDExtensionVariantType)type);
 			if (!indexed_setter) {
-				ERR_PRINT_ONCE("Failed to load indexed setter for type " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed setter for type " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -735,7 +735,7 @@ public:
 			keyed_getter = ::godot::gdextension_interface::variant_get_ptr_keyed_getter(
 					(GDExtensionVariantType)type);
 			if (!keyed_getter) {
-				ERR_PRINT_ONCE("Failed to load keyed getter for type  " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load keyed getter for type  " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -751,7 +751,7 @@ public:
 			keyed_setter = ::godot::gdextension_interface::variant_get_ptr_keyed_setter(
 					(GDExtensionVariantType)type);
 			if (!keyed_setter) {
-				ERR_PRINT_ONCE("Failed to load indexed getter for type " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed getter for type " + Variant::get_type_name(type));
 				return;
 			}
 		}
