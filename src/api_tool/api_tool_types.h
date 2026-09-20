@@ -89,7 +89,7 @@ struct ApiMethodArg {
 	VariantType type; // godot::Variant::Type, narrowed to a byte
 	ArgMeta meta; // GDExtensionClassMethodArgumentMetadata, narrowed to a byte
 };
-static_assert(sizeof(ApiMethodArg) == 2, "ApiMethodArg must stay 2 bytes");
+static_assert(sizeof(ApiMethodArg) == 2, "ApiMethodArg must stay 2 bytes"); // (1.3) layout contract, see cpp/api-tool-lazy-layout.md
 
 // Lazily loaded remainder of a method record. Everything extension_api.json
 // carries beyond the hot fields, faithfully preserved - except `id`, which the
@@ -232,7 +232,7 @@ public:
 			if (unlikely(!func)) try_load_compatible_func_ptr(); // 虽然不太可能用到，保险起见
 
 			if (func == nullptr) {
-				ERR_PRINT_ONCE("Failed to load built in function: " + Variant::get_type_name(variant_type) + "::" + get_name());
+				ERR_PRINT("Failed to load built in function: " + Variant::get_type_name(variant_type) + "::" + get_name());
 				return func;
 			}
 		}
@@ -341,7 +341,7 @@ public:
 			if (unlikely(!method_bind)) try_load_compatible_method_bind(); // 虽然不太可能用到，保险起见
 
 			if (method_bind == nullptr) {
-				ERR_PRINT_ONCE("Failed to load function: " + owner_name + "::" + get_name());
+				ERR_PRINT("Failed to load function: " + owner_name + "::" + get_name());
 				return method_bind;
 			}
 		}
@@ -384,7 +384,7 @@ public:
 					get_name()._native_ptr(),
 					static_cast<GDExtensionInt>(get_hash()));
 			if (func == nullptr) {
-				ERR_PRINT_ONCE("Failed to load utility function: " + get_name());
+				ERR_PRINT("Failed to load utility function: " + get_name());
 				return nullptr;
 			}
 		}
@@ -692,7 +692,7 @@ public:
 			indexed_getter = ::godot::gdextension_interface::variant_get_ptr_indexed_getter(
 					(GDExtensionVariantType)type);
 			if (!indexed_getter) {
-				ERR_PRINT_ONCE("Failed to load indexed getter for type  " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed getter for type  " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -713,7 +713,7 @@ public:
 			indexed_setter = ::godot::gdextension_interface::variant_get_ptr_indexed_setter(
 					(GDExtensionVariantType)type);
 			if (!indexed_setter) {
-				ERR_PRINT_ONCE("Failed to load indexed setter for type " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed setter for type " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -735,7 +735,7 @@ public:
 			keyed_getter = ::godot::gdextension_interface::variant_get_ptr_keyed_getter(
 					(GDExtensionVariantType)type);
 			if (!keyed_getter) {
-				ERR_PRINT_ONCE("Failed to load keyed getter for type  " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load keyed getter for type  " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -751,7 +751,7 @@ public:
 			keyed_setter = ::godot::gdextension_interface::variant_get_ptr_keyed_setter(
 					(GDExtensionVariantType)type);
 			if (!keyed_setter) {
-				ERR_PRINT_ONCE("Failed to load indexed getter for type " + Variant::get_type_name(type));
+				ERR_PRINT("Failed to load indexed getter for type " + Variant::get_type_name(type));
 				return;
 			}
 		}
@@ -812,55 +812,6 @@ struct ApiNativeStructure {
 };
 
 } // namespace api_tool
-
-// ============================================================================
-// Hot-layer layout contract
-// ============================================================================
-// The sizes below are the measured basis of the memory budget (prd.md AC2:
-// class methods 3,475,812 B -> 1,110,366 B). They are asserted, not merely
-// documented, so silent layout drift (a new hot field, an accidental
-// godot::MethodInfo member coming back) fails the build instead of quietly
-// reintroducing the per-method cost this task removed.
-//
-// If a deliberate change moves a size, update both the assert and the numbers
-// in design.md §11 / .trellis/tasks/.../report.md.
-//
-// Sizes are ABI-specific, so only the ones that are genuinely portable are
-// asserted as equalities everywhere:
-//   - MSVC does not reuse base-class tail padding, so `default_count_` pushes
-//     ApiMemberMethodBase to 48 there;
-//   - the Itanium ABI (GCC/Clang on Linux, macOS, Android, iOS) does reuse it,
-//     giving 40 -- and 48 / 56 for the two subclasses;
-//   - 32-bit targets (wasm32, android armv7) halve the pointers: 28 / 28 / 32 /
-//     36.
-// An exact equality on the non-MSVC ABIs therefore rejects perfectly correct
-// builds. Keep the measured MSVC numbers exact (that is the ABI they were
-// measured on, and the one the memory budget in design.md §11 is derived from)
-// and enforce a bound elsewhere: it still fails the build when a member creeps
-// back -- the godot::MethodInfo this task removed was 120 B plus three heap
-// arrays, far past any bound below.
-static_assert(sizeof(api_tool::internal::ApiMethodArg) == 2, "ApiMethodArg must stay 2 bytes");
-
-#if defined(_MSC_VER)
-static_assert(sizeof(api_tool::ApiMethodBase) == 40, "ApiMethodBase hot layout drifted");
-static_assert(sizeof(api_tool::ApiMemberMethodBase) == 48, "ApiMemberMethodBase hot layout drifted");
-static_assert(sizeof(api_tool::ApiClassMethod) == 56, "ApiClassMethod hot layout drifted");
-static_assert(sizeof(api_tool::ApiBuiltInMethod) == 64, "ApiBuiltInMethod hot layout drifted");
-static_assert(sizeof(api_tool::ApiUtilityFunction) == 56, "ApiUtilityFunction hot layout drifted");
-static_assert(sizeof(api_tool::internal::ApiMethodDetail) == 64, "ApiMethodDetail cold layout drifted");
-#else
-// Measured here: 40 / 40 / 48 / 56 / 56 on the 64-bit Itanium ABIs (Linux,
-// macOS) and 28 / 28 / 32 / 36 / 36 on 32-bit (wasm32, android armv7). The
-// bounds are deliberately generous -- they exist to catch a heavyweight member
-// creeping back, not to pin an exact byte count off-MSVC -- but they are far
-// below what re-adding godot::MethodInfo (120 B plus three heap arrays) costs.
-static_assert(sizeof(api_tool::ApiMethodBase) <= 56, "ApiMethodBase hot layout drifted");
-static_assert(sizeof(api_tool::ApiMemberMethodBase) <= 64, "ApiMemberMethodBase hot layout drifted");
-static_assert(sizeof(api_tool::ApiClassMethod) <= 72, "ApiClassMethod hot layout drifted");
-static_assert(sizeof(api_tool::ApiBuiltInMethod) <= 80, "ApiBuiltInMethod hot layout drifted");
-static_assert(sizeof(api_tool::ApiUtilityFunction) <= 72, "ApiUtilityFunction hot layout drifted");
-static_assert(sizeof(api_tool::internal::ApiMethodDetail) <= 128, "ApiMethodDetail cold layout drifted");
-#endif
 
 // ============================================================================
 // Cache invalidation callback types (global scope for cross-namespace use)

@@ -43,7 +43,7 @@ void internal::ApiMethodDetailStorage::ensure_details() const {
 
 	if (lazy_ && file_method_count_ > 0) {
 		if (!ApiStoreReader::read_method_details(path_, detail_offset_, detail_size_, file_method_count_, arg_counts_, details_)) {
-			ERR_PRINT_ONCE("[API Tool] failed to lazily read method details: " + path_);
+			ERR_PRINT("[API Tool] failed to lazily read method details: " + path_);
 			details_.clear();
 			return; // not published: a later access retries
 		}
@@ -62,7 +62,7 @@ void internal::ApiMethodDetailStorage::ensure_defaults() const {
 
 	if (lazy_ && file_method_count_ > 0) {
 		if (!ApiStoreReader::read_method_defaults(path_, defaults_offset_, file_method_count_, default_counts_, default_values_, default_offsets_)) {
-			ERR_PRINT_ONCE("[API Tool] failed to lazily read method defaults: " + path_);
+			ERR_PRINT("[API Tool] failed to lazily read method defaults: " + path_);
 			default_values_.clear();
 			default_offsets_.clear();
 			return; // not published: a later access retries
