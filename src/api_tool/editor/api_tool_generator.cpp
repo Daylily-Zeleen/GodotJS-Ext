@@ -26,7 +26,7 @@
 #include "weaver-editor/jsb_editor_progress.h"
 
 // editor/api_tool_generator.cpp
-// Subprocess generation implementation (TOOLS_ENABLED only).
+// Subprocess generation implementation 
 // Detects project path, Godot executable, launches subprocess.
 // Handles backup/restore of existing extension_api.json.
 

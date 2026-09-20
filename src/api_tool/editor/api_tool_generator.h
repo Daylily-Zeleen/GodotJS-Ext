@@ -26,7 +26,7 @@
 #pragma once
 
 // editor/api_tool_generator.h
-// Subprocess generation (TOOLS_ENABLED only).
+// Subprocess generation
 // Detects project path and Godot executable, launches subprocess with
 // --headless --path {project} --dump-extension-api-with-docs.
 // Handles backup/restore of existing extension_api.json.

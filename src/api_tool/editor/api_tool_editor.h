@@ -36,7 +36,7 @@
 namespace api_tool {
 
 // ============================================================================
-// Document queries (no cache, direct file read, TOOLS_ENABLED only)
+// Document queries (no cache, direct file read)
 // Returns std::unique_ptr<T> (caller owns). Returns nullptr if file missing/corrupted.
 // Unified query for both Class and BuiltInClass.
 // ============================================================================
@@ -47,7 +47,7 @@ std::unique_ptr<ApiGlobalEnumDocument> find_global_enum_document(const godot::St
 std::unique_ptr<ApiGlobalConstantDocument> find_global_constant_document(const godot::StringName &p_name);
 
 // ============================================================================
-// Editor-only: API generation (only TOOLS_ENABLED)
+// Editor-only: API generation
 // Cache is invalidated internally at the start of generate().
 // ============================================================================
 

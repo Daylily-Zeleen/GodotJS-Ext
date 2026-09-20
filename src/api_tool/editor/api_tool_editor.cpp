@@ -137,10 +137,6 @@ Error read_global_constant_document(const godot::String &p_path, ApiGlobalConsta
 // Document query interface implementation (delegate to loader, no cache)
 // ============================================================================
 
-// ============================================================================
-// Document queries (no cache, direct file read, TOOLS_ENABLED only)
-// ============================================================================
-
 std::unique_ptr<ApiClassDocument> find_document(const StringName &p_name) {
 	String base_dir = get_api_dumping_dir();
 	if (base_dir.is_empty()) return nullptr;
@@ -203,7 +199,7 @@ std::unique_ptr<ApiClassDocument> find_document(const Variant::Type &p_type) {
 }
 
 // ============================================================================
-// Generate interface implementation (only TOOLS_ENABLED)
+// Generate interface implementation
 // Cache is invalidated internally at start of generate() (req 10)
 // ============================================================================
 

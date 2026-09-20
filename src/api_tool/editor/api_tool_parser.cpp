@@ -27,7 +27,7 @@
 #include "godot_cpp/core/error_macros.hpp"
 
 // editor/api_tool_parser.cpp
-// JSON parsing implementation (TOOLS_ENABLED only).
+// JSON parsing implementation
 // Parses extension_api.json using godot-cpp PropertyInfo/MethodInfo types.
 // All functions return Error with proper error messages.
 

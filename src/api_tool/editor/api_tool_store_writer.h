@@ -26,7 +26,7 @@
 #pragma once
 
 // editor/api_tool_store_writer.h
-// Binary file writing layer (editor-only, TOOLS_ENABLED).
+// Binary file writing layer
 // Serializes API data structures to disk files.
 
 #include "api_tool/api_tool_types.h"

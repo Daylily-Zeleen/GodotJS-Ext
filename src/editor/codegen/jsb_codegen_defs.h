@@ -28,8 +28,6 @@
 // jsb_codegen_defs.h
 // Shared constants and trivial helpers for the C++ TypeScript declaration
 // generator (P1 rewrite of scripts/jsb.editor/src/jsb.editor.codegen.ts).
-//
-// NOTE this module is editor-only (TOOLS_ENABLED).
 
 #include <cstdint>
 

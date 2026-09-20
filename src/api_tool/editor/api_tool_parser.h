@@ -26,7 +26,7 @@
 #pragma once
 
 // editor/api_tool_parser.h
-// JSON parsing + file splitting (only TOOLS_ENABLED).
+// JSON parsing + file splitting
 // Reads extension_api.json -> parses into types -> writes binary files.
 // Parser methods take const godot::Dictionary& (no void*).
 

@@ -24,7 +24,7 @@
 /************************************************************************/
 
 // editor/api_tool_store_writer.cpp
-// Binary file writing implementation (editor-only, TOOLS_ENABLED).
+// Binary file writing implementation
 
 #include "api_tool_store_writer.h"
 #include "api_tool/core/api_tool_payload.h"
