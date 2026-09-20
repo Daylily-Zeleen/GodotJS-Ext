@@ -508,10 +508,21 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 				"dynamic"
 #endif
 				;
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BINDING_MODE"), impl::Helper::new_string_ascii(isolate, binding_mode)).Check();
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, (bool)(DEV_ENABLED))).Check();
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "TOOLS_ENABLED"), v8::Boolean::New(isolate, (bool)TOOLS_ENABLED)).Check();
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEBUG_ENABLED"), v8::Boolean::New(isolate, (bool)DEBUG_ENABLED)).Check();
+#ifdef DEV_ENABLED
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
+#else
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, false)).Check();
+#endif
+#ifdef TOOLS_ENABLED
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "TOOLS_ENABLED"), v8::Boolean::New(isolate, true)).Check();
+#else
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "TOOLS_ENABLED"), v8::Boolean::New(isolate, false)).Check();
+#endif
+#ifdef DEBUG_ENABLED
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEBUG_ENABLED"), v8::Boolean::New(isolate, true)).Check();
+#else
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEBUG_ENABLED"), v8::Boolean::New(isolate, false)).Check();
+#endif
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "CAMEL_CASE_BINDINGS_ENABLED"), v8::Boolean::New(isolate, internal::settings::project::is_camel_case_bindings_enabled())).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "version"), impl::Helper::new_string(isolate, JSB_STRINGIFY(JSB_MAJOR_VERSION) "." JSB_STRINGIFY(JSB_MINOR_VERSION) "." JSB_STRINGIFY(JSB_PATCH_VERSION))).Check();
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "impl"), impl::Helper::new_string(isolate, JSB_IMPL_VERSION_STRING)).Check();
