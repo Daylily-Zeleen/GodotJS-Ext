@@ -244,11 +244,12 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 				}
 				v8::Local<v8::Object> obj = element.As<v8::Object>();
 				ScriptPropertyInfo property_info;
+				PropertyInfo &property_details = property_info.details;
 				v8::Local<v8::Value> prop_name;
 				if (!obj->Get(context, jsb_name(environment, name)).ToLocal(&prop_name)) {
 					continue;
 				}
-				property_info.name = impl::Helper::to_string(isolate, prop_name); // string
+				property_details.name = impl::Helper::to_string(isolate, prop_name); // string
 				v8::Local<v8::Value> type_val;
 				if (!obj->Get(context, jsb_name(environment, type)).ToLocal(&type_val)) {
 					continue;
@@ -257,13 +258,13 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 				if (!type_val->Int32Value(context).To(&type_int)) {
 					continue;
 				}
-				property_info.type = (Variant::Type)type_int; // int
-				property_info.hint = BridgeHelper::to_enum<PropertyHint>(context, obj->Get(context, jsb_name(environment, hint)), PROPERTY_HINT_NONE);
+				property_details.type = (Variant::Type)type_int; // int
+				property_details.hint = BridgeHelper::to_enum<PropertyHint>(context, obj->Get(context, jsb_name(environment, hint)), PROPERTY_HINT_NONE);
 				v8::Local<v8::Value> hint_string_val;
 				if (obj->Get(context, jsb_name(environment, hint_string)).ToLocal(&hint_string_val)) {
-					property_info.hint_string = impl::Helper::to_string(isolate, hint_string_val);
+					property_details.hint_string = impl::Helper::to_string(isolate, hint_string_val);
 				}
-				property_info.usage = BridgeHelper::to_enum<PropertyUsageFlags>(context, obj->Get(context, jsb_name(environment, usage)), PROPERTY_USAGE_DEFAULT) | PROPERTY_USAGE_SCRIPT_VARIABLE;
+				property_details.usage = BridgeHelper::to_enum<PropertyUsageFlags>(context, obj->Get(context, jsb_name(environment, usage)), PROPERTY_USAGE_DEFAULT) | PROPERTY_USAGE_SCRIPT_VARIABLE;
 
 				v8::Local<v8::Value> cache;
 
@@ -276,8 +277,8 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 					_parse_script_doc(isolate, p_context, val, property_info.doc);
 				}
 #endif // JSB_TOOLS
-				p_class_info->properties.insert(property_info.name, property_info);
-				JSB_LOG(VeryVerbose, "... property %s: %s", property_info.name, Variant::get_type_name(property_info.type));
+				p_class_info->properties.insert(property_details.name, property_info);
+				JSB_LOG(VeryVerbose, "... property %s: %s", property_details.name, Variant::get_type_name(property_details.type));
 			}
 		}
 	}

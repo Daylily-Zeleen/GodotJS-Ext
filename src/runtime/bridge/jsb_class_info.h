@@ -167,7 +167,9 @@ struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
 	_FORCE_INLINE_ bool is_static() const { return flags & ScriptMethodFlags::Static; }
 };
 
-struct ScriptPropertyInfo : public PropertyInfo {
+struct ScriptPropertyInfo {
+	PropertyInfo details;
+
 	ScriptPropertyDoc doc;
 
 	// valid only if _Evaluated flag is set in ScriptClassInfo.flags
@@ -176,7 +178,7 @@ struct ScriptPropertyInfo : public PropertyInfo {
 	bool cache;
 
 	ScriptPropertyInfo() = default;
-	ScriptPropertyInfo(Variant::Type p_type, const StringName &p_name, PropertyHint p_hint = PROPERTY_HINT_NONE, const String &p_hint_string = "", uint32_t p_usage = PROPERTY_USAGE_DEFAULT, const StringName &p_class_name = "") : PropertyInfo(p_type, p_name, p_hint, p_hint_string, p_usage, p_class_name) {};
+	ScriptPropertyInfo(Variant::Type p_type, const StringName &p_name, PropertyHint p_hint = PROPERTY_HINT_NONE, const String &p_hint_string = "", uint32_t p_usage = PROPERTY_USAGE_DEFAULT, const StringName &p_class_name = "") : details(p_type, p_name, p_hint, p_hint_string, p_usage, p_class_name) {};
 };
 
 namespace ScriptClassFlags {

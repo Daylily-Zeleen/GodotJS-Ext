@@ -389,7 +389,7 @@ bool GodotJSScript::_has_script_signal(const StringName &p_signal) const {
 
 TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	TypedArray<Dictionary> result;
-	get_script_property_list<Dictionary, TypedArray<Dictionary>, [](const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }>(result);
+	get_script_property_list<Dictionary, TypedArray<Dictionary>, [](const jsb::ScriptPropertyInfo &p_info) { return p_info.details.operator Dictionary(); }>(result);
 	return result;
 }
 
@@ -640,8 +640,8 @@ bool GodotJSScript::_update_exports_internal(PlaceholderScriptInstance *p_placeh
 
 		if (const jsb::ScriptClassInfoPtr class_info = env->find_script_class(module->script_class_id)) {
 			for (const KeyValue<StringName, jsb::ScriptPropertyInfo> &pair : script_class_info_.properties) {
-				const jsb::ScriptPropertyInfo &pi = pair.value;
-				members_cache.push_back((PropertyInfo)pi);
+				const PropertyInfo &pi = pair.value.details;
+				members_cache.push_back(&pi);
 
 				//TODO maybe this behaviour is not expected
 				Variant default_value;
@@ -652,8 +652,8 @@ bool GodotJSScript::_update_exports_internal(PlaceholderScriptInstance *p_placeh
 		} else {
 			JSB_LOG(Warning, "ScriptClassInfo is invalid, fallback to empty default values (script %s)", get_path());
 			for (const KeyValue<StringName, jsb::ScriptPropertyInfo> &pair : script_class_info_.properties) {
-				const jsb::ScriptPropertyInfo &pi = pair.value;
-				members_cache.push_back(pi); // 隐式 ScriptPropertyInfo 转换为 PropertyInfo
+				const PropertyInfo &pi = pair.value.details;
+				members_cache.push_back(&pi); // 隐式 ScriptPropertyInfo 转换为 PropertyInfo
 
 				Variant default_value;
 				jsb::internal::VariantUtil::construct_variant(default_value, pi.type);
@@ -682,13 +682,13 @@ bool GodotJSScript::_update_exports_internal(PlaceholderScriptInstance *p_placeh
 
 	return changed;
 }
-void GodotJSScript::_update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values) {
+void GodotJSScript::_update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values) const {
 	for (const KeyValue<StringName, Variant> &E : member_default_values_cache) {
 		r_values[E.key] = E.value;
 	}
 
-	for (const PropertyInfo &E : members_cache) {
-		r_props.push_back(E.operator Dictionary());
+	for (const PropertyInfo *E : members_cache) {
+		r_props.push_back(E->operator Dictionary());
 	}
 
 	if (base.is_valid() && base->_is_valid()) {

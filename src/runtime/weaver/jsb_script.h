@@ -71,7 +71,7 @@ private:
 
 #if JSB_TOOLS
 	HashMap<StringName, Variant> member_default_values_cache;
-	List<PropertyInfo> members_cache;
+	List<const PropertyInfo *> members_cache;
 #endif
 
 	// [INTERNAL] a self linked list to all GodotJSScript (lock is required to access)
@@ -269,7 +269,7 @@ private:
 
 #if JSB_TOOLS
 	bool _update_exports_internal(class PlaceholderScriptInstance *p_placeholder_instance_to_update);
-	void _update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values);
+	void _update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values) const;
 #endif // JSB_TOOLS
 
 protected:

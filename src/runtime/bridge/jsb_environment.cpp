@@ -1663,13 +1663,15 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 		return false;
 	}
 
+	const PropertyInfo &pi = p_info.details;
+
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
 	const v8::Local<v8::Object> self = this->get_object(p_object_id);
-	const v8::Local<v8::String> name = this->get_string_value(p_info.name);
+	const v8::Local<v8::String> name = this->get_string_value(pi.name);
 	v8::Local<v8::Value> value;
 
 	impl::TryCatch try_catch(isolate);
@@ -1677,7 +1679,7 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 		bool get_result = self->Get(context, name).ToLocal(&value);
 
 		if (try_catch.has_caught()) {
-			JSB_LOG(Error, "Failed to get property '%s' on a %s: %s", p_info.name, p_info.class_name, jsb::BridgeHelper::get_exception(try_catch));
+			JSB_LOG(Error, "Failed to get property '%s' on a %s: %s", pi.name, pi.class_name, jsb::BridgeHelper::get_exception(try_catch));
 			return false;
 		}
 
@@ -1685,17 +1687,17 @@ bool Environment::get_script_property_value(NativeObjectID p_object_id, const Sc
 			return false;
 		}
 
-		if (!TypeConvert::js_to_gd_var(isolate, context, value, p_info.type, r_val)) {
+		if (!TypeConvert::js_to_gd_var(isolate, context, value, pi.type, r_val)) {
 			JSB_LOG(Error,
 					"Failed to get property '%s' on a %s: Failed to convert result from js type (%s) to a Godot type (%s)",
-					p_info.name,
-					p_info.class_name,
+					pi.name,
+					pi.class_name,
 					TypeConvert::js_debug_typeof(isolate, value),
-					Variant::get_type_name(p_info.type));
+					Variant::get_type_name(pi.type));
 			return false;
 		}
 	} else {
-		r_val = UtilityFunctions::type_convert(p_info.default_value, p_info.type);
+		r_val = UtilityFunctions::type_convert(p_info.default_value, pi.type);
 	}
 
 	return true;
@@ -1707,15 +1709,17 @@ bool Environment::set_script_property_value(NativeObjectID p_object_id, const Sc
 		return false;
 	}
 
+	const PropertyInfo &pi = p_info.details;
+
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = this->get_context();
 	v8::Context::Scope context_scope(context);
 	const v8::Local<v8::Object> self = this->get_object(p_object_id);
-	const v8::Local<v8::String> name = this->get_string_value(p_info.name);
+	const v8::Local<v8::String> name = this->get_string_value(pi.name);
 	v8::Local<v8::Value> value;
-	if (!TypeConvert::gd_var_to_js(isolate, context, p_val, p_info.type, value)) {
+	if (!TypeConvert::gd_var_to_js(isolate, context, p_val, pi.type, value)) {
 		return false;
 	}
 
@@ -1723,7 +1727,7 @@ bool Environment::set_script_property_value(NativeObjectID p_object_id, const Sc
 	v8::Maybe<bool> set_result = self->Set(context, name, value);
 
 	if (try_catch.has_caught()) {
-		JSB_LOG(Error, "Failed to set property '%s' on a %s: %s", p_info.name, p_info.class_name, jsb::BridgeHelper::get_exception(try_catch));
+		JSB_LOG(Error, "Failed to set property '%s' on a %s: %s", pi.name, pi.class_name, jsb::BridgeHelper::get_exception(try_catch));
 		return false;
 	}
 
@@ -1775,7 +1779,7 @@ void Environment::evaluate_default_values(ScriptClassInfo &p_class_info) {
 		// read from the class default object
 		for (auto &prop_kv : p_class_info.properties) {
 			v8::Local<v8::Value> value;
-			const ScriptPropertyInfo &prop_info = prop_kv.value;
+			const PropertyInfo &prop_info = prop_kv.value.details;
 
 			// try read default value from CDO.
 			// pretend nothing's wrong if failed by constructing a default value in-place
