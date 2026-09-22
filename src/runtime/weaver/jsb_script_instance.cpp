@@ -365,15 +365,16 @@ void GodotJSScriptInstanceBase::get_property_list(PropertyList *r_properties) co
 	}>(*r_properties);
 }
 
-void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &p_state) const {
+void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &r_state) const {
 	PropertyList *p_list = get_property_list_cache();
+	get_property_list(p_list);
 
 	for (const PropertyInfo &pinfo : p_list->get()) {
 		if (pinfo.usage & PROPERTY_USAGE_STORAGE) {
 			Pair<StringName, Variant> p;
 			p.first = pinfo.name;
 			if (get(p.first, p.second)) {
-				p_state.push_back(p);
+				r_state.push_back(p);
 			}
 		}
 	}

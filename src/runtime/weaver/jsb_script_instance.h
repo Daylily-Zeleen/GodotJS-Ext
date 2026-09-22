@@ -62,7 +62,7 @@ public:
 	ScriptLanguage *get_language() const { return script_.is_valid() ? GodotJSScriptLanguage::get_singleton() : nullptr; }
 
 public:
-	virtual void get_property_state(ScriptInstancePropertyState &p_state) const {}
+	virtual void get_property_state(ScriptInstancePropertyState &r_state) const {}
 
 public:
 	static ScriptInstance *get_script_instance(Object *p_object);
@@ -182,7 +182,7 @@ public:
 	virtual void validate_property(PropertyInfo &p_property) const = 0;
 	virtual bool property_can_revert(const StringName &p_name) const { return false; }
 	virtual bool property_get_revert(const StringName &p_name, Variant &r_ret) const { return false; }
-	virtual void get_property_state(ScriptInstancePropertyState &p_state) const override;
+	virtual void get_property_state(ScriptInstancePropertyState &r_state) const override;
 	// Method access
 	virtual bool has_method(const StringName &p_method) const = 0;
 	virtual int get_method_argument_count(const StringName &p_method, bool *r_is_valid = nullptr) const { return 0; } // TODO
