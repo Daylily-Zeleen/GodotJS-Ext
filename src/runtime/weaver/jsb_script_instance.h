@@ -112,6 +112,7 @@ protected:
 	GDExtensionScriptInstancePtr extension_instance_ptr{ nullptr };
 
 protected:
+#if JSB_DEBUG
 	struct ScriptProfilingInfo {
 		String path_;
 		StringName class_;
@@ -126,8 +127,6 @@ protected:
 		~ScriptCallProfilingScope();
 	};
 
-protected:
-#if JSB_DEBUG
 	ScriptProfilingInfo profiling_info_;
 #endif
 

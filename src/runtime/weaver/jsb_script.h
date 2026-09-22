@@ -192,7 +192,7 @@ public:
 #if JSB_TOOLS
 	virtual int32_t _get_member_line(const StringName &p_member) const override { return -1; } // TODO
 #endif // JSB_TOOLS
-#if JSB_DEBUG
+
 	virtual Dictionary _get_constants() const override // TODO
 	{
 		return Dictionary();
@@ -201,7 +201,6 @@ public:
 	{
 		return TypedArray<StringName>();
 	}
-#endif // JSB_DEBUG
 
 	virtual Variant _get_rpc_config() const override;
 

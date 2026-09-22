@@ -64,6 +64,22 @@ JSB_DEFINE_CUSTOM_MONITOR(heap_size, u.u64_cap[0]);
 JSB_DEFINE_CUSTOM_MONITOR(memory_used_size, u.i64);
 #endif
 
+void GodotJSMonitor::flush() {
+	const uint64_t ticks = Time::get_singleton()->get_ticks_usec();
+	if (ticks - last_flush_tick_ < 1000ULL) {
+		return;
+	}
+
+	last_flush_tick_ = ticks;
+	const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	if (!lang)
+		return;
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
+	if (!env)
+		return;
+	env->get_statistics(stats_);
+}
+
 void GodotJSMonitor::register_monitors() {
 	JSB_REGISTER_MONITOR(objects);
 	JSB_REGISTER_MONITOR(native_classes);
@@ -90,20 +106,4 @@ void GodotJSMonitor::unregister_monitors() {
 #elif JSB_WITH_QUICKJS
 	JSB_UNREGISTER_MONITOR(memory_used_size);
 #endif
-}
-
-void GodotJSMonitor::flush() {
-	const uint64_t ticks = Time::get_singleton()->get_ticks_usec();
-	if (ticks - last_flush_tick_ < 1000ULL) {
-		return;
-	}
-
-	last_flush_tick_ = ticks;
-	const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
-	if (!lang)
-		return;
-	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
-	if (!env)
-		return;
-	env->get_statistics(stats_);
 }

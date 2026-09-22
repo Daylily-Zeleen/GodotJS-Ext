@@ -36,50 +36,13 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
 
-bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const String &p_path) {
-#if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
-	return false
-#else
-	static const auto suffixes = []() {
-		constexpr const char *extensions[]{
-#	if JSB_USE_TYPESCRIPT
-			JSB_TYPESCRIPT_EXT,
-#	endif // JSB_USE_TYPESCRIPT
-			JSB_JAVASCRIPT_EXT,
-			JSB_COMMONJS_EXT,
-			JSB_MODULE_EXT,
-		};
-		constexpr const char *keywords[]{
-#	if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-			".test.",
-#	endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
-#	if JSB_EXCLUDE_WORKER_RES_SCRIPTS
-			".worker.",
-#	endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
-#	if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
-			".realm.",
-#	endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
-		};
-
-		std::array<String, std::size(extensions) * std::size(keywords)> ret;
-		size_t idx = 0;
-		for (const String &ext : extensions) {
-			for (const String &keyword : keywords) {
-				ret[idx] = keyword + ext;
-				idx++;
-			}
-		}
-
-		return ret;
-	}();
-
-	for (const String &suffix : suffixes) {
-		if (p_path.ends_with(suffix)) {
-			return true;
-		}
-	}
-	return false;
+ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
+#if JSB_USE_TYPESCRIPT
+	recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
 #endif
+	recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
+	recognized_extensions_.push_back(JSB_COMMONJS_EXT);
+	recognized_extensions_.push_back(JSB_MODULE_EXT);
 }
 
 bool ResourceFormatLoaderGodotJSScript::_recognize_path(const String &p_path, const StringName &p_type) const {
@@ -228,11 +191,48 @@ int64_t ResourceFormatLoaderGodotJSScript::_get_resource_uid(const String &p_pat
 // 	return jsb::internal::settings::project::is_script_inline_resource_uid();
 // }
 
-ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
-#if JSB_USE_TYPESCRIPT
-	recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
+bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const String &p_path) {
+#if !JSBJSB_EXCLUDE_TEST_RES_SCRIPTS && !JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS && !JSB_EXCLUDE_WORKER_RES_SCRIPTS
+	return false
+#else
+	static const auto suffixes = []() {
+		constexpr const char *extensions[]{
+#	if JSB_USE_TYPESCRIPT
+			JSB_TYPESCRIPT_EXT,
+#	endif // JSB_USE_TYPESCRIPT
+			JSB_JAVASCRIPT_EXT,
+			JSB_COMMONJS_EXT,
+			JSB_MODULE_EXT,
+		};
+		constexpr const char *keywords[]{
+#	if JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+			".test.",
+#	endif // JSBJSB_EXCLUDE_TEST_RES_SCRIPTS
+#	if JSB_EXCLUDE_WORKER_RES_SCRIPTS
+			".worker.",
+#	endif // JSB_EXCLUDE_WORKER_RES_SCRIPTS
+#	if JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+			".realm.",
+#	endif // JSB_EXCLUDE_SHADOW_REALM_RES_SCRIPTS
+		};
+
+		std::array<String, std::size(extensions) * std::size(keywords)> ret;
+		size_t idx = 0;
+		for (const String &ext : extensions) {
+			for (const String &keyword : keywords) {
+				ret[idx] = keyword + ext;
+				idx++;
+			}
+		}
+
+		return ret;
+	}();
+
+	for (const String &suffix : suffixes) {
+		if (p_path.ends_with(suffix)) {
+			return true;
+		}
+	}
+	return false;
 #endif
-	recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
-	recognized_extensions_.push_back(JSB_COMMONJS_EXT);
-	recognized_extensions_.push_back(JSB_MODULE_EXT);
 }

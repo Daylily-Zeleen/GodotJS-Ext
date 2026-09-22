@@ -27,8 +27,6 @@
 #include "jsb_script.h"
 #include "jsb_script_language.h"
 
-static HashMap<const GDExtensionMethodInfo *, List<Variant>> default_value_cache_map;
-
 struct ScriptInstanceInfo {
 public:
 	_FORCE_INLINE_ GDExtensionScriptInstanceInfo3 *operator&() { return &script_instance_info_; }
@@ -275,6 +273,7 @@ void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_propertie
 #endif // JSB_TOOLS
 
 // =========== GodotJSScriptInstanceBase ==========
+#if JSB_DEBUG
 GodotJSScriptInstanceBase::ScriptCallProfilingScope::ScriptCallProfilingScope(const ScriptProfilingInfo &p_info, const StringName &p_method)
 		: info_(p_info), method_(p_method) {
 	start_time_ = Time::get_singleton()->get_ticks_usec();
@@ -286,6 +285,31 @@ GodotJSScriptInstanceBase::ScriptCallProfilingScope::~ScriptCallProfilingScope()
 			info_.class_,
 			method_,
 			Time::get_singleton()->get_ticks_usec() - start_time_);
+}
+#endif // JSB_DEBUG
+
+LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_list() const {
+	jsb_check(!temporary_script_property_list_cache);
+
+	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
+	script_->get_script_property_list<PropertyInfo, LocalVector<PropertyInfo>, [](const jsb::ScriptPropertyInfo &p_info) {
+		return p_info;
+	}>(*temporary_script_property_list_cache);
+
+	return temporary_script_property_list_cache;
+}
+
+LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list() {
+	jsb_check(!temporary_script_method_list_cache);
+
+	temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
+	script_->get_script_method_list<MethodInfo, LocalVector<MethodInfo>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
+		MethodInfo ret(p_name);
+		// TODO: 更多细节
+		return ret;
+	}>(*temporary_script_method_list_cache);
+
+	return temporary_script_method_list_cache;
 }
 
 GodotJSScriptInstanceBase::GodotJSScriptInstanceBase(const Ref<GodotJSScript> &p_script, Object *p_owner) : ScriptInstance(p_script, p_owner, ::godot::gdextension_interface::script_instance_create3(&script_instance_info, this)) {}
@@ -315,30 +339,6 @@ void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &
 	free_temporary_property_list();
 }
 
-LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_list() const {
-	jsb_check(!temporary_script_property_list_cache);
-
-	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
-	script_->get_script_property_list<PropertyInfo, LocalVector<PropertyInfo>, [](const jsb::ScriptPropertyInfo &p_info) {
-		return p_info;
-	}>(*temporary_script_property_list_cache);
-
-	return temporary_script_property_list_cache;
-}
-
-LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list() {
-	jsb_check(!temporary_script_method_list_cache);
-
-	temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
-	script_->get_script_method_list<MethodInfo, LocalVector<MethodInfo>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
-		MethodInfo ret(p_name);
-		// TODO: 更多细节
-		return ret;
-	}>(*temporary_script_method_list_cache);
-
-	return temporary_script_method_list_cache;
-}
-
 String GodotJSScriptInstanceBase::to_string(bool *r_valid) {
 	if (r_valid) {
 		*r_valid = false;
@@ -362,6 +362,53 @@ const Variant GodotJSShadowScriptInstance::get_rpc_config() const { return scrip
 // ====== GodotJSScriptInstance =====
 jsb::ScriptClassInfoPtr GodotJSScriptInstance::get_script_class() const {
 	return env_ ? env_->get_script_class(class_id_) : nullptr;
+}
+
+LocalVector<PropertyInfo> *GodotJSScriptInstance::make_temporary_property_list() const {
+	jsb_check(temporary_script_property_list_cache == nullptr);
+	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
+	ERR_FAIL_NULL_V(env_, temporary_script_property_list_cache);
+
+	GodotJSScript *sptr = script_.ptr();
+	HashSet<StringName> properties;
+
+	while (sptr) {
+		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_get_property_list)); it) {
+			GDExtensionCallError err{};
+			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
+			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
+				ERR_FAIL_COND_V_MSG(ret.get_type() != Variant::ARRAY, temporary_script_property_list_cache, "Wrong type for _get_property_list, must be an array of dictionaries.");
+
+				Array arr = ret;
+				for (int i = 0; i < arr.size(); i++) {
+					Dictionary d = arr[i];
+					ERR_CONTINUE(!d.has("name"));
+					ERR_CONTINUE(!d.has("type"));
+
+					PropertyInfo pinfo = PropertyInfo::from_dict(d);
+
+					ERR_CONTINUE(pinfo.name.is_empty() && (pinfo.usage & PROPERTY_USAGE_STORAGE));
+					ERR_CONTINUE(pinfo.type < 0 || pinfo.type >= Variant::VARIANT_MAX);
+
+					ERR_CONTINUE_MSG(properties.has(pinfo.name), vformat("Duplicate property \"%s\" in script: %s", pinfo.name, script_->get_path()));
+
+					validate_property(pinfo);
+					temporary_script_property_list_cache->push_back(pinfo);
+					properties.insert(pinfo.name);
+				}
+			}
+		}
+
+		for (const auto &it : sptr->script_class_info_.properties) {
+			ERR_CONTINUE_MSG(properties.has(it.value.name), vformat("Duplicate property \"%s\" in script: %s", it.value.name, script_->get_path()));
+			PropertyInfo pinfo = (PropertyInfo)it.value;
+			validate_property(pinfo);
+			temporary_script_property_list_cache->push_back(pinfo);
+		}
+
+		sptr = sptr->base.ptr();
+	}
+	return temporary_script_property_list_cache;
 }
 
 void GodotJSScriptInstance::postbind() {
@@ -470,57 +517,6 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 	}
 
 	return false;
-}
-
-LocalVector<PropertyInfo> *GodotJSScriptInstance::make_temporary_property_list() const {
-	jsb_check(temporary_script_property_list_cache == nullptr);
-	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
-	ERR_FAIL_NULL_V(env_, temporary_script_property_list_cache);
-
-	GodotJSScript *sptr = script_.ptr();
-	HashSet<StringName> properties;
-
-	while (sptr) {
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_get_property_list)); it) {
-			GDExtensionCallError err{};
-			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
-			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
-				ERR_FAIL_COND_V_MSG(ret.get_type() != Variant::ARRAY, temporary_script_property_list_cache, "Wrong type for _get_property_list, must be an array of dictionaries.");
-
-				Array arr = ret;
-				for (int i = 0; i < arr.size(); i++) {
-					Dictionary d = arr[i];
-					ERR_CONTINUE(!d.has("name"));
-					ERR_CONTINUE(!d.has("type"));
-
-					PropertyInfo pinfo = PropertyInfo::from_dict(d);
-
-					ERR_CONTINUE(pinfo.name.is_empty() && (pinfo.usage & PROPERTY_USAGE_STORAGE));
-					ERR_CONTINUE(pinfo.type < 0 || pinfo.type >= Variant::VARIANT_MAX);
-
-					ERR_CONTINUE_MSG(properties.has(pinfo.name), vformat("Duplicate property \"%s\" in script: %s", pinfo.name, script_->get_path()));
-
-					validate_property(pinfo);
-					temporary_script_property_list_cache->push_back(pinfo);
-					properties.insert(pinfo.name);
-				}
-			}
-		}
-
-		for (const auto &it : sptr->script_class_info_.properties) {
-			ERR_CONTINUE_MSG(properties.has(it.value.name), vformat("Duplicate property \"%s\" in script: %s", it.value.name, script_->get_path()));
-			PropertyInfo pinfo = (PropertyInfo)it.value;
-			validate_property(pinfo);
-			temporary_script_property_list_cache->push_back(pinfo);
-		}
-
-		sptr = sptr->base.ptr();
-	}
-	return temporary_script_property_list_cache;
-}
-
-const Variant GodotJSScriptInstance::get_rpc_config() const {
-	return get_script_class()->rpc_config;
 }
 
 Variant::Type GodotJSScriptInstance::get_property_type(const StringName &p_name, bool *r_is_valid) const {
@@ -655,4 +651,8 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed) {
 	const Variant *argv[] = { &value };
 	GDExtensionCallError error{};
 	callp(jsb_string_name(_notification), argv, 1, error);
+}
+
+const Variant GodotJSScriptInstance::get_rpc_config() const {
+	return get_script_class()->rpc_config;
 }

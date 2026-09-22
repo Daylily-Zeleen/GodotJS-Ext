@@ -108,11 +108,11 @@ void GodotJSScriptLanguage::scan_external_changes() {
 #endif
 }
 
+#if JSB_DEBUG
 void GodotJSScriptLanguage::add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time) {
 	// we only collect GodotJSScriptInstance function profiling data instead of the deep profiling data from JS runtime.
 	// please use Chrome DevTools for deep JS profiling.
 
-#if JSB_DEBUG
 	std::lock_guard lock(mutex_);
 	if (!profile_info_map_.enabled) return;
 
@@ -122,8 +122,8 @@ void GodotJSScriptLanguage::add_script_call_profile_info(const String &p_path, c
 	prof.methods[p_method].frame_time += p_time;
 	prof.methods[p_method].total_calls++;
 	prof.methods[p_method].total_time += p_time;
-#endif
 }
+#endif // JSB_DEBUG
 
 bool GodotJSScriptLanguage::is_global_class_generic(const String &p_path) const {
 	const Ref<FileAccess> file_access = FileAccess::open(p_path, FileAccess::READ);
@@ -587,6 +587,7 @@ struct GodotJSScriptDepSort {
 	}
 };
 
+#if JSB_DEBUG
 namespace {
 String to_signature(const String &p_path, const StringName &p_class, const StringName &p_method) {
 	// path :: line :: class :: method
@@ -594,7 +595,6 @@ String to_signature(const String &p_path, const StringName &p_class, const Strin
 }
 } //namespace
 
-#if JSB_DEBUG
 void GodotJSScriptLanguage::_profiling_start() {
 	std::lock_guard lock(mutex_);
 	profile_info_map_.enabled = true;

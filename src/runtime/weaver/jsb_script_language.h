@@ -170,7 +170,9 @@ public:
 	 *  Intentionally inert from scripts: a raw integer cannot be called. */
 	uint64_t get_bridge() const { return (uint64_t)jsb::get_bridge_table(); }
 
+#if JSB_DEBUG
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
+#endif
 
 	bool is_global_class_generic(const String &p_path) const;
 
@@ -289,7 +291,7 @@ private:
 	std::shared_ptr<jsb::Environment> create_shadow_environment();
 	void destroy_shadow_environment(const std::shared_ptr<jsb::Environment> &p_env);
 
-#if JSB_TOOLS
+#if JSB_DEBUG
 	void reload_scripts_internal(const Array &p_scripts, bool p_soft_reload);
 #endif
 
