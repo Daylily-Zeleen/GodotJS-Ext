@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "godot_cpp/core/memory.hpp"
 #include "jsb_script.h"
 #include "jsb_script_language.h"
 
@@ -130,17 +131,31 @@ protected:
 	ScriptProfilingInfo profiling_info_;
 #endif
 
-protected:
-	mutable LocalVector<PropertyInfo> *temporary_script_property_list_cache{ nullptr };
+public:
+	struct PropertyList {
+	private:
+		LocalVector<PropertyInfo> list;
+
+	public:
+		_FORCE_INLINE_ const LocalVector<PropertyInfo> &get() const { return list; }
+
+		_FORCE_INLINE_ auto get_capacity() const { return list.get_capacity(); }
+		_FORCE_INLINE_ auto size() const { return list.size(); }
+		_FORCE_INLINE_ void push_back(PropertyInfo &&p_info) { list.push_back(std::move(p_info)); }
+		_FORCE_INLINE_ void push_back(const PropertyInfo &p_info) { list.push_back(p_info); }
+		_FORCE_INLINE_ void clear() { list.clear(); }
+		_FORCE_INLINE_ void reset() { list.reset(); }
+	};
+
+private:
+	mutable PropertyList *property_list_cache{ nullptr };
 	LocalVector<MethodInfo> *temporary_script_method_list_cache{ nullptr };
 
-	virtual LocalVector<PropertyInfo> *make_temporary_property_list() const;
-	void free_temporary_property_list() const {
-		jsb_check(temporary_script_property_list_cache);
-		memdelete(temporary_script_property_list_cache);
-		temporary_script_property_list_cache = nullptr;
-	}
+	PropertyList *get_property_list_cache() const;
+	PropertyList *get_property_list() const;
+	void free_property_list_cache(PropertyList *p_list = nullptr) const;
 
+protected:
 	/**
 	 * @brief 回调专用，返回 temporary_script_method_list_cache
 	 *      NOTE: 注意会在回调处理结束后销毁 temporary_script_method_list_cache，重写该函数时不需要进行额外的内存管理
@@ -162,7 +177,7 @@ public:
 	// Property access
 	virtual bool set(const StringName &p_name, const Variant &p_value) = 0;
 	virtual bool get(const StringName &p_name, Variant &r_ret) const = 0;
-	// virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const = 0;
+	virtual void get_property_list(PropertyList *r_properties) const;
 	virtual Variant::Type get_property_type(const StringName &p_name, bool *r_is_valid = nullptr) const = 0;
 	virtual void validate_property(PropertyInfo &p_property) const = 0;
 	virtual bool property_can_revert(const StringName &p_name) const { return false; }
@@ -213,7 +228,6 @@ public:
 		return false;
 	}
 
-	// virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
 	virtual Variant::Type get_property_type(const StringName &p_name, bool *r_is_valid = nullptr) const override;
 
 	virtual void validate_property(PropertyInfo &p_property) const override {}
@@ -253,9 +267,6 @@ private:
 
 	friend GodotJSScriptInstance *GodotJSScript::try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
 
-protected:
-	virtual LocalVector<PropertyInfo> *make_temporary_property_list() const override;
-
 public:
 	_FORCE_INLINE_ jsb::Environment *get_env() const { return env_; }
 	ThreadEx::ID get_env_thread_id() const { return env_ ? env_->get_thread_id() : ThreadEx::UNASSIGNED_ID; }
@@ -270,7 +281,7 @@ public:
 
 	virtual bool set(const StringName &p_name, const Variant &p_value) override;
 	virtual bool get(const StringName &p_name, Variant &r_ret) const override;
-	// virtual void get_property_list(LocalVector<GDExtensionPropertyInfo>* p_properties) const override;
+	virtual void get_property_list(PropertyList *r_properties) const override;
 	virtual Variant::Type get_property_type(const StringName &p_name, bool *r_is_valid = nullptr) const override;
 	virtual void validate_property(PropertyInfo &p_property) const override;
 
