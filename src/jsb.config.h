@@ -66,7 +66,7 @@
 
 // Essentials provides self-hosted console/timers for runtimes without a host environment.
 // Web builds use the browser's native console/timers; node builds use node's native ones.
-#define JSB_WITH_ESSENTIALS !(JSB_WITH_WEB || JSB_WITH_NODE) // TODO: 排除特定文件
+#define JSB_WITH_ESSENTIALS !(JSB_WITH_WEB || JSB_WITH_NODE)
 
 // Enable the debugger bridge.
 // For v8, use Chrome devtools with the following link by default:

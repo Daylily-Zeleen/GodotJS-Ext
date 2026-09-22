@@ -705,7 +705,7 @@ void GodotJSScriptLanguage::destroy_shadow_environment(const std::shared_ptr<jsb
 }
 
 #if JSB_DEBUG
-void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool p_soft_reload) {
+void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool /* p_soft_reload */) {
 	List<Ref<GodotJSScript>> scripts;
 	{
 		std::lock_guard lock(mutex_);
@@ -737,6 +737,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 
 		to_reload.insert(scr, HashMap<ObjectInstanceID, ScriptInstancePropertyState>());
 
+#	if 0
 		if (!p_soft_reload) {
 			//save state and remove script from instances
 			HashMap<ObjectInstanceID, ScriptInstancePropertyState> &map = to_reload[scr];
@@ -753,7 +754,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 				}
 			}
 
-#	if JSB_TOOLS
+#		if JSB_TOOLS
 			//same thing for placeholders
 			while (!scr->placeholders.is_empty()) {
 				auto size = scr->placeholders.size();
@@ -770,12 +771,13 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 				}
 			}
 
-#	endif // JSB_TOOLS
+#		endif // JSB_TOOLS
 
 			for (const KeyValue<ObjectInstanceID, ScriptInstancePropertyState> &F : scr->pending_reload_state_) {
 				map[F.key] = F.value; //pending to reload, use this one instead
 			}
 		}
+#	endif
 	}
 
 	for (KeyValue<Ref<GodotJSScript>, HashMap<ObjectInstanceID, ScriptInstancePropertyState>> &E : to_reload) {
@@ -810,7 +812,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 		} else {
 			scr->load_source_code(scr_path);
 		}
-		scr->reload(p_soft_reload);
+		scr->reload(true); /* p_soft_reload */
 
 		//restore state if saved
 		for (KeyValue<ObjectInstanceID, ScriptInstancePropertyState> &F : E.value) {
@@ -821,10 +823,12 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 				continue;
 			}
 
+#	if 0
 			if (!p_soft_reload) {
 				//clear it just in case (may be a pending reload state)
 				obj->set_script(Variant());
 			}
+#	endif
 			obj->set_script(scr);
 
 			ScriptInstance *script_instance = ScriptInstance::get_script_instance(obj);
