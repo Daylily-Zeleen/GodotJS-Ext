@@ -82,15 +82,6 @@ bool ResourceFormatLoaderGodotJSScript::is_not_godot_resource_script(const Strin
 #endif
 }
 
-ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
-#if JSB_USE_TYPESCRIPT
-	recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
-#endif
-	recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
-	recognized_extensions_.push_back(JSB_COMMONJS_EXT);
-	recognized_extensions_.push_back(JSB_MODULE_EXT);
-}
-
 bool ResourceFormatLoaderGodotJSScript::_recognize_path(const String &p_path, const StringName &p_type) const {
 	if (!p_type.is_empty() && p_type != Script::get_class_static() && p_type != GodotJSScript::get_class_static()) return false;
 	const String ext = p_path.get_extension().to_lower();
@@ -132,7 +123,7 @@ Variant ResourceFormatLoaderGodotJSScript::_load(const String &p_path, const Str
 	//     }
 	// }
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	// only check the source file in editor mode since .ts source code is not required in runtime mode
 	if (Engine::get_singleton()->is_editor_hint() && !FileAccess::file_exists(p_path)) {
 		return Variant();
@@ -236,3 +227,12 @@ int64_t ResourceFormatLoaderGodotJSScript::_get_resource_uid(const String &p_pat
 // bool ResourceFormatLoaderGodotJSScript::has_custom_uid_support() const {
 // 	return jsb::internal::settings::project::is_script_inline_resource_uid();
 // }
+
+ResourceFormatLoaderGodotJSScript::ResourceFormatLoaderGodotJSScript() {
+#if JSB_USE_TYPESCRIPT
+	recognized_extensions_.push_back(JSB_TYPESCRIPT_EXT);
+#endif
+	recognized_extensions_.push_back(JSB_JAVASCRIPT_EXT);
+	recognized_extensions_.push_back(JSB_COMMONJS_EXT);
+	recognized_extensions_.push_back(JSB_MODULE_EXT);
+}

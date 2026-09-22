@@ -191,14 +191,10 @@ public:
 	virtual void _finish() override;
 	virtual void _frame() override;
 
-	virtual void _thread_enter() override;
-	virtual void _thread_exit() override;
-
+#if JSB_TOOLS
 	virtual bool _is_control_flow_keyword(const String &p_keyword) const override;
-	virtual TypedArray<Dictionary> _get_built_in_templates(const StringName &p_object) const override;
 
-	/* EDITOR FUNCTIONS */
-	virtual PackedStringArray _get_reserved_words() const override;
+	virtual TypedArray<Dictionary> _get_built_in_templates(const StringName &p_object) const override;
 
 	virtual PackedStringArray _get_doc_comment_delimiters() const override;
 	virtual PackedStringArray _get_comment_delimiters() const override;
@@ -206,22 +202,8 @@ public:
 
 	virtual Dictionary _validate(const String &p_script, const String &p_path, bool p_validate_functions, bool p_validate_errors, bool p_validate_warnings, bool p_validate_safe_lines) const override;
 	virtual Ref<Script> _make_template(const String &p_template, const String &p_class_name, const String &p_base_class_name) const override;
-	virtual void _reload_all_scripts() override;
-	virtual PackedStringArray _get_recognized_extensions() const override;
 
 	virtual bool _supports_documentation() const override { return true; }
-	virtual void _reload_scripts(const Array &p_scripts, bool p_soft_reload) override;
-	virtual void _profiling_set_save_native_calls(bool p_enable) override;
-
-#pragma region DEFAULTLY AND PARTIALLY SUPPORTED
-	virtual String _get_name() const override;
-	virtual String _get_type() const override;
-
-#if JSB_USE_TYPESCRIPT
-	virtual String _get_extension() const override { return JSB_TYPESCRIPT_EXT; }
-#else
-	virtual String _get_extension() const override { return JSB_JAVASCRIPT_EXT; }
-#endif
 
 	virtual bool _is_using_templates() override { return true; }
 	virtual bool _supports_builtin_mode() const override { return false; }
@@ -233,32 +215,12 @@ public:
 	virtual String _make_function(const String &p_class_name, const String &p_function_name, const PackedStringArray &p_function_args) const override { return ""; }
 
 	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override { return p_code; } // TODO
-	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
 	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
 	virtual void _remove_named_global_constant(const StringName &p_name) override {} // TODO
-
-	virtual String _debug_get_error() const override { return ""; } // TODO
-	virtual int32_t _debug_get_stack_level_count() const override { return 1; } // TODO
-	virtual int32_t _debug_get_stack_level_line(int32_t p_level) const override { return 1; } // TODO
-	virtual String _debug_get_stack_level_function(int32_t p_level) const override { return ""; } // TODO
-	virtual String _debug_get_stack_level_source(int32_t p_level) const override { return ""; } // TODO
-	virtual Dictionary _debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual Dictionary _debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual void *_debug_get_stack_level_instance(int32_t p_level) override { return nullptr; } // TODO
-	virtual Dictionary _debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual String _debug_parse_stack_level_expression(int32_t p_level, const String &p_expression, int32_t p_max_subitems, int32_t p_max_depth) override { return ""; } // TODO
-	virtual TypedArray<Dictionary> _debug_get_current_stack_info() override { return {}; } // TODO: Vector<StackInfo>
-	virtual void _reload_tool_script(const Ref<Script> &p_script, bool p_soft_reload) override;
 
 	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // TODO: Vector<StackInfo>
 	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // TODO: Vector<StackInfo>
 	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
-
-	virtual void _profiling_start() override;
-	virtual void _profiling_stop() override;
-
-	virtual int32_t _profiling_get_accumulated_data(ScriptLanguageExtensionProfilingInfo *p_info_array, int32_t p_info_max) override;
-	virtual int32_t _profiling_get_frame_data(ScriptLanguageExtensionProfilingInfo *p_info_array, int32_t p_info_max) override;
 
 	virtual bool _handles_global_class_type(const String &p_type) const override;
 	virtual Dictionary _get_global_class_name(const String &p_path) const override;
@@ -274,14 +236,62 @@ public:
 	// 暂无计划实现编辑器内编写 TS/JS 脚本
 	virtual Dictionary _complete_code(const String &p_code, const String &p_path, Object *p_owner) const override { return {}; }
 	virtual Dictionary _lookup_code(const String &p_code, const String &p_symbol, const String &p_path, Object *p_owner) const override { return {}; }
+#endif // JSB_TOOLS
 
-#pragma endregion
+	virtual void _thread_enter() override;
+	virtual void _thread_exit() override;
+
+	virtual String _get_name() const override;
+	virtual String _get_type() const override;
+
+#if JSB_USE_TYPESCRIPT
+	virtual String _get_extension() const override { return JSB_TYPESCRIPT_EXT; }
+#else
+	virtual String _get_extension() const override { return JSB_JAVASCRIPT_EXT; }
+#endif
+
+#if JSB_DEBUG
+	virtual void _reload_all_scripts() override;
+	virtual void _reload_scripts(const Array &p_scripts, bool p_soft_reload) override;
+#endif
+#if JSB_TOOLS
+	virtual void _reload_tool_script(const Ref<Script> &p_script, bool p_soft_reload) override;
+#endif
+
+	virtual PackedStringArray _get_recognized_extensions() const override;
+
+	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
+
+	virtual PackedStringArray _get_reserved_words() const override;
+
+#if JSB_DEBUG
+	virtual String _debug_get_error() const override { return ""; } // TODO
+	virtual int32_t _debug_get_stack_level_count() const override { return 1; } // TODO
+	virtual int32_t _debug_get_stack_level_line(int32_t p_level) const override { return 1; } // TODO
+	virtual String _debug_get_stack_level_function(int32_t p_level) const override { return ""; } // TODO
+	virtual String _debug_get_stack_level_source(int32_t p_level) const override { return ""; } // TODO
+	virtual Dictionary _debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
+	virtual Dictionary _debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
+	virtual void *_debug_get_stack_level_instance(int32_t p_level) override { return nullptr; } // TODO
+	virtual Dictionary _debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
+	virtual String _debug_parse_stack_level_expression(int32_t p_level, const String &p_expression, int32_t p_max_subitems, int32_t p_max_depth) override { return ""; } // TODO
+	virtual TypedArray<Dictionary> _debug_get_current_stack_info() override { return {}; } // TODO: Vector<StackInfo>
+
+	virtual void _profiling_start() override;
+	virtual void _profiling_stop() override;
+	virtual void _profiling_set_save_native_calls(bool p_enable) override;
+
+	virtual int32_t _profiling_get_accumulated_data(ScriptLanguageExtensionProfilingInfo *p_info_array, int32_t p_info_max) override;
+	virtual int32_t _profiling_get_frame_data(ScriptLanguageExtensionProfilingInfo *p_info_array, int32_t p_info_max) override;
+#endif // JSB_DEBUG
 
 private:
 	std::shared_ptr<jsb::Environment> create_shadow_environment();
 	void destroy_shadow_environment(const std::shared_ptr<jsb::Environment> &p_env);
 
+#if JSB_TOOLS
 	void reload_scripts_internal(const Array &p_scripts, bool p_soft_reload);
+#endif
 
 	static void populate_string_names_replacements();
 

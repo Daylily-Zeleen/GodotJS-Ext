@@ -582,7 +582,8 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     write_file(os.path.join(runtime_dir, "jsb_runtime_preset.gen.cpp"), rt_output)
 
     # editor side: embedded editor bundles + project scaffolding templates.
-    # Consumed exclusively by the editor extension (which always builds with TOOLS_ENABLED).
+    # Consumed exclusively by the editor extension (which always builds with
+    # JSB_TOOLS enabled).
     ed_output = io.StringIO()
     ed_output.write("// AUTO-GENERATED\n")
     ed_output.write("\n")
@@ -591,7 +592,7 @@ def generate_code(rt_preset_defines, ed_preset_defines):
     ed_output.write("#include \"jsb_editor_preset.h\"\n")
     ed_output.write("#include \"jsb.config.h\"\n")
     ed_output.write(version_assert)
-    ed_output.write("#ifdef TOOLS_ENABLED\n")
+    ed_output.write("#if JSB_TOOLS\n")
     generate_method_code(ed_output, "GodotJSEditorPreset::get_source", indent, ed_preset_defines)
     ed_output.write("#endif\n")
     write_file(os.path.join(editor_dir, "weaver-editor", "jsb_editor_preset.gen.cpp"), ed_output)

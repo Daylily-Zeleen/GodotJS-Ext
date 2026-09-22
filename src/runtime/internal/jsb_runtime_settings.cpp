@@ -35,10 +35,10 @@
 #include "internal/jsb_settings.h"
 
 // TODO: 摆脱 editor 依赖
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 #	include <godot_cpp/classes/engine.hpp>
 #	include "compat/editor_settings.h"
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 #include <cstdint>
 
@@ -110,7 +110,7 @@ uint16_t get_debugger_port() {
 	}();
 	if (port_override != 0) return port_override;
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	if (Engine::get_singleton()->is_editor_hint()) {
 		return EDITOR_GET(kEditorDebuggerPort, DEFAULT_EDITOR_DEBUGGER_PORT);
 	}

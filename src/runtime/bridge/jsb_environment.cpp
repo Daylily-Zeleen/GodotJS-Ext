@@ -2133,9 +2133,9 @@ void Environment::transfer_in_apply_state(const TransferData &p_data) {
 	}
 
 	ScriptInstance *script_instance = ScriptInstance::get_script_instance(instance);
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	ERR_FAIL_COND_MSG(script_instance && script_instance->is_placeholder(), "Environment::transfer_in_apply_state(): Unexpected case: try to transfer to an placeholder script instance.");
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 	if (!script_instance) {
 		const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(p_data.script_path);

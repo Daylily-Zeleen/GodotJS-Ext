@@ -25,8 +25,10 @@
 
 #pragma once
 
-#ifndef TOOLS_ENABLED
-#	error "CAN NOT COMPILE WITHOUT TOOLS_ENABLED, PLEASE CHECK IT'S NOT UNEXPECTEDLY INCLUDED."
+#include <jsb.config.h>
+
+#if !JSB_TOOLS
+#	error "CAN NOT COMPILE WITHOUT JSB_TOOLS (editor-only header), PLEASE CHECK IT'S NOT UNEXPECTEDLY INCLUDED."
 #endif
 
 #include <godot_cpp/classes/editor_interface.hpp>

@@ -23,11 +23,12 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
+#include <jsb.config.h>
 #include <godot_cpp/godot.hpp>
 
 void _initialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
 void _uninitialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
-#if defined(JSB_TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#if defined(JSB_TESTS_ENABLED) && JSB_TOOLS
 // Editor doctest entry (--jsb-run-tests). Declared here so the single
 // real startup callback (runtime jsb_startup) can forward to it while the
 // build is still one extension library: jsb_editor_library_init is only used

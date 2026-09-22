@@ -238,12 +238,13 @@ namespace {
 ScriptInstanceInfo script_instance_info;
 }
 
+ScriptInstance::ScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner, GDExtensionScriptInstancePtr p_extension_instance_ptr) : script_(p_script), owner_(p_owner), extension_instance_ptr(p_extension_instance_ptr) {}
 ScriptInstance *ScriptInstance::get_script_instance(Object *p_object) {
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	if (PlaceholderScriptInstance *placeholder = PlaceholderScriptInstance::try_get_placeholder_script_instance(p_object)) {
 		return placeholder;
 	}
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 	void *obj_ptr{ nullptr };
 	PtrToArg<Object *>::encode(p_object, &obj_ptr);
@@ -256,7 +257,22 @@ void ScriptInstance::set_script_instance(Object *p_object, ScriptInstance *p_ins
 	godot::gdextension_interface::object_set_script_instance(obj_ptr, p_instance ? p_instance->extension_instance_ptr : nullptr);
 }
 
-ScriptInstance::ScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner, GDExtensionScriptInstancePtr p_extension_instance_ptr) : script_(p_script), owner_(p_owner), extension_instance_ptr(p_extension_instance_ptr) {}
+#if JSB_TOOLS
+// ====== PlaceholderScriptInstance =====
+HashMap<Object *, PlaceholderScriptInstance *> PlaceholderScriptInstance::placeholders_{};
+PlaceholderScriptInstance::PlaceholderScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner) : ScriptInstance(p_script, p_owner, ::godot::gdextension_interface::placeholder_script_instance_create(GodotJSScriptLanguage::get_singleton(), p_script->_owner, p_owner->_owner)) {
+	placeholders_.insert(p_owner, this);
+}
+
+PlaceholderScriptInstance::~PlaceholderScriptInstance() {
+	jsb_check(this->get_owner() != nullptr);
+	placeholders_.erase(this->get_owner());
+}
+
+void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values) {
+	::godot::gdextension_interface::placeholder_script_instance_update(extension_instance_ptr, &p_properties, &p_values);
+}
+#endif // JSB_TOOLS
 
 // =========== GodotJSScriptInstanceBase ==========
 GodotJSScriptInstanceBase::ScriptCallProfilingScope::ScriptCallProfilingScope(const ScriptProfilingInfo &p_info, const StringName &p_method)
@@ -331,23 +347,6 @@ String GodotJSScriptInstanceBase::to_string(bool *r_valid) {
 	// TODO:
 	return {}; //"<" + get_script()->_get_global_name() + "#" + itos(get_owner()->get_instance_id()) + ">" ;
 }
-
-#ifdef TOOLS_ENABLED
-// ====== PlaceholderScriptInstance =====
-HashMap<Object *, PlaceholderScriptInstance *> PlaceholderScriptInstance::placeholders_{};
-PlaceholderScriptInstance::PlaceholderScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner) : ScriptInstance(p_script, p_owner, ::godot::gdextension_interface::placeholder_script_instance_create(GodotJSScriptLanguage::get_singleton(), p_script->_owner, p_owner->_owner)) {
-	placeholders_.insert(p_owner, this);
-}
-
-PlaceholderScriptInstance::~PlaceholderScriptInstance() {
-	jsb_check(this->get_owner() != nullptr);
-	placeholders_.erase(this->get_owner());
-}
-
-void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values) {
-	::godot::gdextension_interface::placeholder_script_instance_update(extension_instance_ptr, &p_properties, &p_values);
-}
-#endif // TOOLS_ENABLED
 
 // ====== GodotJSShadowScriptInstance =====
 Variant::Type GodotJSShadowScriptInstance::get_property_type(const StringName &p_name, bool *r_is_valid) const {

@@ -23,7 +23,9 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
-#ifdef TOOLS_ENABLED
+#include <jsb.config.h>
+
+#if JSB_TOOLS
 
 #	include "editor_settings.h"
 

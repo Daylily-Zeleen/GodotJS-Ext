@@ -29,9 +29,9 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 #	include <compat/editor_settings.h>
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 namespace jsb::internal::settings {
 String get_project_data_dir_name() {
@@ -56,7 +56,7 @@ bool is_camel_case_bindings_enabled() {
 
 namespace editor {
 String get_indentation() {
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	if (Engine::get_singleton()->is_editor_hint() && get_editor_settings().is_valid()) {
 		if (!!EDITOR_GET("text_editor/behavior/indent/type")) {
 			return String(" ").repeat(EDITOR_GET("text_editor/behavior/indent/size"));

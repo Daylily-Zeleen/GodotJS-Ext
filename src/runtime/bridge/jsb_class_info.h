@@ -125,7 +125,7 @@ enum Type {
 };
 }
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 struct ScriptBaseDoc {
 	String brief_description;
 

@@ -105,7 +105,7 @@ DEF(allowImportAnyModule)
 #endif // JSB_SHADOW_REALM_ENABLED
 
 // editor
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 DEF(arguments)
 DEF(base)
 DEF(codegen)

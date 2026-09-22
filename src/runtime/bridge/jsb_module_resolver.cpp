@@ -41,7 +41,7 @@ namespace jsb {
 namespace {
 // the cost of copy return is acceptable since Vector copy constructor is by-reference under the hood
 PackedStringArray get_dynamic_search_paths() {
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	return jsb::internal::settings::project::get_additional_search_paths();
 #else
 	static PackedStringArray dynamic_search_paths = jsb::internal::settings::project::get_additional_search_paths();
@@ -519,7 +519,7 @@ bool DefaultModuleResolver::load(Environment *p_env, const String &p_asset_path,
 		return false;
 	}
 
-#if JSB_SUPPORT_RELOAD && defined(TOOLS_ENABLED)
+#if JSB_SUPPORT_RELOAD && JSB_TOOLS
 	p_module.time_modified = p_reader.get_time_modified();
 	p_module.hash = p_reader.get_hash();
 #endif

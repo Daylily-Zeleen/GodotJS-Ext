@@ -56,6 +56,14 @@
 #	endif
 #endif
 
+#ifndef JSB_TOOLS
+#	if defined(TOOLS_ENABLED)
+#		define JSB_TOOLS 1
+#	else
+#		define JSB_TOOLS 0
+#	endif
+#endif
+
 // Essentials provides self-hosted console/timers for runtimes without a host environment.
 // Web builds use the browser's native console/timers; node builds use node's native ones.
 #define JSB_WITH_ESSENTIALS !(JSB_WITH_WEB || JSB_WITH_NODE) // TODO: 排除特定文件

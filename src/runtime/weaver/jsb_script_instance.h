@@ -30,9 +30,9 @@
 
 #include <gdextension_interface.h>
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 class PlaceholderScriptInstance;
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 class GodotJSScriptInstanceBase;
 class GodotJSShadowScriptInstance;
@@ -72,12 +72,12 @@ public:
 		ScriptInstance *si = get_script_instance(p_object);
 		if (si == nullptr) return nullptr;
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 		if (si->is_placeholder()) {
 			if constexpr (std::is_same_v<ScriptInstanceTy, PlaceholderScriptInstance>) return si;
 			else return nullptr;
 		}
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 		if constexpr (std::is_same_v<ScriptInstanceTy, GodotJSShadowScriptInstance>) {
 			if (!(GodotJSScriptInstanceBase *)si->is_shadow()) return nullptr;
@@ -89,7 +89,7 @@ public:
 	}
 };
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 class PlaceholderScriptInstance : public ScriptInstance {
 	static HashMap<Object *, PlaceholderScriptInstance *> placeholders_;
 
@@ -104,7 +104,7 @@ public:
 	virtual bool is_placeholder() const override { return true; }
 	void update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values);
 };
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 // An abstract base class for GodotJS script instance implementations
 class GodotJSScriptInstanceBase : public ScriptInstance {

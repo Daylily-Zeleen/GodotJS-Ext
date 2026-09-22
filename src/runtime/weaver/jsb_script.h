@@ -45,9 +45,9 @@ class ScriptInstance;
 class GodotJSScriptInstance;
 class GodotJSScriptInstanceBase;
 class GodotJSShadowScriptInstance;
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 class PlaceholderScriptInstance;
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 class GodotJSScript : public ScriptExtension {
 	GDCLASS(GodotJSScript, ScriptExtension)
@@ -64,9 +64,10 @@ private:
 
 	Ref<GodotJSScript> base;
 
-	// WTF??
+#if JSB_TOOLS
 	HashMap<StringName, Variant> member_default_values_cache;
 	List<PropertyInfo> members_cache;
+#endif
 
 	// [INTERNAL] a self linked list to all GodotJSScript (lock is required to access)
 	// 'script_class_info_' may be got from another environment,
@@ -83,33 +84,17 @@ private:
 	 */
 	jsb::StatelessScriptClassInfo script_class_info_;
 
-#ifdef DEBUG_ENABLED
+#if JSB_TOOLS
+	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
+#endif
+#if JSB_DEBUG
 	HashMap<ObjectInstanceID, ScriptInstancePropertyState> pending_reload_state_;
 #endif
 
-#ifdef TOOLS_ENABLED
-	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
-#endif
-
+#if JSB_DEBUG
 	// 允许 GodotJSScriptLanguage::reload_scripts_internal 访问 instances_, pending_reload_state_, placeholders
 	friend void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool p_soft_reload);
-
-private:
-	void load_module_immediately();
-	_FORCE_INLINE_ void ensure_module_loaded() const {
-		if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript *>(this)->load_module_immediately();
-	}
-	_FORCE_INLINE_ bool is_valid_internal() const { return jsb::internal::VariantUtil::is_valid_name(script_class_info_.module_id); }
-
-	Variant _new(const Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
-
-#ifdef DEBUG_ENABLED
-	bool _update_exports_internal(class PlaceholderScriptInstance *p_placeholder_instance_to_update);
-	void _update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values);
-#endif // DEBUG_ENABLED
-
-	void remove_script_instance_instance_owner(Object *p_owner);
-	GodotJSScriptInstance *try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
+#endif
 
 public:
 	GodotJSScript();
@@ -145,10 +130,10 @@ public:
 	virtual StringName _get_instance_base_type() const override; // this may not work in all scripts, will return empty if so
 
 	virtual GDExtensionScriptInstancePtr _instance_create(Object *p_for_object) const override;
+#if JSB_TOOLS
 	virtual GDExtensionScriptInstancePtr _placeholder_instance_create(Object *p_for_object) const override;
-#ifdef TOOLS_ENABLED
 	virtual void _placeholder_erased(GDExtensionScriptInstancePtr p_placeholder) override;
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 	virtual bool _has_source_code() const override { return !source_.is_empty(); }
 	virtual String _get_source_code() const override { return source_; }
@@ -156,11 +141,11 @@ public:
 
 	virtual Error _reload(bool p_keep_state) override;
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	virtual StringName _get_doc_class_name() const override;
 	virtual TypedArray<Dictionary> _get_documentation() const override;
 	virtual String _get_class_icon_path() const override;
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 
 	// TODO: In the next compat breakage rename to `*_script_*` to disambiguate from `Object::has_method()`.
 	virtual bool _has_method(const StringName &p_method) const override;
@@ -180,23 +165,29 @@ public:
 
 	virtual ScriptLanguage *_get_language() const override;
 
+	virtual bool _has_script_signal(const StringName &p_signal) const override;
+
 	virtual TypedArray<Dictionary> _get_script_property_list() const override;
 	virtual TypedArray<Dictionary> _get_script_method_list() const override;
 	virtual TypedArray<Dictionary> _get_script_signal_list() const override;
 
-	virtual bool _has_script_signal(const StringName &p_signal) const override;
-
+#if JSB_TOOLS
 	virtual bool _is_placeholder_fallback_enabled() const override { return loaded_ && !_is_valid(); }
+#endif // JSB_TOOLS
 	virtual bool _has_property_default_value(const StringName &p_property) const override;
 	virtual Variant _get_property_default_value(const StringName &p_property) const override;
 
+#if JSB_TOOLS
 	virtual void _update_exports() override;
+#endif // JSB_TOOLS
 
 	//editor tool
 	virtual Variant _get_script_method_argument_count(const StringName &p_method) const override;
 
+#if JSB_TOOLS
 	virtual int32_t _get_member_line(const StringName &p_member) const override { return -1; } // TODO
-
+#endif // JSB_TOOLS
+#if JSB_DEBUG
 	virtual Dictionary _get_constants() const override // TODO
 	{
 		return Dictionary();
@@ -205,15 +196,15 @@ public:
 	{
 		return TypedArray<StringName>();
 	}
+#endif // JSB_DEBUG
 
 	virtual Variant _get_rpc_config() const override;
 
+#if JSB_TOOLS
 	virtual bool _editor_can_reload_from_file() override { return true; }
+#endif // JSB_TOOLS
 
 #pragma endregion // Script Interface Implementation
-
-protected:
-	static void _bind_methods();
 
 public:
 	// TODO: 是否只在调试模式下可用？
@@ -260,4 +251,24 @@ public:
 			base->get_script_signal_list<ElemTy, ConvertFn, ListTy>(r_list);
 		}
 	}
+
+private:
+	void load_module_immediately();
+	_FORCE_INLINE_ void ensure_module_loaded() const {
+		if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript *>(this)->load_module_immediately();
+	}
+	_FORCE_INLINE_ bool is_valid_internal() const { return jsb::internal::VariantUtil::is_valid_name(script_class_info_.module_id); }
+
+	Variant _new(const Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
+
+	void remove_script_instance_instance_owner(Object *p_owner);
+	GodotJSScriptInstance *try_create_script_instance(Object *p_owner, jsb::JSEnvironment &p_env, jsb::ScriptClassID p_script_class_id, auto P_bind_and_get_native_object_id);
+
+#if JSB_TOOLS
+	bool _update_exports_internal(class PlaceholderScriptInstance *p_placeholder_instance_to_update);
+	void _update_exports_values(TypedArray<Dictionary> &r_props, Dictionary &r_values);
+#endif // JSB_TOOLS
+
+protected:
+	static void _bind_methods();
 };

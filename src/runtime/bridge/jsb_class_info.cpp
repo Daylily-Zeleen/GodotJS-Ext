@@ -33,7 +33,7 @@
 //TODO it breaks the isolation of 'bridge'
 #include "../weaver/jsb_script.h"
 namespace jsb {
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 void _parse_script_doc(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::MaybeLocal<v8::Value> holder, ScriptBaseDoc &r_doc) {
 	if (v8::Local<v8::Value> tv; holder.IsEmpty() || !holder.ToLocal(&tv) || !tv->IsObject()) {
 		// invalid
@@ -103,7 +103,7 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 
 	JSB_LOG(VeryVerbose, "godot js class name %s (native: %s)", p_class_info->js_class_name, p_class_info->native_class_name);
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 	// class doc
 	v8::Local<v8::Map> doc_map;
 	if (v8::Local<v8::Value> val; prototype->HasOwnProperty(p_context, jsb_symbol(environment, MemberDocMap)).ToChecked() && prototype->Get(p_context, jsb_symbol(environment, MemberDocMap)).ToLocal(&val) && val->IsMap()) {
@@ -147,11 +147,11 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 				if (prop_descriptor.As<v8::Object>()->Get(p_context, jsb_name(environment, value)).ToLocal(&prop_val) && prop_val->IsFunction()) {
 					//TODO property categories
 					ScriptMethodInfo method_info{};
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 					if (v8::Local<v8::Value> val; !doc_map.IsEmpty() && doc_map->Get(p_context, prop_name).ToLocal(&val) && val->IsObject()) {
 						_parse_script_doc(isolate, p_context, val, method_info.doc);
 					}
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 					p_class_info->methods.insert((StringName)name_s, method_info);
 
 					// check rpc config
@@ -271,11 +271,11 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 					property_info.cache = cache->BooleanValue(isolate);
 				}
 
-#ifdef TOOLS_ENABLED
+#if JSB_TOOLS
 				if (v8::Local<v8::Value> val; !doc_map.IsEmpty() && doc_map->Get(p_context, prop_name).ToLocal(&val) && val->IsObject()) {
 					_parse_script_doc(isolate, p_context, val, property_info.doc);
 				}
-#endif // TOOLS_ENABLED
+#endif // JSB_TOOLS
 				p_class_info->properties.insert(property_info.name, property_info);
 				JSB_LOG(VeryVerbose, "... property %s: %s", property_info.name, Variant::get_type_name(property_info.type));
 			}

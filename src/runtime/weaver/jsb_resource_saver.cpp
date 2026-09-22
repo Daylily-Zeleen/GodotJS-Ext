@@ -33,6 +33,12 @@
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/resource_uid.hpp>
 
+#if JSB_TOOLS
+#	include <godot_cpp/classes/editor_interface.hpp>
+#	include <godot_cpp/classes/editor_settings.hpp>
+
+#endif
+
 #define UID_COMMENT_PREFIX "// uid://"
 #define UID_COMMENT_SUFFIX "This line is generated, don't modify or remove it."
 static int64_t extract_uid_from_line(const String &p_line) {
@@ -123,11 +129,12 @@ Error ResourceFormatSaverGodotJSScript::_save(const Ref<Resource> &p_resource, c
 		sqscr->emit_changed();
 	}
 
-	// TODO: Reload scripts on save (equivalent to ScriptServer::is_reload_scripts_on_save_enabled())
-	{
-		// WTF??
+#if JSB_TOOLS
+	if (Ref<EditorSettings> es = EditorInterface::get_singleton() ? EditorInterface::get_singleton()->get_editor_settings() : Ref<EditorSettings>{};
+			es.is_valid() && es->get_setting("text_editor/behavior/files/auto_reload_and_parse_scripts_on_save").booleanize()) {
 		GodotJSScriptLanguage::get_singleton()->_reload_tool_script(p_resource, true);
 	}
+#endif
 
 	return OK;
 }

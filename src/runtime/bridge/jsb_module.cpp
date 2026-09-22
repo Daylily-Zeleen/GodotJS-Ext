@@ -40,7 +40,7 @@ void JavaScriptModule::on_load(v8::Isolate *isolate, const v8::Local<v8::Context
 }
 
 bool JavaScriptModule::mark_as_reloading() {
-#if JSB_SUPPORT_RELOAD && defined(TOOLS_ENABLED)
+#if JSB_SUPPORT_RELOAD && JSB_TOOLS
 	if (!is_reloadable()) return false;
 
 	//TODO reload all related modules (search the module graph) ?
@@ -61,7 +61,7 @@ bool JavaScriptModule::mark_as_reloading() {
 }
 
 void JavaScriptModule::mark_as_reloaded() {
-#if JSB_SUPPORT_RELOAD && defined(TOOLS_ENABLED)
+#if JSB_SUPPORT_RELOAD && JSB_TOOLS
 	reload_requested = false;
 #endif
 }
