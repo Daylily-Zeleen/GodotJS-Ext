@@ -315,28 +315,27 @@ void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &
 	free_temporary_property_list();
 }
 
-namespace {
-static PropertyInfo convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info; }
-} // namespace
 LocalVector<PropertyInfo> *GodotJSScriptInstanceBase::make_temporary_property_list() const {
 	jsb_check(!temporary_script_property_list_cache);
+
 	temporary_script_property_list_cache = memnew(LocalVector<PropertyInfo>);
-	script_->get_script_property_list<PropertyInfo, &convert_property_info, LocalVector<PropertyInfo>>(*temporary_script_property_list_cache);
+	script_->get_script_property_list<PropertyInfo, LocalVector<PropertyInfo>, [](const jsb::ScriptPropertyInfo &p_info) {
+		return p_info;
+	}>(*temporary_script_property_list_cache);
+
 	return temporary_script_property_list_cache;
 }
 
-namespace {
-static MethodInfo convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
-	MethodInfo ret(p_name);
-	// TODO: 更多细节
-	return ret;
-}
-} // namespace
-
 LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list() {
 	jsb_check(!temporary_script_method_list_cache);
+
 	temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
-	script_->get_script_method_list<MethodInfo, &convert_method_info, LocalVector<MethodInfo>>(*temporary_script_method_list_cache);
+	script_->get_script_method_list<MethodInfo, LocalVector<MethodInfo>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
+		MethodInfo ret(p_name);
+		// TODO: 更多细节
+		return ret;
+	}>(*temporary_script_method_list_cache);
+
 	return temporary_script_method_list_cache;
 }
 

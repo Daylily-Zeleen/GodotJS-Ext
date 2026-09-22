@@ -27,8 +27,9 @@
 
 #pragma once
 
-#include "../bridge/jsb_bridge.h"
-#include "../compat/jsb_compat.h"
+#include <bridge/jsb_bridge.h>
+#include <compat/jsb_compat.h>
+
 #include <godot_cpp/classes/script_extension.hpp>
 #include <godot_cpp/classes/script_language.hpp>
 #include <godot_cpp/templates/hash_map.hpp>
@@ -40,6 +41,10 @@
 
 #include "jsb_script_language.h"
 #include <compat/misc.h>
+
+#include <type_traits>
+template <typename Callable, typename Ret, typename... Args>
+concept Invocable = std::is_invocable_r_v<Ret, Callable, Args...>;
 
 class ScriptInstance;
 class GodotJSScriptInstance;
@@ -207,8 +212,7 @@ public:
 #pragma endregion // Script Interface Implementation
 
 public:
-	// TODO: 是否只在调试模式下可用？
-	template <typename ElemTy, ElemTy (*ConvertFn)(const jsb::ScriptPropertyInfo &), typename ListTy>
+	template <typename ElemTy, typename ListTy, Invocable<ElemTy, const jsb::ScriptPropertyInfo &> auto ConvertFn>
 		requires requires(ListTy list, ElemTy elem) { list.push_back(elem); }
 	void get_script_property_list(ListTy &r_list) const {
 		ensure_module_loaded();
@@ -219,11 +223,11 @@ public:
 		}
 
 		if (base.is_valid() && base->_is_valid()) {
-			base->get_script_property_list<ElemTy, ConvertFn, ListTy>(r_list);
+			base->get_script_property_list<ElemTy, ListTy, ConvertFn>(r_list);
 		}
 	}
 
-	template <typename ElemTy, ElemTy (*ConvertFn)(const StringName &, const jsb::ScriptMethodInfo &), typename ListTy>
+	template <typename ElemTy, typename ListTy, Invocable<ElemTy, const StringName &, const jsb::ScriptMethodInfo &> auto ConvertFn>
 		requires requires(ListTy list, ElemTy elem) { list.push_back(elem); }
 	void get_script_method_list(ListTy &r_list) const {
 		ensure_module_loaded();
@@ -234,11 +238,11 @@ public:
 		}
 
 		if (base.is_valid() && base->_is_valid()) {
-			base->get_script_method_list<ElemTy, ConvertFn, ListTy>(r_list);
+			base->get_script_method_list<ElemTy, ListTy, ConvertFn>(r_list);
 		}
 	}
 
-	template <typename ElemTy, ElemTy (*ConvertFn)(const StringName &, const jsb::ScriptSignalInfo &), typename ListTy>
+	template <typename ElemTy, typename ListTy, Invocable<ElemTy, const StringName &, const jsb::ScriptSignalInfo &> auto ConvertFn>
 		requires requires(ListTy list, ElemTy elem) { list.push_back(elem); }
 	void get_script_signal_list(ListTy &r_list) const {
 		if (!_is_valid()) return;
@@ -248,7 +252,7 @@ public:
 		}
 
 		if (base.is_valid()) {
-			base->get_script_signal_list<ElemTy, ConvertFn, ListTy>(r_list);
+			base->get_script_signal_list<ElemTy, ListTy, ConvertFn>(r_list);
 		}
 	}
 

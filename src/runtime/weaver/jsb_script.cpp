@@ -386,40 +386,39 @@ bool GodotJSScript::_has_script_signal(const StringName &p_signal) const {
 
 	return false;
 }
-namespace {
-static Dictionary convert_property_info(const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }
-} // namespace
+
 TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	TypedArray<Dictionary> result;
-	get_script_property_list<Dictionary, &convert_property_info, TypedArray<Dictionary>>(result);
+	get_script_property_list<Dictionary, TypedArray<Dictionary>, [](const jsb::ScriptPropertyInfo &p_info) { return p_info.operator Dictionary(); }>(result);
 	return result;
 }
-namespace {
-static Dictionary convert_method_info(const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
-	Dictionary dict;
-	dict["name"] = p_name;
-	// TODO: 其他细节
-	return dict;
-}
-} // namespace
+
 TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const {
 	TypedArray<Dictionary> result;
-	get_script_method_list<Dictionary, &convert_method_info, TypedArray<Dictionary>>(result);
+
+	get_script_method_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
+		Dictionary dict;
+		dict["name"] = p_name;
+		// TODO: 其他细节
+		return dict;
+	}>(result);
+
 	return result;
 }
-namespace {
-static Dictionary convert_signal_info(const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
-	Dictionary dict;
-	dict["name"] = p_name;
-	// TODO: 其他细节
-	return dict;
-}
-} // namespace
+
 TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> result;
-	get_script_signal_list<Dictionary, &convert_signal_info, TypedArray<Dictionary>>(result);
+
+	get_script_signal_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
+		Dictionary dict;
+		dict["name"] = p_name;
+		// TODO: 其他细节
+		return dict;
+	}>(result);
+
 	return result;
 }
+
 bool GodotJSScript::_has_property_default_value(const StringName &p_property) const {
 	ensure_module_loaded();
 #if JSB_TOOLS
@@ -433,6 +432,7 @@ bool GodotJSScript::_has_property_default_value(const StringName &p_property) co
 #endif
 	return false;
 }
+
 Variant GodotJSScript::_get_property_default_value(const StringName &p_property) const {
 	ensure_module_loaded();
 #if JSB_TOOLS
@@ -446,6 +446,7 @@ Variant GodotJSScript::_get_property_default_value(const StringName &p_property)
 #endif
 	return Variant();
 }
+
 #if JSB_TOOLS
 void GodotJSScript::_update_exports() {
 	ensure_module_loaded();
@@ -458,12 +459,14 @@ void GodotJSScript::_update_exports() {
 Variant GodotJSScript::_get_script_method_argument_count(const StringName &p_method) const {
 	return {}; // JS 函数本身不定参数（TODO: 有没有办法解析出定义的参数个数？）
 }
+
 Variant GodotJSScript::_get_rpc_config() const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
 	return script_class_info_.rpc_config; // TODO: 是否需要包含父类？
 }
+
 void GodotJSScript::load_module_immediately() {
 	if (loaded_) return;
 	JSB_BENCHMARK_SCOPE(GodotJSScript, load_module);
@@ -552,6 +555,7 @@ void GodotJSScript::load_module_immediately() {
 	}
 	JSB_LOG(Debug, "a stub script loaded which does not contain a GodotJS class %s", path);
 }
+
 Variant GodotJSScript::_new(const Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error) {
 	if (!_is_valid()) {
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
