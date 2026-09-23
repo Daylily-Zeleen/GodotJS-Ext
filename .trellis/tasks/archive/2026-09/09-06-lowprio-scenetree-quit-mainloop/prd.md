@@ -1,5 +1,9 @@
 # SceneTree quit 改经 MainLoop
 
+> **关闭（2026-09-24）**：愿望条目在原始文档中仅一行标题（`## quit SceneTree <- MainLoop`，无任何上下文），
+> 本仓 `src/` 从未有过对应实现；退出路径一律是 `SceneTree::quit(code)`（`Engine::get_main_loop()` 转型取得），
+> 而基类 `MainLoop` 本身不提供 `quit()`，该愿望按字面无可实施面。任务过期关闭，保留本 PRD 作为记录。
+
 > 来源：`.本地文档/低优先级.md` 原始愿望条目（P3；代码中无对应实现）。
 
 ## Goal

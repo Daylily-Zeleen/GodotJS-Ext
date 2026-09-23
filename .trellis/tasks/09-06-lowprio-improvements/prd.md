@@ -14,7 +14,7 @@
 | ~~`lowprio-hermes-engine`~~ | ~~添加 Hermes 引擎与 NAPI~~ | ~~新功能（大）~~ **已取消（2026-09-21）** |
 | ~~`lowprio-tsc-compiler-api`~~ | ~~TSC Compiler API 替代外部 tsc~~ | ~~编辑器优化~~ **已取消（2026-09-21）** |
 | `lowprio-tree-sitter-ast` | tree-sitter 解析 AST 替代正则 | 编辑器优化 |
-| `lowprio-scenetree-quit-mainloop` | quit SceneTree <- MainLoop | 原始愿望（代码无对应实现，启动前先评估必要性） |
+| ~~`lowprio-scenetree-quit-mainloop`~~ | ~~quit SceneTree <- MainLoop~~ | ~~原始愿望~~ **已关闭（2026-09-24，无对应实现）** |
 | `lowprio-node-orphan-stringname` | node 构建 Orphan StringName 泄漏 | 缺陷排查 |
 | `lowprio-config-compile-flags` | 编译参数控制 jsb.config.h | 构建改进 |
 | `lowprio-uint64-bigint-codegen` | bigint/uint64 codegen | 类型映射评估 |

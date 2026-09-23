@@ -21,7 +21,6 @@
   "children": [
     "09-06-lowprio-lws-pic",
     "09-06-lowprio-tree-sitter-ast",
-    "09-06-lowprio-scenetree-quit-mainloop",
     "09-06-lowprio-node-orphan-stringname",
     "09-06-lowprio-config-compile-flags",
     "09-06-lowprio-uint64-bigint-codegen"
