@@ -253,6 +253,11 @@ void GodotJSScriptLanguage::_finish() {
 	environment_->dispose();
 	environment_.reset();
 
+	// Drop the process-wide temporary PropertyList pool: it is not owned by any
+	// object, so without this its pooled PropertyInfo::name StringNames would
+	// outlive StringName::cleanup() and be reported as orphans.
+	GodotJSScriptInstanceBase::free_temporary_property_list_pool();
+
 	JSB_LOG(VeryVerbose, "jsb lang finish");
 }
 

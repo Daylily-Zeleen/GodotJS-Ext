@@ -335,6 +335,17 @@ void GodotJSScriptInstanceBase::free_property_list_cache(PropertyList *p_list) c
 	list = nullptr;
 }
 
+void GodotJSScriptInstanceBase::free_temporary_property_list_pool() {
+	// The pool is a bare static pointer, so a list parked here is never
+	// destroyed: its PropertyInfo::name StringNames keep their references for
+	// the rest of the process and are reported as orphans by
+	// StringName::cleanup(). Dropping the pooled list releases them.
+	GodotJSScriptInstanceBase::PropertyList *pooled = temporary_property_list.exchange(nullptr, std::memory_order_acquire);
+	if (pooled != nullptr) {
+		memdelete(pooled);
+	}
+}
+
 LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list() {
 	jsb_check(!temporary_script_method_list_cache);
 

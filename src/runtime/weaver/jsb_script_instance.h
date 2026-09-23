@@ -197,6 +197,17 @@ public:
 	virtual const Variant get_rpc_config() const { return Variant(); }
 
 public:
+	/**
+	 * @brief Release the process-wide temporary PropertyList pool.
+	 *
+	 * The pool is a static pointer with no destructor of its own, so any list
+	 * parked in it survives the DLL and keeps its `PropertyInfo::name`
+	 * StringNames referenced past `StringName::cleanup()`, which then reports
+	 * them as orphans. Call during language shutdown, before core types are
+	 * unregistered.
+	 */
+	static void free_temporary_property_list_pool();
+
 	void set_property_state(const ScriptInstancePropertyState &p_state) {
 		for (const auto &kv : p_state) {
 			this->set(kv.first, kv.second);
