@@ -12,6 +12,7 @@
 - [ ] 涉及 ptrcall / api_tool / 静态绑定？读 [ptrcall-encoding.md](./ptrcall-encoding.md)
 - [ ] 涉及 api store 格式 / 方法记录字段 / 惰性加载？读 [api-tool-lazy-layout.md](./api-tool-lazy-layout.md)
 - [ ] 涉及 GDExtension 生命周期 / 跨库共享 / DLL 拆分？读 [architecture-constraints.md](./architecture-constraints.md)
+- [ ] 调用 godot-cpp API？读 [godot-cpp-usage.md](./godot-cpp-usage.md)（`_` 前缀虚函数、`godot::` 类型、子模块只读）
 - [ ] 修改导出符号或公共头前，先用 LSP 查全部引用点
 
 ## 质量检查

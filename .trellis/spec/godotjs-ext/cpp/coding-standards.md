@@ -31,4 +31,6 @@ class MyClass { std::string name; };
 
 ## 第三方源码
 
-`third/` 下的库（godot-cpp、quickjs、quickjs-ng、v8、lws、doctest）原则上**只读**；如需适配，在 `src/` 侧（runtime / compat / bridge）写兼容层，不直接改第三方源码。例外须用户明确确认。
+`third/` 下的库（godot-cpp、quickjs、quickjs-ng、v8、lws、doctest）是**外部依赖子模块**，原则上**只读**；如需适配，在 `src/` 侧（runtime / compat / bridge）写兼容层，不直接改第三方源码。例外须用户明确确认。
+
+godot-cpp 的具体使用约束（`_` 前缀虚函数、`godot::` 类型、接口表初始化）见 [godot-cpp-usage.md](./godot-cpp-usage.md)。

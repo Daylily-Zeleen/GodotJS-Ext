@@ -160,15 +160,11 @@ prompt_injection:
   skip_keyword: "no-trellis"   # "" disables the escape hatch entirely
 
 # Auto-detected monorepo packages
-# 项目包映射：主扩展代码 + 两个第三方子模块。
+# 项目包映射：只有主扩展代码一个包。
+# `third/` 下（godot-cpp、quickjs-ng 等）是**纯外部依赖子模块**（pinned 上游、不由本仓维护），
+# 不登记为 package、不设独立 spec 层；我方对它们的使用约束写进 `.trellis/spec/godotjs-ext/`。
 # spec 层按包组织：.trellis/spec/<包>/<层>/index.md
 packages:
   godotjs-ext:
     path: .
-  godot-cpp:
-    path: third/godot-cpp
-    type: submodule
-  third/quickjs-ng:
-    path: third/quickjs-ng
-    type: submodule
 default_package: godotjs-ext

@@ -13,6 +13,7 @@
 | cpp | [ptrcall-encoding.md](./cpp/ptrcall-encoding.md) | ptrcall EncodeT 编码、缓冲区溢出修复规则 |
 | cpp | [api-tool-lazy-layout.md](./cpp/api-tool-lazy-layout.md) | api_tool 热/冷字段约定、惰性加载、三段式 store 格式 |
 | cpp | [architecture-constraints.md](./cpp/architecture-constraints.md) | GDExtension `~` 副本陷阱、共享库约束、桥接规则 |
+| cpp | [godot-cpp-usage.md](./cpp/godot-cpp-usage.md) | godot-cpp API 适配（`_` 前缀虚函数、`godot::` 类型）、子模块只读边界 |
 | build | [index.md](./build/index.md) | 构建接线检查单（编译命令、dll 部署） |
 | build | [scons-build.md](./build/scons-build.md) | 强制编译命令、静态绑定 codegen 接线、dll 部署验证 |
 | test | [doctest.md](./test/doctest.md) | C++ doctest 双套件机制与验收标准 |
@@ -28,8 +29,7 @@ src/static_binding/   静态绑定（gen/ 为构建生成，不入库）
 src/internal/         内部工具（含双侧编译的无状态工具）
 src/compat/           兼容层（双侧编译）
 src/tests/            测试公共设施（header-only runner，仅 tests=yes 编入）
-third/godot-cpp       godot 绑定子模块（只读）
-third/quickjs-ng      可选 JS 引擎子模块（只读）
+third/                外部依赖（godot-cpp、quickjs-ng、v8 等 pinned 子模块，只读、不由本仓维护）
 misc/build/           构建期代码生成脚本（静态绑定、运算符表、模板头）
 project/              测试用 Godot 项目（TS 测试、benchmark）
 scripts/              TS 运行时源码（jsb.runtime / jsb.editor bundle 源）
