@@ -1,3 +1,5 @@
+import { resolve, sep } from "node:path";
+
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +13,11 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 // 这是绊线（tripwire），不是保险箱：它只覆盖 `bash` 工具的参数文本，覆盖不到
 // 其他工具、脚本文件内部、以及无法廉价识别的间接写法（如变量拼接、复杂引号嵌套）。
 // 作用是拦住疏忽，不是防蓄意规避。
+//
+// 例外：目标仓库位于任意 `.agent_tmp` 目录（如项目的临时工作副本）内时，
+// 本地操作（reset/clean/checkout/...）不再拦截——那里本就允许随意折腾。
+// 但涉及远端、不可逆的操作（`push -f` / `push --delete`/`--mirror` / 空 refspec
+// 删除等）依然拦截，因为远端不在 `.agent_tmp` 里，覆盖的是远端历史。
 
 /**
  * 短选项簇里是否含某个字母：`-f`、`-fd`、`-xdf` 都命中 `f`。
@@ -21,7 +28,11 @@ function hasShort(tokens: string[], letter: string): boolean {
 }
 
 /** 单个 shell 片段的危险判定；返回原因即为命中，返回 null 表示放行。 */
-function checkGit(sub: string, rest: string[]): string | null {
+function checkGit(sub: string, rest: string[], inAgentTmp: boolean): string | null {
+   // 目标仓库在 `.agent_tmp` 里时，本地操作一律放行（那里本就允许随意折腾）；
+   // 仅 `push` 涉及远端、不可逆，仍要拦截。
+   if (inAgentTmp && sub !== "push") return null;
+
    switch (sub) {
       case "reset":
          // --soft / --mixed 不动工作区，只有 --hard 丢改动
@@ -281,17 +292,46 @@ function isGitBinary(token: string): boolean {
    return /^git(\.exe)?$/i.test(base);
 }
 
-/** 剥掉 env 赋值与包装命令，取 `git` 之后的参数；非 git 命令返回 null。 */
-function gitArgs(tokens: string[]): string[] | null {
+/**
+ * 剥掉 env 赋值与包装命令，取 `git` 之后的参数；非 git 命令返回 null。
+ * 同时解析 `-C` / `--git-dir` 等指定的目标目录（相对 `baseDir`），
+ * 供 `.agent_tmp` 例外判定使用；未指定时返回 null。
+ */
+function gitArgs(
+   tokens: string[],
+   baseDir: string | null,
+): { args: string[]; dir: string | null } | null {
    let i = skipWrappers(tokens);
    if (!tokens[i] || !isGitBinary(tokens[i]!)) return null;
    i++;
+   let dir: string | null = null;
    // git 全局参数；其中 -C/-c 等会吞掉下一个 token
    while (i < tokens.length && tokens[i]!.startsWith("-")) {
-      if (GIT_VALUE_FLAGS[tokens[i]!]) i++;
+      const flag = tokens[i]!;
+      if (GIT_VALUE_FLAGS[flag]) {
+         const value = tokens[i + 1];
+         if (value !== undefined && (flag === "-C" || flag === "--git-dir")) {
+            dir = baseDir ? resolve(baseDir, value) : resolve(value);
+         }
+         i++;
+      }
       i++;
    }
-   return tokens.slice(i);
+   return { args: tokens.slice(i), dir };
+}
+
+// `.agent_tmp` 的常见命名（见 AGENTS.md 临时文件约定）。
+const AGENT_TMP_SEGMENTS = [".agent_tmp", "_agent_tmp"];
+
+/**
+ * 判定解析出的目标仓库目录是否位于某个 `.agent_tmp` 内。
+ * 未指定目录时按基准目录（bash 工具的 `cwd` 或会话 `cwd`）判定——
+ * 那是 git 实际要操作的工作区，等于 `git -C` 未指定时的默认。
+ */
+function inAgentTmp(dir: string | null, baseDir: string | null): boolean {
+   const resolved = resolve(dir ?? baseDir ?? ".");
+   const segments = resolved.split(sep);
+   return segments.some((s) => s && AGENT_TMP_SEGMENTS.includes(s));
 }
 
 /**
@@ -344,8 +384,12 @@ function innerCommand(tokens: string[]): string | null {
    return null;
 }
 
-/** 判定整条命令；命中返回中文原因，否则返回 null。 */
-export function classify(command: string): string | null {
+/**
+ * 判定整条命令；命中返回中文原因，否则返回 null。
+ * `baseDir` 是 git 的实际工作目录（bash 工具的 `cwd`，或会话 `cwd`）；
+ * 用于 `-C` 相对路径解析与 `.agent_tmp` 例外判定。
+ */
+export function classify(command: string, baseDir: string | null = null): string | null {
    for (const raw of splitSegments(command)) {
       // 子 shell 语法 `( ... )` 只多一层括号，剥掉后仍按普通片段判
       const trimmed = raw.trim();
@@ -357,13 +401,13 @@ export function classify(command: string): string | null {
       // 剥 env 赋值与 sudo/command/env 包装后，先看是否是 shell 复读
       const nested = innerCommand(tokens.slice(skipWrappers(tokens)));
       if (nested) {
-         const hit = classify(nested);
+         const hit = classify(nested, baseDir);
          if (hit) return hit;
          continue;
       }
-      const args = gitArgs(tokens);
-      if (!args || args.length === 0) continue;
-      const hit = checkGit(args[0]!, args.slice(1));
+      const parsed = gitArgs(tokens, baseDir);
+      if (!parsed || parsed.args.length === 0) continue;
+      const hit = checkGit(parsed.args[0]!, parsed.args.slice(1), inAgentTmp(parsed.dir, baseDir));
       if (hit) return hit;
    }
    return null;
@@ -373,11 +417,20 @@ export default function (pi: ExtensionAPI): void {
    pi.on("tool_call", async (event, ctx) => {
       if (event.toolName !== "bash") return;
 
-      const input = event.input as { command?: unknown } | undefined;
+      const input = event.input as { command?: unknown; cwd?: unknown } | undefined;
       const command = typeof input?.command === "string" ? input.command : "";
       if (!command) return;
 
-      const reason = classify(command);
+      // git 的基准工作目录：bash 工具自带 `cwd` 优先，否则回落到会话 `cwd`。
+      // 用于 `-C` 相对解析与 `.agent_tmp` 例外判定。
+      const baseDir =
+         typeof input?.cwd === "string" && input.cwd
+            ? input.cwd
+            : typeof ctx.cwd === "string"
+              ? ctx.cwd
+              : null;
+
+      const reason = classify(command, baseDir);
       if (!reason) return;
 
       // 无交互界面（子代理 / 无头）无法取得用户确认 → 默认阻断
