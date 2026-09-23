@@ -159,12 +159,20 @@ channel:
 prompt_injection:
   skip_keyword: "no-trellis"   # "" disables the escape hatch entirely
 
-# Auto-detected monorepo packages
-# 项目包映射：只有主扩展代码一个包。
+# 项目包映射：主扩展代码 + 一个 polyrepo 依赖仓库。
 # `third/` 下（godot-cpp、quickjs-ng 等）是**纯外部依赖子模块**（pinned 上游、不由本仓维护），
 # 不登记为 package、不设独立 spec 层；我方对它们的使用约束写进 `.trellis/spec/godotjs-ext/`。
+#
+# `GodotJS-Dependencies/` 是**由我方维护**的依赖构建仓库（自有 CI、自有 release），以独立
+# git 仓落在工作区内、被 .gitignore 排除（**故意不做 submodule**：主项目只消费它的 release
+# 产物 URL，不做源码路径引用，子模块的 pinned commit 会造成"版本一致"的假象——产物实际由
+# release tag 决定）。登记为 polyrepo package（`git: true`）只为让 trellis 识别其独立 git
+# 上下文并允许任务归属，不参与本仓构建图。
 # spec 层按包组织：.trellis/spec/<包>/<层>/index.md
 packages:
   godotjs-ext:
     path: .
+  GodotJS-Dependencies:
+    path: ./GodotJS-Dependencies
+    git: true
 default_package: godotjs-ext

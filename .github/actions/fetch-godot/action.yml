@@ -76,6 +76,21 @@ runs:
           unzip -o godot/godot.zip -d "$GODOT_TARGET/"
           chmod +x "$GODOT_TARGET"/Godot* 2>/dev/null || true
         fi
-        GODOT_BIN=$(find "$GODOT_TARGET" -maxdepth 1 -name 'Godot*' -type f | head -1)
+        GODOT_BIN=""
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          # The macOS asset is a Godot.app bundle, not a bare executable, so the
+          # engine lives inside Contents/MacOS and the -type f probe below
+          # matches nothing.
+          GODOT_APP=$(find "$GODOT_TARGET" -maxdepth 1 -name '*.app' -type d | head -1)
+          if [ -n "$GODOT_APP" ]; then
+            GODOT_BIN="$GODOT_APP/Contents/MacOS/Godot"
+          fi
+        else
+          GODOT_BIN=$(find "$GODOT_TARGET" -maxdepth 1 -name 'Godot*' -type f | head -1)
+        fi
+        if [ -z "$GODOT_BIN" ] || [ ! -f "$GODOT_BIN" ]; then
+          echo "could not locate the extracted Godot engine under $GODOT_TARGET" >&2
+          exit 1
+        fi
         echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
         echo "Using GODOT=$GITHUB_WORKSPACE/$GODOT_BIN"

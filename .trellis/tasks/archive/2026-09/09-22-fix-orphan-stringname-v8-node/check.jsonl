@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收复核：两腿 orphan 判据与完整 TS/doctest 套件执行口径"}
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "复核 C++ 改动是否违反对象生命周期与既有模式"}

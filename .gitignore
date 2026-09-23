@@ -91,3 +91,6 @@ CMakeUserPresets.json
 
 # codegen 黄金基线（本地自持，不入库）
 .codegen-baseline/
+
+# dependencies
+GodotJS-Dependencies/

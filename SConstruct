@@ -85,12 +85,22 @@ jsb_platform = "linux" if env["platform"] == "linuxbsd" else env["platform"]
 jsb_arch = env["arch"]
 
 # Dependencies
-deps_release_tag = "1.1"
+#
+# lws / v8 / libnode all come from a single release of our own
+# GodotJS-Dependencies repository (see .trellis/spec/godotjs-ext/build/dependencies.md
+# before changing any of this). download_dependency() requests
+# "{name}_{version}.zip" from below, so every *_version constant must match the
+# asset name in the release byte for byte:
+#   v8_<deps_v8_version>.zip       -> v8_12.4.254.21.zip   (contains top-level v8/)
+#   lws_<deps_lws_version>.zip     -> lws_4.3.zip          (contains top-level lws/)
+#   node_<deps_node_version>.zip   -> node_v24.x.zip       (contains top-level libnode/)
+# libnode is published as the "node_<ref>.zip" asset, hence deps_node_version is
+# the node *branch ref* ("v24.x") rather than a released node version number.
+deps_release_tag = "260924-node-libuv-console"
 deps_v8_version = "12.4.254.21"
 deps_lws_version = "4.3"
-deps_node_version = "24.18.0"
-deps_url = "https://github.com/godotjs/GodotJS-Dependencies/releases"
-deps_node_url = "https://github.com/moluopro/libnode/releases/download"
+deps_node_version = "v24.x"
+deps_url = "https://github.com/Daylily-Zeleen/GodotJS-Dependencies/releases"
 
 class LibraryDetails:
     def __init__(self, platform, arch, libname, delimiter, custom_platform_base = None):
@@ -134,11 +144,15 @@ v8_prebuilt_libs = LibraryDescriptor("v8", [
 # libnode: Node.js as a static library (embeds V8). Prebuilt archives must be placed at
 # third/libnode/<platform>_<arch>_release/libnode.{lib,a} with headers at third/libnode/include.
 def _libnode_platform_base(details: LibraryDetails):
-    arch_map :dict = {
-        "x86_64": "x64",
-        "arm64": "arm64",
-    }
-    return f"{details.platform}{details.delimiter}{arch_map[details.arch]}"
+    # Arch spelling of the published libnode layout. It is the node-native "x64"
+    # ONLY on Windows (that is what node's gyp build emits); every other platform
+    # uses the portable "x86_64" spelling. This mirrors GodotJS-Dependencies
+    # scripts/verify_artifacts.py:node_dir(), which validates the staged release
+    # tree - if these two disagree the download succeeds and validate_library_support
+    # silently returns None, so the build dies with "libnode prebuild lib is not
+    # found" on a package that is actually fine.
+    arch = "x64" if (details.platform == "windows" and details.arch == "x86_64") else details.arch
+    return f"{details.platform}{details.delimiter}{arch}"
 node_prebuilt_libs = LibraryDescriptor("libnode", [
     LibraryDetails("windows", "x86_64", "libnode.lib", "/", _libnode_platform_base),
     LibraryDetails("linux", "x86_64", "libnode.a", "/", _libnode_platform_base),
@@ -330,12 +344,12 @@ node_support = None
 if env.get("use_node", False):
     if not is_library_supported(node_prebuilt_libs):
         check(False, "libnode prebuilt is not supported for this platform/arch. See plan (Phase 1) for supported targets.")
-    node_url = f"{deps_node_url}/{deps_node_version}/libnode.zip"
-    download_dependency("node", deps_node_version, f"{third_folder_name}/libnode", url_override=node_url)
+    download_dependency("node", deps_node_version, f"{third_folder_name}/libnode")
     node_support = validate_library_support(node_prebuilt_libs)
     check(node_support is not None, "libnode prebuild lib is not found.")
-    if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
-        download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
+    # No lws download here: lws_support is always None in node mode (see below),
+    # so the archive would never be linked. libnode embeds V8 and the debugger
+    # bridge is compiled out under `#if JSB_WITH_LWS && JSB_WITH_V8`.
 
 use_quickjs = None if node_support is not None else (f"{third_folder_name}/quickjs" if env.get("use_quickjs", False) else (f"{third_folder_name}/quickjs-ng" if env.get("use_quickjs_ng", False) else None))
 jsc_support = None if node_support is not None else ("jsc" if env.get("use_jsc", False) and use_quickjs is None else None)
@@ -343,9 +357,9 @@ quickjs_support = get_thirdparty_support(quickjs_src_descs, use_quickjs)
 
 if node_support is None and quickjs_support is None and jsc_support is None and is_library_supported(v8_prebuilt_libs):
     download_dependency("v8", deps_v8_version, f"{third_folder_name}/v8")
-    # TEMPORARY (see TODO.md): linux prebuilt lws is not PIC and cannot be linked into a
-    # shared library. Disable lws on linux until a PIC build is available.
-    if is_library_supported(lws_prebuilt_libs) and jsb_platform != "linux":
+    # The linux lws prebuilt is PIC now (built with CMAKE_POSITION_INDEPENDENT_CODE=ON
+    # by our own GodotJS-Dependencies CI), so it can be linked into a shared library.
+    if is_library_supported(lws_prebuilt_libs):
         download_dependency("lws", deps_lws_version, f"{third_folder_name}/lws")
 
 if node_support is not None:
@@ -371,9 +385,12 @@ if v8_support is not None and jsb_platform == "ios" and env.get('ios_simulator',
 if v8_support is not None and jsb_platform == "macos" and jsb_arch == "universal":
     check(False, "v8 prebuilt does not support macOS universal builds (only per-arch arm64/x86_64 are available). "
                  "Use arch=arm64 or arch=x86_64, or pick quickjs-ng/jsc for universal builds.")
-# TEMPORARY (see TODO.md): disable lws on linux (prebuilt lib is not PIC).
-# In node mode lws is disabled too (avoids cross-linking v8 symbols against libnode).
-lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and node_support is None and jsb_platform != "linux" else None
+# lws covers linux too: the prebuilt comes from our own GodotJS-Dependencies CI,
+# which builds linux with CMAKE_POSITION_INDEPENDENT_CODE=ON, so it links into a
+# shared library (see dependencies.md). In node mode lws stays off: it would
+# cross-link a second V8's symbols against libnode, and the debugger bridge that
+# consumes it is compiled out there anyway.
+lws_support = validate_library_support(lws_prebuilt_libs) if v8_support is not None and node_support is None else None
 
 jsb_defines = [
     CompileDefines("JSB_USE_TYPESCRIPT", 1 if env.get("use_typescript", True) else 0),
@@ -777,8 +794,7 @@ if lws_support is not None:
         env.Append(LIBS=[File(os.path.join(third_dir, "lws", lws_basename, "websockets_static.lib"))])
         env.Append(LIBS=["ws2_32.lib"])
     elif jsb_platform == "linux":
-        # NOTE: lws is disabled on linux (see TODO.md) because the prebuilt lib is not PIC.
-        pass
+        env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
     elif jsb_platform == "macos":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
@@ -985,6 +1001,33 @@ if env["target"] == "editor":
         ('JSB_EDITOR_LIB_BUILD', 1),
         ('JSB_RUNTIME_LIB_BUILD', 0),
     ])
+    # The editor extension has no JS engine of its own: nothing under src/editor,
+    # src/api_tool, src/compat or src/editor/codegen references libuv/node/v8 (the
+    # only v8:: mentions in the shared src/internal headers sit inside macros that
+    # expand in src/runtime/bridge, which this target does not compile). libnode
+    # reaches it only because /WHOLEARCHIVE is appended to the base env above and
+    # Clone() inherits it. Pulling the whole archive in costs ~95MB and, worse,
+    # gives this DLL its own libuv copy: uv__console_init queues two
+    # never-returning work items whose pending callbacks pin the module, so the DLL
+    # can never be unloaded and its godot-cpp class names are reported as orphan
+    # StringNames. Drop libnode from the editor target.
+    if node_support is not None:
+        editor_build_env['LIBS'] = [lib for lib in editor_build_env['LIBS']
+                                    if 'libnode' not in str(lib)]
+        # On Windows the archive arrives as a single "/WHOLEARCHIVE:<path>" flag, but
+        # on linux/macos it arrives as three entries: "-Wl,--whole-archive",
+        # "<abs path>/libnode.a", "-Wl,--no-whole-archive". Dropping only the wrapper
+        # flags would leave the bare archive path on the link line, where the linker
+        # treats it as an ordinary archive and pulls libnode into this DLL anyway -
+        # silently reintroducing the orphan StringNames the block above removes.
+        # Match on the archive path itself, so every platform drops the same thing.
+        editor_build_env['LINKFLAGS'] = [
+            flag for flag in editor_build_env['LINKFLAGS']
+            if '/WHOLEARCHIVE' not in str(flag).upper()
+            and '--whole-archive' not in str(flag)
+            and '-force_load' not in str(flag)
+            and 'libnode' not in str(flag)
+        ]
     editor_library = editor_build_env.SharedLibrary(
         "bin/{}/{}".format(env['platform'], editor_libname),
         source=editor_sources,

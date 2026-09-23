@@ -956,9 +956,9 @@ async function main(): Promise<void> {
     const needsHostV8 = isRuntimeSelected("host-v8") || needsAnyWeb;
     const needsHostQjs = isRuntimeSelected("host-qjs");
     const needsHostJscRequested = isRuntimeSelected("host-jsc");
-    // host-node is only built on Windows CI (libnode is only linked there).
-    const needsHostNodeRequested = isRuntimeSelected("host-node");
-    const needsHostNode = needsHostNodeRequested && isWindows;
+    // host-node has no per-platform gate: libnode is linked on windows, linux and
+    // macos (see the CI build matrix), and the matrix only schedules those runners.
+    const needsHostNode = isRuntimeSelected("host-node");
     const needsHostJsc = needsHostJscRequested && isMac;
 
     if (needsHostJscRequested && !isMac) {
@@ -989,9 +989,7 @@ async function main(): Promise<void> {
         hostRuns.push({ runtime: "host-jsc", binary: hostJscBinary });
     }
 
-    if (needsHostNodeRequested && !isWindows) {
-        results.push({ runtime: "host-node", status: "FAIL", error: "host-node runtime is only available on Windows" });
-    } else if (needsHostNode) {
+    if (needsHostNode) {
         hostRuns.push({ runtime: "host-node", binary: resolveGodotExecutable() });
     }
 

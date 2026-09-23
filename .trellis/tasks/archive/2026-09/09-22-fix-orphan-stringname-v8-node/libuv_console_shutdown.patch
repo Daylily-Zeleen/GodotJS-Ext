@@ -1,0 +1,264 @@
+diff --git a/deps/uv/src/uv-common.c b/deps/uv/src/uv-common.c
+index f1e8928d..ae947750 100644
+--- a/deps/uv/src/uv-common.c
++++ b/deps/uv/src/uv-common.c
+@@ -979,6 +979,9 @@ void uv_library_shutdown(void) {
+ 
+   uv__process_title_cleanup();
+   uv__signal_cleanup();
++#ifdef _WIN32
++  uv__tty_console_cleanup();
++#endif
+ #ifdef __MVS__
+   /* TODO(itodorov) - zos: revisit when Woz compiler is available. */
+   uv__os390_cleanup();
+diff --git a/deps/uv/src/uv-common.h b/deps/uv/src/uv-common.h
+index 5452a549..9909afeb 100644
+--- a/deps/uv/src/uv-common.h
++++ b/deps/uv/src/uv-common.h
+@@ -239,6 +239,7 @@ void uv__timer_close(uv_timer_t* handle);
+ void uv__process_title_cleanup(void);
+ void uv__signal_cleanup(void);
+ void uv__threadpool_cleanup(void);
++void uv__tty_console_cleanup(void);
+ 
+ #define uv__has_active_reqs(loop)                                             \
+   ((loop)->active_reqs.count > 0)
+diff --git a/deps/uv/src/win/tty.c b/deps/uv/src/win/tty.c
+index 66ca99cd..221414a1 100644
+--- a/deps/uv/src/win/tty.c
++++ b/deps/uv/src/win/tty.c
+@@ -131,6 +131,15 @@ static int uv__tty_console_width = -1;
+ static HANDLE uv__tty_console_resized = INVALID_HANDLE_VALUE;
+ static uv_mutex_t uv__tty_console_resize_mutex;
+ 
++/* GodotJS-Ext: the two resize callbacks below never return, and a pending
++ * work-item callback keeps a reference on this module. These let
++ * uv__tty_console_cleanup() ask them to return and wait for that to happen. */
++static HANDLE uv__tty_console_stop = NULL;
++static HANDLE uv__tty_console_msg_thread = NULL;
++static HANDLE uv__tty_console_watcher_thread = NULL;
++static DWORD uv__tty_console_msg_thread_id = 0;
++static HWINEVENTHOOK uv__tty_console_hook = NULL;
++
+ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param);
+ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
+                                                   DWORD event,
+@@ -183,9 +192,12 @@ void uv__console_init(void) {
+       uv__tty_console_width = sb_info.dwSize.X;
+       uv__tty_console_height = sb_info.srWindow.Bottom - sb_info.srWindow.Top + 1;
+     }
+-    QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
+-                      NULL,
+-                      WT_EXECUTELONGFUNCTION);
++    uv__tty_console_stop = CreateEvent(NULL, TRUE, FALSE, NULL);
++    if (uv__tty_console_stop != NULL) {
++      QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
++                        NULL,
++                        WT_EXECUTELONGFUNCTION);
++    }
+   }
+   uv__tty_console_handle_in = CreateFileW(L"CONIN$",
+                                           GENERIC_READ | GENERIC_WRITE,
+@@ -2359,6 +2371,20 @@ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
+   NTSTATUS status;
+   ULONG_PTR conhost_pid;
+   MSG msg;
++  HANDLE self;
++
++  /* Publish a waitable handle to this thread so uv__tty_console_cleanup() can
++   * wait for the callback to return. */
++  self = NULL;
++  DuplicateHandle(GetCurrentProcess(),
++                  GetCurrentThread(),
++                  GetCurrentProcess(),
++                  &self,
++                  0,
++                  FALSE,
++                  DUPLICATE_SAME_ACCESS);
++  uv__tty_console_msg_thread = self;
++  uv__tty_console_msg_thread_id = GetCurrentThreadId();
+ 
+   if (pSetWinEventHook == NULL || pNtQueryInformationProcess == NULL)
+     return 0;
+@@ -2387,18 +2413,45 @@ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
+                         WT_EXECUTELONGFUNCTION) == 0)
+     return 0;
+ 
+-  if (!pSetWinEventHook(EVENT_CONSOLE_LAYOUT,
+-                        EVENT_CONSOLE_LAYOUT,
+-                        NULL,
+-                        uv__tty_console_resize_event,
+-                        (DWORD)conhost_pid,
+-                        0,
+-                        WINEVENT_OUTOFCONTEXT))
++  uv__tty_console_hook = pSetWinEventHook(EVENT_CONSOLE_LAYOUT,
++                                          EVENT_CONSOLE_LAYOUT,
++                                          NULL,
++                                          uv__tty_console_resize_event,
++                                          (DWORD)conhost_pid,
++                                          0,
++                                          WINEVENT_OUTOFCONTEXT);
++  if (uv__tty_console_hook == NULL)
+     return 0;
+ 
+-  while (GetMessage(&msg, NULL, 0, 0)) {
+-    TranslateMessage(&msg);
+-    DispatchMessage(&msg);
++  /* Wait on the stop handle as well as on messages: this thread may never have
++   * had a message queue created, in which case PostThreadMessageW() alone
++   * cannot wake it and it would never return (holding a module reference). */
++  for (;;) {
++    DWORD wait_result;
++
++    wait_result = MsgWaitForMultipleObjects(1,
++                                            &uv__tty_console_stop,
++                                            FALSE,
++                                            INFINITE,
++                                            QS_ALLINPUT);
++    if (wait_result == WAIT_OBJECT_0)
++      break;  /* stop requested */
++    if (wait_result != WAIT_OBJECT_0 + 1)
++      break;  /* wait failed: do not spin */
++
++    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
++      if (msg.message == WM_QUIT)
++        goto done;
++      TranslateMessage(&msg);
++      DispatchMessage(&msg);
++    }
++  }
++
++done:
++  /* The hook callback lives in this module: drop it before returning. */
++  if (uv__tty_console_hook != NULL && pUnhookWinEvent != NULL) {
++    pUnhookWinEvent(uv__tty_console_hook);
++    uv__tty_console_hook = NULL;
+   }
+   return 0;
+ }
+@@ -2414,10 +2467,30 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
+ }
+ 
+ static DWORD WINAPI uv__tty_console_resize_watcher_thread(void* param) {
++  HANDLE self;
++  HANDLE waits[2];
++  DWORD result;
++
++  self = NULL;
++  DuplicateHandle(GetCurrentProcess(),
++                  GetCurrentThread(),
++                  GetCurrentProcess(),
++                  &self,
++                  0,
++                  FALSE,
++                  DUPLICATE_SAME_ACCESS);
++  uv__tty_console_watcher_thread = self;
++
+   for (;;) {
+     /* Make sure to not overwhelm the system with resize events */
+     Sleep(33);
+-    WaitForSingleObject(uv__tty_console_resized, INFINITE);
++    waits[0] = uv__tty_console_resized;
++    waits[1] = uv__tty_console_stop;
++    result = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
++    /* Anything other than "resized" means stop (or error): return so the
++     * work-item reference on this module is released. */
++    if (result != WAIT_OBJECT_0)
++      break;
+     ResetEvent(uv__tty_console_resized);
+     uv__tty_console_signal_resize();
+   }
+@@ -2445,6 +2518,30 @@ static void uv__tty_console_signal_resize(void) {
+   }
+ }
+ 
++void uv__tty_console_cleanup(void) {
++  HANDLE handles[2];
++  DWORD count;
++
++  count = 0;
++  if (uv__tty_console_msg_thread != NULL)
++    handles[count++] = uv__tty_console_msg_thread;
++  if (uv__tty_console_watcher_thread != NULL)
++    handles[count++] = uv__tty_console_watcher_thread;
++  if (count == 0)
++    return;
++
++  /* Ask both callbacks to return: the watcher wakes on the stop event, the
++   * message pump returns from GetMessage() on WM_QUIT. */
++  if (uv__tty_console_stop != NULL)
++    SetEvent(uv__tty_console_stop);
++  if (uv__tty_console_msg_thread_id != 0 && pPostThreadMessageW != NULL)
++    pPostThreadMessageW(uv__tty_console_msg_thread_id, WM_QUIT, 0, 0);
++
++  /* The module reference is held until the callbacks actually return, so wait
++   * for them (bounded) instead of assuming. */
++  WaitForMultipleObjects(count, handles, TRUE, 2000);
++}
++
+ void uv_tty_set_vterm_state(uv_tty_vtermstate_t state) {
+   uv_sem_wait(&uv_tty_output_lock);
+   uv__need_check_vterm_state = FALSE;
+diff --git a/deps/uv/src/win/winapi.c b/deps/uv/src/win/winapi.c
+index 7ed08dd2..f3ca1d85 100644
+--- a/deps/uv/src/win/winapi.c
++++ b/deps/uv/src/win/winapi.c
+@@ -44,6 +44,8 @@ sProcessPrng pProcessPrng;
+ 
+ /* User32.dll function pointer */
+ sSetWinEventHook pSetWinEventHook;
++sUnhookWinEvent pUnhookWinEvent;
++sPostThreadMessageW pPostThreadMessageW;
+ 
+ /* ws2_32.dll function pointer */
+ uv_sGetHostNameW pGetHostNameW;
+@@ -73,6 +75,8 @@ void uv__winapi_init(void) {
+     sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
+     sProcessPrng pProcessPrng;
+     sSetWinEventHook pSetWinEventHook;
++    sUnhookWinEvent pUnhookWinEvent;
++    sPostThreadMessageW pPostThreadMessageW;
+     uv_sGetHostNameW pGetHostNameW;
+     sGetFileInformationByName pGetFileInformationByName;
+   } u;
+@@ -155,6 +159,10 @@ void uv__winapi_init(void) {
+   if (user32_module != NULL) {
+     u.proc = GetProcAddress(user32_module, "SetWinEventHook");
+     pSetWinEventHook = u.pSetWinEventHook;
++    u.proc = GetProcAddress(user32_module, "UnhookWinEvent");
++    pUnhookWinEvent = u.pUnhookWinEvent;
++    u.proc = GetProcAddress(user32_module, "PostThreadMessageW");
++    pPostThreadMessageW = u.pPostThreadMessageW;
+   }
+ 
+   ws2_32_module = GetModuleHandleW(L"ws2_32.dll");
+diff --git a/deps/uv/src/win/winapi.h b/deps/uv/src/win/winapi.h
+index 2f25dc55..ad0ddb73 100644
+--- a/deps/uv/src/win/winapi.h
++++ b/deps/uv/src/win/winapi.h
+@@ -4779,6 +4779,15 @@ typedef HWINEVENTHOOK (WINAPI *sSetWinEventHook)
+                        DWORD        idThread,
+                        UINT         dwflags);
+ 
++typedef BOOL (WINAPI *sUnhookWinEvent)
++                     (HWINEVENTHOOK hWinEventHook);
++
++typedef BOOL (WINAPI *sPostThreadMessageW)
++                     (DWORD idThread,
++                      UINT  Msg,
++                      WPARAM wParam,
++                      LPARAM lParam);
++
+ /* From mstcpip.h */
+ typedef struct _TCP_INITIAL_RTO_PARAMETERS {
+   USHORT Rtt;
+@@ -4829,6 +4838,8 @@ extern sProcessPrng pProcessPrng;
+ 
+ /* User32.dll function pointer */
+ extern sSetWinEventHook pSetWinEventHook;
++extern sUnhookWinEvent pUnhookWinEvent;
++extern sPostThreadMessageW pPostThreadMessageW;
+ 
+ /* api-ms-win-core-file-l2-1-4.dll function pointers */
+ extern sGetFileInformationByName pGetFileInformationByName;

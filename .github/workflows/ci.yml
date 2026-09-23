@@ -46,6 +46,7 @@ env:
   GODOT_VERSION: "tags/4.7.1-stable"
   GODOT_ASSET_LINUX: "Godot_v4.7.1-stable_linux.x86_64.zip"
   GODOT_ASSET_WINDOWS: "Godot_v4.7.1-stable_win64.exe.zip"
+  GODOT_ASSET_MACOS: "Godot_v4.7.1-stable_macos.universal.zip"
 on:
   workflow_dispatch:
   pull_request:
@@ -399,16 +400,27 @@ jobs:
             target: template_release
             engine: qjs-ng
             threads: false
-          # Node engine (Windows only for now). NOTE: node builds on
-          # macos/linux are temporarily disabled - libnode.a lacks the typeinfo
-          # symbols of v8::Value{Serializer,Deserializer}::Delegate, which our
-          # delegate subclasses reference (tracked in the local backlog).
+          # Node engine (libnode embeds V8; the standalone v8 monolith is not
+          # linked). All three desktop legs are enabled: the prebuilt libnode
+          # archive is built by our own GodotJS-Dependencies workflow, which
+          # runs scripts/node/patch_rtti.py on every platform so the Delegate
+          # RTTI symbols our serialization subclasses need are present.
           - platform: windows
             os: windows-latest
             arch: x86_64
             target: editor
             engine: node
             windows-compiler: msvc
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: editor
+            engine: node
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: editor
+            engine: node
           # JavaScriptCore engine (macOS, iOS only)
           - platform: macos
             os: macos-latest
@@ -448,11 +460,14 @@ jobs:
           path: third/v8
           key: v8-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
+      # Cache the extracted libnode tree, not "third/node": download_dependency()
+      # installs it under third/libnode (the release asset is node_<ref>.zip but
+      # its top-level directory is libnode/).
       - name: Restore Node dependency cache
         if: matrix.engine == 'node'
         uses: actions/cache@v6
         with:
-          path: third/node
+          path: third/libnode
           key: node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}
 
       # SCons cache is enabled on non-Windows platforms only. MSVC's debug info
@@ -536,7 +551,7 @@ jobs:
           echo "All release-matched legs are present."
 
   test:
-    name: Test (${{ matrix.runtime }})
+    name: Test (${{ matrix.runtime }}, ${{ matrix.os }})
     needs: build
     strategy:
       fail-fast: false
@@ -553,12 +568,20 @@ jobs:
             os: ubuntu-22.04
             artifact: linux-editor-x86_64-qjs-ng
             godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
-          # host-node runs on Windows: libnode is only linked on Windows
-          # (linux/macos builds were dropped due to missing libnode symbols)
+          # host-node runs on all three desktop platforms: libnode is linked
+          # there (see the build matrix), so the runtime leg is available.
           - runtime: host-node
             os: windows-latest
             artifact: windows-editor-x86_64-node
             godot_asset: Godot_v4.7.1-stable_win64.exe.zip
+          - runtime: host-node
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-node
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          - runtime: host-node
+            os: macos-latest
+            artifact: macos-editor-arm64-node
+            godot_asset: Godot_v4.7.1-stable_macos.universal.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -607,6 +630,13 @@ jobs:
           # `where godot` through PATHEXT, hence the .exe suffix.
           if [ "$RUNNER_OS" == "Windows" ]; then
             cp "$GODOT" "tests/bin/godot.exe"
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            # The macOS engine is Godot.app/Contents/MacOS/Godot: the binary must
+            # be invoked at its in-bundle path (a copy would lose the bundle, and
+            # a bare symlink makes CFBundleGetMainBundle resolve to the link).
+            # A wrapper keeps the exec path inside the .app.
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$GODOT" > tests/bin/godot
+            chmod +x tests/bin/godot
           else
             cp "$GODOT" "tests/bin/godot"
             chmod +x "tests/bin/godot"
@@ -712,6 +742,17 @@ jobs:
         # C++ unit tests run via --jsb-run-tests and exit on their own;
         # they are independent from the TypeScript integration tests below.
         run: |
+          # `timeout(1)` is GNU coreutils and the macOS runner image has no
+          # coreutils at all (no timeout, no gtimeout). Fall back to a perl
+          # alarm wrapper: perl is present on both Linux and macOS runners.
+          run_with_timeout() {
+            local secs="$1"; shift
+            if command -v timeout >/dev/null 2>&1; then
+              timeout "$secs" "$@"
+            else
+              perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
+            fi
+          }
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
           # and log the directory state for diagnostics. typings/ is unaffected,
@@ -721,7 +762,7 @@ jobs:
           ls project/.godot/godotjs_ext | head -20 || true
             "$GODOT" --headless --path project --jsb-run-tests
           else
-            timeout 120 "$GODOT" --headless --path project --jsb-run-tests
+            run_with_timeout 120 "$GODOT" --headless --path project --jsb-run-tests
           fi
 
       - name: Run TypeScript integration tests

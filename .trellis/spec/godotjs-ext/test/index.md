@@ -16,12 +16,90 @@
 - `--gc`：每个 case 计时前通过 JS 全局 `gc()` 请求回收（`Builtins::_gc` → `Environment::gc` → 各环境 `add_async_call(TYPE_GC_REQUEST)`）。同线程立即执行 `_on_gc_request`，其他线程入队；返回不保证 worker 已回收。跨线程生命周期回归应有界等待可观测状态，不用任意 sleep 代替完成信号。未暴露 gc 的 benchmark 构建降级 no-op 并 WARNING；`gcRequested` 只表示请求。
 - **采数纪律**：用 `python misc/bench_matrix.py --rounds 4 --out .agent_tmp/matrix` 固化流程——脚本自动执行 dll md5 前后双查（后台 scons 中途完成会即时拦截）、按日志指纹（"static binding not found" 回退警告数）验证腿身份、`gcRequested` 字段验证 `--gc` 生效、COMPLETED/exit/invalid 逐轮核验，最后产出 `report.md` 中位数表。双腿/双开关对比必须各采 ≥3 轮取中位数，且全程同一 dll；报告 JSON 的 `staticBinding` 字段不可信，dll 身份只认 md5 + 构建命令
 - 验收：exit code == 0 且无 Orphan StringName（`--verbose` 下 grep Orphan）
-- 已知遗留（不视为失败）：remove_child / queue_free / add_child 各 1 个 orphan（start.ts 的 call_deferred 方法名字面量）
 
 ## TS 集成测试前提
 
 - 先生成 api 数据（dump → api-generate，见 [codegen-baseline.md](./codegen-baseline.md) 触发链）并编译 TS（`cd project && node node_modules/typescript/bin/tsc`，**不加 `--noCheck`**；typings 缺失时先 `pnpm gen:types`），再 `godot --path ./project --verbose`
 - 结尾哨兵：`GODOTJS_TEST_PROJECT_COMPLETED` 为成功、`GODOTJS_TEST_PROJECT_FAILED:` 为失败
+
+## 验收判据：Orphan StringName = 0（v8 / node 两腿同标准）
+
+**两腿同标准，node 不豁免。** 判断一个 DLL 是否干净卸载，就看它持有的 godot-cpp 类名有没有被判 orphan。
+
+### 自查命令
+
+两腿分别 `scons`（产物字节不同）→ 分别核对 md5 → 再跑。**不要凭记忆判断当前部署的是哪条腿**。
+
+```
+cd project && godot --audio-driver Dummy --headless --path . --verbose > ../.agent_tmp/out.log 2>&1
+grep -c "Orphan StringName" ../.agent_tmp/out.log            # 必须 0
+grep -c "GODOTJS_TEST_PROJECT_COMPLETED" ../.agent_tmp/out.log # 必须 1
+grep -c "GODOTJS_TEST_PROJECT_FAILED" ../.agent_tmp/out.log    # 必须 0
+```
+
+### 机制：orphan 是"DLL 没卸载"的症状，不是类名清单问题
+
+引擎 `StringName::cleanup()` 判据为 `static_count != refcount`。godot-cpp 的 `get_class_static()`
+用函数局部 `static const StringName`（`p_static=false`），**只在该 DLL 卸载时析构**。故凡
+`cleanup()` 执行时仍映射的扩展 DLL，其全部 godot-cpp 类名必被判 orphan——**与 JS 是否使用无关**。
+所以 orphan 数 ≈ 没卸载干净的 DLL 所持有的类名总数，逐类排查是死路。
+
+### 排查顺序
+
+1. **先定位哪个 DLL 没卸载**：看 orphan 类名里含哪条腿的**专属**类名——
+   runtime：`GodotJSScript` / `GodotJSScriptLanguage` / `ResourceFormat{Loader,Saver}GodotJSScript`；
+   editor：`GodotJSEditorPlugin` / `GodotJSExportPlugin`。含哪个即哪个仍映射。
+2. **唯一 vs 重复**：两 DLL 都映射时共同引用的引擎类名会大量重复；只剩一个时几乎全唯一（可反过来验证第 1 步）。
+3. **裸宿主 LoadLibrary/FreeLibrary 计数实验**（无 Godot、无 JSB 代码运行）：一次 `LoadLibraryExW`
+   需要几次 `FreeLibrary` 才能卸载，差值即 pin 数，与运行期逻辑无关时可把范围压到加载期。
+
+### 已修的两个独立缺陷（勿重犯）
+
+- **缺陷 A（两腿共有）**：进程级静态池持有 `PropertyInfo::name` 的 StringName、无析构，活过
+  `cleanup()`。修法：`GodotJSScriptLanguage::_finish()` 里显式释放
+  （`GodotJSScriptInstanceBase::free_temporary_property_list_pool()`）。
+  **教训：进程级静态容器若持有 StringName，必须有显式释放点，不能依赖静态析构顺序。**
+- **缺陷 B（仅 node）**：libuv 在 Windows 上由 `uv__console_init` 排两条
+  `QueueUserWorkItem` 式长任务（console resize 消息循环 + watcher），两回调**永不返回**；
+  ntdll 对回调所在模块 `LdrAddRefDll`，引用随回调存续 → 2 个永久 pin → 该 DLL 进程内无法卸载。
+  修法两层：
+  1. **根因（优先）**：**只给真正需要 JS 引擎的 DLL 链 libnode**。editor 扩展**没有自己的 JS 引擎**
+     （`src/editor`、`src/api_tool`、`src/compat`、`src/editor/codegen` 内零 `uv_*`/`node::`/`napi_`/`v8::`
+     调用；共享 `src/internal` 里那几处 `v8::` 全在宏体内、展开点都在 `src/runtime/bridge`，editor 不编译）
+     ，libnode 只是因为 `/WHOLEARCHIVE` 挂在基础 env 上、editor env 由 `Clone()` 白继承才进来。
+     `SConstruct` 里从 editor 目标剔除 libnode → editor dll **99.7MB → 5.1MB**、`uv_*` 导出
+     **318 → 0**，它那份 libuv 不再存在，pin 自然消失，**editor 源码无需任何改动**。
+     runtime 腿确实要用 libnode（无法剔除），靠第 2 点收口。
+  2. ~~runtime 侧再补一次直接调用~~ —— **已实测不必要，勿加**。打过补丁的 libnode 已把
+     `uv__tty_console_cleanup()` 挂在 `uv_library_shutdown()` 里（`uv-common.c` 的 `#ifdef _WIN32`
+     分支），而 node 腿的 `GlobalInitialize::shutdown()` 本来就在调 `uv_library_shutdown()`。
+     A/B 实测：撤掉额外直接调用后 orphan 仍为 **0**（runtime dll 确实重编，
+     md5 `27e27ff952e0e1e152eb64f500dcaa97` ≠ 含调用的 `04755c01bbd43e0c0caf83f4304c32f8`）。
+     多加那行只会让 node 腿**硬依赖**补丁符号——官方未打补丁的 libnode 将**链接失败**。
+     保持"不引用补丁符号"则补丁是**可选**的：不打补丁也能编译，只是 orphan 回到非零。
+
+  **教训：给"不需要"的 DLL 灌 `/WHOLEARCHIVE` 不只是体积代价**——第三方静态库会在那个 DLL 里留下
+  自己的运行时（线程、全局状态），把卸载语义也一起带过来。判断该不该链，看该目标的源码是否真的引用
+  它的符号，而不是"反正基础 env 已经配好了"。
+
+### 已否定方案（勿重试）
+
+- **改 godot-cpp `get_class_static()` 为 `p_static=true`**：实测 orphan 不降。
+- ~~**只依赖 `uv_library_shutdown()` 来停线程**~~ —— **此条是错的，勿采信**（详细见下）。
+  它源自裸宿主计数实验（`.agent_tmp/freeloop.ps1`），而那个探针**根本没调用过**
+  `uv_library_shutdown()`——用"从未触发"证明"触发了也没用"是无效推理。
+  后续 A/B 反证：runtime 侧仅靠 `uv_library_shutdown()`（node 腿 `GlobalInitialize::shutdown()`
+  本来就调它）即 orphan=0。真正没修好的一直是 editor DLL——它自己那份 libuv 从没人停过。
+  **教训：否定一个方案前先确认实验真的覆盖了它；做不到负向控制时要写明"未证实"而不是"已否定"。**
+  另注：`uv_library_shutdown()` 确有 one-shot 标志，node 的 `environment.cc` 也会调它；
+  在需要**更早/另行**停线程时它可能已被消费——这是"要不要额外直接调"的考量点，但与上面那条误判无关。
+- **靠"日志没输出"判定某段代码没执行**：`VeryVerbose` 在 dev 构建下被**编译期裁掉**
+  （`jsb.config.h` 的 `JSB_MIN_LOG_LEVEL=Verbose`，而 `jsb_log_severity.def.h` 里
+  `DEF(VeryVerbose)` 排在 `DEF(Verbose)` **之前** → 级别更低）。所以
+  `JSB_LOG(VeryVerbose, ...)` 无输出**不能**证明该分支没跑——本次据此误判
+  "`_finish()` 不执行"，而缺陷 A 的修复正在 `_finish()` 里且实测生效，直接反证它**确实执行**。
+  判执行与否要用会被输出的级别（`Info` 及以上）或可观测副作用，不要用 `VeryVerbose`。
+- **DLL 内部挂钩 loader API**（含 `.CRT$XIB` 最早初始化点）：稳定触发 `ERROR_DLL_INIT_FAILED (1114)`。
 
 ## 跨环境通信测试后端选择
 

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收判据：Orphan StringName=0 的两腿统一标准与自查命令（本任务 AC1/AC2/AC4 直接对齐该文件）"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "构建约束：只能用规范 scons 组合、禁止 --clean；两腿 dll 分别构建并核对 md5"}
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "C++ 层编码规范：改动 src/internal、src/runtime/weaver 时遵循"}
