@@ -183,12 +183,14 @@ inline bool to_bool(v8::Isolate *p_isolate, const ValueT &p_val, bool &r_val) {
 }
 
 // int64 -> JS: int32 when it fits, BigInt beyond +-2^53, Number otherwise.
+// `JSB_BIGINT_FOR_64BIT=0` drops the BigInt arm: the value leaves as a `Number`
+// and loses low bits above 2^53, which is the pre-BigInt behaviour.
 inline v8::Local<v8::Value> new_integer(v8::Isolate *p_isolate, const int64_t p_val) {
 	if (const int32_t downscale = (int32_t)p_val;
 			(int64_t)downscale == p_val) {
 		return v8::Int32::New(p_isolate, downscale);
 	}
-#if JSB_WITH_BIGINT
+#if JSB_BIGINT_FOR_64BIT
 	if (p_val > JSB_MAX_SAFE_INTEGER || p_val < -JSB_MAX_SAFE_INTEGER) {
 		return v8::BigInt::New(p_isolate, p_val);
 	}
@@ -197,11 +199,12 @@ inline v8::Local<v8::Value> new_integer(v8::Isolate *p_isolate, const int64_t p_
 }
 
 // uint64 -> JS: unsigned, so a value with bit 63 set stays positive.
+// Same switch: without it the value leaves as a `Number`.
 inline v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *p_isolate, const uint64_t p_val) {
 	if (p_val <= (uint64_t)INT32_MAX) {
 		return v8::Int32::New(p_isolate, (int32_t)p_val);
 	}
-#if JSB_WITH_BIGINT
+#if JSB_BIGINT_FOR_64BIT
 	if (p_val > (uint64_t)JSB_MAX_SAFE_INTEGER) {
 		return v8::BigInt::NewFromUnsigned(p_isolate, p_val);
 	}

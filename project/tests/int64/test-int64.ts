@@ -1,15 +1,28 @@
-// 64-bit integer coverage, both directions, shared by both binding legs
-// (static / dynamic).
+// 64-bit integer coverage, both directions.
+//
+// Two axes this scenario has to cover without being rebuilt per configuration:
+//
+//   - binding leg (static / shared / dynamic) -- the whole point of task A/B.
+//   - `JSB_BIGINT_FOR_64BIT` (jsb.config.h), exported to JS as `BIGINT_FOR_64BIT`.
+//     On (the default): a 64-bit value above 2^53-1 leaves Godot as a `BigInt`,
+//     so an ObjectID round trip is lossless. Off: it leaves as the lossy
+//     `Number` -- exactly the behaviour from before this work. Either way the
+//     JS -> Godot direction must not start throwing, which is what the write
+//     section pins.
 //
 // The generated typings declare `type uint64 = number /* || bigint */` and
 // `type int64 = number` -- the BigInt arm is commented out because the
 // declarations predate this fix. Every BigInt crossing that boundary is marked
 // explicitly below rather than weakening the assertions with `any`.
 import { Node, PackedByteArray, Resource, StreamPeerBuffer, instance_from_id, is_instance_id_valid } from "godot";
+import { BIGINT_FOR_64BIT } from "godot-jsb";
 import { reportTestFailure } from "../test-status";
 
 /** 2^53-1: the largest integer a JS Number represents exactly. */
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+/** The `JSB_BIGINT_FOR_64BIT` position this binary was built with. */
+const BIGINT_MODE = BIGINT_FOR_64BIT;
 
 /**
  * Typings boundary: a 64-bit slot is declared `number` but accepts a BigInt at
@@ -23,6 +36,15 @@ function asSlot(v: bigint): number {
 /** Reinterpret any 64-bit result as its unsigned bit pattern, for comparison. */
 function asUint64(v: number | bigint): bigint {
 	return BigInt.asUintN(64, typeof v === "bigint" ? v : BigInt(v));
+}
+
+/**
+ * The unsigned bit pattern a value leaves Godot as when `JSB_BIGINT_FOR_64BIT`
+ * is off: the engine writes `Number::New((double)v)`, so the low bits are gone.
+ * `Number()` on these values is always integral, so `BigInt()` is safe.
+ */
+function lossy64(v: bigint): bigint {
+	return BigInt.asUintN(64, BigInt(Number(v)));
 }
 
 /** Names the pad-to-16-digits hex form used in every failure detail. */
@@ -51,7 +73,7 @@ const I64_CASES: SlotCase[] = [
 	{ label: "-(2^53-1)", value: -BigInt("9007199254740991") },
 	{ label: "-2^53", value: -BigInt("9007199254740992") },
 	{ label: "INT64_MIN+1", value: BigInt("-9223372036854775807") },
-	{ label: "INT64_MIN", value: BigInt("-9223372036854775808") },
+	{ label: "INT64_MIN", value: -BigInt("9223372036854775808") },
 ];
 
 // Plain-number inputs that are exactly representable as a double. 2^63 is a
@@ -64,12 +86,15 @@ const NUMBER_FORM_CASES: SlotCase[] = [
 
 // Every assertion this scenario must make. Hardcoded (not derived from the case
 // arrays) so that deleting a case shows up as a failure instead of silently
-// shrinking the suite.
+// shrinking the suite. The readback typeof/bit assertions are mode-dependent, so
+// the two positions have different totals; the write section is identical in
+// both (the switch only governs what leaves Godot).
+//
 // Narrow-slot range rejection is not asserted here: the reflect path never
 // range-checked narrow metas (a pre-existing divergence, out of scope), so a
 // leg-agnostic assertion would be red on `dynamic`. `test_jsb_int64_conv.h`
 // covers `JSToGD<int8_t> / <uint8_t> / <char32_t>` at the converter instead.
-const EXPECTED_CHECKS = 49;
+const EXPECTED_CHECKS = BIGINT_MODE ? 49 : 44;
 
 let checks = 0;
 
@@ -138,11 +163,15 @@ export default class Int64 extends Node {
 				for (const { label, value } of U64_CASES) {
 					const got = readBackU64(spb, value);
 					if (value > MAX_SAFE) {
-						// AC1.2: above the safe range it must leave as a BigInt.
-						check(`u64 ${label} typeof`, typeof got === "bigint", `got ${typeof got}`);
+						// AC1.2 / AC3.3: above the safe range it leaves as a BigInt
+						// when the switch is on, and as the lossy Number when off.
+						const expected = BIGINT_MODE ? "bigint" : "number";
+						check(`u64 ${label} typeof`, typeof got === expected, `got ${typeof got}, want ${expected}`);
 					}
-					// AC1.2: and carry its exact bits, not a rounded value.
-					check(`u64 ${label} bits`, asUint64(got) === value, `${hex64(got)} != ${hex64(value)}`);
+					// AC1.2: and carry exactly the bits the slot holds -- the value
+					// itself when the switch is on, its double rounding when off.
+					const want = BIGINT_MODE ? value : lossy64(value);
+					check(`u64 ${label} bits`, asUint64(got) === want, `${hex64(got)} != ${hex64(want)}`);
 				}
 			});
 
@@ -151,19 +180,23 @@ export default class Int64 extends Node {
 				for (const { label, value } of I64_CASES) {
 					const got = readBackI64(spb, value);
 					// AC1.3: within the safe range it stays a Number; beyond it a
-					// BigInt. The signed direction is the one that used to be
-					// rounded regardless of magnitude.
-					const expected = value >= -MAX_SAFE ? "number" : "bigint";
+					// BigInt (switch on) or the lossy Number (switch off). The
+					// signed direction is the one that used to be rounded
+					// regardless of magnitude.
+					const inSafeRange = value >= -MAX_SAFE;
+					const expected = inSafeRange || !BIGINT_MODE ? "number" : "bigint";
 					check(`i64 ${label} typeof`, typeof got === expected, `got ${typeof got}, want ${expected}`);
-					check(`i64 ${label} bits`, asUint64(got) === asUint64(value), `${hex64(got)} != ${hex64(value)}`);
+					const want = BIGINT_MODE ? asUint64(value) : lossy64(value);
+					check(`i64 ${label} bits`, asUint64(got) === want, `${hex64(got)} != ${hex64(want)}`);
 				}
 			});
 
 			section("u64 write", () => {
-				// AC2.1: the static leg used to reject everything >= 2^63 (a
+				// AC2.1 / AC3.2: the static leg used to reject everything >= 2^63 (a
 				// `wide < 0 -> false` early return), while the dynamic vararg leg
 				// wrote those same bytes. Both legs must now write `v mod 2^64`,
-				// identically.
+				// identically -- and the output switch must NOT affect this
+				// direction, so the bytes are exact in both positions.
 				const spb = new StreamPeerBuffer();
 				for (const { label, value } of U64_CASES) {
 					const viaStatic = writeU64(spb, asSlot(value), false);
@@ -201,33 +234,40 @@ export default class Int64 extends Node {
 			section("ObjectID round-trip", () => {
 				// AC1.1: the ordinary handle round-trip has to work. `this` is a
 				// live Node already in the tree, so the case needs no allocation
-				// and no explicit free.
+				// and no explicit free. A non-RefCounted id is small, so it stays
+				// a Number in both switch positions.
 				const selfId: number | bigint = this.get_instance_id();
-				// AC1.3: a non-RefCounted id is small, so it must stay a Number --
-				// the fix must not turn every id into a BigInt.
 				check("Node id typeof", typeof selfId === "number", `got ${typeof selfId}`);
 				check("Node id valid", is_instance_id_valid(asSlot(BigInt(selfId))));
 				check("Node id round-trip", instance_from_id(asSlot(BigInt(selfId))) === this);
 
-				// RefCounted ids set bit 63 (`is_ref_counted`), so this is the
-				// case that used to be silently corrupted.
+				// RefCounted ids set bit 63 (`is_ref_counted`), so this is the case
+				// that used to be silently corrupted.
 				const res = new Resource();
 				const resId: number | bigint = res.get_instance_id();
-				// AC1.4: it must leave unsigned, i.e. a positive BigInt.
-				check("Resource id typeof", typeof resId === "bigint", `got ${typeof resId}`);
-				check("Resource id positive", typeof resId === "bigint" && resId > 0n, `got ${String(resId)}`);
-				check("Resource id bit63", asUint64(resId) >> 63n === 1n, `bits ${hex64(resId)}`);
-				check("Resource id valid", is_instance_id_valid(asSlot(asUint64(resId))));
-				check("Resource id round-trip", instance_from_id(asSlot(asUint64(resId))) === res);
+				if (BIGINT_MODE) {
+					// AC1.4: it must leave unsigned, i.e. a positive BigInt.
+					check("Resource id typeof", typeof resId === "bigint", `got ${typeof resId}`);
+					check("Resource id positive", typeof resId === "bigint" && resId > 0n, `got ${String(resId)}`);
+					check("Resource id bit63", asUint64(resId) >> 63n === 1n, `bits ${hex64(resId)}`);
+					check("Resource id valid", is_instance_id_valid(asSlot(asUint64(resId))));
+					check("Resource id round-trip", instance_from_id(asSlot(asUint64(resId))) === res);
 
-				// Independently confirmed against `to_string()`, which formats the
-				// id through `itos` -- a path with no double in it, so it is the
-				// lossless reference. `itos` prints the *signed* view while
-				// `resId` is now unsigned, so both sides are normalized to their
-				// bit pattern before comparing.
-				const exactText: string = res.to_string();
-				const exactId = exactText.replace(/^.*#/, "").replace(/>$/, "");
-				check("Resource id exact bits", asUint64(BigInt(exactId)) === asUint64(resId), `${hex64(BigInt(exactId))} != ${hex64(resId)}`);
+					// Independently confirmed against `to_string()`, which formats
+					// the id through `itos` -- a path with no double in it, so it is
+					// the lossless reference. `itos` prints the *signed* view while
+					// `resId` is now unsigned, so both sides are normalized to their
+					// bit pattern before comparing.
+					const exactText: string = res.to_string();
+					const exactId = exactText.replace(/^.*#/, "").replace(/>$/, "");
+					check("Resource id exact bits", asUint64(BigInt(exactId)) === asUint64(resId), `${hex64(BigInt(exactId))} != ${hex64(resId)}`);
+				} else {
+					// AC3.3: with the switch off the id leaves as a `Number`, so it
+					// is lossy and the round trip is no longer guaranteed (that is
+					// the pre-BigInt behaviour, and AC3.2 allows it to fail). The
+					// assertion is therefore only the representation.
+					check("Resource id typeof", typeof resId === "number", `got ${typeof resId}`);
+				}
 			});
 		} finally {
 			// No quit() here: start.ts owns scene teardown and the completion
@@ -236,7 +276,7 @@ export default class Int64 extends Node {
 			if (checks !== EXPECTED_CHECKS) {
 				reportTestFailure("int64 coverage", `${String(checks)} checks ran, expected exactly ${String(EXPECTED_CHECKS)}`);
 			}
-			console.warn(`INT64-DIAG checks=${String(checks)} expected=${String(EXPECTED_CHECKS)}`);
+			console.warn(`INT64-DIAG checks=${String(checks)} expected=${String(EXPECTED_CHECKS)} bigint=${String(BIGINT_MODE)}`);
 		}
 	}
 }

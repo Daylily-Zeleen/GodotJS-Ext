@@ -47,6 +47,13 @@ declare module "godot-jsb" {
     const TOOLS_ENABLED: boolean;
     const BINDING_MODE: "static" | "shared" | "dynamic";
 
+    /**
+     * `JSB_BIGINT_FOR_64BIT` (jsb.config.h): whether a 64-bit integer leaving
+     * Godot above 2^53-1 is emitted as `BigInt` (true) or the lossy `Number`
+     * (false). It only affects the Godot -> JS direction.
+     */
+    const BIGINT_FOR_64BIT: boolean;
+
     /** version of GodotJS */
     const version: string;
 

@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/09-06-lowprio-uint64-bigint-codegen/design.md", "reason": "共享技术方案：目标语义、逐文件改动点、五引擎原语表"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "ptrcall 编码/EncodeT/参数内存规则"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/任务流程硬约束"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "C++ 套件形态与注册表规则（本任务需新增 C++ 用例）"}

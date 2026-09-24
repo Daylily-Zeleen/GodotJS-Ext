@@ -1,0 +1,28 @@
+{
+  "id": "uint64-bigint-switch",
+  "name": "uint64-bigint-switch",
+  "title": "BigInt 开关语义收口（独立宏）",
+  "description": "新增独立宏控制 64 位整数是否以 BigInt 表示；开关只管出口表示，入口两种模式都不抛异常；与现有 JSB_WITH_BIGINT 解耦",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "godotjs-ext",
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-09-24",
+  "completedAt": null,
+  "branch": "feature/int64",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-uint64-bigint-codegen",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}
