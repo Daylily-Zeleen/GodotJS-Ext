@@ -467,32 +467,67 @@ jobs:
           name: scripts-out
           path: scripts/out
 
-      # Fast path for dependency iteration: use the per-platform artifacts a
-      # GodotJS-Dependencies CI run produced, so a fix can be verified in minutes
-      # instead of waiting for the full multi-hour release build. Those artifacts
-      # hold that repo's staging/ tree (libnode/, v8/, lws/), which is exactly the
-      # layout third/ expects, so no repacking is needed.
+      # Fast path for dependency iteration: pull the per-platform bundles from a
+      # GodotJS-Dependencies run's ci-<run id> release, so a dependency fix can be
+      # verified in minutes instead of waiting for the multi-hour full bundle.
+      # Release assets are anonymously readable, so this needs no cross-repo
+      # token, unlike workflow artifacts.
       - name: Fetch dependencies from a GodotJS-Dependencies run
         if: github.event_name == 'workflow_dispatch' && inputs.deps_run != '' && contains(format(',{0},', inputs.deps_engines || 'v8,node,lws'), format(',{0},', matrix.engine))
-        env:
-          GH_TOKEN: ${{ secrets.DEPS_GITHUB_TOKEN || github.token }}
         shell: bash
+        env:
+          DEPS_REPO: Daylily-Zeleen/GodotJS-Dependencies
+          # node spells windows x64 the node-native way; v8/lws use x86_64.
+          DEPS_PLATFORM: ${{ matrix.platform }}
+          DEPS_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          mkdir -p third .deps-staging
-          # Artifact names are prebuilt_<component>_<platform>_<arch>.
+          tag="ci-${{ inputs.deps_run }}"
+          base="https://github.com/${DEPS_REPO}/releases/download/${tag}"
+          plat="${DEPS_PLATFORM}"
+          arch_v8="${DEPS_ARCH}"
+          arch_node="${DEPS_ARCH}"
+
+          fetch() { # fetch <url> <outfile>
+            echo "GET $1"
+            # Retry: the releases CDN occasionally drops a connection mid-transfer
+            # and these bundles run to hundreds of MB.
+            curl -fsSL --retry 4 --retry-delay 5 --retry-all-errors --max-time 1800 \
+              -o "$2" "$1"
+          }
+
+          want="${DEPS_ENGINES:-v8,node,lws}"
           for component in v8 node lws; do
-            echo "::group::prebuilt_${component}_${{ matrix.platform }}_${{ matrix.arch }}"
-            gh run download "${{ inputs.deps_run }}" \
-              --repo Daylily-Zeleen/GodotJS-Dependencies \
-              --name "prebuilt_${component}_${{ matrix.platform }}_${{ matrix.arch }}" \
-              --dir .deps-staging \
-              || echo "artifact not available; SCons will fall back to the release"
-            echo "::endgroup::"
+            case ",${want}," in *",${component},"*) ;; *) continue ;; esac
+            case "$component" in
+              node) asset="node_${plat}_${arch_node}.zip" ;;
+              *)    asset="${component}_${plat}_${arch_v8}.zip" ;;
+            esac
+            rm -rf ".deps-staging/${component}" && mkdir -p ".deps-staging/${component}"
+            if ! fetch "$base/$asset" "/tmp/${component}.zip"; then
+              echo "::warning::${asset} is not in ${tag}; ${component} will come from the release"
+              rm -rf ".deps-staging/${component}"
+              continue
+            fi
+            mkdir -p "third"
+            # component -> third/<dir>, which is also the zip's top-level layout.
+            case "$component" in
+              v8)  dest="third/v8" ;;
+              lws) dest="third/lws" ;;
+              node) dest="third/libnode" ;;
+            esac
+            rm -rf "$dest" && mkdir -p "$dest"
+            unzip -q "/tmp/${component}.zip" -d "$dest"
+            echo "installed ${component} -> $dest"; find "$dest" -maxdepth 2 | head -10
           done
-          find .deps-staging -maxdepth 3 -type d | head -20
-          # SConstruct skips the release download when this tree has the archive.
-          echo "GODOTJS_DEPS_STAGING=$PWD/.deps-staging" >> "$GITHUB_ENV"
+          # v8 headers are shipped once for all its legs rather than duplicated
+          # into every platform bundle.
+          if [ -d third/v8 ] && [ ! -f third/v8/include/v8.h ]; then
+            if fetch "$base/v8_include.zip" /tmp/v8_include.zip; then
+              unzip -q /tmp/v8_include.zip -d third/v8
+              echo "installed v8 include tree"
+            fi
+          fi
 
       - name: Restore V8 dependency cache
         if: matrix.engine == 'v8'
