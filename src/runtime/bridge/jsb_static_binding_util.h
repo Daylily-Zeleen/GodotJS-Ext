@@ -131,6 +131,25 @@ struct StaticBindingUtil<int64_t> {
 };
 
 template <>
+struct StaticBindingUtil<uint64_t> {
+	// for hardcoded call
+	static bool get(const v8::Local<v8::Value> &p_input, uint64_t &r_value) {
+		return impl::Helper::to_uint64(p_input, r_value);
+	}
+
+	// for template-based call
+	static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, uint64_t &r_value) {
+		return impl::Helper::to_uint64(p_input, r_value);
+	}
+
+	static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const uint64_t &p_input, v8::Local<v8::Value> &r_value) {
+		// Unsigned writer: a value with bit 63 set must not come back negative.
+		r_value = impl::Helper::new_unsigned_integer(isolate, p_input);
+		return true;
+	}
+};
+
+template <>
 struct StaticBindingUtil<int32_t> {
 	static bool get(const v8::Local<v8::Value> &p_input, int32_t &r_value) {
 		if (p_input->IsNumber()) {

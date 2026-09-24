@@ -274,5 +274,94 @@ TEST_CASE("[runtime] [jsb.int64] to_double and to_bool accept the engine's numer
 	env.reset();
 }
 
+TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead of rejecting them") {
+	GodotJSScriptLanguageIniter initer;
+	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+		const v8::Local<v8::Context> context = env->get_context();
+
+		// The regression: `js_to_fixed_width_int<uint64_t>` carried a
+		// `wide < 0 -> false` early return, so every value >= 2^63 was rejected --
+		// including plain numbers -- while the dynamic path wrote those bytes.
+		// The static and dynamic legs must now agree on the bytes.
+		const uint64_t accepted[] = {
+			0,
+			(uint64_t)JSB_MAX_SAFE_INTEGER,
+			(uint64_t)JSB_MAX_SAFE_INTEGER + 1,
+			(uint64_t)1 << 63,
+			(uint64_t)1 << 63 | 1,
+			UINT64_MAX,
+		};
+		for (const uint64_t value : accepted) {
+			uint64_t out = 0;
+			// Through a BigInt, the exact-bit form.
+			CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, value), out));
+			CHECK(out == value);
+			// And through a plain Number, which is what the old code rejected.
+			// Above 2^53 a double cannot represent every integer, so the number
+			// form is only checked where it is exact.
+			if (value <= (uint64_t)JSB_MAX_SAFE_INTEGER) {
+				CHECK(JSToGD<uint64_t>::convert(isolate, context, v8::Number::New(isolate, (double)value), out));
+				CHECK(out == value);
+			}
+		}
+
+		// `put_u64(-1)` writes 0xffffffffffffffff on both legs: a negative number
+		// wraps through the signed read, exactly like the engine's own
+		// `Variant::operator uint64_t()`.
+		{
+			uint64_t out = 0;
+			CHECK(JSToGD<uint64_t>::convert(isolate, context, v8::Number::New(isolate, -1.0), out));
+			CHECK(out == UINT64_MAX);
+			CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, -1), out));
+			CHECK(out == UINT64_MAX);
+		}
+
+		// The `StaticBindingUtil` path (used by the reflect/dynamic constructor
+		// route) must accept the same surface, and write back unsigned.
+		{
+			uint64_t out = 0;
+			CHECK(StaticBindingUtil<uint64_t>::get(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX), out));
+			CHECK(out == UINT64_MAX);
+			v8::Local<v8::Value> jv;
+			CHECK(StaticBindingUtil<uint64_t>::set(isolate, context, UINT64_MAX, jv));
+			CHECK(jv->IsBigInt());
+			CHECK(jv.As<v8::BigInt>()->Uint64Value() == UINT64_MAX);
+		}
+
+		// Non-numeric inputs are still rejected.
+		{
+			uint64_t out = 0;
+			CHECK(!JSToGD<uint64_t>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "1"), out));
+			CHECK(!JSToGD<uint64_t>::convert(isolate, context, v8::Null(isolate), out));
+		}
+
+		// Narrow slots keep their range checks: they are genuinely narrow, so a
+		// silent truncation would be the defect. `uint8_t` is the representative
+		// unsigned case, `int8_t` the signed one, `char32_t` the wide-but-narrow one.
+		{
+			uint8_t u8 = 0;
+			int8_t i8 = 0;
+			char32_t c32 = 0;
+			CHECK(JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, 255), u8));
+			CHECK(u8 == 255);
+			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, 256), u8));
+			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, -1), u8));
+
+			CHECK(JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, -128), i8));
+			CHECK(i8 == -128);
+			CHECK(!JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, 128), i8));
+			CHECK(!JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, -129), i8));
+
+			CHECK(JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, 0x10FFFF), c32));
+			CHECK(c32 == 0x10FFFF);
+			CHECK(!JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, -1), c32));
+		}
+	}
+
+	env.reset();
+}
 
 } //namespace jsb::tests

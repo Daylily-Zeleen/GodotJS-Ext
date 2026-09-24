@@ -5,7 +5,7 @@
 // `type int64 = number` -- the BigInt arm is commented out because the
 // declarations predate this fix. Every BigInt crossing that boundary is marked
 // explicitly below rather than weakening the assertions with `any`.
-import { Node, Resource, StreamPeerBuffer, instance_from_id, is_instance_id_valid } from "godot";
+import { Node, PackedByteArray, Resource, StreamPeerBuffer, instance_from_id, is_instance_id_valid } from "godot";
 import { reportTestFailure } from "../test-status";
 
 /** 2^53-1: the largest integer a JS Number represents exactly. */
@@ -54,10 +54,22 @@ const I64_CASES: SlotCase[] = [
 	{ label: "INT64_MIN", value: BigInt("-9223372036854775808") },
 ];
 
+// Plain-number inputs that are exactly representable as a double. 2^63 is a
+// power of two, so it survives the Number round-trip even though it is far
+// above 2^53; 2^63+1 would not, so it is not listed here.
+const NUMBER_FORM_CASES: SlotCase[] = [
+	{ label: "2^53 (number)", value: BigInt("9007199254740992") },
+	{ label: "2^63 (number)", value: BigInt("9223372036854775808") },
+];
+
 // Every assertion this scenario must make. Hardcoded (not derived from the case
 // arrays) so that deleting a case shows up as a failure instead of silently
 // shrinking the suite.
-const EXPECTED_CHECKS = 26;
+// Narrow-slot range rejection is not asserted here: the reflect path never
+// range-checked narrow metas (a pre-existing divergence, out of scope), so a
+// leg-agnostic assertion would be red on `dynamic`. `test_jsb_int64_conv.h`
+// covers `JSToGD<int8_t> / <uint8_t> / <char32_t>` at the converter instead.
+const EXPECTED_CHECKS = 49;
 
 let checks = 0;
 
@@ -76,6 +88,30 @@ function section(name: string, fn: () => void): void {
 		// bypass reportTestFailure and the suite would report COMPLETED.
 		reportTestFailure(name, error);
 	}
+}
+
+/** Little-endian payload of a StreamPeerBuffer, folded back into one integer. */
+function storedBits(bytes: PackedByteArray): bigint {
+	let acc = 0n;
+	for (let i = bytes.size() - 1; i >= 0; i--) {
+		acc = (acc << 8n) | BigInt(bytes.get(i) ?? 0);
+	}
+	return acc;
+}
+
+/**
+ * Writes a uint64 through one leg and returns the bytes the engine stored.
+ * Takes the typings' declared slot type (`number`); BigInt callers cross that
+ * boundary through `asSlot`, so the cast stays visible at the call site.
+ */
+function writeU64(spb: StreamPeerBuffer, value: number, viaDynamic: boolean): bigint {
+	spb.seek(0);
+	if (viaDynamic) {
+		spb.call("put_u64", value);
+	} else {
+		spb.put_u64(value);
+	}
+	return storedBits(spb.data_array);
 }
 
 /** Writes through the dynamic channel, then reads back through the static one. */
@@ -121,6 +157,45 @@ export default class Int64 extends Node {
 					check(`i64 ${label} typeof`, typeof got === expected, `got ${typeof got}, want ${expected}`);
 					check(`i64 ${label} bits`, asUint64(got) === asUint64(value), `${hex64(got)} != ${hex64(value)}`);
 				}
+			});
+
+			section("u64 write", () => {
+				// AC2.1: the static leg used to reject everything >= 2^63 (a
+				// `wide < 0 -> false` early return), while the dynamic vararg leg
+				// wrote those same bytes. Both legs must now write `v mod 2^64`,
+				// identically.
+				const spb = new StreamPeerBuffer();
+				for (const { label, value } of U64_CASES) {
+					const viaStatic = writeU64(spb, asSlot(value), false);
+					const viaDynamic = writeU64(spb, asSlot(value), true);
+					check(`write ${label} static bits`, viaStatic === value, `${hex64(viaStatic)} != ${hex64(value)}`);
+					check(`write ${label} dynamic bits`, viaDynamic === value, `${hex64(viaDynamic)} != ${hex64(value)}`);
+					check(`write ${label} legs agree`, viaStatic === viaDynamic, `${hex64(viaStatic)} != ${hex64(viaDynamic)}`);
+				}
+
+				// AC2.3: the plain-number form, unchanged below the old rejection
+				// point. Both values here are exactly representable as doubles.
+				for (const { label, value } of NUMBER_FORM_CASES) {
+					const asNumber = Number(value);
+					const viaStatic = writeU64(spb, asNumber, false);
+					const viaDynamic = writeU64(spb, asNumber, true);
+					check(`write ${label} static bits`, viaStatic === value, `${hex64(viaStatic)} != ${hex64(value)}`);
+					check(`write ${label} dynamic bits`, viaDynamic === value, `${hex64(viaDynamic)} != ${hex64(value)}`);
+				}
+
+				// AC2.2: a negative number wraps, exactly like the engine's own
+				// `Variant::operator uint64_t()`.
+				const negStatic = writeU64(spb, -1, false);
+				const negDynamic = writeU64(spb, -1, true);
+				check("write -1 static bits", negStatic === asUint64(-1), `${hex64(negStatic)}`);
+				check("write -1 dynamic bits", negDynamic === asUint64(-1), `${hex64(negDynamic)}`);
+
+				// 1e19 exceeds int64 but fits uint64; the double is exact enough
+				// that the stored bytes are deterministic and equal on both legs.
+				const bigStatic = writeU64(spb, 1e19, false);
+				const bigDynamic = writeU64(spb, 1e19, true);
+				check("write 1e19 static bits", bigStatic === BigInt("10000000000000000000"), hex64(bigStatic));
+				check("write 1e19 dynamic bits", bigDynamic === BigInt("10000000000000000000"), hex64(bigDynamic));
 			});
 
 			section("ObjectID round-trip", () => {
