@@ -469,6 +469,10 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 		const Variant::Type type = index >= method_argc
 				? Variant::Type::NIL
 				: method_info->get_argument_type((uint16_t)index);
+		// Only a declared argument carries metadata; a vararg tail has none.
+		const GDExtensionClassMethodArgumentMetadata meta = index >= method_argc
+				? GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE
+				: method_info->get_argument_metadata((uint16_t)index);
 
 		const v8::Local<v8::Value> &argument = info[index];
 
@@ -480,7 +484,7 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 				continue;
 			}
 		}
-		if (!TypeConvert::js_to_gd_var(isolate, context, argument, type, args[index])) {
+		if (!TypeConvert::js_to_gd_var(isolate, context, argument, type, meta, args[index])) {
 			// revert all constructors
 			const String error_message = jsb_errorf("Failed to call: %s. Bad argument: %d. Unable to convert JS %s to Godot %s", method_info->get_name(), index, TypeConvert::js_debug_typeof(isolate, info[index]), Variant::get_type_name(type));
 			while (index >= 0) {
@@ -508,7 +512,7 @@ void ObjectReflectBindingUtil::_godot_object_method(const v8::FunctionCallbackIn
 	v8::Local<v8::Value> jrval;
 	const Variant::Type return_type = sanitize_return_type((Variant::Type)method_info->get_return_type(), crval);
 	jsb_check(return_type == method_info->get_return_type());
-	if (TypeConvert::gd_var_to_js(isolate, context, crval, return_type, jrval)) {
+	if (TypeConvert::gd_var_to_js(isolate, context, crval, return_type, method_info->get_return_metadata(), jrval)) {
 		info.GetReturnValue().Set(jrval);
 		return;
 	}
@@ -576,7 +580,7 @@ void ObjectReflectBindingUtil::_godot_object_get2(const v8::FunctionCallbackInfo
 	v8::Local<v8::Value> jrval;
 	const Variant::Type return_type = sanitize_return_type((Variant::Type)property_info.getter_func->get_return_type(), crval);
 	jsb_check(return_type == property_info.getter_func->get_return_type());
-	if (TypeConvert::gd_var_to_js(isolate, context, crval, return_type, jrval)) {
+	if (TypeConvert::gd_var_to_js(isolate, context, crval, return_type, property_info.getter_func->get_return_metadata(), jrval)) {
 		info.GetReturnValue().Set(jrval);
 		return;
 	}
@@ -609,7 +613,8 @@ void ObjectReflectBindingUtil::_godot_object_set2(const v8::FunctionCallbackInfo
 
 	Variant cvar;
 	const Variant::Type setter_arg_type = property_info.setter_func->get_argument_type(0);
-	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], setter_arg_type, cvar)) {
+	const GDExtensionClassMethodArgumentMetadata setter_arg_meta = property_info.setter_func->get_argument_metadata(0);
+	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], setter_arg_type, setter_arg_meta, cvar)) {
 		const String error_message = jsb_errorf("Failed to set property: %s. Unable to convert provided JS %s to Godot %s",
 				property_info.setter_func->get_name(),
 				TypeConvert::js_debug_typeof(isolate, info[0]),

@@ -1,0 +1,28 @@
+{
+  "id": "uint64-bigint-return",
+  "name": "uint64-bigint-return",
+  "title": "int64/uint64 返回值不丢位（BigInt 出口）",
+  "description": "64 位整数返回值超过 2^53-1 时按 meta 出口 BigInt（uint64 走无符号），修 new_integer 单边阈值导致的 (double) 舍入；覆盖 v8/node/quickjs-ng/jsc/web",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "godotjs-ext",
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-09-24",
+  "completedAt": null,
+  "branch": "feature/int64",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-uint64-bigint-codegen",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}

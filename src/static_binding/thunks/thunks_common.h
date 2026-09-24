@@ -130,6 +130,16 @@ static _FORCE_INLINE_ bool translate_return(v8::Isolate *p_isolate, const v8::Lo
 	return true;
 }
 
+// Unsigned 64-bit returns. The signedness lives in the C++ type rather than in
+// the value -- `Ret<uint64_t>` and `Ret<int64_t>` are separate instantiations
+// (the codegen already emits them separately), so no runtime metadata is
+// needed to pick this path. It matters because an ObjectID carries
+// `is_ref_counted` in bit 63: written signed it comes back as a negative
+// BigInt, and `instance_from_id()` then receives a different id.
+static _FORCE_INLINE_ void translate_uint64_return(v8::Isolate *p_isolate, const uint64_t p_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
+	p_info.GetReturnValue().Set(impl::Helper::new_unsigned_integer(p_isolate, p_val));
+}
+
 } //namespace internal
 
 // Return metadata: builtin/utility ptrcalls use PtrToArg<T>::EncodeT slots;
@@ -144,7 +154,16 @@ struct Ret {
 	template <class ReturnBufT>
 	static _FORCE_INLINE_ void translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ReturnBufT &p_ret_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
 		if constexpr (has_return) {
-			if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
+			// A uint64_t slot is unsigned in the type itself, so the value has to
+			// leave through the unsigned writer. Routing it through `Variant`
+			// would re-read the same bits as int64 and emit a negative BigInt.
+			if constexpr (std::is_same_v<type, uint64_t>) {
+				if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
+					internal::translate_uint64_return(p_isolate, (uint64_t)p_ret_val, p_info);
+				} else {
+					internal::translate_uint64_return(p_isolate, godot::PtrToArg<uint64_t>::convert(&p_ret_val), p_info);
+				}
+			} else if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
 				internal::translate_return(p_isolate, p_context, p_ret_val, p_info);
 			} else {
 				internal::translate_return(p_isolate, p_context, Variant(godot::PtrToArg<type>::convert(&p_ret_val)), p_info);

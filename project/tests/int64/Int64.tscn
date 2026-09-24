@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/int64/test-int64.ts" id="1_int64"]
+
+[node name="Int64" type="Node"]
+script = ExtResource("1_int64")

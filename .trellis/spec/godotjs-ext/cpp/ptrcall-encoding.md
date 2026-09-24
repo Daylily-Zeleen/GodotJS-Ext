@@ -107,3 +107,77 @@ base_ptr   = builtin self / 运算符操作数内存
 - `produce_variant<ArgT>`：typed 转换到局部 gd_type 后赋值进 Variant
 - `marshal_one<ArgT>`：ptrcall 风格，按 `PtrToArg<T>::encode` 写入参数内存
 - 失败路径：所有 produce 转换失败时目标内存保持调用前状态（不部分写入），调用方按"未构造"/"已构造"对应处理
+
+## int64 / uint64 按位契约与 BigInt 阈值（jsb_primitive_conv.h）
+
+> 引擎无关的数值转换实现在 `src/runtime/impl/jsb_primitive_conv.h`，四个引擎 shim
+> （`impl/{v8,node,quickjs,jsc,web}/jsb_*_helper.h`）只做转发。**新增数值转换必须改这个头，
+> 不要在 shim 里再写一份**——四份复制粘贴正是本类缺陷反复漂移的结构性原因。
+
+### 读方向（Godot → JS）
+
+- **64 位整数按位读，不做范围检查**。越界值按 mod 2^64 回绕，与引擎自身一致
+  （`Variant::operator uint64_t()` 就是 `static_cast<uint64_t>(operator int64_t())`；
+  quickjs-ng / jsc / web 的 C API 原生也是 mod 2^64）。
+- 出口判据**必须双边**：`v > JSB_MAX_SAFE_INTEGER || v < -JSB_MAX_SAFE_INTEGER` → `BigInt`；
+  否则 `Number`（能塞进 int32 时先出 `Int32`）。
+  **单边判据是历史缺陷**：负且幅值 > 2^53 的值会落到 `Number::New((double)v)` 被舍入。
+- uint64 槽必须走**无符号**出口（`new_unsigned_integer` / `BigInt::NewFromUnsigned`）。
+  `ObjectID` 的 bit63 承载 `is_ref_counted`（`core/object/object.h` `OBJECTDB_REFERENCE_BIT`），
+  有符号出口会让每个 RefCounted 的 id 变成负数，`instance_from_id()` 随即收到不同的 id。
+- 无符号语义来自 **C++ 类型本身**（`Ret<uint64_t>` 与 `Args<uint64_t>` 是不同模板实例），
+  静态路径不需要 meta。
+- 动态（reflect）路径靠 `GDExtensionClassMethodArgumentMetadata`，**两个方向都需要**：
+  - 返回方向：`gd_var_to_js` 的 `INT_IS_UINT64` 分支走 `new_unsigned_integer`。
+  - 参数方向：`js_to_gd_var` 的 `INT_IS_UINT64` 分支走 `to_uint64` 再写回有符号槽。
+    两个方向的 Variant INT 槽存的确实是同样的 64 位，**但取位方式不同**：从
+    `[2^63, 2^64)` 的 double 取位时，`(int64_t)` 是 UB（x86 返回 INT64_MIN 哨兵），
+    必须走无符号转换。实测 `put_u64(1e19)` 在 dynamic 腿因此写成了
+    `0x8000000000000000` 而不是 `0x8ac7230489e80000`。
+  调用点：`jsb_object_bindings.cpp` 的 `_godot_object_method`（参数 + 返回）、
+  `_godot_object_set2`（setter 参数）、`_godot_object_get2`（getter 返回）。
+  vararg 尾参没有声明类型，保持无 meta。
+
+### 每引擎原语表
+
+| 引擎 | `BigInt::Uint64Value` 实现 | 越界行为 |
+|---|---|---|
+| v8 / node | 官方 `v8::BigInt::Uint64Value(bool*)` | 有 `lossless` 反馈 |
+| quickjs-ng | `JS_ToBigUint64`（内部 `JS_ToBigInt64Free`，注释「return the value mod 2^64」） | 不检查 |
+| jsc | `JSValueToUInt64`（文档：BigInt 被 truncate 到 uint64_t） | 不检查 |
+| web | `jsbi_Uint64Value`（JS 侧裸 `BigInt(val)` 写入） | 不检查 |
+
+**`lossless` 不得参与分支**：只有 v8 能报，分支会让五引擎语义分叉。选「按位回绕」时五引擎
+原生就一致。
+
+### 数值槽的接受面（与引擎 `can_convert_strict` 对齐）
+
+引擎 `Variant::can_convert_strict`（`core/variant/variant.cpp`）：
+
+| 目标 | 引擎接受 | 对应 JS |
+|---|---|---|
+| `BOOL` | `INT` / `FLOAT` / `NIL` | number / bigint / null / undefined |
+| `INT` | `BOOL` / `FLOAT` / `NIL` | boolean / number / bigint / null / undefined |
+| `FLOAT` | `BOOL` / `INT` / `NIL` | boolean / number / bigint / null / undefined |
+
+三处的 `STRING` 在引擎里都是**被注释掉**的 → 字符串仍拒。
+
+- **`to_double` 不走引擎 `NumberValue`**：v8 的 `NumberValue` 是 `ToNumber()` 语义，
+  对 BigInt 抛 TypeError 并留下 pending exception（只有 `Number()` 函数特判 BigInt）。
+  改读 64 位有符号值，全引擎一致且精确。
+- **`to_bool`** 放行 number / bigint / null / undefined，字符串拒。
+- ⚠ **默认值优先级不能破坏**：`undefined` 在**有默认值**的位置仍走默认值替换，
+  只有**无默认值**的位置才走转换。测这条必须用**默认值为 `true`** 的 bool 参数
+  （默认值 `false` 与 `undefined` 的真值相同，两条假设不可区分）——
+  实测判据：`String.strip_edges("  x", undefined)` 得 `"x"`（走了默认值 `true`）。
+
+### 窄整型（int8/16/32、uint8/16/32、char32）保持范围检查
+
+它们是真窄槽，静默截断才是缺陷。只有 64 位槽改按位。
+
+### 测试落点
+
+- C++：`src/runtime/tests/test_jsb_int64_conv.h`（须在 `jsb_test_main.cpp` 登记）。
+- TS：`project/tests/int64/`（须在 `project/tests/start.ts` 的 `scenes` 登记）。
+  **场景内不要调 `get_tree().quit()`** —— 那会抢在 `start.ts` 打印
+  `GODOTJS_TEST_PROJECT_COMPLETED` 之前退出引擎，表现为「测试跑了但没有哨兵」。

@@ -26,6 +26,7 @@
 /************************************************************************/
 
 #pragma once
+#include "../jsb_primitive_conv.h"
 #include "jsb_web_catch.h"
 #include "jsb_web_context.h"
 #include "jsb_web_function.h"
@@ -173,36 +174,31 @@ public:
 		p_fields.append(CustomField::value_i64("registered_object_count", (int64_t)usage.registered_object_count));
 	}
 
+	// Numeric conversions live in `../jsb_primitive_conv.h` (engine-agnostic).
+	// These stay as thin forwarders so the existing `impl::Helper::` call sites
+	// keep working, while the policy itself exists in exactly one place.
 	_FORCE_INLINE_ static bool to_int64(const v8::Local<v8::Value> p_val, int64_t &r_val) {
-		if (p_val->IsInt32()) {
-			r_val = p_val.As<v8::Int32>()->Value();
-			return true;
-		}
-		if (p_val->IsNumber()) {
-			r_val = (int64_t)p_val.As<v8::Number>()->Value();
-			return true;
-		}
-#if JSB_WITH_BIGINT
-		if (p_val->IsBigInt()) {
-			r_val = p_val.As<v8::BigInt>()->Int64Value();
-			return true;
-		}
-#endif
-		return false;
+		return jsb::impl::to_int64(p_val, r_val);
+	}
+
+	_FORCE_INLINE_ static bool to_uint64(const v8::Local<v8::Value> p_val, uint64_t &r_val) {
+		return jsb::impl::to_uint64(p_val, r_val);
+	}
+
+	_FORCE_INLINE_ static bool to_double(const v8::Local<v8::Value> p_val, double &r_val) {
+		return jsb::impl::to_double(p_val, r_val);
+	}
+
+	_FORCE_INLINE_ static bool to_bool(v8::Isolate *isolate, const v8::Local<v8::Value> p_val, bool &r_val) {
+		return jsb::impl::to_bool(isolate, p_val, r_val);
 	}
 
 	_FORCE_INLINE_ static v8::Local<v8::Value> new_integer(v8::Isolate *isolate, const int64_t p_val) {
-		if (const int32_t downscale = (int32_t)p_val;
-				(int64_t)downscale == p_val) {
-			return v8::Int32::New(isolate, downscale);
-		}
-#if JSB_WITH_BIGINT
-		if (p_val > JSB_MAX_SAFE_INTEGER) {
-			JSB_WEB_LOG(VeryVerbose, "represented as bigint %d", p_val);
-			return v8::BigInt::New(isolate, p_val);
-		}
-#endif
-		return v8::Number::New(isolate, (double)p_val);
+		return jsb::impl::new_integer(isolate, p_val);
+	}
+
+	_FORCE_INLINE_ static v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *isolate, const uint64_t p_val) {
+		return jsb::impl::new_unsigned_integer(isolate, p_val);
 	}
 
 	static v8::MaybeLocal<v8::Value> compile_function(const v8::Local<v8::Context> &context, const char *p_source, int p_source_len, const String &p_filename) {
