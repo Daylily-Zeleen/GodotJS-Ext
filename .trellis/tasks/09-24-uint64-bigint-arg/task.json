@@ -1,0 +1,28 @@
+{
+  "id": "uint64-bigint-arg",
+  "name": "uint64-bigint-arg",
+  "title": "uint64 参数不抛异常、静态与动态行为一致",
+  "description": "静态绑定不再拒绝 >=2^63 的 uint64 参数（含普通 number），与动态绑定统一为按二进制原样写入；修 js_to_fixed_width_int<uint64_t> 的 wide<0 早退",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "godotjs-ext",
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-09-24",
+  "completedAt": null,
+  "branch": "feature/int64",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-uint64-bigint-codegen",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}

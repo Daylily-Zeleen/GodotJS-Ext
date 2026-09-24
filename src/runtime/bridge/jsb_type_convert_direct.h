@@ -107,9 +107,31 @@ struct JSToGD<int64_t> {
 	}
 };
 
-// Exact-width integer targets: convert through int64 then range-check, so a
-// JS value that does not fit the declared meta width (int8..uint64) is a
-// clean conversion failure instead of a silent truncation.
+// uint64 has its own reader rather than going through int64 + a range check.
+// The Variant INT slot holds the same 64 bits either way, so the unsigned read
+// is what makes a high-bit value (e.g. a RefCounted ObjectID, bit 63 set) write
+// the bytes the engine expects instead of being rejected for looking negative.
+// The previous `wide < 0 -> false` early return rejected every value >= 2^63,
+// including plain numbers.
+template <>
+struct JSToGD<uint64_t> {
+	static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, uint64_t &r_out) {
+		(void)p_isolate;
+		(void)p_context;
+		return impl::Helper::to_uint64(p_jval, r_out);
+	}
+};
+
+// Narrow exact-width integer targets: convert through int64 then range-check, so
+// a JS value that does not fit the declared meta width (int8..uint32, char32) is
+// a clean conversion failure instead of a silent truncation. These are genuinely
+// narrow slots -- truncating them would be the defect.
+//
+// uint64_t deliberately does NOT go through here: it has its own `JSToGD`
+// specialization reading the unsigned domain directly. The range check cannot
+// express it anyway (int64 cannot hold uint64's max), and the `wide < 0 -> false`
+// early return it used to carry rejected every value >= 2^63 -- including plain
+// numbers -- while the dynamic path wrote those same bytes happily.
 template <typename CppT>
 inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
 		const v8::Local<v8::Context> &p_context,
@@ -119,15 +141,7 @@ inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
 	if (!JSToGD<int64_t>::convert(p_isolate, p_context, p_jval, wide)) {
 		return false;
 	}
-	if constexpr (std::is_same_v<CppT, uint64_t>) {
-		// int64 cannot represent uint64's max; validate in unsigned domain.
-		if (wide < 0) {
-			return false;
-		}
-		if (static_cast<uint64_t>(wide) > std::numeric_limits<uint64_t>::max()) {
-			return false;
-		}
-	} else if constexpr (std::is_unsigned_v<CppT>) {
+	if constexpr (std::is_unsigned_v<CppT>) {
 		if (wide < 0 || wide > static_cast<int64_t>(std::numeric_limits<CppT>::max())) {
 			return false;
 		}
@@ -154,7 +168,6 @@ JSB_DIRECT_FIXED_INT(int32_t)
 JSB_DIRECT_FIXED_INT(uint8_t)
 JSB_DIRECT_FIXED_INT(uint16_t)
 JSB_DIRECT_FIXED_INT(uint32_t)
-JSB_DIRECT_FIXED_INT(uint64_t)
 JSB_DIRECT_FIXED_INT(char32_t)
 #undef JSB_DIRECT_FIXED_INT
 
