@@ -508,6 +508,12 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 				"dynamic"
 #endif
 				;
+		// Exported for the benchmark harness (`BINDING_MODE` in godot-jsb) and for
+		// `misc/bench_matrix.py`, which reads it back as BENCH_JSON.bindingMode to
+		// prove which leg produced a run. Commit 56306d5 ("regvert: f77d049")
+		// dropped this Set() while keeping the variable, leaving the bench gate
+		// unable to identify a leg.
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BINDING_MODE"), impl::Helper::new_string_ascii(isolate, binding_mode)).Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else
