@@ -1,0 +1,28 @@
+{
+  "id": "uint64-bigint-ctor-operators",
+  "name": "uint64-bigint-ctor-operators",
+  "title": "BigInt 接入内置类型构造器与运算符",
+  "description": "probe_vt 增加 BigInt 分支使 BigInt 可用于内置构造器重载筛选；同步修 builtin_operators.h 裸 As<> 的错误解释；更新 type_compatible.h 审计表",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "godotjs-ext",
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-09-24",
+  "completedAt": null,
+  "branch": "feature/int64",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-uint64-bigint-codegen",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}

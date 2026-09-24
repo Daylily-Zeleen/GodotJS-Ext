@@ -37,6 +37,7 @@ export default class Start extends Node {
 					"res://tests/operators/Operators.tscn",
 					"res://tests/static-members/StaticMembers.tscn",
 					"res://tests/static-members/StaticMembersGd.tscn",
+					"res://tests/numeric/Numeric.tscn",
 					"res://tests/int64/Int64.tscn",
 				];
 			// Count derived from the list: a hardcoded literal here silently

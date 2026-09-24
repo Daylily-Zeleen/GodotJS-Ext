@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/09-06-lowprio-uint64-bigint-codegen/design.md", "reason": "共享技术方案 §3.4（probe_vt / builtin_operators / type_compatible 三处同批）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "ptrcall 编码/EncodeT/参数内存规则"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "C++ 套件形态、注册表规则、触发与验收"}

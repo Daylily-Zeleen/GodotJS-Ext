@@ -210,9 +210,11 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			return true;
 		}
 		case Variant::BOOL:
-			// strict?
-			if (p_jval->IsBoolean()) {
-				r_cvar = p_jval->BooleanValue(isolate);
+			// Same surface as `can_convert_strict<BOOL>` and `JSToGD<bool>`
+			// (number / bigint / null / undefined; a string is still rejected),
+			// so the reflect path and the direct path agree.
+			if (bool val; impl::Helper::to_bool(isolate, p_jval, val)) {
+				r_cvar = val;
 				return true;
 			}
 			break;
@@ -585,7 +587,14 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_val, Variant::Type p_type) {
 	switch (p_type) {
 		case Variant::BOOL: {
-			return p_val->IsBoolean();
+			// Mirrors the engine's own BOOL surface: `Variant::can_convert_strict`
+			// lists INT / FLOAT / NIL (STRING is commented out there), and
+			// `JSToGD<bool>` / `to_bool` are the marshallers on the other side.
+			return p_val->IsBoolean() || p_val->IsNumber()
+#if JSB_WITH_BIGINT
+					|| p_val->IsBigInt()
+#endif
+					|| p_val->IsNullOrUndefined();
 		}
 		case Variant::FLOAT: // return p_val->IsNumber();
 		case Variant::INT: {

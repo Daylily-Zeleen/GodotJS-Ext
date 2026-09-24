@@ -96,12 +96,30 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	typename godot::PtrToArg<R>::EncodeT right_slot{};
+	// These slots are reached through the probe in `operator_dispatch_binary`,
+	// which maps a BigInt to INT; and the acceptance surface widened by
+	// `JSToGD<bool>` / `JSToGD<float>` / `JSToGD<double>` (number, bigint,
+	// null/undefined) means each of them can see more than one JS shape. A bare
+	// `As<S>()` is a pure handle reinterpretation (v8 `Local<S>::Cast`) with no
+	// runtime check, so a BigInt read as Int32 returns garbage. Go through the
+	// conversion primitives, which are the same ones the constructors use.
 	if constexpr (std::is_same_v<R, int64_t>) {
-		right_slot = (int64_t)info[0].As<v8::Int32>()->Value();
+		if (!impl::Helper::to_int64(info[0], right_slot)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
 	} else if constexpr (std::is_same_v<R, double>) {
-		right_slot = info[0].As<v8::Number>()->Value();
+		if (!impl::Helper::to_double(info[0], right_slot)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
 	} else if constexpr (std::is_same_v<R, bool>) {
-		right_slot = info[0].As<v8::Boolean>()->Value();
+		bool b = false;
+		if (!impl::Helper::to_bool(isolate, info[0], b)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
+		right_slot = b;
 	} else if constexpr (std::is_same_v<R, godot::String>) {
 		right_slot = impl::Helper::to_string(isolate, info[0]);
 	} else if constexpr (std::is_same_v<R, godot::Variant>) {
