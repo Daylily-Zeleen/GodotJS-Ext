@@ -299,6 +299,12 @@ int64_t BigInt::Int64Value(bool *lossless) const {
 	return JSValueToInt64(isolate_->ctx(), (JSValueRef) * this, nullptr);
 }
 
+uint64_t BigInt::Uint64Value(bool *lossless) const {
+	// Documented as "the JSValue is truncated to a uint64_t" for a BigInt, i.e.
+	// a bit-pattern read -- the contract the callers rely on.
+	return JSValueToUInt64(isolate_->ctx(), (JSValueRef) * this, nullptr);
+}
+
 Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
 	const JSValueRef val = JSBigIntCreateWithInt64(isolate->ctx(), value, nullptr);
 	jsb_check(val);

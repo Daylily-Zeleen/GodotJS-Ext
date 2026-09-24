@@ -1,2 +1,5 @@
 {"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/任务流程硬约束"}
 {"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "ptrcall 编码与类型映射背景"}
+{"file": ".trellis/tasks/09-06-lowprio-uint64-bigint-codegen/design.md", "reason": "本任务共享技术方案（目标语义、逐文件改动点、五引擎原语表、风险）"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "C++ 套件形态、注册表规则、触发与验收（R8 测试覆盖）"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "TS 集成测试前提、采数纪律、覆盖守卫断言要求"}

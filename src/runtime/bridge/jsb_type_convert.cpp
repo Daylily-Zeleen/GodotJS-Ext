@@ -146,7 +146,7 @@ String TypeConvert::js_debug_typeof(v8::Isolate *isolate, const v8::Local<v8::Va
 }
 
 // translate js val into gd variant with an expected type
-bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, Variant &r_cvar) {
+bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, Variant &r_cvar) {
 #if JSB_WITH_V8
 	if (p_jval->IsProxy())
 #else
@@ -158,7 +158,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		v8::Local<v8::Value> target;
 
 		if (maybe_target.ToLocal(&target) && !target->IsUndefined()) {
-			return js_to_gd_var(isolate, context, target, p_type, r_cvar);
+			return js_to_gd_var(isolate, context, target, p_type, p_meta, r_cvar);
 		}
 	}
 
@@ -170,6 +170,20 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			}
 			break;
 		case Variant::INT:
+			// The Variant INT slot is 64 bits either way, so both reads produce
+			// the same storage -- but only the unsigned one gets the right bits
+			// from a number in [2^63, 2^64). Reading such a double as int64 is
+			// undefined and yields the INT64_MIN sentinel on x86, so
+			// `put_u64(1e19)` would land as 0x8000000000000000.
+			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64) {
+				if (uint64_t val; impl::Helper::to_uint64(p_jval, val)) {
+					// Cast back for the signed slot: the bit pattern is what the
+					// engine reads out of it, so this is the value it wants.
+					r_cvar = (int64_t)val;
+					return true;
+				}
+				break;
+			}
 			// strict?
 			if (int64_t val; impl::Helper::to_int64(p_jval, val)) {
 				r_cvar = val;
@@ -323,13 +337,22 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 	return false;
 }
 
-bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, v8::Local<v8::Value> &r_jval) {
+bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, v8::Local<v8::Value> &r_jval) {
 	switch (p_type) {
 		case Variant::FLOAT: {
 			r_jval = v8::Number::New(isolate, p_cvar);
 			return true;
 		}
 		case Variant::INT: {
+			// A uint64 slot has to leave through the unsigned writer. The stored
+			// bits are the same either way, but an ObjectID sets bit 63
+			// (`is_ref_counted`), so writing it signed yields a negative BigInt
+			// and `instance_from_id()` then receives a different id than
+			// `get_instance_id()` returned.
+			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64) {
+				r_jval = impl::Helper::new_unsigned_integer(isolate, (uint64_t)(int64_t)p_cvar);
+				return true;
+			}
 			r_jval = impl::Helper::new_integer(isolate, p_cvar);
 			return true;
 		}

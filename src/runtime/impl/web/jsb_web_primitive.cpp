@@ -221,6 +221,16 @@ int64_t BigInt::Int64Value(bool *lossless) const {
 	return rval;
 }
 
+uint64_t BigInt::Uint64Value(bool *lossless) const {
+	// `jsbi_Uint64Value` writes `BigInt(val)` into a uint64 slot, which is a
+	// bit-pattern write (mod 2^64) -- the contract the callers rely on.
+	uint64_t rval;
+	const bool res = jsbi_Uint64Value(isolate_->rt(), stack_pos_, &rval);
+	jsb_unused(res);
+	jsb_check(res);
+	return rval;
+}
+
 Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
 	return Local<String>(Data(isolate, jsbi_NewBigInt64(isolate->rt(), &value)));
 }
