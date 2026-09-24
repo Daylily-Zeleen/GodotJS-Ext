@@ -171,6 +171,22 @@ base_ptr   = builtin self / 运算符操作数内存
   （默认值 `false` 与 `undefined` 的真值相同，两条假设不可区分）——
   实测判据：`String.strip_edges("  x", undefined)` 得 `"x"`（走了默认值 `true`）。
 
+### 出口表示开关（`JSB_BIGINT_FOR_64BIT`，`src/jsb.config.h`）
+
+两个宏不要混用：
+
+| 宏 | 管什么 |
+|---|---|
+| `JSB_WITH_BIGINT` | 引擎构建**有没有** BigInt，以及 JS → Godot 方向是否接受 BigInt（入口） |
+| `JSB_BIGINT_FOR_64BIT` | 64 位值**离开** Godot 时的表示：`1` = 超 2^53-1 出 `BigInt`（默认，与历史行为兼容）；`0` = 仍出 `Number`，超 2^53-1 静默丢位 |
+
+- **只作用于出口**。关掉它**不会**让任何参数开始抛异常 —— 入口接受面由 `JSB_WITH_BIGINT` 单独决定。
+- `JSB_BIGINT_FOR_64BIT=1` 依赖 `JSB_WITH_BIGINT=1`，非法组合在 `jsb.config.h` 里有 `#error` 拒绝。
+- 运行期可见：`BIGINT_FOR_64BIT`（`godot-jsb` 模块），与 `BINDING_MODE` 同一用途 ——
+  让单个集成场景能在两种配置下都通过，而不必为每种模式分别构建场景。
+- 关掉后的可观察差异：RefCounted 的 ObjectID 往返不再无损（`get_instance_id()` 出丢位 `Number`）；
+  `put_u64` 等**入口**行为与字节写入**完全不变**。
+
 ### 窄整型（int8/16/32、uint8/16/32、char32）保持范围检查
 
 它们是真窄槽，静默截断才是缺陷。只有 64 位槽改按位。

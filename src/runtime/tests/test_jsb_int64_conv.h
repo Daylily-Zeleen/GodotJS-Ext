@@ -81,10 +81,20 @@ TEST_CASE("[runtime] [jsb.int64] new_integer threshold is two-sided") {
 
 		// One past it becomes a BigInt, on BOTH sides. The negative side is the
 		// regression: it used to fall through to `Number::New((double)v)`.
+		// `JSB_BIGINT_FOR_64BIT=0` drops that arm by design (the value leaves as
+		// the lossy Number instead), so this is the one part that is
+		// configuration-dependent.
+#if JSB_BIGINT_FOR_64BIT
 		CHECK(impl::Helper::new_integer(isolate, JSB_MAX_SAFE_INTEGER + 1)->IsBigInt());
 		CHECK(impl::Helper::new_integer(isolate, -JSB_MAX_SAFE_INTEGER - 1)->IsBigInt());
 		CHECK(impl::Helper::new_integer(isolate, INT64_MIN)->IsBigInt());
 		CHECK(impl::Helper::new_integer(isolate, INT64_MAX)->IsBigInt());
+#else
+		CHECK(impl::Helper::new_integer(isolate, JSB_MAX_SAFE_INTEGER + 1)->IsNumber());
+		CHECK(impl::Helper::new_integer(isolate, -JSB_MAX_SAFE_INTEGER - 1)->IsNumber());
+		CHECK(impl::Helper::new_integer(isolate, INT64_MIN)->IsNumber());
+		CHECK(impl::Helper::new_integer(isolate, INT64_MAX)->IsNumber());
+#endif
 	}
 
 	env.reset();
@@ -107,9 +117,16 @@ TEST_CASE("[runtime] [jsb.int64] new_integer preserves negative bits above 2^53"
 		};
 		for (const int64_t value : cases) {
 			const v8::Local<v8::Value> jv = impl::Helper::new_integer(isolate, value);
+#if JSB_BIGINT_FOR_64BIT
 			CHECK(jv->IsBigInt());
 			// Reading it back is the round-trip the ObjectID handoff depends on.
 			CHECK(jv.As<v8::BigInt>()->Int64Value() == value);
+#else
+			// The switch is off: the value leaves as a Number and the low bits
+			// above 2^53 are gone. Only the negative sign is still observable.
+			CHECK(jv->IsNumber());
+			CHECK(jv.As<v8::Number>()->Value() == (double)value);
+#endif
 		}
 	}
 
@@ -128,6 +145,7 @@ TEST_CASE("[runtime] [jsb.int64] new_unsigned_integer writes high-bit values uns
 		// Above the int32 fast path but within the safe range: still a Number.
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)INT32_MAX + 1)->IsNumber());
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)JSB_MAX_SAFE_INTEGER)->IsNumber());
+#if JSB_BIGINT_FOR_64BIT
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)JSB_MAX_SAFE_INTEGER + 1)->IsBigInt());
 
 		// The point of this writer: a value whose bit 63 is set must read back
@@ -144,6 +162,15 @@ TEST_CASE("[runtime] [jsb.int64] new_unsigned_integer writes high-bit values uns
 			CHECK(jv->IsBigInt());
 			CHECK(jv.As<v8::BigInt>()->Uint64Value() == value);
 		}
+#else
+		// Switch off: the unsigned arm is gone, so a high-bit value leaves as the
+		// lossy Number. `Number::New((double)v)` is non-negative, so bit 63 shows
+		// up via the magnitude rather than the sign.
+		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)JSB_MAX_SAFE_INTEGER + 1)->IsNumber());
+		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)1 << 63)->IsNumber());
+		CHECK(impl::Helper::new_unsigned_integer(isolate, UINT64_MAX)->IsNumber());
+		CHECK(impl::Helper::new_unsigned_integer(isolate, UINT64_MAX).As<v8::Number>()->Value() > 0.0);
+#endif
 	}
 
 	env.reset();
@@ -210,15 +237,23 @@ TEST_CASE("[runtime] [jsb.int64] to_int64 and to_uint64 read bit patterns") {
 			const Variant id_variant = (int64_t)int64_conv_detail::kRefCountedObjectId;
 			v8::Local<v8::Value> signed_js;
 			CHECK(TypeConvert::gd_var_to_js(isolate, context, id_variant, Variant::INT, GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, signed_js));
-			CHECK(signed_js->IsBigInt());
-			CHECK(signed_js.As<v8::BigInt>()->Int64Value() == int64_conv_detail::kRefCountedObjectId);
-
 			v8::Local<v8::Value> unsigned_js;
 			CHECK(TypeConvert::gd_var_to_js(isolate, context, id_variant, Variant::INT, GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64, unsigned_js));
+#if JSB_BIGINT_FOR_64BIT
+			CHECK(signed_js->IsBigInt());
+			CHECK(signed_js.As<v8::BigInt>()->Int64Value() == int64_conv_detail::kRefCountedObjectId);
 			CHECK(unsigned_js->IsBigInt());
 			CHECK(unsigned_js.As<v8::BigInt>()->Uint64Value() == (uint64_t)int64_conv_detail::kRefCountedObjectId);
 			// Both carry the same bits; only the sign of the JS value differs.
 			CHECK(unsigned_js.As<v8::BigInt>()->Uint64Value() == signed_js.As<v8::BigInt>()->Uint64Value());
+#else
+			// Switch off: the slot leaves as a lossy Number. The metadata still
+			// selects the unsigned view, which is what keeps the value positive
+			// -- that is the part worth asserting here.
+			CHECK(signed_js->IsNumber());
+			CHECK(unsigned_js->IsNumber());
+			CHECK(unsigned_js.As<v8::Number>()->Value() > 0.0);
+#endif
 		}
 	}
 
@@ -330,8 +365,15 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 			CHECK(out == UINT64_MAX);
 			v8::Local<v8::Value> jv;
 			CHECK(StaticBindingUtil<uint64_t>::set(isolate, context, UINT64_MAX, jv));
+#if JSB_BIGINT_FOR_64BIT
 			CHECK(jv->IsBigInt());
 			CHECK(jv.As<v8::BigInt>()->Uint64Value() == UINT64_MAX);
+#else
+			// Switch off: the unsigned writer falls back to a Number, so the
+			// observable contract here is only "positive, not the signed view".
+			CHECK(jv->IsNumber());
+			CHECK(jv.As<v8::Number>()->Value() > 0.0);
+#endif
 		}
 
 		// Non-numeric inputs are still rejected.
