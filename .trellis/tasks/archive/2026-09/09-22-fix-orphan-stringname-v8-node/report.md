@@ -652,3 +652,105 @@ AC1 ✓ / AC2 ✓ / AC3 ✓ / AC4 ✓（spec 已写入统一判据、排查顺�
   改为 `linux/x86_64`（与生产端 `build-linux.sh:53`、`verify_artifacts.py:node_dir()` 一致）。
 - 注意：本机 `third/libnode` 仍是**旧 moluopro 布局**（`linux/x64`），切源后 Linux node 腿
   必须重新下载（已写入 spec 的"常见坑"）。
+
+## 补充取证与遗留分析（本轮）
+
+### 依赖 CI 中三项验收断言的实际输出（run 35925542298）
+
+- **libuv 补丁确实跑到了**（第 1 项的决定性证据，node/windows 日志）：
+  `patched: ...\node\deps\uv\src\win\tty.c (+winapi, uv-common) — uv__tty_console_cleanup
+  wired into uv_library_shutdown()`，且无 `patch_libuv_console error`。该 job `completed success`。
+- **node typeinfo 已解决**：`node RTTI validation passed: ...staging/libnode/windows/x64/libnode.lib
+  contains the Delegate RTTI/vftable symbols`（`09-06-libnode-typeinfo-symbols` 的根因断言）。
+- **lws PIC 已解决**：`lws PIC validation passed: .../staging/lws/linux_x86_64_release/
+  libwebsockets.a links as a shared object`，且构建带 `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`
+  （`09-06-lowprio-lws-pic` 的根因断言）。
+- 发布资产名与 `SConstruct` 常量核对：v8 `12.4.254.21`（从 run 的 macos v8 job 日志读出）、
+  node `v24.x`（dispatch 选项默认值）→ `v8_12.4.254.21.zip` / `lws_4.3.zip` / `node_v24.x.zip`，三者逐字匹配。
+
+### 遗留：macOS universal 产物在 arm64 上加载不了（**先于本次改动存在**，非本次引入）
+
+`find_extension_library`（`gdextension_library_loader.cpp:83-120`）按"匹配 tag 数最多者胜"选库，
+**不会**在选中文件不存在时回落到 tag 更少的键。故 arm64 机器上 `.arm64` 键必然压过 arch-less 键。
+
+- 后果：单用 `macos-editor-universal-qjs-ng`（只含 `...universal.dylib`）在 arm64 mac 上，
+  主/editor 两个 gdextension 都会去找 `...arm64.dylib` 而失败。
+- 主 gdextension 的 `.arm64` 键**改前就存在**（注释里"then falls back to the arch-less key"与实现不符，
+  已核实实现无回落）。本次给 editor gdextension 补同构的 `.arm64` 键，只是让两者一致，
+  **未引入新的失败类别**；且 release 合并把 v8 的 arm64 产物一并打入 zip，故发布产物在 arm64 上正常。
+- CI 未暴露该问题：新增的 macOS test leg 只用 arm64 产物，没有任何 leg 把 universal 产物放到 arm64 上跑。
+
+### 仍在等
+
+依赖 release `260924-node-libuv-console`（run `35925542298` 进行中、0 失败，剩余 9 条 v8/node 长腿）。
+产出后：主仓 push（已授权）→ 远端 CI 实测新腿。主仓改动已在本地提交 `224e5d2`（未 push）。
+
+## 最终状态（本轮收尾）
+
+### 已交付
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 0 依赖仓库形态评估 + spec | ✅ | `dependencies.md` 新建；`config.yaml` 登记 polyrepo 包；`build/index.md`、`scons-build.md`、`test/index.md` 同步 |
+| 1 libuv 补丁落到依赖仓库 | ✅ 已推送，CI 中**已确认跑到** | 分支 `fix/libuv-console-shutdown`（`884f144`+`a303000`）；node/windows 日志 `patched: ...tty.c (+winapi, uv-common) — uv__tty_console_cleanup wired into uv_library_shutdown()` |
+| 2 主仓依赖源切换 | ✅ 代码完成并**本地提交** `224e5d2`；push 待 release | `SConstruct` 五常量切换 + `deps_node_url` 删除；提交内含 4 处新腿缺陷修复 |
+| 3 两任务归档判定 | ✅ 均已归档 | `archive/2026-09/{09-06-lowprio-node-orphan-stringname,09-22-fix-orphan-stringname-v8-node}` |
+| 4 CI 补 node 腿 | ✅ 代码完成；远端验证待 push | build 矩阵 +linux/+macos node；test 矩阵 +linux/+macos host-node；根因断言已在依赖 CI 中实测通过 |
+
+### 第 4 项根因：两条断言已在本次依赖 CI 中实测通过
+
+- **lws PIC**：`lws PIC validation passed: .../staging/lws/linux_x86_64_release/libwebsockets.a links as a shared object`，
+  构建带 `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`。
+- **node typeinfo**：`node RTTI validation passed: .../staging/libnode/{windows/x64,linux/x86_64,macos/arm64}/libnode.a contains the Delegate RTTI symbols`
+  （三条腿逐条确认，正是新启用的三条 CI 腿所依赖的产物）。
+
+### 未完成（唯一阻塞：外部构建耗时）
+
+依赖 release `260924-node-libuv-console` **尚未产出**。run `35925542298` 已 27/29、**0 失败**，
+剩余 `node / build (android|ios)` 两条仍在编译 V8（大工程，各需数小时）。
+`publish` job 的 `if` 要求 `needs.node.result == 'success'`（node 是整包合并的，含 android/ios），
+故 release 必须等这两条跑完。
+
+**产出后立即执行**（已授权，一条命令）：
+```
+cd /d/Dev/godot/GodotJS-Ext && git push
+```
+push 会触发主仓 CI，届时实测新加的 3 条 build 腿与 3 条 test 腿。
+`bg_1` 后台任务仍在监听 release，就绪会自动投递。
+
+### 本轮修复的 4 处「新腿必挂」缺陷（均先取证再改）
+
+1. **`SConstruct:_libnode_platform_base()`**：把 `x86_64→x64` 无条件套用到所有平台，而发布产物是
+   `linux/x86_64`（生产端 `build-linux.sh:53` / `verify_artifacts.py:node_dir()` 的契约）。
+   后果：下载成功却 `validate_library_support()` 返回 None → 死在 `libnode prebuild lib is not found`。
+   已对齐生产端，并写进 `dependencies.md` 的对照表 + 回归脚本 `.agent_tmp/contract/check_contract.py`（5 平台全 OK）。
+2. **`godotjs-ext-editor.gdextension`**：只有 arch-less 的 `macos.debug.editor`（指向 `...universal.dylib`），
+   而 arm64 腿产出 `...arm64.dylib`。引擎 `find_extension_library` 按「匹配 tag 数最多者胜」且**无回落**
+   （`gdextension_library_loader.cpp:83-120`），故 arm64 上必然找不到库 → editor 扩展加载失败 →
+   `--godotjs-api-generate`（由其注册，`jsb_editor_plugin.cpp:195`）断链 → 新 macOS test leg 全挂。
+   macOS 此前从无 test leg 去加载它，所以一直没暴露。已补 `.arm64` 键。
+3. **编辑器目标的 libnode 剔除不完整**：现行过滤只删 `/WHOLEARCHIVE` / `--whole-archive` / `-force_load`
+   这些**包装**标志，但 linux/macos 把裸归档路径作为独立条目传入 → 路径残留在链接行，libnode 仍被链入
+   editor DLL，orphan StringName 复发（正是 09-22 修掉的东西）。已加 `'libnode' not in flag` 兜住路径本身，
+   三平台复核均无残留。
+4. **macOS runner 无 GNU `timeout`**：CI "Run C++ unit tests" 非 Windows 分支用 `timeout 120`；
+   `timeout(1)` 属 coreutils，macOS runner 镜像**不装**（已核 `macos-15`/`macos-26` 两份 runner-images README，
+   无 coreutils 亦无 gtimeout）。已改为 `command -v timeout` 有则用、否则回落 perl alarm（本机实测转发语义
+   `exit=7`、超时 `SIGALRM`）。
+
+另修：`fetch-godot` 的 macOS 资产解析（macOS 资产是 `Godot.app` 包，旧 `-type f` 探针在 macOS 上探不到任何东西，
+引擎路径为空 → 后续步骤必挂；已在本地解压实测复现 `OLD_GODOT_BIN=''`）；`ci.yml` 的 node 依赖缓存路径
+`third/node`→`third/libnode`（前者从来不存在，缓存从未命中）。
+
+### 未修的既有隐患（非本次引入，需用户决策）
+
+**macOS universal 产物在 arm64 机器上加载不了。** 单用 `macos-editor-universal-qjs-ng` 产物
+（只含 `...universal.dylib`）时，主 gdextension 与 editor gdextension 都会因 `.arm64` 键优先而去找
+`...arm64.dylib` → 失败。主 gdextension 的 `.arm64` 键**改前就存在**，其注释「then falls back to the
+arch-less key」与实现不符（实现无回落）——属既有问题，本次只是让 editor 侧与主侧一致，未新增失败类别；
+release 合并会把 v8 的 arm64 产物一并打入 zip，故发布产物在 arm64 上正常。
+
+### 过程记录
+
+- subagent 静态复审（`CheckDepsCiCutover`）因模型区域限制 403 失败、无产出；其四类发现与本报告
+  第 1/2/3/4 条重合（本轮已自行取证并修复），无遗漏信息。
