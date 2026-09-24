@@ -100,6 +100,7 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
 | `patch_libuv_console.py` | windows | 去掉 libuv 永不返回的控制台 resize 线程（它会长久 pin 住装载它的 DLL） |
 | `patch_pic.py` | linux/android/ohos | 给 POSIX cflags 加 `-fPIC`（**静态**构建默认不加，归档无法链进 .so） |
 | `patch_debug_info.py` | macos/ios | 关 `GCC_GENERATE_DEBUGGING_SYMBOLS`（否则 gyp 给每个目标加 `-gdwarf-2`，Release 归档 ~10GB） |
+| `patch_no_ltcg.py` | windows | 去掉 `vcbuild.bat` 里 `release` 隐含的 `ltcg=1`（= `--with-ltcg`）。**必须**：带 LTCG 时归档成员是 LLVM bitcode，node.exe 自己能链（lld 认 bitcode），但 MSVC 消费者报 `LNK1107: invalid or corrupt file` —— **只在 embedder 侧炸**，已于本地复现该机制 |
 
 ## libnode 归档装配（最容易做错、且只在**下游**才炸的一环）
 
@@ -158,3 +159,60 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
 - **node 的 libuv 补丁只影响 Windows**：`deps/uv/src/win/*`，其他平台编译不到，
   只有 `build-windows.ps1` 需要调用它。
 - 全量 `build_all` 要数小时（v8 尤其久），**不要轮询**；触发后去干别的，完成会通知。
+
+## CI 迭代姿势（不要每轮都全量）
+
+全平台全量是数小时。验证一个平台的问题时按下面三步逐级放大。
+
+### 1. 只构建、只验证一个平台
+
+四个 workflow 的 `workflow_dispatch` 都接受 `platforms`，且支持 **`平台-架构`** 粒度：
+
+```bash
+# 只跑 windows 的 node 腿（1 个 job，而不是 30 个）
+gh workflow run build_node.yml --repo Daylily-Zeleen/GodotJS-Dependencies \
+  --ref <branch> -f node_version=v24.x -f platforms=windows-x86_64
+```
+
+拼写：`linux-x86_64`、`linux-arm64`、`macos-arm64`、`macos-x86_64`、`windows-x86_64`、
+`windows-arm64`、`android-arm64`、`android-arm32`、`android-x86_64`、`ios-arm64`、`ohos-arm64`。
+
+### 2. 编译缓存（ccache）——已接入 node 与 v8
+
+两者的腿都是「编译占绝大部分」（node windows 实测 52 分钟里 51 分钟在编译；v8 单腿
+31~87 分钟，且此前**完全没有编译缓存**）。
+
+| 组件 | 接入方式 |
+|---|---|
+| node windows | `vcbuild.bat ... ccache <dir>`（= `--use-ccache-win`），由 `build-windows.ps1 -CcacheDir` 传入 |
+| node unix | `build-{linux,macos}.sh` 把 `CC`/`CXX` 前缀为 `ccache <compiler>`（gyp 的 make 生成器只认 `CC`/`CXX`；在 action 里注入无效，会被脚本后面的 `export CC=gcc-12` 冲掉） |
+| v8 | gn 的 `cc_wrapper = "ccache"`（unix 写进 `args.gn`；windows 写进内联 gn args） |
+
+**两条硬性要求**（都不是可选项）：
+- 缓存键**必须带 `github.run_id`**：`actions/cache` 命中已有 key 时**不会覆盖**，固定 key
+  会让缓存永远停在第一次的状态（只存不更新）。配合 `restore-keys` 前缀实现"暖启动 + 每轮发布"。
+- `CCACHE_DIR` 必须**显式设成被缓存的那个目录**：ccache 各平台默认路径不同（macOS 是
+  `~/Library/Caches/ccache`），设错等于缓存了个空目录。
+
+### 3. 不等完整发版，直接取单平台产物
+
+`build_all.yml` 的 publish 除正式 tag 外，把**每个 组件+平台+架构** 打成独立 zip，发到
+`ci-<run_id>` release，并附 `ci-assets.txt` 映射清单：
+
+```
+<component>_<platform>_<arch>.zip      # v8 / lws / node 统一拼写
+v8_include.zip                          # v8 头文件只发一次（22 条腿内容相同，避免重复打包）
+```
+
+- 资产名对三种 staging 目录名做了归一化（`linux.x86_64.release`、`windows_x86_64_release`、
+  `windows/x64` → 统一 `_` 拼接）
+- node 用 **node 原生** arch 拼写（windows 是 `x64`），v8/lws 用 `x86_64`
+- **release 资产匿名可读（实测 200），workflow artifact 匿名下载是 401** —— 走 release 而非
+  artifact，因此**不需要跨仓 token**（PAT 会过期、且泄漏面是"本仓任何 workflow 都能读依赖仓"）
+- 保留策略：`keep_ci_releases`（默认 3）、`keep_full_releases`（默认 5）自动清理旧发布；
+  当前 run 刚创建的永不删
+
+本仓侧入口：`.github/workflows/ci.yml` 的 `deps_run` / `deps_engines` 输入；本地则设
+`GODOTJS_DEPS_STAGING` 指向解压后的 staging 树（`SConstruct` 据此跳过 release 下载，
+且 staging 不完整时**响亮失败**，不会静默用错产物）。
+
