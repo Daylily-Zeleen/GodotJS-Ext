@@ -264,6 +264,31 @@ def remove_dependency_path(path):
 def download_dependency(name, version, target_dir, url_override=None, archive_root=None):
     if dependency_is_ready(name, target_dir):
         return
+    # Fast path: consume per-platform artifacts from the GodotJS-Dependencies CI
+    # directly, instead of waiting for a full release. GODOTJS_DEPS_STAGING
+    # points at a directory shaped like that repo's staging/ (containing
+    # libnode/, v8/, lws/), which is exactly what its per-platform artifacts
+    # hold. Used to verify one platform+arch in minutes rather than hours.
+    staging = os.environ.get("GODOTJS_DEPS_STAGING", "").strip()
+    if staging:
+        source = os.path.join(staging, os.path.basename(target_dir))
+        if os.path.isdir(source):
+            print(f"Dependency '{name}': using local staging '{source}'.")
+            if os.path.exists(target_dir):
+                remove_dependency_path(target_dir)
+            os.makedirs(os.path.dirname(target_dir) or ".", exist_ok=True)
+            shutil.copytree(source, target_dir)
+            check(
+                dependency_is_ready(name, target_dir),
+                f"local staging for '{name}' is incomplete (missing headers or the "
+                f"library for {jsb_platform}/{jsb_arch}): {source}",
+            )
+            print(f"Successfully staged {name} from {source}.")
+            return
+        print(
+            f"Dependency '{name}': no local staging at '{source}' "
+            f"(GODOTJS_DEPS_STAGING={staging}); falling back to the release download."
+        )
     if os.path.exists(target_dir):
         remove_dependency_path(target_dir)
     filename = f"{name}_{version}.zip"

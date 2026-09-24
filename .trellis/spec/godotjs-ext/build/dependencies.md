@@ -92,6 +92,65 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
 - 在对应 `build-*` 脚本里调用，`PowerShell` 必须显式查 `$LASTEXITCODE`
   （PowerShell 不会因原生命令失败而中止）。
 
+现有补丁脚本与它解决的编译期问题：
+
+| 脚本 | 平台 | 作用 |
+|---|---|---|
+| `patch_rtti.py` | 全平台 | 打开 RTTI（下游 subclass v8 Delegate 需要 typeinfo） |
+| `patch_libuv_console.py` | windows | 去掉 libuv 永不返回的控制台 resize 线程（它会长久 pin 住装载它的 DLL） |
+| `patch_pic.py` | linux/android/ohos | 给 POSIX cflags 加 `-fPIC`（**静态**构建默认不加，归档无法链进 .so） |
+| `patch_debug_info.py` | macos/ios | 关 `GCC_GENERATE_DEBUGGING_SYMBOLS`（否则 gyp 给每个目标加 `-gdwarf-2`，Release 归档 ~10GB） |
+
+## libnode 归档装配（最容易做错、且只在**下游**才炸的一环）
+
+`scripts/node/merge_libnode.py` 把 node 构建出的几十个静态库合成**一个**自包含
+`libnode.a` / `libnode.lib`。下游用 `--whole-archive` / `-force_load` / `/WHOLEARCHIVE`
+整体链入，所以**装错集合或丢成员，只在 embedder 链接时才暴露**。三条铁律：
+
+1. **合并集合 = node 自己链接的集合，不是目录里所有归档。**
+   `out/Release` 下的归档比 node 实际链接的多 5 个（`libv8_init`、`libgtest`、
+   `libgtest_main`、`libicutools`、`libtorque_base`）。其中 `libicutools.a` 是**给构建宿主**
+   编的 ICU 对象、`libv8_init.a` 含 `setup-isolate-`**full**（与 `libv8_snapshot.a` 的
+   `setup-isolate-deserialize` 冲突）→ 整体链入必然 `multiple definition` / 未定义符号。
+   集合来源用 node 自己的链接元数据：unix 读 `out/node.target.mk` 的 `LD_INPUTS`
+   （路径形如 `$(obj).target/...`，注意 `$(obj)` = `<out>/Release/obj`、`.target` 是**字面**
+   后缀；`.mk` 落在 `out/` 而非 `out/Release/`）；windows 读 `node.vcxproj` 里
+   `ConfigurationType=StaticLibrary` 的 `ProjectReference`。**不要用目录扫描兜底**。
+2. **成员必须按位置提取，不能按名字。**
+   gyp 用 `ar crs` 从 `heap/sweeper.o`、`heap/cppgc/sweeper.o` 建库，ar 只存 **basename**
+   → 同一归档里 `"sweeper.o"` 会出现两次，`ar p <lib> <name>` 两次都返回**第一个**
+   → cppgc 那份静默丢失（mac 腿因此 131 个未定义符号）。
+   **同名成员是常态**：上游已知可用归档有 58 组重名成员（内容各不相同）。
+   正确做法：流式解析归档结构（GNU `/off` + `//`、BSD `#1/len`、thin）**按偏移**取成员，
+   落盘时每个成员一个独立子目录以保留原名，合并后校验成员数 + 名字多重集与输入一致。
+   MSVC 的 `//` 串表用 NUL 分隔、整表以 `\n` 收尾，**终止符要取最早出现的那个**。
+3. **Windows 也必须真合并。**
+   node 自己的 `libnode.lib` 只有 node 的对象（~192 成员 / 2.9 万符号），而 embedder 需要
+   v8/icu/openssl 等带来的 ~22 万符号。`build-windows.ps1` 若用 `Copy-Item` 直接拷它，
+   下游就是 163 个未解析外部符号。合并用 `lib.exe /OUT:merged.lib @response`
+   （`lib.exe` 会保留同名成员；**不依赖 vcvars**：脚本自行在 PATH 或 vswhere 结果里定位，
+   并把 `lib.exe` 所在目录前置到 PATH——它需要这个才能找到自己的 DLL）。
+
+| 平台 | 写归档方式 |
+|---|---|
+| windows | `lib.exe /OUT:<out> @filelist`（`merge_libnode.py` 内自定位） |
+| macos/ios | `libtool -static -o <out> -filelist <list>` |
+| linux/android/ohos | `ar rcs <out> @filelist` |
+
+### 校验必须包含「整档链接」 smoke test
+
+`scripts/verify_symbols.py` 老版本只查几个 RTTI 标记符号，**装错的归档照样绿**——
+这就是三平台打包全坏而依赖 CI 报 success 的原因。现在对 node 追加三项，缺一不可：
+
+- 成员数下限（上游 ~3630；node 自身对象档只有 ~190）；
+- 跨库符号覆盖（v8 / libuv / nghttp2 / ICU / OpenSSL / zlib / zstd / cppgc 各取一个标记）；
+- **`-shared -Wl,--whole-archive <archive> -Wl,--no-whole-archive` 整档链接**
+  （linux 腿）：非 PIC → relocation 报错；混入 host 工具归档 → `multiple definition`；
+  丢成员 → 未定义符号。**一条测试同时覆盖三类缺陷**（已实测：上游已知可用归档通过，
+  坏归档失败）。注意**不要**加 `--no-undefined`——已知可用归档会因缺 `libc++` 运行时
+  符号而失败（假阳性）。
+
+
 ## 常见坑
 
 - **改了依赖仓库 ≠ 本仓生效**：本仓 `third/` 下是已下载的产物，`dependency_is_ready()`

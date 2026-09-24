@@ -49,6 +49,20 @@ env:
   GODOT_ASSET_MACOS: "Godot_v4.7.1-stable_macos.universal.zip"
 on:
   workflow_dispatch:
+    inputs:
+      # Fast path for dependency work: pull the per-platform artifacts from a
+      # GodotJS-Dependencies CI run instead of waiting for a full release.
+      # Set deps_run to that run's id and deps_engines to the engines to verify.
+      deps_run:
+        description: 'GodotJS-Dependencies workflow run id to consume artifacts from (empty = use releases)'
+        type: string
+        required: false
+        default: ''
+      deps_engines:
+        description: 'Engines to pull from that run, e.g. "node" or "v8,node" (empty = all engines the run provides)'
+        type: string
+        required: false
+        default: ''
   pull_request:
   push:
 
@@ -452,6 +466,33 @@ jobs:
         with:
           name: scripts-out
           path: scripts/out
+
+      # Fast path for dependency iteration: use the per-platform artifacts a
+      # GodotJS-Dependencies CI run produced, so a fix can be verified in minutes
+      # instead of waiting for the full multi-hour release build. Those artifacts
+      # hold that repo's staging/ tree (libnode/, v8/, lws/), which is exactly the
+      # layout third/ expects, so no repacking is needed.
+      - name: Fetch dependencies from a GodotJS-Dependencies run
+        if: github.event_name == 'workflow_dispatch' && inputs.deps_run != '' && contains(format(',{0},', inputs.deps_engines || 'v8,node,lws'), format(',{0},', matrix.engine))
+        env:
+          GH_TOKEN: ${{ secrets.DEPS_GITHUB_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p third .deps-staging
+          # Artifact names are prebuilt_<component>_<platform>_<arch>.
+          for component in v8 node lws; do
+            echo "::group::prebuilt_${component}_${{ matrix.platform }}_${{ matrix.arch }}"
+            gh run download "${{ inputs.deps_run }}" \
+              --repo Daylily-Zeleen/GodotJS-Dependencies \
+              --name "prebuilt_${component}_${{ matrix.platform }}_${{ matrix.arch }}" \
+              --dir .deps-staging \
+              || echo "artifact not available; SCons will fall back to the release"
+            echo "::endgroup::"
+          done
+          find .deps-staging -maxdepth 3 -type d | head -20
+          # SConstruct skips the release download when this tree has the archive.
+          echo "GODOTJS_DEPS_STAGING=$PWD/.deps-staging" >> "$GITHUB_ENV"
 
       - name: Restore V8 dependency cache
         if: matrix.engine == 'v8'
