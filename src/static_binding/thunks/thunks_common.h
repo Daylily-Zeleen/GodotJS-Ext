@@ -372,6 +372,13 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 
 	if (val->IsInt32()) return Variant::INT;
 	if (val->IsNumber()) return Variant::FLOAT;
+	// A BigInt is a member of the engine's INT surface (its valid[] list holds
+	// INT and FLOAT), so it takes the INT slot; `JSToGD<int64_t>` already reads
+	// BigInt. Without this branch it probed as VARIANT_MAX and every constructor
+	// overload filter rejected it.
+#	if JSB_WITH_BIGINT
+	if (val->IsBigInt()) return Variant::INT;
+#	endif
 	if (val->IsBoolean()) return Variant::BOOL;
 	if (val->IsString()) return Variant::STRING;
 

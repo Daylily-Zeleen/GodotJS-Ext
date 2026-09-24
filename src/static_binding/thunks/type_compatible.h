@@ -57,10 +57,24 @@
  * | `RID` | （无） | `extract_variant_backed`（仅包装） | ✓ |
  * | `STRING_NAME` | `STRING` | `JSToGD<StringName>`（接受 `IsString`） | ✓ |
  * | `NODE_PATH` | `STRING` | `JSToGD<NodePath>`（接受 `IsString`） | ✓ |
- * | `BOOL`/`INT`/`FLOAT` | 数值互转 | `JSB_DIRECT_SCALAR`/`int64`（接受 `IsNumber`） | ✓ |
+ * | `BOOL` | `INT` / `FLOAT` / `NIL` | `JSToGD<bool>` → `Helper::to_bool`（boolean / number / bigint / null / undefined） | ✓ |
+ * | `INT` | `BOOL` / `FLOAT` / `NIL` | `JSToGD<int64_t>` → `to_int64` + `js_bool_as_number`（boolean / number / bigint） | ✓ |
+ * | `FLOAT` | `BOOL` / `INT` / `NIL` | `JSToGD<float>` / `<double>` → `to_double` + `js_bool_as_number` | ✓ |
  * | `ARRAY` / `PACKED_*_ARRAY` | 双向 | `extract_variant_backed` + 容器回退 | ✓ |
  * | 向量/矩形/变换家族 | 同类互转 | `extract_variant_backed`（仅包装） | ✓ |
  * | `OBJECT` | （无） | `JSToGD<Object *>`（`is_object`） | ✓ |
+ *
+ * 数值三行的口径与引擎 `Variant::can_convert_strict` 对齐
+ * （`core/variant/variant.cpp`：`BOOL = {INT, FLOAT, NIL}`、`INT = {BOOL, FLOAT, NIL}`、
+ * `FLOAT = {BOOL, INT, NIL}`，三处的 `STRING` 都被注释掉）。
+ * `NIL` 由本函数开头的 `p_source_type == Variant::NIL` 统一放行，故三行都含它。
+ * **`BIGINT` 不是一个 Variant 类型**：`probe_vt` 把 JS BigInt 归为 `Variant::INT`
+ * （见 `thunks_common.h` 的 `probe_vt`），所以 BigInt 走的是 `INT` 那一列 ——
+ * 对 `INT` 目标是同类型命中，对 `FLOAT` 目标靠 `INT` 这一行放行。
+ *
+ * 数值三行的一致性由 `js_bool_as_number`（`jsb_type_convert_direct.h`）保证：
+ * 引擎的 `INT` / `FLOAT` 都接受 `BOOL`，所以 `JSToGD<int64_t>` / `<float>` / `<double>`
+ * 也必须接受 boolean，否则谓词选中数值重载而编组器随后拒绝。
  *
  * 向量/变换家族之所以一致：其"额外源"本身都是可包装的 Variant 类型，
  * 而编组器接受任意包装对象——类型不匹配由引擎 ctor 自身拒绝。

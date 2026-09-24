@@ -77,32 +77,78 @@ struct JSToGD<godot::Variant> {
 	}
 };
 
-#define JSB_DIRECT_SCALAR(CppType, Check, Extract)                                                                                                 \
-	template <>                                                                                                                                    \
-	struct JSToGD<CppType> {                                                                                                                       \
-		static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, CppType &r_out) { \
-			(void)p_context;                                                                                                                       \
-			if (p_jval->Check) {                                                                                                                   \
-				r_out = Extract;                                                                                                                   \
-				return true;                                                                                                                       \
-			}                                                                                                                                      \
-			return false;                                                                                                                          \
-		}                                                                                                                                          \
-	};
+// `bool` / `float` / `double` follow the engine's `Variant::can_convert_strict`
+// surface -- BOOL takes INT/FLOAT/NIL, FLOAT takes BOOL/INT/NIL (STRING is
+// commented out on the engine side too). So they go through the shared
+// conversion primitives instead of a bare `IsBoolean()` / `IsNumber()` test,
+// which keeps them inside the acceptance surface the overload predicate in
+// `type_compatible.h` assumes.
+template <>
+struct JSToGD<bool> {
+	static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, bool &r_out) {
+		(void)p_context;
+		return impl::Helper::to_bool(p_isolate, p_jval, r_out);
+	}
+};
 
-JSB_DIRECT_SCALAR(bool, IsBoolean(), p_jval.As<v8::Boolean>()->Value())
-JSB_DIRECT_SCALAR(double, IsNumber(), p_jval.As<v8::Number>()->Value())
-// real_t = float by default (math_defs.hpp); builtin/utility float parameters
-// follow godot-cpp's real_t convention. The engine widens the ptrcall slot to
-// double, so the narrowing here mirrors PtrToArg<float>::convert exactly.
-JSB_DIRECT_SCALAR(float, IsNumber(), (float)p_jval.As<v8::Number>()->Value())
-#undef JSB_DIRECT_SCALAR
+// A JS boolean belongs to the engine's INT and FLOAT surfaces
+// (`Variant::can_convert_strict`: INT = {BOOL, FLOAT, NIL}, FLOAT = {BOOL, INT,
+// NIL}) and `can_be_converted_from<INT/FLOAT>` in type_compatible.h mirrors that
+// table. So the marshallers have to take it as well -- otherwise the overload
+// filter picks a numeric constructor for `true` and the marshaller then rejects
+// it, which is the "selected, then bad argument N" failure that the
+// predicate/marshaller contract exists to prevent (cf. the historical
+// `new Color("abc")` incident in type_compatible.h).
+inline bool js_bool_as_number(const v8::Local<v8::Value> &p_val, double &r_out) {
+	if (!p_val->IsBoolean()) {
+		return false;
+	}
+	// No isolate: the metadata-less `StaticBindingUtil` overloads have none to
+	// pass, and `Boolean::Value()` needs none either (this is what the previous
+	// hand-written `JSToGD<bool>` did).
+	r_out = p_val.As<v8::Boolean>()->Value() ? 1.0 : 0.0;
+	return true;
+}
+
+template <>
+struct JSToGD<double> {
+	static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, double &r_out) {
+		(void)p_isolate;
+		(void)p_context;
+		return js_bool_as_number(p_jval, r_out) || impl::Helper::to_double(p_jval, r_out);
+	}
+};
+
+template <>
+struct JSToGD<float> {
+	static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, float &r_out) {
+		(void)p_isolate;
+		(void)p_context;
+		double wide = 0;
+		if (!js_bool_as_number(p_jval, wide) && !impl::Helper::to_double(p_jval, wide)) {
+			return false;
+		}
+		// real_t = float by default (math_defs.hpp); builtin/utility float
+		// parameters follow godot-cpp's real_t convention. The engine widens the
+		// ptrcall slot to double, so the narrowing here mirrors
+		// PtrToArg<float>::convert exactly.
+		r_out = (float)wide;
+		return true;
+	}
+};
 
 template <>
 struct JSToGD<int64_t> {
 	static bool convert(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_jval, int64_t &r_out) {
 		(void)p_isolate;
 		(void)p_context;
+		// See `js_bool_as_number`: the engine's INT surface includes BOOL, and
+		// `can_be_converted_from<INT>` says so, so `true` has to marshal to 1.
+		double as_number = 0;
+		if (js_bool_as_number(p_jval, as_number)) {
+			r_out = (int64_t)as_number;
+			return true;
+		}
 		return impl::Helper::to_int64(p_jval, r_out);
 	}
 };

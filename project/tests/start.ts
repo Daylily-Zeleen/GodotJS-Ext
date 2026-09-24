@@ -35,6 +35,7 @@ export default class Start extends Node {
 					"res://tests/中文路径/SourceMapTest.tscn",
 					"res://tests/default-args/DefaultArgs.tscn",
 					"res://tests/operators/Operators.tscn",
+					"res://tests/numeric/Numeric.tscn",
 					"res://tests/int64/Int64.tscn",
 				];
 			// Count derived from the list: a hardcoded literal here silently

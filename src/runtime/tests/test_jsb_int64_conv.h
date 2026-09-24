@@ -39,6 +39,9 @@
 #include "../bridge/jsb_type_convert.h"
 #include "../bridge/jsb_type_convert_direct.h"
 #include "jsb_test_helpers.h"
+#if JSB_WITH_STATIC_BINDINGS
+#	include "../../static_binding/thunks/thunks_common.h"
+#endif // JSB_WITH_STATIC_BINDINGS
 
 namespace jsb::tests {
 
@@ -358,6 +361,142 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 			CHECK(JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, 0x10FFFF), c32));
 			CHECK(c32 == 0x10FFFF);
 			CHECK(!JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, -1), c32));
+		}
+	}
+
+	env.reset();
+}
+
+#if JSB_WITH_STATIC_BINDINGS
+// `probe_vt` and the operator thunks live in the static-binding layer, so these
+// two cases are gated the same way the header is.
+//
+// A JS BigInt belongs to the engine's INT surface, so it has to probe as INT:
+// without that, every builtin constructor overload filter rejects it before any
+// marshaller runs (measured: `new Vector2i(2n, 3)` -> "no suitable constructor").
+TEST_CASE("[runtime] [jsb.numeric] probe_vt maps a BigInt onto the INT slot") {
+	GodotJSScriptLanguageIniter initer;
+	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+
+		CHECK(static_binding::probe_vt(v8::Int32::New(isolate, 2)) == Variant::INT);
+		CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
+		CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX)) == Variant::INT);
+		CHECK(static_binding::probe_vt(v8::Number::New(isolate, 2.5)) == Variant::FLOAT);
+		CHECK(static_binding::probe_vt(v8::Boolean::New(isolate, true)) == Variant::BOOL);
+		CHECK(static_binding::probe_vt(v8::Null(isolate)) == Variant::NIL);
+		// Both probe orders must agree -- binary operator dispatch probes its left
+		// operand object-first and its right operand primitive-first.
+		CHECK(static_binding::probe_vt<static_binding::probe_prefer_object_types>(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
+	}
+
+	env.reset();
+}
+#endif // JSB_WITH_STATIC_BINDINGS
+
+TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine surface") {
+	GodotJSScriptLanguageIniter initer;
+	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+		const v8::Local<v8::Context> context = env->get_context();
+
+		// double / float: the engine's FLOAT surface is BOOL / INT / NIL, and a
+		// BigInt probes as INT, so all of them have to marshal -- otherwise the
+		// overload filter picks the numeric constructor and the marshaller then
+		// rejects it ("selected, then bad argument N").
+		{
+			double d = 0;
+			CHECK(JSToGD<double>::convert(isolate, context, v8::Number::New(isolate, 1.5), d));
+			CHECK(d == 1.5);
+			CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 3), d));
+			CHECK(d == 3.0);
+			// A BigInt above 2^53 loses low bits in a double slot -- inherent to
+			// the slot, not an error.
+			CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, (int64_t)1 << 53), d));
+			CHECK(d == (double)((int64_t)1 << 53));
+			CHECK(JSToGD<double>::convert(isolate, context, v8::Boolean::New(isolate, true), d));
+			CHECK(d == 1.0);
+			CHECK(JSToGD<double>::convert(isolate, context, v8::Boolean::New(isolate, false), d));
+			CHECK(d == 0.0);
+			CHECK(!JSToGD<double>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "1"), d));
+			CHECK(!JSToGD<double>::convert(isolate, context, v8::Null(isolate), d));
+
+			float f = 0;
+			CHECK(JSToGD<float>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 2), f));
+			CHECK(f == 2.0f);
+			CHECK(JSToGD<float>::convert(isolate, context, v8::Boolean::New(isolate, true), f));
+			CHECK(f == 1.0f);
+			CHECK(!JSToGD<float>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "2"), f));
+		}
+
+		// int64: BOOL is on the engine's INT surface too (`true` -> 1).
+		{
+			int64_t v = 0;
+			CHECK(JSToGD<int64_t>::convert(isolate, context, v8::Boolean::New(isolate, true), v));
+			CHECK(v == 1);
+			CHECK(JSToGD<int64_t>::convert(isolate, context, v8::Boolean::New(isolate, false), v));
+			CHECK(v == 0);
+			CHECK(JSToGD<int64_t>::convert(isolate, context, v8::Number::New(isolate, 2.75), v));
+			CHECK(v == 2);
+			// null / undefined are NIL, which the engine's INT surface does NOT
+			// list -- only BOOL / FLOAT / NIL... NIL is listed, but the direct
+			// converter declines a bare null for an int slot (no numeric value).
+			CHECK(!JSToGD<int64_t>::convert(isolate, context, v8::Null(isolate), v));
+		}
+
+		// bool: the engine's BOOL surface (INT / FLOAT / NIL) with STRING still
+		// commented out on the engine side, so a string stays rejected.
+		{
+			bool b = true;
+			CHECK(JSToGD<bool>::convert(isolate, context, v8::Boolean::New(isolate, false), b));
+			CHECK(!b);
+			CHECK(JSToGD<bool>::convert(isolate, context, v8::Number::New(isolate, 1.0), b));
+			CHECK(b);
+			CHECK(JSToGD<bool>::convert(isolate, context, v8::Number::New(isolate, 0.0), b));
+			CHECK(!b);
+			CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 1), b));
+			CHECK(b);
+			CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 0), b));
+			CHECK(!b);
+			CHECK(JSToGD<bool>::convert(isolate, context, v8::Null(isolate), b));
+			CHECK(!b);
+			CHECK(JSToGD<bool>::convert(isolate, context, v8::Undefined(isolate), b));
+			CHECK(!b);
+			CHECK(!JSToGD<bool>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "true"), b));
+			CHECK(!JSToGD<bool>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, ""), b));
+		}
+
+		// The reflect constructor path uses StaticBindingUtil, which must agree
+		// with JSToGD (it delegated to it).
+		{
+			bool b = true;
+			CHECK(StaticBindingUtil<bool>::get(isolate, context, v8::Number::New(isolate, 3.0), b));
+			CHECK(b);
+			CHECK(StaticBindingUtil<bool>::get(isolate, context, v8::Null(isolate), b));
+			CHECK(!b);
+			CHECK(!StaticBindingUtil<bool>::get(isolate, context, v8::String::NewFromUtf8Literal(isolate, "1"), b));
+
+			double d = 0;
+			CHECK(StaticBindingUtil<double>::get(isolate, context, int64_conv_detail::new_bigint(isolate, 4), d));
+			CHECK(d == 4.0);
+			float f = 0;
+			CHECK(StaticBindingUtil<float>::get(isolate, context, v8::Boolean::New(isolate, true), f));
+			CHECK(f == 1.0f);
+		}
+
+		// `can_convert_strict<BOOL>` is the predicate the dynamic path checks
+		// before converting; it has to accept exactly what JSToGD<bool> does.
+		{
+			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Boolean::New(isolate, true), Variant::BOOL));
+			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Number::New(isolate, 0.0), Variant::BOOL));
+			CHECK(TypeConvert::can_convert_strict(isolate, context, int64_conv_detail::new_bigint(isolate, 1), Variant::BOOL));
+			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Null(isolate), Variant::BOOL));
+			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Undefined(isolate), Variant::BOOL));
+			CHECK(!TypeConvert::can_convert_strict(isolate, context, v8::String::NewFromUtf8Literal(isolate, "true"), Variant::BOOL));
 		}
 	}
 

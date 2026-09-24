@@ -28,6 +28,7 @@
 #pragma once
 #include "jsb_bridge_pch.h"
 #include "jsb_type_convert.h"
+#include "jsb_type_convert_direct.h"
 
 namespace jsb {
 // fallback to Variant transpiler
@@ -64,22 +65,18 @@ struct StaticBindingUtil<Object *> {
 	}
 };
 
+// float / double / bool all delegate to `JSToGD<T>`. Those direct converters
+// already carry the engine's numeric acceptance surface (BigInt for the float
+// slots, number/bigint/null/undefined for bool), so the reflect path used by
+// constructor calls cannot drift away from the static thunk path.
 template <>
 struct StaticBindingUtil<float> {
 	static bool get(const v8::Local<v8::Value> &p_input, float &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (float)p_input.As<v8::Number>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<float>::convert(nullptr, v8::Local<v8::Context>(), p_input, r_value);
 	}
 
 	static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, float &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (float)p_input.As<v8::Number>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<float>::convert(isolate, context, p_input, r_value);
 	}
 
 	static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const float &p_input, v8::Local<v8::Value> &r_value) {
@@ -91,23 +88,30 @@ struct StaticBindingUtil<float> {
 template <>
 struct StaticBindingUtil<double> {
 	static bool get(const v8::Local<v8::Value> &p_input, double &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (double)p_input.As<v8::Number>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<double>::convert(nullptr, v8::Local<v8::Context>(), p_input, r_value);
 	}
 
 	static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, double &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (double)p_input.As<v8::Number>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<double>::convert(isolate, context, p_input, r_value);
 	}
 
 	static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const double &p_input, v8::Local<v8::Value> &r_value) {
 		r_value = v8::Number::New(isolate, (double)p_input);
+		return true;
+	}
+};
+
+// No metadata-less `get` overload: `to_bool` needs the isolate for
+// `BooleanValue`. The reflect constructor path always passes one, and nothing
+// else instantiates this specialization.
+template <>
+struct StaticBindingUtil<bool> {
+	static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, bool &r_value) {
+		return JSToGD<bool>::convert(isolate, context, p_input, r_value);
+	}
+
+	static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const bool &p_input, v8::Local<v8::Value> &r_value) {
+		r_value = v8::Boolean::New(isolate, p_input);
 		return true;
 	}
 };
@@ -149,22 +153,20 @@ struct StaticBindingUtil<uint64_t> {
 	}
 };
 
+// int32 delegates to `JSToGD<int32_t>` for the same reason float / double do:
+// the constructor reflect path uses this specialization, and the declared
+// `int64` components of `Vector2i` / `Vector3i` accept a BigInt (and a boolean,
+// and any number). The previous body tested `IsNumber()` and then did a bare
+// `As<v8::Int32>()` -- which is a pure handle reinterpretation, so a BigInt or a
+// double was either rejected or read as garbage.
 template <>
 struct StaticBindingUtil<int32_t> {
 	static bool get(const v8::Local<v8::Value> &p_input, int32_t &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (int32_t)p_input.As<v8::Int32>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<int32_t>::convert(nullptr, v8::Local<v8::Context>(), p_input, r_value);
 	}
 
 	static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, int32_t &r_value) {
-		if (p_input->IsNumber()) {
-			r_value = (int32_t)p_input.As<v8::Int32>()->Value();
-			return true;
-		}
-		return false;
+		return JSToGD<int32_t>::convert(isolate, context, p_input, r_value);
 	}
 
 	static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const int32_t &p_input, v8::Local<v8::Value> &r_value) {
