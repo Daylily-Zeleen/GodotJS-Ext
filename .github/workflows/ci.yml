@@ -48,6 +48,22 @@ env:
   GODOT_ASSET_WINDOWS: "Godot_v4.7.1-stable_win64.exe.zip"
 on:
   workflow_dispatch:
+    inputs:
+      binding_mode:
+        description: >-
+          Class-method binding mode to build and test. 'default' keeps every
+          leg on the scons default (shared). A specific mode overrides it for
+          the desktop legs only -- mobile/web are template-only and stay on the
+          default, so a static/shared/dynamic run stays cheap. Named
+          `binding_mode` to match the scons option it maps to.
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - static
+          - shared
+          - dynamic
   pull_request:
   push:
 
@@ -141,7 +157,7 @@ jobs:
       - name: Upload benchmark binary
         uses: actions/upload-artifact@v7
         with:
-          name: benchmark-${{ matrix.static-binding }}
+          name: benchmark-${{ matrix.binding-mode }}
           path: benchmark/
           retention-days: 1
 
@@ -189,7 +205,7 @@ jobs:
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
           mkdir -p project/addons/godotjs-ext.daylily-zeleen/bin/linux
           for leg in static dynamic; do
-            if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-yes/godotjs-ext.so; else SO=/tmp/bench/benchmark-no/godotjs-ext.so; fi
+            if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-static/godotjs-ext.so; else SO=/tmp/bench/benchmark-dynamic/godotjs-ext.so; fi
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
             "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
@@ -203,7 +219,7 @@ jobs:
         run: |
           sudo apt-get install -y gdb
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
-          cp /tmp/bench/benchmark-yes/godotjs-ext.so "$ADDONS_SO"
+          cp /tmp/bench/benchmark-static/godotjs-ext.so "$ADDONS_SO"
           gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project -- --bench \
             > /tmp/bench/gdb_static.log 2>&1 || true
           tail -60 /tmp/bench/gdb_static.log || true
@@ -252,7 +268,7 @@ jobs:
           ]
           import os
           for leg in ("dynamic", "static"):
-              sz = os.path.getsize(f"/tmp/bench/benchmark-{'yes' if leg == 'static' else 'no'}/godotjs-ext.so")
+              sz = os.path.getsize(f"/tmp/bench/benchmark-{leg}/godotjs-ext.so")
               lines.append(f"- {leg} gdextension: {sz / 1024 / 1024:.2f} MiB")
           lines.append("")
           lines += [
@@ -479,6 +495,11 @@ jobs:
           engine: ${{ matrix.engine }}
           windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           threads: ${{ matrix.threads }}
+          # A manually selected binding mode applies to the desktop legs, which
+          # the `test` job can actually run. Mobile/web stay on the scons default
+          # (shared): they are template-only and never run the runtime tests, so
+          # overriding them would only multiply build time.
+          flags: ${{ (inputs.binding_mode != '' && inputs.binding_mode != 'default' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos')) && format('binding_mode={0}', inputs.binding_mode) || '' }}
           scons-cache: ${{ matrix.platform != 'windows' && format('{0}/.scons-cache', github.workspace) || '' }}
 
       - name: Upload GDExtension artifact
