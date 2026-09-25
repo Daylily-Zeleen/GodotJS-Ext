@@ -58,7 +58,7 @@
  * | `STRING_NAME` | `STRING` | `JSToGD<StringName>`（接受 `IsString`） | ✓ |
  * | `NODE_PATH` | `STRING` | `JSToGD<NodePath>`（接受 `IsString`） | ✓ |
  * | `BOOL` | `INT` / `FLOAT` / `NIL` | `JSToGD<bool>` → `Helper::to_bool`（boolean / number / bigint / null / undefined） | ✓ |
- * | `INT` | `BOOL` / `FLOAT` / `NIL` | `JSToGD<int64_t>` → `to_int64` + `js_bool_as_number`（boolean / number / bigint） | ✓ |
+ * | `INT` | `BOOL` / `FLOAT` / `NIL` | `JSToGD<int64_t>` → `to_int64` + `js_bool_as_number`（boolean / number / bigint）；窄槽收窄为**截断**，见下 | ✓ |
  * | `FLOAT` | `BOOL` / `INT` / `NIL` | `JSToGD<float>` / `<double>` → `to_double` + `js_bool_as_number` | ✓ |
  * | `ARRAY` / `PACKED_*_ARRAY` | 双向 | `extract_variant_backed` + 容器回退 | ✓ |
  * | 向量/矩形/变换家族 | 同类互转 | `extract_variant_backed`（仅包装） | ✓ |
@@ -75,6 +75,14 @@
  * 数值三行的一致性由 `js_bool_as_number`（`jsb_type_convert_direct.h`）保证：
  * 引擎的 `INT` / `FLOAT` 都接受 `BOOL`，所以 `JSToGD<int64_t>` / `<float>` / `<double>`
  * 也必须接受 boolean，否则谓词选中数值重载而编组器随后拒绝。
+ *
+ * **窄槽（int8/16/32、uint8/16/32、char32）越界按截断处理，不拒绝**：引擎自身从不校验
+ * 窄参数宽度 —— `MethodBind::call` 只经 `Variant::can_convert_strict`（Variant 类型类别级别，
+ * 拿不到宽度）再走 `Variant::operator int8_t()` 即 `static_cast`。实测（纯 GDScript）：
+ * `put_8(300)` 写 44、`put_8(-129)` 写 127、`put_u16(70000)` 写 4464、
+ * `Vector2i(3000000000, -3000000000)` 得 `(-1294967296, 1294967296)`。
+ * 故 `JSToGD<窄类型>` 也截断，debug 构建打一条告警（`#if JSB_DEBUG` 门控，release 零开销）。
+ * 若这里改成拒绝，静态腿就会与动态腿（class 方法路径就是引擎自己的转换）以及 GDScript 行为分叉。
  *
  * 向量/变换家族之所以一致：其"额外源"本身都是可包装的 Variant 类型，
  * 而编组器接受任意包装对象——类型不匹配由引擎 ctor 自身拒绝。

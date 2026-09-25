@@ -168,16 +168,31 @@ struct JSToGD<uint64_t> {
 	}
 };
 
-// Narrow exact-width integer targets: convert through int64 then range-check, so
-// a JS value that does not fit the declared meta width (int8..uint32, char32) is
-// a clean conversion failure instead of a silent truncation. These are genuinely
-// narrow slots -- truncating them would be the defect.
+// Narrow exact-width integer targets: read through int64, then narrow exactly
+// the way the engine does.
 //
-// uint64_t deliberately does NOT go through here: it has its own `JSToGD`
-// specialization reading the unsigned domain directly. The range check cannot
-// express it anyway (int64 cannot hold uint64's max), and the `wide < 0 -> false`
-// early return it used to carry rejected every value >= 2^63 -- including plain
-// numbers -- while the dynamic path wrote those same bytes happily.
+// The engine never range-checks a narrow parameter. `MethodBind::call` reaches
+// `call_with_variant_args_helper`, which (in a debug build) only asks
+// `Variant::can_convert_strict` -- a Variant *type-category* check that cannot
+// see the declared width -- and then converts through `Variant::operator
+// int8_t()`, i.e. `static_cast`. It never looks at the value's magnitude:
+
+//     put_8(300)  -> writes 44     (engine, measured)
+//     put_8(-129) -> writes 127
+//     put_u16(70000) -> writes 4464
+//     Vector2i(3000000000, -3000000000) -> (-1294967296, 1294967296)
+//
+// So the project follows it and truncates too. Rejecting instead would make the
+// static leg disagree with the dynamic leg (whose class-method path is the
+// engine's own conversion) and with plain GDScript -- the very split this work
+// is meant to remove.
+//
+// A debug build warns about the loss, because a silent truncation is easy to
+// stare past. The `#if JSB_DEBUG` block below compiles to nothing otherwise, so
+// the release build pays neither the comparison nor the branch.
+//
+// uint64_t deliberately does NOT go through here: its domain does not fit the
+// int64 read, so it has its own `JSToGD` specialization.
 template <typename CppT>
 inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
 		const v8::Local<v8::Context> &p_context,
@@ -187,15 +202,16 @@ inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
 	if (!JSToGD<int64_t>::convert(p_isolate, p_context, p_jval, wide)) {
 		return false;
 	}
-	if constexpr (std::is_unsigned_v<CppT>) {
-		if (wide < 0 || wide > static_cast<int64_t>(std::numeric_limits<CppT>::max())) {
-			return false;
-		}
-	} else {
-		if (wide < static_cast<int64_t>(std::numeric_limits<CppT>::min()) || wide > static_cast<int64_t>(std::numeric_limits<CppT>::max())) {
-			return false;
-		}
+#if JSB_DEBUG
+	// Report what the narrowing is about to discard, before discarding it.
+	// `wide != (int64_t)(CppT)wide` is exact for every width here and adds no
+	// branch in release (the macro is empty there).
+	if (wide != (int64_t)(CppT)wide) {
+		// Godot's `String::sprintf` has no `%lld`; int64 goes through `%d` with a cast
+		// (the project-wide convention, e.g. jsb_environment.cpp).
+		JSB_LOG(Warning, "narrow slot: %d does not fit, truncating to %d", (int)wide, (int)(int64_t)(CppT)wide);
 	}
+#endif
 	r_out = static_cast<CppT>(wide);
 	return true;
 }

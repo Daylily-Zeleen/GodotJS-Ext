@@ -150,6 +150,13 @@ base_ptr   = builtin self / 运算符操作数内存
 **`lossless` 不得参与分支**：只有 v8 能报，分支会让五引擎语义分叉。选「按位回绕」时五引擎
 原生就一致。
 
+**测试辅助不得用 `BigInt.asUintN`（quickjs-ng 上是坏的）**：其快路径在
+`bits >= JS_SHORT_BIG_INT_BITS` 时直接返回原值，而 quickjs-ng 的
+`JS_SHORT_BIG_INT_BITS = JS_LIMB_BITS = 32`，故 `BigInt.asUintN(64, -1n)` 得 `-1n`
+而非 `18446744073709551615n`（v8 正确）。用它会造出「两侧十六进制字符串相同却不等」的
+假失败。取模掩码 `((x % 2n**64n) + 2n**64n) % 2n**64n` 在五引擎等价。
+（本项目转换层无此问题：quickjs-ng 腿 `get_u64() = 2^63` 实测得到 `9223372036854775808n`。）
+
 ### 数值槽的接受面（与引擎 `can_convert_strict` 对齐）
 
 引擎 `Variant::can_convert_strict`（`core/variant/variant.cpp`）：
@@ -187,9 +194,37 @@ base_ptr   = builtin self / 运算符操作数内存
 - 关掉后的可观察差异：RefCounted 的 ObjectID 往返不再无损（`get_instance_id()` 出丢位 `Number`）；
   `put_u64` 等**入口**行为与字节写入**完全不变**。
 
-### 窄整型（int8/16/32、uint8/16/32、char32）保持范围检查
+### 窄整型（int8/16/32、uint8/16/32、char32）按引擎语义**截断**
 
-它们是真窄槽，静默截断才是缺陷。只有 64 位槽改按位。
+**2026-09-25 修订**（原为「保持范围检查」，实测后推翻）。判据是用户规则
+「引擎有检查就以动态腿为准，没有就以静态腿为准」。实测引擎**不检查宽度**：
+
+| 调用 | 引擎结果 |
+|---|---|
+| `PackedByteArray.put_8(300)` | OK，`[44]` |
+| `put_8(-129)` | OK，`[127]` |
+| `put_8(2^40)` | OK，`[0]` |
+| `put_u16(70000)` | OK，`[112,17]` |
+| `put_8(1e300)` | OK，`[0]` |
+| `Vector2i(3000000000, -3000000000)` | `(-1294967296, 1294967296)` |
+| `put_8("abc")` / `put_8(null)` | 报错（类型类别不匹配，**仍拒**） |
+
+`core/variant/binder_common.h:58-72`：DEBUG 只走 `VariantCasterAndValidate<T>::cast`
+→ `Variant::can_convert_strict`（**Variant 类型类别级，拿不到宽度**）；release 直接
+`VariantCaster<T>::cast` → `Variant::_to_int<int8_t>()` → `T(_data._int)`，即 `static_cast`。
+
+因此本项目静态腿与动态腿**统一为截断**，且：
+- 越界只在 `JSB_DEBUG` 构建下告警（release 零开销）；
+- 静态腿告警走 `js_to_fixed_width_int`（含目标值），动态腿走统一入口
+  `js_to_gd_var` 的 `verify_narrow_int_slot`（按 meta 查 lo/hi，一处覆盖
+  class 方法 / utility / setter-ctor 三条路径）；
+- **非数值输入仍然拒绝**（引擎也拒），截断只针对数值。
+
+`StaticBindingUtil` 的六个窄整型特化（`int8_t/int16_t/uint8_t/uint16_t/uint32_t/char32_t`）
+已由 `JSB_STATIC_BINDING_FIXED_INT` 宏补齐并统一委托 `JSToGD<T>`，与动态腿接受面一致。
+
+> ⚠ `String::sprintf` **不支持 `%lld`**：用了会让整行日志变空。64 位值必须走
+> `%d` + `(int)`（项目既有惯例）。
 
 ### 测试落点
 
