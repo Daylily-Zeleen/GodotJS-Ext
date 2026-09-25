@@ -164,8 +164,14 @@ jobs:
   benchmark:
     name: Benchmark (static vs dynamic)
     if: github.event_name == 'workflow_dispatch'
-    needs: [environment, benchmark-build]
+    # `build` is required, not just convenient: this job generates the project
+    # runtime state with the editor extension, and that library only exists once
+    # linux-editor-x86_64-v8 has been built and uploaded.
+    needs: [environment, benchmark-build, build]
     runs-on: ubuntu-22.04
+    # Bounds a hang. A JS runtime that never starts leaves the engine idling for
+    # the 6h job ceiling (see the startup guard in "Run benchmark" below).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -188,6 +194,36 @@ jobs:
           path: /tmp/bench
           pattern: benchmark-*
 
+      # The editor extension, used only by "Generate project runtime state"
+      # below. `benchmark-build` stages just the runtime `.so`, and the runtime
+      # alone cannot generate what this job needs: both `.godot/extension_list.cfg`
+      # and `.godot/godotjs_ext/.paths_mapping` are written by the editor plugin
+      # (`_regenerate_paths_mapping` -> PathsMapping::generate_from_tsconfig).
+      - name: Download editor extension (linux)
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-editor-x86_64-v8
+          path: /tmp/editor-ext
+
+      - name: Stage extension libraries
+        shell: bash
+        run: |
+          ADDONS=project/addons/godotjs-ext.daylily-zeleen/bin/linux
+          mkdir -p "$ADDONS"
+          # Runtime library: `--bench` never loads this one, but keeping it here
+          # means the project resolves the rest of the extension surface the
+          # same way the `test` job does.
+          cp /tmp/bench/benchmark-static/godotjs-ext.so \
+             "$ADDONS/godotjs-ext.linux.editor.x86_64.so"
+          # Editor library: `godotjs-ext-editor.gdextension` points at this exact
+          # name; without it the editor plugin never loads and nothing below
+          # gets generated. The artifact's root is the build's `bin/` directory
+          # (see the `test` job, which copies it into the addon's `bin/`), hence
+          # the `linux/` prefix.
+          cp /tmp/editor-ext/linux/godotjs-ext-editor.linux.editor.x86_64.so \
+             "$ADDONS/godotjs-ext-editor.linux.editor.x86_64.so"
+          ls -la "$ADDONS"
+
       # Bootstrap emit only: this job never builds the api store, so
       # `project/typings/` cannot be generated here and the emit cannot be
       # type-checked. The benchmark scene only needs runnable JS; the
@@ -199,6 +235,29 @@ jobs:
           pnpm exec tsc --noCheck
         working-directory: project
 
+      # The benchmark scene loads through the project's autoloads, which import
+      # `@tests/*` -- a tsconfig path alias the runtime resolves only through
+      # `.godot/godotjs_ext/.paths_mapping`. Without the generated runtime state
+      # those imports throw, `start.ts` never reaches its `quit()`, and the
+      # engine idles until the job ceiling: precisely how this job used to die,
+      # with no log to explain it (GitHub does not persist the log of a step
+      # that never finishes). Generate exactly what a normal runtime launch
+      # needs. Order matters: the emit above creates `.godot/godotjs_ext/`, and
+      # this step adds `.paths_mapping` alongside it.
+      - name: Generate project runtime state
+        shell: bash
+        # The editor crashes during shutdown after writing its data (a known
+        # engine-side teardown issue, the same one the `test` job tolerates), so
+        # the exit code is ignored and the artifacts are checked instead.
+        run: |
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+          test -f project/extension_api.json
+          "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          test -f project/.godot/.api_dumping/header.capi
+          test -f project/.godot/extension_list.cfg
+          test -f project/.godot/godotjs_ext/.paths_mapping
+          echo "paths mapping: $(cat project/.godot/godotjs_ext/.paths_mapping)"
+
       - name: Run benchmark (both legs)
         shell: bash
         run: |
@@ -208,9 +267,19 @@ jobs:
             if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-static/godotjs-ext.so; else SO=/tmp/bench/benchmark-dynamic/godotjs-ext.so; fi
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
-            "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            # `timeout` is the backstop, not the diagnosis: if the JS runtime
+            # fails to start, nothing ever quits and the engine would idle to the
+            # job ceiling. Failing at 300s turns that into a readable log.
+            timeout 300 "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            # Name the cause explicitly instead of reporting a bare missing
+            # BENCH_JSON: this is the failure mode that produced a 6h no-op.
+            if grep -q "No loader found for resource\|unknown module\|godot class not found" /tmp/bench/${leg}.log; then
+              echo "::error::${leg} leg: the JS runtime did not start -- see the log"
+              tail -40 /tmp/bench/${leg}.log
+              exit 1
+            fi
             grep 'BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/.*BENCH_JSON //' > /tmp/bench/${leg}.json
-            test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
+            test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; tail -40 /tmp/bench/${leg}.log; exit 1; }
           done
 
       - name: Crash diagnosis (gdb backtrace on the teardown SEGV)
