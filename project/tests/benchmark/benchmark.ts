@@ -25,7 +25,14 @@ import { BINDING_MODE } from "godot-jsb";
 export interface CaseGroup {
     group: string;
     makeTarget: () => any;
-    cases: { name: string; fn: (t: any) => any }[];
+    /**
+     * `processDependent` marks a case whose probe result is a property of the
+     * *process* rather than of the binding path -- an ObjectID, for instance.
+     * The static/dynamic legs run as two separate engine processes, so such a
+     * value can never be equal between them; the CI consistency gate compares
+     * `sample` across the legs and must skip these.
+     */
+    cases: { name: string; fn: (t: any) => any; processDependent?: boolean }[];
 }
 
 interface CaseResult {
@@ -34,6 +41,7 @@ interface CaseResult {
     iterations: number;
     sample?: string;
     error?: string;
+    processDependent?: boolean;
 }
 
 // Probe-result fingerprint: primitive value, or constructor name for objects.
@@ -141,7 +149,7 @@ export default class Benchmark extends Node {
             for (let i = 0; i < 5000; i++) a.length();
         }
 
-        const runGroup = async (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any }[]) => {
+        const runGroup = async (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any; processDependent?: boolean }[]) => {
             let target: any;
             try {
                 target = makeTarget();
@@ -152,6 +160,7 @@ export default class Benchmark extends Node {
                         nsPerCall: 0,
                         iterations: 0,
                         error: "target: " + String(e?.message ?? e),
+                        processDependent: c.processDependent,
                     });
                 }
                 return;
@@ -167,6 +176,7 @@ export default class Benchmark extends Node {
                         iterations: 0,
                         sample: r.sample,
                         error: r.error,
+                        processDependent: c.processDependent,
                     });
                 } else {
                     results.push({
@@ -174,6 +184,7 @@ export default class Benchmark extends Node {
                         nsPerCall: r.nsPerCall,
                         iterations: r.iterations,
                         sample: r.sample,
+                        processDependent: c.processDependent,
                     });
                 }
                 await this.get_tree().process_frame.as_promise();
