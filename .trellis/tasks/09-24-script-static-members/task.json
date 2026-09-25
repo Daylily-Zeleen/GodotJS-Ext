@@ -1,0 +1,28 @@
+{
+  "id": "script-static-members",
+  "name": "script-static-members",
+  "title": "GodotJSScript 静态成员解析与跨语言访问",
+  "description": "让 GodotJSScript 像 GDScript 一样暴露常量/枚举/静态变量/静态函数/内部类，并通过 _get/_set/_get_property_list 支持跨语言（GDScript）访问；含 js 注解实现跨环境静态变量",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P2",
+  "creator": "'忘忧の-Daylily_Zeleen'",
+  "assignee": "'忘忧の-Daylily_Zeleen'",
+  "createdAt": "2026-09-24",
+  "completedAt": null,
+  "branch": "feature/script_static_members",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "runtime"
+  }
+}

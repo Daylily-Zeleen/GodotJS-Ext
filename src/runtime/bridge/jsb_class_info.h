@@ -155,6 +155,34 @@ enum Type : uint8_t {
 struct ScriptSignalInfo {
 };
 
+namespace ScriptConstantKind {
+enum Type : uint8_t {
+	// a plain JS primitive value (NIL / BOOL / INT / FLOAT / STRING / STRING_NAME)
+	Value,
+
+	// a normalized `Dictionary{name: int}` built by the parser from a JS numeric enum object
+	Enum,
+
+	// a container (ARRAY / DICTIONARY) which shares `_p` with the JS side,
+	// therefore read-only is applied recursively on both sides
+	Container,
+};
+}
+
+struct ScriptConstantInfo {
+	StringName name;
+
+	// already converted; a numeric enum is normalized into `Dictionary{name: int}`
+	Variant value;
+
+	ScriptConstantKind::Type kind = ScriptConstantKind::Value;
+};
+
+struct ScriptStaticVariableInfo {
+	StringName name;
+	PropertyInfo details;
+};
+
 struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
 {
 	// only valid with TOOLS_ENABLED
@@ -222,6 +250,12 @@ public:
 	HashMap<StringName, ScriptSignalInfo> signals;
 	HashMap<StringName, ScriptPropertyInfo> properties;
 
+	// only members annotated with the constant annotation (@bind.exposed.const())
+	HashMap<StringName, ScriptConstantInfo> constants;
+
+	// only members annotated with the shared-static annotation (@bind.exposed.shared())
+	HashMap<StringName, ScriptStaticVariableInfo> static_variables;
+
 	::templates::BitField<ScriptClassFlags::Type> flags{ ScriptClassFlags::None };
 
 	//TODO whether the internal class object alive or not
@@ -254,5 +288,11 @@ struct ScriptClassInfo : StatelessScriptClassInfo {
 typedef internal::SArray<ScriptClassInfo, ScriptClassID> ScriptClassInfoArray;
 typedef internal::SArray<ScriptClassInfo, ScriptClassID>::Pointer ScriptClassInfoPtr;
 typedef internal::SArray<ScriptClassInfo, ScriptClassID>::ConstPointer ScriptClassInfoConstPtr;
+
+namespace internal {
+// Collect the members of a JS class object into `p_class_info`.
+// Exposed for the runtime test suite; production callers go through `ScriptClassInfo::_parse_script_class`.
+bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const ScriptClassInfoPtr &p_class_info, const v8::Local<v8::Object> &class_obj);
+} //namespace internal
 
 } //namespace jsb

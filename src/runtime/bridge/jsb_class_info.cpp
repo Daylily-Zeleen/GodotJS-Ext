@@ -27,6 +27,7 @@
 
 #include "jsb_class_info.h"
 #include "jsb_object_bindings.h"
+#include "jsb_shared_statics.h"
 #include "jsb_type_convert.h"
 #include <godot_cpp/classes/resource_loader.hpp>
 
@@ -65,6 +66,293 @@ void _parse_script_doc(v8::Isolate *isolate, const v8::Local<v8::Context> &conte
 }
 #endif
 
+namespace {
+enum class EnumParseResult {
+	None,
+	Numeric,
+	Stringy,
+};
+
+// `Array::make_read_only()` / `Dictionary::make_read_only()` are shallow (they only flag the shared
+// `_p`), so the inner containers have to be visited explicitly to match the depth of a GDScript
+// `const` container fetched through a script object (see research/phase0-findings.md §0.3 / §0.6).
+void _apply_read_only_recursive(Variant &p_value) {
+	switch (p_value.get_type()) {
+		case Variant::ARRAY: {
+			Array array = p_value;
+			array.make_read_only();
+			const int64_t size = array.size();
+			for (int64_t index = 0; index < size; ++index) {
+				// the copy shares `_p` with the stored element, so flagging it freezes the stored one too
+				Variant element = array[index];
+				_apply_read_only_recursive(element);
+			}
+		} break;
+		case Variant::DICTIONARY: {
+			Dictionary dictionary = p_value;
+			dictionary.make_read_only();
+			const Array keys = dictionary.keys();
+			const int64_t size = keys.size();
+			for (int64_t index = 0; index < size; ++index) {
+				Variant element = dictionary.get(keys[index], Variant());
+				_apply_read_only_recursive(element);
+			}
+		} break;
+		default:
+			break;
+	}
+}
+
+// R2.3 whitelist: only these 8 Variant types may become a constant. Godot value types (`Vector2`,
+// `Color`, ...) and the `Packed*Array` / `Object` / `Callable` / `Signal` wrappers are all rejected
+// here -- note they convert *successfully* via the `IF_VariantFieldCount` branch of `js_to_gd_var`,
+// so a conversion failure alone would not filter them.
+bool _is_constant_value_type(Variant::Type p_type) {
+	switch (p_type) {
+		case Variant::NIL:
+		case Variant::BOOL:
+		case Variant::INT:
+		case Variant::FLOAT:
+		case Variant::STRING:
+		case Variant::STRING_NAME:
+		case Variant::ARRAY:
+		case Variant::DICTIONARY:
+			return true;
+		default:
+			return false;
+	}
+}
+
+// Recognize a TypeScript enum object (design.md §4.3).
+// A numeric enum carries the `E[E["A"] = 0] = "A"` reverse mapping and is normalized into
+// `Dictionary{name: int}`; a string enum (no reverse mapping) is exposed as a plain
+// `Dictionary{name: String}`. Anything else is rejected so it can fall back to `js_to_gd_var`.
+EnumParseResult _try_parse_enum(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_obj, Variant &r_value) {
+	// a Godot value wrapper is a Proxy; a TS enum object is a plain object, so this also keeps
+	// containers (`GArray`/`GDictionary`) out of the enum path.
+	//NOTE `IsProxy()` only exists on V8 (same guard as `TypeConvert::js_to_gd_var`).
+#if JSB_WITH_V8
+	if (p_obj->IsProxy()) {
+		return EnumParseResult::None;
+	}
+#endif // JSB_WITH_V8
+	v8::MaybeLocal<v8::Array> maybe_names = p_obj->GetOwnPropertyNames(p_context, v8::PropertyFilter::SKIP_SYMBOLS, v8::KeyConversionMode::kConvertToString);
+	if (maybe_names.IsEmpty()) {
+		return EnumParseResult::None;
+	}
+	const v8::Local<v8::Array> names = maybe_names.ToLocalChecked();
+	const uint32_t len = names->Length();
+	if (len == 0) {
+		return EnumParseResult::None;
+	}
+
+	const v8::Local<v8::String> key_value = impl::Helper::new_string_ascii(p_isolate, "value");
+	const v8::Local<v8::String> key_get = impl::Helper::new_string_ascii(p_isolate, "get");
+	const v8::Local<v8::String> key_set = impl::Helper::new_string_ascii(p_isolate, "set");
+
+	// Identifier keys are the enum member names; numeric keys carry the reverse mapping of a numeric
+	// enum (`E[E["A"] = 0] = "A"` yields both `E["A"] === 0` and `E[0] === "A"`), so the value type
+	// alone does not classify the object -- the key shape has to be taken into account.
+	Vector<String> member_names;
+	Vector<Variant> member_values;
+	HashMap<int64_t, String> reverse_names;
+	bool has_numeric_key = false;
+
+	for (uint32_t index = 0; index < len; ++index) {
+		v8::Local<v8::Value> name_val;
+		if (!names->Get(p_context, index).ToLocal(&name_val) || !name_val->IsString()) {
+			return EnumParseResult::None;
+		}
+		v8::Local<v8::Value> descriptor_val;
+		if (!p_obj->GetOwnPropertyDescriptor(p_context, name_val.As<v8::Name>()).ToLocal(&descriptor_val) || !descriptor_val->IsObject()) {
+			return EnumParseResult::None;
+		}
+		const v8::Local<v8::Object> descriptor = descriptor_val.As<v8::Object>();
+		// enum members are plain data properties; an accessor means this is not an enum object
+		if (descriptor->HasOwnProperty(p_context, key_get).ToChecked() || descriptor->HasOwnProperty(p_context, key_set).ToChecked()) {
+			return EnumParseResult::None;
+		}
+		v8::Local<v8::Value> value;
+		if (!descriptor->Get(p_context, key_value).ToLocal(&value)) {
+			return EnumParseResult::None;
+		}
+
+		const String entry_name = impl::Helper::to_string(p_isolate, name_val);
+		if (entry_name.is_valid_int()) {
+			// a numeric key must hold the member name it maps back to
+			if (!value->IsString()) {
+				return EnumParseResult::None;
+			}
+			has_numeric_key = true;
+			reverse_names.insert(entry_name.to_int(), impl::Helper::to_string(p_isolate, value));
+		} else if (value->IsNumber()) {
+			member_names.push_back(entry_name);
+			member_values.push_back((int64_t)value.As<v8::Number>()->Value());
+		} else if (value->IsString()) {
+			member_names.push_back(entry_name);
+			member_values.push_back(impl::Helper::to_string(p_isolate, value));
+		} else {
+			return EnumParseResult::None;
+		}
+	}
+
+	if (member_names.is_empty()) {
+		return EnumParseResult::None;
+	}
+
+	// numeric enum: every member value is an int and the reverse mapping must agree with it
+	//NOTE the reverse-mapping agreement check also rejects an enum with *duplicate* values
+	//     (`enum E { A = 0, B = 0 }`): TypeScript emits a single reverse entry (`{0: "B"}`), so
+	//     `A` has no agreeing reverse name and the whole object is rejected. A float-valued enum
+	//     (`enum E { A = 1.5 }`) is rejected the same way - its keys are not valid ints, so no
+	//     reverse mapping is recorded and the enum falls through to the string branch, which
+	//     requires string values. Both cases degrade to "ignored with a warning" rather than a
+	//     wrong constant, which is the intended failure mode for an unrepresentable enum.
+	bool is_numeric_enum = true;
+	for (int index = 0; index < member_names.size(); ++index) {
+		if (member_values[index].get_type() != Variant::INT) {
+			is_numeric_enum = false;
+			break;
+		}
+	}
+	if (is_numeric_enum) {
+		Dictionary dictionary;
+		for (int index = 0; index < member_names.size(); ++index) {
+			if (!member_names[index].is_valid_identifier()) {
+				return EnumParseResult::None;
+			}
+			const int64_t number = member_values[index];
+			const String *reverse = reverse_names.getptr(number);
+			if (reverse == nullptr || *reverse != member_names[index]) {
+				return EnumParseResult::None;
+			}
+			dictionary[StringName(member_names[index])] = number;
+		}
+		r_value = dictionary;
+		return EnumParseResult::Numeric;
+	}
+
+	// string enum: every member value is a string and there is no reverse mapping at all
+	if (!has_numeric_key) {
+		bool is_string_enum = true;
+		for (int index = 0; index < member_names.size(); ++index) {
+			if (member_values[index].get_type() != Variant::STRING) {
+				is_string_enum = false;
+				break;
+			}
+		}
+		if (is_string_enum) {
+			Dictionary dictionary;
+			for (int index = 0; index < member_names.size(); ++index) {
+				if (!member_names[index].is_valid_identifier()) {
+					return EnumParseResult::None;
+				}
+				dictionary[StringName(member_names[index])] = member_values[index];
+			}
+			r_value = dictionary;
+			return EnumParseResult::Stringy;
+		}
+	}
+
+	return EnumParseResult::None;
+}
+
+// The accessor pair installed for a `@bind.exposed.shared()` static member. Its `info.Data()` is a
+// two-element array `[module_id, member_name]`; carrying both in the closure keeps the accessor
+// independent of `info.This()` (a derived class would otherwise resolve to the wrong module).
+//NOTE the module id travels as a JS string, not a cached StringNameID: the cache may evict an entry
+//     at any time, which would leave the closure pointing at a freed id.
+v8::Local<v8::Value> _shared_static_key(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const StringName &p_module_id, const StringName &p_name) {
+	Environment *environment = Environment::wrap(p_isolate);
+	const v8::Local<v8::Array> key = v8::Array::New(p_isolate, 2);
+	key->Set(p_context, 0, environment->get_string_value(p_module_id)).Check();
+	key->Set(p_context, 1, environment->get_string_value(p_name)).Check();
+	return key;
+}
+
+bool _shared_static_key_parts(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_data, StringName &r_module_id, StringName &r_name) {
+	if (!p_data->IsArray()) {
+		return false;
+	}
+	const v8::Local<v8::Array> key = p_data.As<v8::Array>();
+	v8::Local<v8::Value> module_id_val;
+	v8::Local<v8::Value> name_val;
+	if (!key->Get(p_context, 0).ToLocal(&module_id_val) || !module_id_val->IsString()
+			|| !key->Get(p_context, 1).ToLocal(&name_val) || !name_val->IsString()) {
+		return false;
+	}
+	Environment *environment = Environment::wrap(p_isolate);
+	r_module_id = environment->get_string_name(module_id_val.As<v8::String>());
+	r_name = environment->get_string_name(name_val.As<v8::String>());
+	return true;
+}
+
+void _shared_static_getter(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	StringName module_id;
+	StringName name;
+	if (!_shared_static_key_parts(isolate, context, info.Data(), module_id, name)) {
+		info.GetReturnValue().SetUndefined();
+		return;
+	}
+
+	Variant value;
+	if (!SharedStatics::get(module_id, name, value)) {
+		info.GetReturnValue().SetUndefined();
+		return;
+	}
+
+	v8::Local<v8::Value> js_value;
+	if (TypeConvert::gd_var_to_js(isolate, context, value, js_value)) {
+		info.GetReturnValue().Set(js_value);
+	}
+}
+
+void _shared_static_setter(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = isolate->GetCurrentContext();
+
+	StringName module_id;
+	StringName name;
+	if (!_shared_static_key_parts(isolate, context, info.Data(), module_id, name)) {
+		return;
+	}
+
+	//NOTE an unconvertible value is dropped instead of coerced: `undefined`/`symbol`/functions have
+	//     no Variant counterpart, and a plain JS object has none either - storing the default NIL
+	//     that `js_to_gd_var` leaves behind would silently corrupt the shared value.
+	if (info.Length() < 1 || info[0]->IsUndefined() || info[0]->IsSymbol() || info[0]->IsFunction()) {
+		return;
+	}
+	Variant value;
+	bool converted = TypeConvert::js_to_gd_var(isolate, context, info[0], value);
+	if (!converted && info[0]->IsArray()) {
+		// the hinted overload is the only path that accepts a JS native array
+		value = Variant();
+		converted = TypeConvert::js_to_gd_var(isolate, context, info[0], Variant::ARRAY, value);
+	}
+	if (!converted) {
+		JSB_LOG(Warning, "(script-parser) write to shared static %s is ignored (unconvertible value)", name);
+		return;
+	}
+	SharedStatics::set(module_id, name, value);
+}
+
+// Replace the plain data property with an accessor pair backed by the process-wide store, so that
+// every JS environment and the GDScript side read and write one value.
+void _install_shared_static_accessor(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_class_obj, const v8::Local<v8::Name> &p_name, const StringName &p_module_id, const StringName &p_static_name) {
+	const v8::Local<v8::Value> key = _shared_static_key(p_isolate, p_context, p_module_id, p_static_name);
+	const v8::Local<v8::Function> getter = JSB_NEW_FUNCTION(p_context, _shared_static_getter, key);
+	const v8::Local<v8::Function> setter = JSB_NEW_FUNCTION(p_context, _shared_static_setter, key);
+	p_class_obj->SetAccessorProperty(p_name, getter, setter);
+}
+} //namespace
+
+namespace internal {
 //NOTE ensure the address of p_class_info being locked during this procedure
 bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const ScriptClassInfoPtr &p_class_info, const v8::Local<v8::Object> &class_obj) {
 	v8::Isolate *isolate = p_context->GetIsolate();
@@ -97,6 +385,8 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 	p_class_info->methods.clear();
 	p_class_info->signals.clear();
 	p_class_info->properties.clear();
+	p_class_info->constants.clear();
+	p_class_info->static_variables.clear();
 	p_class_info->rpc_config.clear();
 	p_class_info->method_cache.clear();
 	p_class_info->flags = ScriptClassFlags::None;
@@ -282,8 +572,231 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 			}
 		}
 	}
+
+	// constants (@bind.exposed.const()) and shared statics (@bind.exposed.shared())
+	//NOTE static members are not inherited, so only the own properties of `class_obj` are visited;
+	//     the base chain is walked by the `base` recursion on the GodotJSScript side.
+	//NOTE only annotated members are collected (D2 / R4.4): the two symbols below are the sole gate.
+	{
+		const v8::Local<v8::String> key_value = impl::Helper::new_string_ascii(isolate, "value");
+		const v8::Local<v8::String> key_get = impl::Helper::new_string_ascii(isolate, "get");
+		const v8::Local<v8::String> key_set = impl::Helper::new_string_ascii(isolate, "set");
+
+		// Collected across the shared-static loop so the store can be pruned of names whose
+		// annotation is gone once the whole set is known.
+		HashSet<StringName> shared_static_names;
+
+		// Names annotated as constants, collected before the value is inspected so the conflict
+		// checked in the shared-static loop is reported even when the constant itself is rejected by
+		// the type whitelist - the two annotations contradict each other either way.
+		HashSet<StringName> annotated_constant_names;
+
+		// constants
+		{
+			v8::Local<v8::Value> val_test;
+			if (class_obj->HasOwnProperty(p_context, jsb_symbol(environment, ClassConstants)).ToChecked()
+					&& class_obj->Get(p_context, jsb_symbol(environment, ClassConstants)).ToLocal(&val_test)
+					&& val_test->IsArray()) {
+				const v8::Local<v8::Array> collection = val_test.As<v8::Array>();
+				const uint32_t len = collection->Length();
+				for (uint32_t index = 0; index < len; ++index) {
+					v8::HandleScope loop_scope(isolate);
+					v8::Local<v8::Value> name_val;
+					if (!collection->Get(p_context, index).ToLocal(&name_val) || !name_val->IsString()) {
+						continue;
+					}
+					const String constant_name = impl::Helper::to_string(isolate, name_val);
+					if (constant_name.is_empty()) {
+						continue;
+					}
+					const StringName constant_name_sn = environment->get_string_name(name_val.As<v8::String>());
+					if (!internal::VariantUtil::is_valid_name(constant_name_sn)) {
+						continue;
+					}
+					// recorded before the value is inspected: the shared-static loop reports a
+					// const+shared conflict regardless of whether the constant itself is accepted
+					annotated_constant_names.insert(constant_name_sn);
+
+					// read through the descriptor to avoid triggering a getter
+					v8::Local<v8::Value> descriptor_val;
+					if (!class_obj->GetOwnPropertyDescriptor(p_context, name_val.As<v8::Name>()).ToLocal(&descriptor_val) || !descriptor_val->IsObject()) {
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (not an own property of the class)", constant_name);
+						continue;
+					}
+					const v8::Local<v8::Object> descriptor = descriptor_val.As<v8::Object>();
+					if (descriptor->HasOwnProperty(p_context, key_get).ToChecked() || descriptor->HasOwnProperty(p_context, key_set).ToChecked()) {
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (accessor property)", constant_name);
+						continue;
+					}
+					v8::Local<v8::Value> value;
+					if (!descriptor->Get(p_context, key_value).ToLocal(&value)) {
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (failed to read the value)", constant_name);
+						continue;
+					}
+
+					// `typeof` prefilter (R1.2): `undefined` / `symbol` / `function` are dropped before
+					// reaching `js_to_gd_var` (which logs an Error for `symbol`, polluting the log)
+					if (value->IsUndefined() || value->IsSymbol() || value->IsFunction()) {
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (unsupported value type)", constant_name);
+						continue;
+					}
+
+					ScriptConstantInfo constant_info;
+					constant_info.name = constant_name_sn;
+
+					// a TS enum object is recognized first: it is normalized into a freshly built
+					// Dictionary instead of going through `js_to_gd_var` (which cannot convert a plain JS object)
+					if (value->IsObject()) {
+						switch (_try_parse_enum(isolate, p_context, value.As<v8::Object>(), constant_info.value)) {
+							case EnumParseResult::Numeric:
+								constant_info.kind = ScriptConstantKind::Enum;
+								_apply_read_only_recursive(constant_info.value);
+								p_class_info->constants.insert(constant_name_sn, constant_info);
+								JSB_LOG(VeryVerbose, "... constant %s: enum", constant_name);
+								continue;
+							case EnumParseResult::Stringy:
+								// a string enum has no reverse mapping, so it is exposed as a plain
+								// Dictionary constant (design.md §4.3)
+								constant_info.kind = ScriptConstantKind::Container;
+								_apply_read_only_recursive(constant_info.value);
+								p_class_info->constants.insert(constant_name_sn, constant_info);
+								JSB_LOG(VeryVerbose, "... constant %s: string enum", constant_name);
+								continue;
+							case EnumParseResult::None:
+								break;
+						}
+					}
+
+					Variant converted;
+					if (!TypeConvert::js_to_gd_var(isolate, p_context, value, converted)) {
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (unconvertible value)", constant_name);
+						continue;
+					}
+					if (!_is_constant_value_type(converted.get_type())) {
+						// R2.3 whitelist: Godot value wrappers (`Vector2`/`Color`/`Packed*`/Object/...) all
+						// convert *successfully*, so they must be rejected by their Variant type
+						JSB_LOG(Warning, "(script-parser) annotated constant %s is ignored (type %s is not allowed)", constant_name, Variant::get_type_name(converted.get_type()));
+						continue;
+					}
+
+					constant_info.value = converted;
+					constant_info.kind = converted.get_type() == Variant::ARRAY || converted.get_type() == Variant::DICTIONARY
+							? ScriptConstantKind::Container
+							: ScriptConstantKind::Value;
+					if (constant_info.kind == ScriptConstantKind::Container) {
+						// the container shares `_p` with the JS side, so a recursive read-only flag
+						// freezes both sides at once (R2.3)
+						_apply_read_only_recursive(constant_info.value);
+					}
+
+					p_class_info->constants.insert(constant_name_sn, constant_info);
+					JSB_LOG(VeryVerbose, "... constant %s: %s", constant_name, Variant::get_type_name(converted.get_type()));
+				}
+			}
+		}
+
+		// shared statics
+		{
+			v8::Local<v8::Value> val_test;
+			if (class_obj->HasOwnProperty(p_context, jsb_symbol(environment, ClassSharedStatics)).ToChecked()
+					&& class_obj->Get(p_context, jsb_symbol(environment, ClassSharedStatics)).ToLocal(&val_test)
+					&& val_test->IsArray()) {
+				const v8::Local<v8::Array> collection = val_test.As<v8::Array>();
+				const uint32_t len = collection->Length();
+				for (uint32_t index = 0; index < len; ++index) {
+					v8::HandleScope loop_scope(isolate);
+					v8::Local<v8::Value> name_val;
+					if (!collection->Get(p_context, index).ToLocal(&name_val) || !name_val->IsString()) {
+						continue;
+					}
+					const String static_name = impl::Helper::to_string(isolate, name_val);
+					if (static_name.is_empty()) {
+						continue;
+					}
+					const StringName static_name_sn = environment->get_string_name(name_val.As<v8::String>());
+					if (!internal::VariantUtil::is_valid_name(static_name_sn)) {
+						continue;
+					}
+
+					// A member annotated as *both* a constant and a shared static has no coherent
+					// semantics: the constant is a frozen parse-time snapshot read through `_get`,
+					// while the shared static is a writable store reached through `_set` and the
+					// installed accessor. The constant wins and this annotation is dropped, so
+					// `_get` / `_set` / `_get_property_list` all agree on one interpretation.
+					if (annotated_constant_names.has(static_name_sn)) {
+						JSB_LOG(Warning, "(script-parser) %s is annotated as both a constant and a shared static; the shared static annotation is ignored", static_name);
+						continue;
+					}
+					// Read the declared value and seed the process-wide store with it. On a re-parse
+					// the property is already the accessor installed by the previous pass, so the
+					// store is consulted instead (reading through the getter would return the stored
+					// value anyway, and `ensure` never overwrites an existing entry).
+					Variant initial_value;
+					bool has_initial_value = false;
+					bool is_accessor = false;
+					v8::Local<v8::Value> descriptor_val;
+					if (class_obj->GetOwnPropertyDescriptor(p_context, name_val.As<v8::Name>()).ToLocal(&descriptor_val) && descriptor_val->IsObject()) {
+						const v8::Local<v8::Object> descriptor = descriptor_val.As<v8::Object>();
+						is_accessor = descriptor->HasOwnProperty(p_context, key_get).ToChecked() || descriptor->HasOwnProperty(p_context, key_set).ToChecked();
+						if (is_accessor) {
+							has_initial_value = SharedStatics::get(p_class_info->module_id, static_name_sn, initial_value);
+						} else {
+							v8::Local<v8::Value> value;
+							if (descriptor->Get(p_context, key_value).ToLocal(&value)
+									&& !value->IsUndefined() && !value->IsSymbol() && !value->IsFunction()) {
+								if (!TypeConvert::js_to_gd_var(isolate, p_context, value, initial_value) && value->IsArray()) {
+									// the hinted overload is the only path that accepts a JS native array
+									// (`try_convert_array_any`); the plain path rejects it (`InternalFieldCount() == 0`).
+									// It builds a fresh Array, which is correct here: the store is authoritative,
+									// the JS side never aliases the author's literal.
+									TypeConvert::js_to_gd_var(isolate, p_context, value, Variant::ARRAY, initial_value);
+								}
+								has_initial_value = true;
+							}
+						}
+					}
+
+					// a slot must exist even for a member with no derivable initial value (`static x;`
+					// is `undefined`), otherwise it could not be assigned from either side
+					//NOTE guarded on a valid module id: `_parse_script_class_iterate` is also driven
+					//     directly by the test suite with a bare class info, and keying the store on an
+					//     empty name would create an entry nothing can ever prune (retain is guarded too).
+					if (internal::VariantUtil::is_valid_name(p_class_info->module_id)) {
+						SharedStatics::ensure(p_class_info->module_id, static_name_sn, has_initial_value ? initial_value : Variant());
+					}
+
+					ScriptStaticVariableInfo static_info;
+					static_info.name = static_name_sn;
+					// GDScript parity for the reported usage: a static variable carries
+					// `SCRIPT_VARIABLE` only, without `STORAGE`/`EDITOR`. `DataType::to_property_info`
+					// starts from `PROPERTY_USAGE_NONE` (`gdscript_parser.cpp:5418`) and the compiler
+					// adds `SCRIPT_VARIABLE` (`gdscript_compiler.cpp:2902`). Measured on the engine:
+					// GDScript's own `static var sv` reports usage 4096 on the script resource, this
+					// one reported 4102 (= `PROPERTY_USAGE_DEFAULT | SCRIPT_VARIABLE`). The value
+					// lives in the shared store rather than in the resource, so neither bit is
+					// accurate for it.
+					static_info.details = PropertyInfo(has_initial_value ? initial_value.get_type() : Variant::NIL, static_name_sn, PROPERTY_HINT_NONE, String(), PROPERTY_USAGE_SCRIPT_VARIABLE);
+					p_class_info->static_variables.insert(static_name_sn, static_info);
+					shared_static_names.insert(static_name_sn);
+					JSB_LOG(VeryVerbose, "... shared static %s: %s", static_name, Variant::get_type_name(static_info.details.type));
+
+					// route every later read/write through the store, so all environments and the
+					// GDScript side observe one value (design.md §5.2)
+					if (!is_accessor) {
+						_install_shared_static_accessor(isolate, p_context, class_obj, name_val.As<v8::Name>(), p_class_info->module_id, static_name_sn);
+					}
+				}
+			}
+		}
+
+		// Drop names whose annotation is gone (idempotent, so a plain re-parse keeps every value).
+		if (internal::VariantUtil::is_valid_name(p_class_info->module_id)) {
+			SharedStatics::retain(p_class_info->module_id, shared_static_names);
+		}
+	}
 	return true;
 }
+} //namespace internal
 
 void ScriptClassInfo::instantiate(Environment *p_env, const StringName &p_module_id, const v8::Local<v8::Object> &p_self) {
 	const String source_path = internal::PathUtil::convert_javascript_path(p_module_id);
@@ -383,7 +896,7 @@ bool ScriptClassInfo::_parse_script_class(const v8::Local<v8::Context> &p_contex
 	jsb_check(existed_class_info->module_id == p_module.id);
 	existed_class_info->native_class_id = native_class_id;
 
-	return _parse_script_class_iterate(p_context, existed_class_info, class_obj);
+	return internal::_parse_script_class_iterate(p_context, existed_class_info, class_obj);
 }
 
 } //namespace jsb

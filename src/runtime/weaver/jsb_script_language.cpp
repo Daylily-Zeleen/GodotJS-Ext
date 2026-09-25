@@ -31,6 +31,7 @@
 
 #include <string_view>
 
+#include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_internal.h"
 #include "../jsb_runtime_preset.h"
@@ -257,6 +258,10 @@ void GodotJSScriptLanguage::_finish() {
 	// object, so without this its pooled PropertyInfo::name StringNames would
 	// outlive StringName::cleanup() and be reported as orphans.
 	GodotJSScriptInstanceBase::free_temporary_property_list_pool();
+
+	// Same failure mode for the shared-static store: it is keyed by StringName and has no
+	// destructor of its own, so it must be emptied before `StringName::cleanup()`.
+	jsb::SharedStatics::clear();
 
 	JSB_LOG(VeryVerbose, "jsb lang finish");
 }

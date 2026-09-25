@@ -31,7 +31,6 @@
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_test_helpers.h"
 
-
 #include <godot_cpp/classes/project_settings.hpp>
 
 namespace jsb::tests {

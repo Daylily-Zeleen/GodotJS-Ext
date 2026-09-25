@@ -27,9 +27,9 @@
 // Binary file reading implementation (runtime, core/).
 
 #include "api_tool_store.h"
-#include "api_tool_payload.h"
 #include "api_tool/core/api_tool_access.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool_payload.h"
 
 using namespace godot;
 
@@ -92,8 +92,7 @@ static void deserialize_method_hot(PayloadReader &r, TApiMethodInfo &r_method, u
 
 	// has_returns is derived from the RAW flags (the internal bit is already
 	// folded in there by the writer; setup keeps it consistent either way).
-	ApiMethodAccess::setup(r_method, name, hash, flags, !(flags & internal::METHOD_FLAG_NO_RETURN),
-			(Variant::Type)ret.type, (GDExtensionClassMethodArgumentMetadata)ret.meta, r_arg_count);
+	ApiMethodAccess::setup(r_method, name, hash, flags, !(flags & internal::METHOD_FLAG_NO_RETURN), (Variant::Type)ret.type, (GDExtensionClassMethodArgumentMetadata)ret.meta, r_arg_count);
 	ApiMethodAccess::set_index(r_method, p_index);
 	if constexpr (std::is_base_of_v<ApiMemberMethodBase, TApiMethodInfo>) {
 		ApiMethodAccess::set_default_count(r_method, default_count);
@@ -117,7 +116,8 @@ static bool deserialize_cold_header(PayloadReader &r, uint32_t p_hot_method_coun
 	r_defaults_offset = r_detail_offset + r_detail_size;
 	if (r_detail_method_count != p_hot_method_count) {
 		ERR_PRINT(vformat("[API Tool] store corrupt: detail method count %d != hot method count %d",
-				(int)r_detail_method_count, (int)p_hot_method_count));
+				r_detail_method_count,
+				p_hot_method_count));
 		return false;
 	}
 	return true;
@@ -457,7 +457,9 @@ bool ApiStoreReader::read_method_details(const String &p_path, uint64_t p_offset
 		r.read(arg_count);
 		if (i < p_hot_arg_counts.size() && arg_count != p_hot_arg_counts[i]) {
 			ERR_PRINT(vformat("[API Tool] store corrupt: detail[%d] carries %d arguments, hot record says %d (AC7)",
-					(int)i, (int)arg_count, (int)p_hot_arg_counts[i]));
+					i,
+					arg_count,
+					p_hot_arg_counts[i]));
 			return false;
 		}
 		detail.arguments.resize(arg_count);
@@ -470,7 +472,8 @@ bool ApiStoreReader::read_method_details(const String &p_path, uint64_t p_offset
 	const uint64_t consumed = r.get_position() - p_offset;
 	if (consumed != p_detail_size) {
 		ERR_PRINT(vformat("[API Tool] store corrupt: detail section consumed %d bytes, header says %d (AC7)",
-				(int)consumed, (int)p_detail_size));
+				consumed,
+				p_detail_size));
 		return false;
 	}
 	return true;
@@ -486,7 +489,7 @@ bool ApiStoreReader::read_method_defaults(const String &p_path, uint64_t p_offse
 	uint32_t count = 0;
 	r.read(count);
 	if (count != p_method_count) {
-		ERR_PRINT(vformat("[API Tool] store corrupt: defaults section covers %d methods, expected %d (AC7)", (int)count, (int)p_method_count));
+		ERR_PRINT(vformat("[API Tool] store corrupt: defaults section covers %d methods, expected %d (AC7)", count, p_method_count));
 		return false;
 	}
 	LocalVector<uint16_t> counts;
@@ -498,7 +501,9 @@ bool ApiStoreReader::read_method_defaults(const String &p_path, uint64_t p_offse
 		r.read(counts[i]);
 		if (i < p_hot_default_counts.size() && counts[i] != p_hot_default_counts[i]) {
 			ERR_PRINT(vformat("[API Tool] store corrupt: defaults[%d] has %d values, hot record says %d (AC7)",
-					(int)i, (int)counts[i], (int)p_hot_default_counts[i]));
+					i,
+					counts[i],
+					p_hot_default_counts[i]));
 			return false;
 		}
 		total += counts[i];

@@ -193,14 +193,8 @@ public:
 	virtual int32_t _get_member_line(const StringName &p_member) const override { return -1; } // TODO
 #endif // JSB_TOOLS
 
-	virtual Dictionary _get_constants() const override // TODO
-	{
-		return Dictionary();
-	}
-	virtual TypedArray<StringName> _get_members() const override // TODO
-	{
-		return TypedArray<StringName>();
-	}
+	virtual Dictionary _get_constants() const override;
+	virtual TypedArray<StringName> _get_members() const override;
 
 	virtual Variant _get_rpc_config() const override;
 
@@ -274,4 +268,15 @@ private:
 
 protected:
 	static void _bind_methods();
+
+	// Named-property access (declaring these makes godot-cpp forward `Object::get`/`Object::set`/
+	// `Object::get_property_list` to the extension; see `wrapped.hpp` `get_bind`/`set_bind`).
+	//NOTE these three are plain (non-virtual) members of `Wrapped`; godot-cpp detects an override
+	//     by comparing member pointers, so `override` must NOT be spelled here.
+	bool _get(const StringName &p_name, Variant &r_ret) const;
+	bool _set(const StringName &p_name, const Variant &p_value);
+
+	// Constants are deliberately absent: a constant must not be writable through `_set`, and it
+	// must not be offered to the inspector as a settable property.
+	void _get_property_list(List<PropertyInfo> *p_list) const;
 };

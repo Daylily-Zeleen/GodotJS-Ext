@@ -63,7 +63,6 @@
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/timer.hpp>
 
-
 #include <compat/misc.h>
 #define JSB_TYPE_ROOT "typings"
 

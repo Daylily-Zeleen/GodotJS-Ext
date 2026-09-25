@@ -105,7 +105,8 @@ public:
 
 	void test_case_exception(const doctest::TestCaseException &p_exc) override {
 		const String text = vformat("ERROR: test case %s: %s",
-				p_exc.is_crash ? "CRASHED" : "THREW exception", String(p_exc.error_string.c_str()));
+				p_exc.is_crash ? "CRASHED" : "THREW exception",
+				String(p_exc.error_string.c_str()));
 		print_raw(text);
 	}
 
