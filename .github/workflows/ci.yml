@@ -418,7 +418,9 @@ jobs:
           # linked). All three desktop legs are enabled: the prebuilt libnode
           # archive is built by our own GodotJS-Dependencies workflow, which
           # runs scripts/node/patch_rtti.py on every platform so the Delegate
-          # RTTI symbols our serialization subclasses need are present.
+          # RTTI typeinfo our serialization subclasses need is present (on
+          # darwin the patch flips the GCC_ENABLE_CPP_RTTI xcode setting, which
+          # gyp's make generator turns into -fno-rtti when it is left at NO).
           - platform: windows
             os: windows-latest
             arch: x86_64
@@ -452,6 +454,9 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           arch: ${{ matrix.arch }}
+          # The setup action installs an engine-specific toolchain for the
+          # linux x86_64 node leg (gcc-12, which the prebuilt libnode.a needs).
+          engine: ${{ matrix.engine }}
           windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           python-version: ${{ env.PYTHON_VERSION }}
           scons-version: ${{ env.SCONS_VERSION }}

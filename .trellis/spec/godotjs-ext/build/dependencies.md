@@ -92,15 +92,62 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
 - 在对应 `build-*` 脚本里调用，`PowerShell` 必须显式查 `$LASTEXITCODE`
   （PowerShell 不会因原生命令失败而中止）。
 
+### macos/ios 的 RTTI 是 **xcode_settings**，不是 cflags（踩过，2026-09-25）
+
+`common.gypi` 对 RTTI 有两种完全不同的关闭写法：
+
+- POSIX（linux/android/ohos）：`'cflags_cc': [..., '-fno-rtti', ...]`
+- darwin（macos/ios）：`target_defaults.conditions['OS=="mac"'].xcode_settings` 里的
+  `'GCC_ENABLE_CPP_RTTI': 'NO'`（`target_defaults` 在 common.gypi 行 138，该设置行 714）
+
+**`patch_rtti.py` 曾长期断言"gyp 的 make 生成器忽略 xcode_settings，所以 darwin 上 RTTI 本来
+就是开的"，因此对 macos/ios 只做检查、不改任何东西。这个断言是错的。**
+
+gyp 的 make 生成器确实会把 xcode_settings 变成编译参数：
+`tools/gyp/pylib/gyp/generator/make.py` 第 33/864/1420 行 → `XcodeSettings.GetCflagsCC()`，而
+`tools/gyp/pylib/gyp/xcode_emulation.py:723-724` 就是
+
+```python
+if self._Test("GCC_ENABLE_CPP_RTTI", "NO", default="YES"):
+    cflags_cc.append("-fno-rtti")
+```
+
+实测（macOS node 腿 CI 日志 `deps/v8/src/api/api.cc` 的编译行）：含 `-fno-rtti`，
+**整条日志里 `-frtti` 出现 0 次**。后果是 v8 只发出 vtable 不发出 typeinfo：
+
+| 符号 | linux 归档 | macOS 归档（我们的与 moluopro 参考版都一样） |
+|---|---|---|
+| `_ZTIN…ValueSerializer8DelegateE` / `…ValueDeserializer…` | 有 | **没有** |
+| `_ZTVN…`（vtable） | 有 | 有 |
+
+于是下游报 `"typeinfo for v8::ValueSerializer::Delegate", referenced from: typeinfo for
+jsb::Serialization::VariantSerializerDelegate`。注意 **moluopro 的参考归档同样缺**——所以这不是
+"对齐参考产物"能解决的，符号必须**新增**。
+
+本地已复现并验证修法（`.agent_tmp/rtti_repro2.sh`）：v8 侧 `-fno-rtti` → vtable=1/typeinfo=0 →
+下游链接失败且报的正是上面那句；`-frtti` → 两者齐全（typeinfo 可见性为 `V` = weak global）→
+链接通过。`patch_rtti.py` 现在把该设置改成 `'YES'`（连同行尾 `# -fno-rtti` 注释一并纠正）。
+
+- **教训**：涉及构建系统的"某生成器忽略某配置"这类断言，必须用**真实编译命令行**或
+  **产物符号表**验证；只看文档字符串会原样继承错误结论。
+
 现有补丁脚本与它解决的编译期问题：
 
 | 脚本 | 平台 | 作用 |
 |---|---|---|
-| `patch_rtti.py` | 全平台 | 打开 RTTI（下游 subclass v8 Delegate 需要 typeinfo） |
+| `patch_rtti.py` | 全平台 | 打开 RTTI（下游 subclass v8 Delegate 需要 typeinfo）。**darwin 分支不是空操作**，见下 |
 | `patch_libuv_console.py` | windows | 去掉 libuv 永不返回的控制台 resize 线程（它会长久 pin 住装载它的 DLL） |
 | `patch_pic.py` | linux/android/ohos | 给 POSIX cflags 加 `-fPIC`（**静态**构建默认不加，归档无法链进 .so） |
 | `patch_debug_info.py` | macos/ios | 关 `GCC_GENERATE_DEBUGGING_SYMBOLS`（否则 gyp 给每个目标加 `-gdwarf-2`，Release 归档 ~10GB） |
 | `patch_no_ltcg.py` | windows | 去掉 `vcbuild.bat` 里 `release` 隐含的 `ltcg=1`（= `--with-ltcg`）。**必须**：带 LTCG 时归档成员是 LLVM bitcode，node.exe 自己能链（lld 认 bitcode），但 MSVC 消费者报 `LNK1107: invalid or corrupt file` —— **只在 embedder 侧炸**，已于本地复现该机制 |
+
+与补丁配套的**断言脚本**（不是打补丁，而是把上游"只 warn"的降级变成硬失败）：
+
+| 脚本 | 平台 | 作用 |
+|---|---|---|
+| `verify_icu_config.py` | 全 unix | 校验 `config.gypi` 的 small-icu 配置与 locale 集合 |
+| `verify_icu_data.py` | 全 unix | 校验 locale 数据真的编进了产物 |
+| `verify_openssl_config.py` | 全 unix | 断言 `openssl_version >= 0x3000000f`，否则 node 的 OpenSSL 探针大概率失败（gyp 会静默丢掉 `ncrypto_engine`）。失败时重跑探针并打印 stderr |
 
 ## libnode 归档装配（最容易做错、且只在**下游**才炸的一环）
 
@@ -125,6 +172,85 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
    正确做法：流式解析归档结构（GNU `/off` + `//`、BSD `#1/len`、thin）**按偏移**取成员，
    落盘时每个成员一个独立子目录以保留原名，合并后校验成员数 + 名字多重集与输入一致。
    MSVC 的 `//` 串表用 NUL 分隔、整表以 `\n` 收尾，**终止符要取最早出现的那个**。
+
+   **GNU thin 归档的语义与厚归档不同（踩过，2026-09-25）**：gyp 在 unix 侧用
+   `ar crsT <out>.a @<out>.a.ar-file-list` 建库，`T` = **thin**，即
+   `!<thin>\n` magic。thin 归档的**普通成员不存 payload**，header 里 size 字段是该成员
+   **所引用文件**的大小；只有特殊成员（符号索引 `/`、长名表 `//`）才真的带字节。
+   按 size 前进会直接越过 EOF，**静默只剩第一个成员**，报
+   `thin member ... is missing`（linux / android 两条 node 腿的实际失败原因）。
+   正确走法：thin 下只对 `/`、`//`、`/SYM64/`、`/<ECSYMBOLS>/` 取 payload，其余成员
+   `stored = 0`；成员字节从 `entry.name` 指向的路径读取。
+
+   **长名引用字段可能是带 padding 的形式**：16 字节名字段里，offset 0 可以写成
+   `/0`、`/0       `（右填空格）或 `/0             /`（binutils 2.38 会加结尾 `/`）。
+   只认裸 `/N` 会让后两种落到"短名"分支，把**原始字段**当成路径——CI 报出的
+   `thin member /0              is missing` 就是这么来的（13 个空格，逐字节可复现）。
+   判定方式：取 `raw[1:]` 后 strip 再 rstrip(`/`) 再 strip，然后看是否全数字。
+
+   **BSD/macOS 的连接器成员必须跳过（踩过，2026-09-25）**：macOS 归档里有
+   `__.SYMDEF` / `__.SYMDEF SORTED`（每个输入库的 ranlib 符号索引）。它们不是目标文件；
+   当普通成员提取出来交给 `libtool`，换来的是 `libtool: warning: not a mach-o` 然后被丢弃
+   → 输出成员数**少于**读入数（mac 实测 `3630 members from 37 archives became 3594`，
+   少的就是 36 个 SYMDEF），被本脚本自己的忠实性校验当场拒绝。
+   GNU 侧的等价物（`/` 索引成员）本来就在跳过列表里。
+   **注意 macOS 用 BSD 布局存这个名字**（`#1/<len>`，名字嵌在 payload 里），
+   所以过滤必须打在**解析后的名字**上；只看 16 字节 header 字段会静默不生效。
+
+   **`node.target.mk` 里的归档路径写法按 flavor 不同（踩过，2026-09-25）**：
+   gyp 把静态库输出路径按 flavor 拼写，并写进**引用方** target 的 `LD_INPUTS`：
+
+   | flavor | 写法 | 实际路径 |
+   |---|---|---|
+   | linux / android / ohos | `$(obj).target/libX.a` | `<build_out>/obj.target/...` |
+   | macos / ios | `$(builddir)/libX.a` | `<build_out>/libX.a`（`PRODUCT_DIR == $(builddir) == out/Release`，与 libtool 落盘位置一致） |
+
+   只认前者会让 mac 腿在**找到 `node.target.mk` 的前提下**报
+   `could not derive the archive link set`（本仓实测）。两种都要解析；`$(builddir)` 那条
+   在 linux 上天然是空集（所有归档都在 `obj.target/**`，已实测确认），故不产生副作用。
+
+### libnode 必须能在**共享库**里链接（TLS 模型，踩过，2026-09-25）
+
+下游把 `libnode.a` **整档**链进 Godot GDExtension（一个 `.so`/`.dll`/`.dylib`）。v8 的
+线程局部变量用编译期宏决定寻址方式，**静态**构建在 linux/macos 上默认选最快的 local-exec，
+而 local-exec 的重定位**不能**用于共享库：
+
+```
+relocation R_X86_64_TPOFF32 against hidden symbol
+  `_ZN2v88internal18g_current_isolate_E' can not be used when making a shared object
+```
+
+`deps/v8/src/common/thread-local-storage.h`：
+
+```c
+#if defined(COMPONENT_BUILD) || defined(V8_TLS_USED_IN_LIBRARY)
+#define V8_TLS_LIBRARY_MODE 1
+#endif
+#if V8_TLS_LIBRARY_MODE            "local-dynamic"      // 库模式
+#else
+#if defined(V8_TARGET_OS_WIN)      "initial-exec"
+#elif defined(V8_TARGET_OS_ANDROID) "local-dynamic"
+#else                              "local-exec"          // ← linux/macos 静态构建
+#endif
+#endif
+```
+
+`g_current_isolate_` / `g_current_local_heap_` 都带
+`__attribute__((tls_model(V8_TLS_MODEL)))`。**node 只在 `node_shared=="true"` 时才定义
+`V8_TLS_USED_IN_LIBRARY`**（`deps/v8/tools/v8_gypfiles/v8.gyp`），configure.py / node.gyp
+都没有独立开关 → 静态 libnode 永远拿不到库模式。`scripts/node/patch_tls.py` 在
+common.gypi 的 **target_defaults** 作用域加上该 define（必须在该作用域，才能覆盖全部
+v8 target；那两个变量被编进多个不同归档）。
+
+- **判据（不必重编 90 分钟）**：预处理真实头文件
+  （`g++ -E -P -std=c++20 -DV8_HAVE_TARGET_OS -DV8_TARGET_OS_LINUX -I deps/v8 -I deps/v8/include -include ...`
+  读 `V8_TLS_MODEL`）。**注意要显式给 `-std=c++20`**：`v8config.h` 会
+  `#error "C++20 or later required."`，而 linux 腿固定 gcc-12，其默认标准不够。
+- `scripts/node/verify_tls_config.py` 就是做这件事（从 common.gypi 读回 define，再预处理
+  验证其**效果**——不能只查 define 是否存在，否则检查是同义反复），已接入全部 5 条 unix leg。
+- 旁证：上游 moluopro 参考包（同一 node 线）的 linux `api.o` **0 个 TLS 重定位**，
+  且参考归档**通过**同一条整档 `.so` 链接测试。
+
 3. **Windows 也必须真合并。**
    node 自己的 `libnode.lib` 只有 node 的对象（~192 成员 / 2.9 万符号），而 embedder 需要
    v8/icu/openssl 等带来的 ~22 万符号。`build-windows.ps1` 若用 `Copy-Item` 直接拷它，
@@ -141,21 +267,85 @@ basename 一致（`node_*` 包内是 `libnode/`，`third/libnode` 的 basename �
 ### 校验必须包含「整档链接」 smoke test
 
 `scripts/verify_symbols.py` 老版本只查几个 RTTI 标记符号，**装错的归档照样绿**——
-这就是三平台打包全坏而依赖 CI 报 success 的原因。现在对 node 追加三项，缺一不可：
+这就是三平台打包全坏而依赖 CI 报 success 的原因。现在对 node 追加四项，缺一不可：
 
 - 成员数下限（上游 ~3630；node 自身对象档只有 ~190）；
 - 跨库符号覆盖（v8 / libuv / nghttp2 / ICU / OpenSSL / zlib / zstd / cppgc 各取一个标记）；
 - **`-shared -Wl,--whole-archive <archive> -Wl,--no-whole-archive` 整档链接**
   （linux 腿）：非 PIC → relocation 报错；混入 host 工具归档 → `multiple definition`；
   丢成员 → 未定义符号。**一条测试同时覆盖三类缺陷**（已实测：上游已知可用归档通过，
-  坏归档失败）。注意**不要**加 `--no-undefined`——已知可用归档会因缺 `libc++` 运行时
+  坏归档失败）。注意**不要**加 `-Wl,--no-undefined`——已知可用归档会因缺 `libc++` 运行时
   符号而失败（假阳性）。
+- **断言 Delegate 的两个 typeinfo 被真正定义**（`validate_node_delegate_typeinfo`）。
+  之前这里写着"typeinfo 在上游就是 hidden、连 moluopro 参考产物也没有，所以改断言
+  out-of-line 虚函数"——**那个结论是错的**：typeinfo 是被 `-fno-rtti` **根本没生成**，
+  不是因为 visibility。只查虚函数会让一个"下游链不进去"的归档通过，这正是 macOS 腿带着
+  缺陷发布、而本脚本报 success 的直接原因（原始设计文档
+  `.monkeycode/specs/ci-build-complete/design.md:187` 本来要求的也正是 typeinfo）。
+
+该检查直接解析符号表而不调 `nm`：`nm` 在 Linux runner 上读不了 Mach-O 归档，Apple nm 的
+开关也不同；同时要求符号**非 LOCAL 且非 hidden**（LOCAL/hidden 同样满足不了下游引用，
+放行它们等于重建同一个盲区）。已验证：linux 归档里这两个 typeinfo 是
+**WEAK/OBJECT/default**，macOS 归档里缺失 → 脚本对前者通过、对后者失败。
 
 
 ## 常见坑
 
+- **`configure` 只 WARN 不失败 = 必须自己设断言（踩过，2026-09-25）**。node 的
+  `configure.py` 用 C 编译器预处理 `openssl/opensslv.h` 来求 `openssl_version`；编译器
+  起不来（哪怕只是缺系统头）它只打印
+  `WARNING: Failed to extract OpenSSL macros from headers` 然后**以 version 0 继续**，
+  最后照样 `INFO: configure completed successfully`。而 `deps/ncrypto/ncrypto.gyp` 用
+  `openssl_version >= 0x3000000f` 决定要不要建 `ncrypto_engine` 目标：version 0 →
+  该目标不建 → `engine.cc` 被编进 `ncrypto` 且**丢掉**
+  `NCRYPTO_ENGINE_COMPAT=1` / `OPENSSL_API_COMPAT=30000` / `OPENSSL_SUPPRESS_DEPRECATED`
+  → 56 分钟后炸出 12 个 `use of undeclared identifier 'ENGINE_*'`。
+  `scripts/node/verify_openssl_config.py` 把这个降级配置变成**硬失败**，并在失败时**重跑
+  探针把 stderr 打出来**（否则只有一句 warning，诊断成本极高）；五条 unix node 腿都已接入。
+  推而广之：**上游 configure/生成步骤里"只 warn"的分支，都要在本仓加显式断言**，
+  否则失败会在几十分钟后以完全无关的形式出现。
+
+- **macOS 上 ccache 包住的编译器必须仍是 xcrun shim（踩过，2026-09-25）**。
+  `export CC="ccache $(xcrun --find clang)"` 会把编译器固定成
+  `/Applications/Xcode_*.app/.../usr/bin/clang` 这个**绝对路径**，它绕过 xcrun 的 SDK
+  解析，于是 **clang 找不到系统头**：`stdlib.h file not found`。表面症状是上面的 openssl
+  探针失败 → ENGINE_* 未定义，和 ccache 看起来毫无关系。
+  正确写法是 `export CC="ccache cc"` / `CXX="ccache c++"`（保留 shim，也正好与引入 ccache
+  之前 gyp 记录的编译器一致）。**判断依据**：探针报 `stdlib.h` 之类的**系统**头缺失时，
+  先怀疑编译器身份，而不是 OpenSSL 自己。
+
+- **`build.ninja` 里没有编译规则（踩过，2026-09-25）**：gn 把 `rule cc` / `rule cxx`
+  （`cc_wrapper` 生效处）写进 **`toolchain.ninja`**，`build.ninja` 只有目标图。
+  用 `grep ccache build.ninja` 判断"ccache 没接上"会在**每条 unix 腿 48 分钟后**误报失败，
+  而构建本身是好的。要做这类断言，就 `gn gen` 之后遍历**所有** `*.ninja`
+  （`find ... -name '*.ninja' -exec grep -l ccache {} +`，注意 macOS 是 BSD grep，
+  **没有** `--include`），并且放在**编译之前**——失败应该几秒内发生，不是一小时后。
+
 - **改了依赖仓库 ≠ 本仓生效**：本仓 `third/` 下是已下载的产物，`dependency_is_ready()`
   命中就跳过下载。换产物要么删掉对应 `third/<name>/` 让下次构建重下，要么手动替换。
+
+- **libnode 用 gcc-12 编译，消费方也必须用 gcc-12（踩过，2026-09-25）**。
+  `scripts/node/build-linux.sh` 装并导出 `CC=gcc-12 CXX=g++-12`。归档里
+  `print.o`（v8 的 SIMD 库 **Highway**，`hwy::detail::PrintArray/ToString/TypeName`）
+  用到 `_Float16`，其 `_Float16 → double` 转换辅助函数 **`__extendhfdf2` 是 GCC 12 才加入
+  libgcc 的**。而本仓 linux node 腿原先用 ubuntu-22.04 自带的 `g++`（= gcc-11）链接，
+  SCons 又加 `-static-libgcc`（`third/godot-cpp/tools/linux.py`：`use_static_cpp`），
+  于是静态链进 gcc-11 的 `libgcc.a` → `undefined reference to '__extendhfdf2'`。
+
+  实测（`.agent_tmp/libgcc_probe3.sh`，直接解包 jammy 的 deb）：
+  gcc-11 的 `libgcc.a` 里名为 `extendhfdf2` 的成员 **0 个**，gcc-12 的 **1 个**；
+  用归档里真实的 `print.o` 对两者做 `ld -shared -Wl,--no-undefined` 链接：
+  gcc-11 报出**与 CI 完全相同**的两条 `undefined reference to '__extendhfdf2'`，
+  gcc-12 干净通过。**moluopro 的参考 linux 归档同样只有 `print.o` 引用它**，
+  所以这不是本仓引入的回归。
+
+  修法（方向 B）：`setup-godotjs-ext` 为 `linux + x86_64 + node` 装 `gcc-12/g++-12`
+  并**预检** `g++-12 -print-libgcc-file-name` 里有 `__extendhfdf2`；
+  `scons-build` 对该腿追加 `CC=gcc-12 CXX=g++-12`（与 arm64 传交叉编译器的写法一致，
+  `SConstruct:45` 会把这些 ARGUMENTS 覆盖进 env）。
+  另注：发布的 node 归档只有 `linux/x86_64`，**没有** linux arm64 产物，
+  所以只有 x86_64 腿受此影响。
+
 - **node 的 libuv 补丁只影响 Windows**：`deps/uv/src/win/*`，其他平台编译不到，
   只有 `build-windows.ps1` 需要调用它。
 - 全量 `build_all` 要数小时（v8 尤其久），**不要轮询**；触发后去干别的，完成会通知。
@@ -184,9 +374,10 @@ gh workflow run build_node.yml --repo Daylily-Zeleen/GodotJS-Dependencies \
 
 | 组件 | 接入方式 |
 |---|---|
-| node windows | `vcbuild.bat ... ccache <dir>`（= `--use-ccache-win`），由 `build-windows.ps1 -CcacheDir` 传入 |
-| node unix | `build-{linux,macos}.sh` 把 `CC`/`CXX` 前缀为 `ccache <compiler>`（gyp 的 make 生成器只认 `CC`/`CXX`；在 action 里注入无效，会被脚本后面的 `export CC=gcc-12` 冲掉） |
-| v8 | gn 的 `cc_wrapper = "ccache"`（unix 写进 `args.gn`；windows 写进内联 gn args） |
+| node unix | `build-{linux,macos}.sh` 把 `CC`/`CXX` 前缀为 `ccache <compiler>`（gyp 的 make 生成器只认 `CC`/`CXX`；在 action 里注入无效，会被脚本后面的 `export CC=gcc-12` 冲掉）。**macOS 必须写 `ccache cc` / `ccache c++`（shim），不能写 `ccache $(xcrun --find clang)`**，理由见「常见坑」 |
+| node windows | **未接**：node 的 `--use-ccache-win` 把 `/p:CLToolPath=<dir>` 交给 MSBuild，MSBuild 会往该目录追加 `clang-cl.exe`，所以 ccache 必须以 `argv[0]` 伪装成编译器，而 choco 只装了 `ccache.exe`。接它需要独立验证，未验证前保持关闭 |
+| v8 unix | gn 的 `cc_wrapper = "ccache"`（写进 `args.gn`）；断言方式见「常见坑」的 `toolchain.ninja` 一条 |
+| v8 windows | **未接**：MSVC/ClangCL 工具链下 `cc_wrapper` 是否生效**尚未验证**（曾经"验证过无效"的结论来自一个 grep 错文件的检查，已作废） |
 
 **两条硬性要求**（都不是可选项）：
 - 缓存键**必须带 `github.run_id`**：`actions/cache` 命中已有 key 时**不会覆盖**，固定 key

@@ -161,6 +161,18 @@ runs:
           args+=(CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++)
         fi
 
+        # linux x86_64 + node: the prebuilt libnode.a is compiled with gcc-12 by
+        # GodotJS-Dependencies, and it carries a gcc-12-only libgcc reference
+        # (__extendhfdf2, from v8's highway SIMD print.cc using _Float16). The
+        # SCons link adds -static-libgcc, so linking with the runner's default
+        # g++ (gcc-11 on ubuntu-22.04) pulls in a libgcc.a without that helper
+        # and the link fails with "undefined reference to __extendhfdf2".
+        # Select gcc-12 explicitly; setup-godotjs-ext installs it for this leg
+        # and preflights that its libgcc.a defines the symbol.
+        if [ "$LEG_PLATFORM" = "linux" ] && [ "$LEG_ARCH" = "x86_64" ] && [ "$LEG_ENGINE" = "node" ]; then
+          args+=(CC=gcc-12 CXX=g++-12)
+        fi
+
         if [ -n "$LEG_FLAGS" ]; then
           # Word-split on purpose: this input carries several whole scons args.
           # shellcheck disable=SC2206

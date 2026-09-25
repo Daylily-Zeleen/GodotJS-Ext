@@ -33,6 +33,14 @@ inputs:
   arch:
     description: Target architecture.
     required: true
+  engine:
+    description: >-
+      JS engine for this leg (v8, qjs-ng, node, jsc). Only used to install the
+      toolchain a specific engine needs: libnode is built by the
+      GodotJS-Dependencies workflow with gcc-12, so a linux x86_64 node leg
+      must consume it with gcc-12 as well (see the gcc-12 step below).
+    required: false
+    default: ""
   windows-compiler:
     description: >-
       Windows toolchain: msvc (default Visual Studio toolchain), mingw
@@ -178,6 +186,36 @@ runs:
           exit 1
         }
         clang-cl --version
+
+    # libnode.a is compiled by GodotJS-Dependencies with gcc-12 (its
+    # scripts/node/build-linux.sh installs and exports gcc-12/g++-12). One of
+    # v8's SIMD sources (deps/v8/third_party/highway/.../print.cc) uses
+    # _Float16, whose _Float16 -> double conversion helper __extendhfdf2 only
+    # exists from GCC 12 on. A gcc-11 embedder links gcc-11's libgcc.a (the SCons
+    # link uses -static-libgcc), which has no such object, so the link dies with
+    # "undefined reference to __extendhfdf2". Verified: gcc-11's libgcc.a
+    # contains zero members named extendhfdf2, gcc-12's contains one.
+    #
+    # Install gcc-12 and prove it ahead of the build, so a runner-image change
+    # fails here in seconds instead of after a long compile.
+    - name: Setup gcc-12 toolchain for the node engine (linux x86_64)
+      if: inputs.platform == 'linux' && inputs.engine == 'node' && inputs.arch == 'x86_64'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq gcc-12 g++-12
+        gcc-12 --version | head -1
+        g++-12 --version | head -1
+        # Preflight: the archive references __extendhfdf2, so the libgcc.a that
+        # -static-libgcc will pick up must define it.
+        libgcc="$(g++-12 -print-libgcc-file-name)"
+        echo "libgcc: $libgcc"
+        if ! nm --defined-only "$libgcc" | grep -q '__extendhfdf2'; then
+          echo "::error::g++-12's libgcc.a does not define __extendhfdf2; the libnode link will fail"
+          exit 1
+        fi
+        echo "gcc-12 libgcc.a defines __extendhfdf2 (the symbol libnode.a needs)"
 
     - name: Install SCons
       shell: bash
