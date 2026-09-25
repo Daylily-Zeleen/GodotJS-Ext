@@ -96,7 +96,7 @@ jsb_arch = env["arch"]
 #   node_<deps_node_version>.zip   -> node_v24.x.zip       (contains top-level libnode/)
 # libnode is published as the "node_<ref>.zip" asset, hence deps_node_version is
 # the node *branch ref* ("v24.x") rather than a released node version number.
-deps_release_tag = "260924-node-libuv-console"
+deps_release_tag = "260925-node-final"
 deps_v8_version = "12.4.254.21"
 deps_lws_version = "4.3"
 deps_node_version = "v24.x"
