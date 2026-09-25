@@ -174,4 +174,43 @@ struct StaticBindingUtil<int32_t> {
 		return true;
 	}
 };
+// The remaining exact-width integers delegate to `JSToGD<T>`, like int32 above.
+//
+// Without these they fell through to the primary template, which routes through
+// `TypeConvert::js_to_gd_var` and a `Variant`: the narrowing then happened in
+// `Variant::operator int8_t()` (etc.), which is the engine's own truncation but
+// a different code path from the static thunks -- so the two legs could disagree
+// about which values are accepted, and the debug truncation warning in
+// `js_to_gd_var` could not see the declared width.
+//
+// Delegating keeps one conversion and one diagnostic for both legs. The
+// metadata-less overload passes no isolate: `JSToGD<CppT>` for these types only
+// calls `to_int64`, which needs none.
+#define JSB_STATIC_BINDING_FIXED_INT(CppType)                                                                           \
+	template <>                                                                                                          \
+	struct StaticBindingUtil<CppType> {                                                                                  \
+		static bool get(const v8::Local<v8::Value> &p_input, CppType &r_value) {                                          \
+			return JSToGD<CppType>::convert(nullptr, v8::Local<v8::Context>(), p_input, r_value);                         \
+		}                                                                                                                 \
+                                                                                                                      \
+		static bool get(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_input, \
+				CppType &r_value) {                                                                                      \
+			return JSToGD<CppType>::convert(isolate, context, p_input, r_value);                                          \
+		}                                                                                                                 \
+                                                                                                                      \
+		static bool set(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const CppType &p_input,              \
+				v8::Local<v8::Value> &r_value) {                                                                         \
+			r_value = impl::Helper::new_integer(isolate, (int64_t)p_input);                                                \
+			return true;                                                                                                  \
+		}                                                                                                                 \
+	};
+
+JSB_STATIC_BINDING_FIXED_INT(int8_t)
+JSB_STATIC_BINDING_FIXED_INT(int16_t)
+JSB_STATIC_BINDING_FIXED_INT(uint8_t)
+JSB_STATIC_BINDING_FIXED_INT(uint16_t)
+JSB_STATIC_BINDING_FIXED_INT(uint32_t)
+JSB_STATIC_BINDING_FIXED_INT(char32_t)
+#undef JSB_STATIC_BINDING_FIXED_INT
+
 } //namespace jsb

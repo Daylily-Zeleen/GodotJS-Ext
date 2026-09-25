@@ -33,6 +33,51 @@
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
 namespace jsb {
+
+// Warn (debug builds only) when a value is about to be narrowed into an INT
+// slot narrower than the 64-bit Variant storage.
+//
+// The type list mirrors the static leg's `JSB_DIRECT_FIXED_INT`: both legs must
+// report the same slots, or a debug build would flag a truncation on one and
+// stay silent on the other. Metadata that does not name a narrow width (INT64 /
+// UINT64 / none) is ignored.
+//
+// Diagnostics only -- the conversion truncates unconditionally either way, which
+// is what the engine does. See `js_to_fixed_width_int` in
+// jsb_type_convert_direct.h for the measurements behind that.
+inline void verify_narrow_int_slot(GDExtensionClassMethodArgumentMetadata p_meta, int64_t p_val) {
+#if JSB_DEBUG
+	int bits = 0;
+	int64_t lo = 0, hi = 0;
+	switch (p_meta) {
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:
+			bits = 8; lo = INT8_MIN; hi = INT8_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8:
+			bits = 8; lo = 0; hi = UINT8_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT16:
+			bits = 16; lo = INT16_MIN; hi = INT16_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT16:
+			bits = 16; lo = 0; hi = UINT16_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT32:
+			bits = 32; lo = INT32_MIN; hi = INT32_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT32:
+			bits = 32; lo = 0; hi = UINT32_MAX; break;
+		// char32_t is a 32-bit code unit; the engine takes the whole uint32
+		// range and never checks the Unicode bound.
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR32:
+			bits = 32; lo = 0; hi = UINT32_MAX; break;
+		default:
+			return;
+	}
+	if (p_val < lo || p_val > hi) {
+		JSB_LOG(Warning, "narrow slot argument: %d does not fit the declared %d-bit slot, truncating", (int)p_val, bits);
+	}
+#else
+	(void)p_meta;
+	(void)p_val;
+#endif
+}
+
 template <typename ElemTy, typename PackedTy>
 static bool try_convert_array(v8::Isolate *isolate, const v8::Local<v8::Context> &context, v8::Local<v8::Value> p_val, Variant &r_packed) {
 	if constexpr (GetTypeInfo<ElemTy>::METADATA == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8) {
@@ -186,6 +231,10 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			}
 			// strict?
 			if (int64_t val; impl::Helper::to_int64(p_jval, val)) {
+				// A narrow slot truncates, exactly as the engine does -- but this is
+				// the last point that still sees the untruncated value, so this is
+				// where the debug warning belongs (no-op in release).
+				verify_narrow_int_slot(p_meta, val);
 				r_cvar = val;
 				return true;
 			}

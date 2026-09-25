@@ -33,9 +33,21 @@ function asSlot(v: bigint): number {
 	return v as unknown as number;
 }
 
-/** Reinterpret any 64-bit result as its unsigned bit pattern, for comparison. */
+/**
+ * Reinterpret any 64-bit result as its unsigned bit pattern, for comparison.
+ *
+ * Deliberately NOT `BigInt.asUintN`: quickjs-ng's implementation returns the
+ * value unchanged when `bits >= JS_LIMB_BITS` (its "short bigint" is 32 bits
+ * there), so `BigInt.asUintN(64, -1n)` yields `-1n` instead of
+ * `18446744073709551615n` -- measured on the quickjs-ng leg, and it made this
+ * file's bit comparisons report a false mismatch. A literal mod-2^64 mask is
+ * the same arithmetic on every engine.
+ */
+const TWO_POW_64 = 1n << 64n;
+
 function asUint64(v: number | bigint): bigint {
-	return BigInt.asUintN(64, typeof v === "bigint" ? v : BigInt(v));
+	const x = typeof v === "bigint" ? v : BigInt(v);
+	return ((x % TWO_POW_64) + TWO_POW_64) % TWO_POW_64;
 }
 
 /**
@@ -44,7 +56,7 @@ function asUint64(v: number | bigint): bigint {
  * `Number()` on these values is always integral, so `BigInt()` is safe.
  */
 function lossy64(v: bigint): bigint {
-	return BigInt.asUintN(64, BigInt(Number(v)));
+	return ((BigInt(Number(v)) % TWO_POW_64) + TWO_POW_64) % TWO_POW_64;
 }
 
 /** Names the pad-to-16-digits hex form used in every failure detail. */
@@ -94,7 +106,7 @@ const NUMBER_FORM_CASES: SlotCase[] = [
 // range-checked narrow metas (a pre-existing divergence, out of scope), so a
 // leg-agnostic assertion would be red on `dynamic`. `test_jsb_int64_conv.h`
 // covers `JSToGD<int8_t> / <uint8_t> / <char32_t>` at the converter instead.
-const EXPECTED_CHECKS = BIGINT_MODE ? 49 : 44;
+const EXPECTED_CHECKS = BIGINT_MODE ? 55 : 50;
 
 let checks = 0;
 
@@ -229,6 +241,53 @@ export default class Int64 extends Node {
 				const bigDynamic = writeU64(spb, 1e19, true);
 				check("write 1e19 static bits", bigStatic === BigInt("10000000000000000000"), hex64(bigStatic));
 				check("write 1e19 dynamic bits", bigDynamic === BigInt("10000000000000000000"), hex64(bigDynamic));
+			});
+
+			section("narrow slots truncate like the engine", () => {
+				// The engine never range-checks a narrow parameter: `put_8(300)`
+				// writes 44 in plain GDScript (measured). Both binding legs must
+				// follow -- the dynamic leg's class-method path IS the engine's own
+				// conversion -- so these assert the stored bytes, not a throw.
+				//
+				// `writeU64` writes a full 8 bytes; these use the narrow writers, so
+				// the payload is read back with the matching getter.
+				const spb = new StreamPeerBuffer();
+
+				// put_8(300) -> 300 mod 256 = 44 (signed 8-bit).
+				spb.seek(0);
+				spb.put_8(300);
+				spb.seek(0);
+				check("put_8(300) truncates", spb.get_8() === 44, `got ${String(spb.get_8())}`);
+
+				// put_8(-129) -> 127.
+				spb.seek(0);
+				spb.put_8(-129);
+				spb.seek(0);
+				check("put_8(-129) truncates", spb.get_8() === 127, `got ${String(spb.get_8())}`);
+
+				// put_u8(-1) -> 255 (unsigned view).
+				spb.seek(0);
+				spb.put_u8(-1);
+				spb.seek(0);
+				check("put_u8(-1) truncates", spb.get_u8() === 255, `got ${String(spb.get_u8())}`);
+
+				// put_u16(70000) -> 4464.
+				spb.seek(0);
+				spb.put_u16(70000);
+				spb.seek(0);
+				check("put_u16(70000) truncates", spb.get_u16() === 4464, `got ${String(spb.get_u16())}`);
+
+				// A BigInt narrows the same way (same slot, same cast).
+				spb.seek(0);
+				spb.put_8(asSlot(300n));
+				spb.seek(0);
+				check("put_8(300n) truncates", spb.get_8() === 44, `got ${String(spb.get_8())}`);
+
+				// The dynamic channel must agree byte for byte.
+				spb.seek(0);
+				spb.call("put_8", 300);
+				spb.seek(0);
+				check("put_8(300) dynamic agrees", spb.get_8() === 44, `got ${String(spb.get_8())}`);
 			});
 
 			section("ObjectID round-trip", () => {

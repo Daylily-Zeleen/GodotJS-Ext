@@ -383,26 +383,55 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 			CHECK(!JSToGD<uint64_t>::convert(isolate, context, v8::Null(isolate), out));
 		}
 
-		// Narrow slots keep their range checks: they are genuinely narrow, so a
-		// silent truncation would be the defect. `uint8_t` is the representative
-		// unsigned case, `int8_t` the signed one, `char32_t` the wide-but-narrow one.
+		// Narrow slots truncate, matching the engine's own behaviour for a narrow
+		// parameter. The engine never range-checks the width -- `put_8(300)` writes
+		// 44 in plain GDScript (measured) -- and rejecting here would put the
+		// static leg at odds with the dynamic one, whose class-method path IS the
+		// engine's conversion. See `js_to_fixed_width_int` for the rationale.
 		{
 			uint8_t u8 = 0;
 			int8_t i8 = 0;
 			char32_t c32 = 0;
+
+			// In range: unchanged.
 			CHECK(JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, 255), u8));
 			CHECK(u8 == 255);
-			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, 256), u8));
-			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, -1), u8));
+			// Out of range: accepted, narrowed mod 2^8 exactly like `(uint8_t)v`.
+			CHECK(JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, 256), u8));
+			CHECK(u8 == 0);
+			CHECK(JSToGD<uint8_t>::convert(isolate, context, v8::Int32::New(isolate, -1), u8));
+			CHECK(u8 == 255);
 
 			CHECK(JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, -128), i8));
 			CHECK(i8 == -128);
-			CHECK(!JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, 128), i8));
-			CHECK(!JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, -129), i8));
+			CHECK(JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, 128), i8));
+			CHECK(i8 == -128);
+			CHECK(JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, -129), i8));
+			CHECK(i8 == 127);
+			// The measured engine case: `put_8(300)` stores 44.
+			CHECK(JSToGD<int8_t>::convert(isolate, context, v8::Int32::New(isolate, 300), i8));
+			CHECK(i8 == 44);
 
 			CHECK(JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, 0x10FFFF), c32));
 			CHECK(c32 == 0x10FFFF);
-			CHECK(!JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, -1), c32));
+			// char32_t is a 32-bit code unit: -1 lands on UINT32_MAX, not a rejection.
+			CHECK(JSToGD<char32_t>::convert(isolate, context, v8::Int32::New(isolate, -1), c32));
+			CHECK(c32 == (char32_t)UINT32_MAX);
+		}
+
+		// A BigInt that cannot fit the slot narrows the same way (the read is a
+		// bit-pattern read, then the C++ cast).
+		{
+			int8_t i8 = 0;
+			CHECK(JSToGD<int8_t>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 300), i8));
+			CHECK(i8 == 44);
+		}
+
+		// A non-numeric value is still a conversion failure, not a truncation.
+		{
+			uint8_t u8 = 0;
+			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "1"), u8));
+			CHECK(!JSToGD<uint8_t>::convert(isolate, context, v8::Null(isolate), u8));
 		}
 	}
 
