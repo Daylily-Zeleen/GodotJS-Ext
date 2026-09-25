@@ -83,3 +83,55 @@ C++ 侧无需人为削减：dynamic 腿的 `bad param at 0`（`StaticBindingUtil
 - AC4.9：父任务 AC8 / AC9 / AC10 —— 收尾时跑 bench 门禁确认无回归。
 - `StaticBindingUtil` 缺的其余特化（`uint64_t` / 窄整型 / `char32_t`）：按 design §7
   记录到 spec，不在本轮改。本轮已顺带修 `int32_t`（它是 dynamic 腿 BigInt 构造器的必经路径）。
+
+## 补充（窄槽对齐引擎：拒绝 → 截断）
+
+### 判定依据
+
+用户规则是「引擎有检查就以动态腿为准，没有就以静态腿为准」。此前静态腿对
+`int8/uint8/...` 越界是**拒绝**。用纯 GDScript 探针（`.agent_tmp/gdprobe/probe*.gd`）
+实测引擎行为：
+
+| 调用 | 引擎结果 |
+|---|---|
+| `PackedByteArray.put_8(300)` | OK，`data=[44]` |
+| `put_8(-129)` | OK，`data=[127]` |
+| `put_8(2^40)` | OK，`data=[0]` |
+| `put_u16(70000)` | OK，`data=[112,17]` |
+| `put_8(1e300)` | OK，`data=[0]` |
+| `Vector2i(3000000000, -3000000000)` | `(-1294967296, 1294967296)` |
+| `put_8("abc")` / `put_8(null)` | **报错**（类型类别不匹配） |
+
+源码结论（`core/variant/binder_common.h:58-72`）：DEBUG 下只走
+`VariantCasterAndValidate<T>::cast` → `Variant::can_convert_strict`，而它只看
+**Variant 类型类别**（拿不到宽度）；release 下直接 `VariantCaster<T>::cast` →
+`Variant::_to_int<int8_t>()` → `T(_data._int)`，即 `static_cast`。
+**结论：引擎从不校验宽度，只截断。**
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/runtime/bridge/jsb_type_convert_direct.h` | `js_to_fixed_width_int` 去掉范围拒绝，改为截断；DEBUG 下越界告警 |
+| `src/runtime/bridge/jsb_type_convert.cpp` | 新增 DEBUG-only `verify_narrow_int_slot(meta, val)`，`js_to_gd_var` 的 INT 分支调用（一处覆盖 class 方法 / utility / setter-ctor 三条路径） |
+| `src/runtime/bridge/jsb_static_binding_util.h` | 新增 `JSB_STATIC_BINDING_FIXED_INT` 宏 + `int8_t/int16_t/uint8_t/uint16_t/uint32_t/char32_t` 六个特化，均委托 `JSToGD<T>` |
+| `src/static_binding/thunks/type_compatible.h` | `INT` 行改为「窄槽收窄为截断」并附实测数据 |
+| `src/runtime/tests/test_jsb_int64_conv.h` | 窄槽断言改为截断（`uint8_t(256)→0`、`uint8_t(-1)→255`、`int8_t(128)→-128`、`int8_t(-129)→127`、`int8_t(300)→44`、`char32_t(-1)→UINT32_MAX`）+ BigInt 截断 + 非数值仍失败 |
+| `project/tests/int64/test-int64.ts` | 新增 `narrow slots truncate like the engine` section（6 条 check），`EXPECTED_CHECKS` → `BIGINT_MODE ? 55 : 50` |
+
+### 告警策略
+
+告警用 `#if JSB_DEBUG` 显式门控 + 条件 `if`，**release 零开销**。实测：
+
+```
+strings bin/windows/godotjs-ext.windows.template_release.x86_64.dll | grep -c 'narrow slot'  ->  0
+strings bin/windows/godotjs-ext.windows.editor.x86_64.dll           | grep -c 'narrow slot'  ->  2
+```
+
+editor（`JSB_DEBUG=1`）三腿各触发 5 次截断告警；dynamic 腿措辞来自统一入口
+`js_to_gd_var`（`narrow slot argument: ... does not fit the declared N-bit slot`）。
+
+### 坑：`String::sprintf` 不支持 `%lld`
+
+Godot 的 `String::sprintf` **没有 `%lld`**，用了会让整行日志变空（极难排查）。
+64 位值必须走 `%d` + `(int)` 转换（项目既有惯例）。两处告警已改。
