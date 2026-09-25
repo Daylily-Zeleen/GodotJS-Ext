@@ -110,23 +110,42 @@ macos(v8+qjs-ng+jsc) / ios / Android / web(带线程与不带线程)。**node �
 `Build (windows, x86_64, editor, v8)` 的 scons 命令行分别含
 `binding_mode=static` / `=shared` / `=dynamic`；web 腿无该参数（按设计保持默认）。
 
-### 遗留：`benchmark` job 在 CI 上挂住（**既有问题，非本次改动**）
+### `benchmark` job 在 CI 上挂住（**已定位并修复**）
 
-`benchmark-build` 两个模式（含修复后的 `benchmark-static`/`benchmark-dynamic` 命名）都
-success，证明产物名修复正确；但 `benchmark` job 的 `Run benchmark (both legs)` 步骤在 CI
-上不再推进（>1h），run 无法自然收官，为让下一个模式跑起来只能取消该 run。workflow 内
-已有注释记载这是引擎 teardown 的既有 SEGV（"known engine-side issue"）。
+早先本文记为「既有环境问题」——**那是错的**。实际是 job 自身的缺陷，已定位、复现、修复：
 
-**本地对照**：用当前 `template_release` static 构建跑
-`godot --audio-driver Dummy --headless --path project -- --bench` →
-`rc=0`、63s、`BENCH_JSON ... invalid:0 bindingMode:"static"`。
-另 `python misc/bench_matrix.py --report` 对本地 24 runs 汇总 `BENCH_RC=0`、`invalid=0`、
-三腿 md5 各异。两次本地证据都说明**逐例结果与转换层无回归**，CI 挂住是运行环境侧问题。
+根因：该 job 从不生成项目的运行时状态，JS 运行时**根本起不来**：
 
-**未做**：本地无法复现 CI 的网络/环境依赖，也未定位挂住的最后一行（job 未完成时
-`gh run view --log` 返回空）。归属并行任务 `09-06-ci-benchmark-both-legs`。
+```
+ERROR: No loader found for resource: res://tests/start.ts
+Error: unknown module: @tests/paths_test/paths-test
+Error: godot class not found 'Node'
+```
+
+`start.ts` 的 import 在其 `finally { quit() }` **之前**求值，所以抛出的异常导致引擎永不退出，
+空转到 6h job 上限。缺的是 `test` job 有、而本 job 没有的生成产物：
+
+| 缺件 | 后果 | 由谁生成 |
+|---|---|---|
+| `.godot/extension_list.cfg` | 扩展从未注册 → 没有任何 JS 脚本加载器 | 编辑器插件 |
+| `.godot/godotjs_ext/.paths_mapping` | `@tests/*` 别名无法解析 | 编辑器插件（`_regenerate_paths_mapping`） |
+| `.godot/.api_dumping/*.capi` | JS 运行时无法解析引擎类 | `--godotjs-api-generate` |
+
+三者都出自**编辑器库**，而该 job 连编辑器库都没有（`benchmark-build` 只产出运行时 `.so`）。
+
+为何长期没人发现：job 是 `workflow_dispatch` 专属，所有 push run 里它都是 `skipped`，
+从未被真正执行；且 GitHub 不为「永不结束的 step」落日志（`BlobNotFound`），
+挂住本身把原因也一起藏了。
+
+修复（commit `5faab4d` + `14c2dad`）：依赖 `build` 取编辑器库 → 生成运行时状态 →
+`timeout 300` + 45min job 上限 + 明确报错（不再是无信息的 6h 空转）。
+另外修了只在新路径才暴露的第二个缺陷：一致性门禁拿两个**不同进程**的 `get_instance_id`
+做比较（`static=31021073896` vs `dynamic=31071405544`），加 `processDependent` 标记豁免。
+
+**CI 实测（run 36114551388）**：`benchmark` job 全部 16 个 step success，
+`consistency gate passed (234 cases, 1 process-dependent skipped: Node.get_instance_id(0))`，
+报告回填双腿对比（含体积对比：dynamic 35.33 MiB / static 69.20 MiB）。
 
 ## 遗留
 
-- `benchmark` job 的 CI 挂住（见上，既有问题）—— 需要时另开诊断。
 - 父任务归档：**等用户明确同意**。
