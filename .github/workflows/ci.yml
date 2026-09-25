@@ -307,10 +307,19 @@ jobs:
           # CONSISTENCY GATE: per-case result summaries must match exactly
           # between the two binding paths before any performance number is
           # considered valid. A mismatch fails the job outright.
+          #
+          # Cases flagged `processDependent` are exempt: their probe result is a
+          # property of the process (an ObjectID), and the two legs are separate
+          # engine processes, so the values can never be equal. That is not a
+          # binding divergence. The performance table below still lists them.
           mismatches = []
+          skipped = []
           for ra in a["results"]:
               rb = next((r for r in b["results"] if r["name"] == ra["name"]), None)
               if rb is None or rb.get("error") or ra.get("error"):
+                  continue
+              if ra.get("processDependent") or rb.get("processDependent"):
+                  skipped.append(ra["name"])
                   continue
               if ra.get("sample") != rb.get("sample"):
                   mismatches.append((ra["name"], ra.get("sample"), rb.get("sample")))
@@ -319,7 +328,9 @@ jobs:
               for n, s_, d_ in mismatches:
                   print(f"  {n}: static={s_} dynamic={d_}")
               raise SystemExit(1)
-          print(f"consistency gate passed ({len(a['results'])} cases)")
+          print(f"consistency gate passed ({len(a['results'])} cases"
+                + (f", {len(skipped)} process-dependent skipped: {', '.join(skipped)}" if skipped else "")
+                + ")")
 
           rows = []
           for name in {r["name"] for r in a["results"]} | {r["name"] for r in b["results"]}:

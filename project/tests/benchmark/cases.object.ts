@@ -40,7 +40,12 @@ export const OBJECT_CASES: CaseGroup[] = [
             { name: "find_children(1+3defaults)", fn: (t: any) => t.find_children("missing") },
             { name: "find_children(4)", fn: (t: any) => t.find_children("missing", "", true, true) },
             { name: "move_child(2)", fn: (t: any) => t.move_child(t.get_child(0), 0) },
-            { name: "get_instance_id(0)", fn: (t: any) => t.get_instance_id() },
+            {
+                name: "get_instance_id(0)",
+                fn: (t: any) => t.get_instance_id(),
+                // ObjectIDs are per-process: the static and dynamic legs cannot agree.
+                processDependent: true,
+            },
         ],
     },
     {
