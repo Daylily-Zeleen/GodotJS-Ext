@@ -29,10 +29,10 @@
 // SEVERITY_* macro pollution, see jsb_node_pch.h).
 #include <uv.h>
 
+#include "internal/jsb_bridge_table.h"
 #include "jsb_node_bridge.h"
 #include "jsb_node_global_init.h"
 #include "jsb_node_helper.h"
-#include "internal/jsb_bridge_table.h"
 
 namespace jsb::impl {
 NodeRuntime::NodeRuntime() {
@@ -187,7 +187,7 @@ NodeRuntime::~NodeRuntime() {
 
 	// Allocator
 	allocator_.reset();
-	
+
 	// drop the console hook state owned by this isolate before it goes away
 	// (see jsb_bridge_table.cpp)
 	jsb::bridge_console_hook_on_isolate_releasing(isolate_);

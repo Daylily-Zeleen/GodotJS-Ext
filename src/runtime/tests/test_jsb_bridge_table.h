@@ -36,8 +36,8 @@
 // covered separately by the editor suite ([editor][bridge] cases).
 
 #include "../../internal/jsb_statistics.h"
-#include "../tests/jsb_test_utils.h"
 #include "../internal/jsb_bridge_table.h"
+#include "../tests/jsb_test_utils.h"
 #include "jsb_test_helpers.h"
 #include <cstring>
 #include <godot_cpp/variant/dictionary.hpp>

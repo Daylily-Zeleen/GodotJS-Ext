@@ -27,6 +27,8 @@
 #include "jsb_script.h"
 #include "jsb_script_language.h"
 
+#include "../bridge/jsb_shared_statics.h"
+
 struct ScriptInstanceInfo {
 public:
 	_FORCE_INLINE_ GDExtensionScriptInstanceInfo3 *operator&() { return &script_instance_info_; }
@@ -446,7 +448,13 @@ bool GodotJSScriptInstance::set(const StringName &p_name, const Variant &p_value
 			return env_->set_script_property_value(object_id_, it->value, p_value);
 		}
 
-		// TODO: Static variable?
+		// A shared static resolves against the process-wide store, so an instance write is visible
+		// from every JS environment and from GDScript. GDScript parity (measured on official 4.7.2):
+		// `n.set("bsv", …)` on a **derived** instance reaches the base's `static var bsv`.
+		// Constants are deliberately NOT consulted — a write to a constant must fail.
+		if (sptr->script_class_info_.static_variables.has(p_name)) {
+			return jsb::SharedStatics::set(sptr->script_class_info_.module_id, p_name, p_value);
+		}
 
 		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_set)); it) {
 			Variant name = p_name;
@@ -484,9 +492,19 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 			return env_->get_script_property_value(object_id_, it->value, r_ret);
 		}
 
-		// TODO: constant?
-		// TODO: static variable?
-		// TODO: Inner class?
+		// A constant / shared static is reachable through the **instance** too, matching GDScript
+		// (measured on official 4.7.2): `n.get("bsv")` returns 100 on a derived instance whose base
+		// declares `static var bsv`. Order follows `GodotJSScript::_get` — own constants, then own
+		// statics, then the base chain — so a derived member shadows an inherited one of the same
+		// name. Inner classes remain unsupported (R8.2).
+		if (const auto &it = sptr->script_class_info_.constants.find(p_name); it) {
+			r_ret = it->value.value;
+			return true;
+		}
+		if (sptr->script_class_info_.static_variables.has(p_name)
+				&& jsb::SharedStatics::get(sptr->script_class_info_.module_id, p_name, r_ret)) {
+			return true;
+		}
 
 		if (const auto &it = sptr->script_class_info_.signals.find(p_name); it) {
 			r_ret = Signal(owner_, p_name);
@@ -654,7 +672,16 @@ bool GodotJSScriptInstance::property_get_revert(const StringName &p_name, Varian
 }
 
 bool GodotJSScriptInstance::has_method(const StringName &p_method) const {
-	return script_->_has_method(p_method);
+	// The base chain is walked *here*, like `GDScriptInstance::has_method` (`gdscript.cpp:1906-1917`):
+	// `Object::has_method` (`object.cpp:738-758`) consults this and does **not** walk, while
+	// `GodotJSScript::_has_method` reports own methods only (parity with `GDScript::has_method`,
+	// `gdscript.cpp:362-363`).
+	const GodotJSScript *sptr = script_.ptr();
+	while (sptr) {
+		if (sptr->_has_method(p_method)) return true;
+		sptr = sptr->base.ptr();
+	}
+	return false;
 }
 
 Variant GodotJSScriptInstance::callp(const StringName &p_method, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error) {

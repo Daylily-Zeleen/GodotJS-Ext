@@ -18,6 +18,38 @@
 | `third/godot-cpp/gen/**`（`*.gen.inc` 等） | `third/godot-cpp/binding_generator.py` |
 | `project/gen/**`、`project/typings/**`（运行期 TS 产物） | 引擎扩展 codegen：`godot --headless --editor --path ./project --generate-types`（入口 `jsb_editor_plugin.cpp` 的 `_generate_types_from_cmdline`） |
 
+## 注解类型表（`jsb.runtime.gen.d.ts` 的 `ClassBinder` 等）
+
+`project/typings/jsb.runtime.gen.d.ts` 里 `declare module "godot.annotations"` 的 `ClassBinder` /
+`ExportOptions` / `RPCConfig` 由 **`src/editor/codegen/jsb_codegen_annotations.cpp`** 的
+`get_annotation_types()` 以类型描述符（`Dictionary`）声明，`jsb_codegen_generator.cpp` 的
+`emit_runtime_gen()` 序列化。**改注解签名 = 改这个文件**，不是改生成物。
+
+**类型描述符 DSL 的能力边界（2026-09-25 实测）**：
+
+- `DescriptorType`（`jsb_codegen_defs.h`）**没有 rest 参数概念**：`make_func` 的 `parameters` 里写
+  `"...names"` 只是**名字**带三个点，元素类型要自己给（如 `string[]`）。既有先例：`export.range` 的
+  `...extra_hints: ExportRangeExtraHint[]`。
+- **无法在描述符里表达"函数重载"**（一个函数多个签名）。需要重载时用 `make_intersection()` 把多个
+  `make_func()` 拼成交集 —— TS 对"交集的多个调用签名"按重载解析。
+- **顺序敏感**：当某个签名（如 `(...names: string[])`）也接受零实参时，零参签名必须排在**前面**，
+  否则无参调用会解析到 rest 签名。
+- 例：`exposed.const` 需同时支持 `()`（成员装饰器）与 `(...names: string[])`（类装饰器）⇒
+  `make_intersection({ make_func(Array(), make_godot_args("ClassMemberDecorator", {make_godot("StaticMemberDecoratorContext")})), make_func(names_params, class_decorator_func) })`。
+  **泛型实参**用 `make_godot_args(name, args)`（先例：`export.object` 的
+  `make_godot_args("ClassValueMemberDecoratorContext", instance_args)`）。成员形态的上下文收窄到
+  `StaticMemberDecoratorContext`（`= ClassFieldDecoratorContext & { static: true }`，声明在
+  `godot.annotations.ts`）——**这是唯一能让错位注解（instance field/accessor/method、`static accessor`）
+  变成编译错误的地方**，因为 Godot 侧只读类对象的自有属性，错位成员会被静默丢弃。
+  该类型名同时被生成物与 `scripts/typings/godot.generated.d.ts` 引用 ⇒ 改它必须同步镜像。
+- **`scripts/typings/godot.generated.d.ts` 是同一声明的"独立检出"镜像**：`godot.minimal.d.ts` 经
+  `///<reference>` 引入它，`godot.annotations.ts` 靠它编译（`createClassBinder()` 用 `Object.assign`
+  产出交集类型，故该模块的 `ClassBinder` 声明必须与生成物一致）。**改注解签名须同时改该镜像**，
+  否则独立检出编译失败。
+- **对应关系是双向的**：`godot.annotations.ts` 的实现签名必须能被该 `ClassBinder` 接受，但**运行期
+  实现走的是真实函数**——对象字面量方法**不能**承载重载签名，所以需要重载的注解要在
+  `createClassBinder()` 里写成**局部 `function` 重载声明**，再在返回的对象字面量里引用它。
+
 ## 通用原则
 
 1. 看到文件名含 `.gen.` 立即停止编辑，先查上表或搜索 `SConstruct` / `SCsub` / `misc/build/` 生成脚本

@@ -268,8 +268,14 @@ static void parse_method(const Dictionary &d, TApiMethodInfo &r_method, internal
 	// reader ever needs the cold detail to answer has_returns().
 	const bool has_return_value = (r_detail.return_val.type != Variant::NIL) || (r_detail.return_val.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
 
-	ApiMethodAccess::setup(r_method, name, MethodHash(d.get("hash", 0)), flags, has_return_value,
-			r_detail.return_val.type, return_meta, arg_count);
+	ApiMethodAccess::setup(r_method,
+			name,
+			MethodHash(d.get("hash", 0)),
+			flags,
+			has_return_value,
+			r_detail.return_val.type,
+			return_meta,
+			arg_count);
 	// The compact argument records are not part of the detail; the caller emits
 	// them straight into the entity-level block (see write_* in the store writer).
 	if constexpr (std::is_base_of_v<ApiMemberMethodBase, TApiMethodInfo>) {
@@ -460,9 +466,14 @@ Error ApiParser::parse_and_write_utility_functions(const Dictionary &p_root, con
 		}
 
 		const bool has_return_value = (detail.return_val.type != Variant::NIL) || (detail.return_val.usage & PROPERTY_USAGE_NIL_IS_VARIANT);
-		ApiMethodAccess::setup(func, fd["name"], MethodHash(fd.get("hash", 0)),
-				flags, has_return_value, detail.return_val.type,
-				GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, (uint16_t)detail.arguments.size());
+		ApiMethodAccess::setup(func,
+				fd["name"],
+				MethodHash(fd.get("hash", 0)),
+				flags,
+				has_return_value,
+				detail.return_val.type,
+				GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE,
+				(uint16_t)detail.arguments.size());
 		ApiMethodAccess::set_index(func, (uint16_t)i);
 		func.category = fd.get("category", "");
 

@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/任务流程硬约束"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "头文件命名空间禁令、临时文件位置、格式化"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "GDExtension ~ 副本陷阱、跨库共享、桥接规则（新增进程级 HashMap 与访问器必读）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "_ 前缀虚函数、godot:: 类型、子模块只读边界"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "typings/codegen 生成逻辑映射（注解需登记到生成器）"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收判据：Orphan StringName=0、测试项目哨兵（缺陷 A 同型风险）"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "C++ doctest 双套件机制，阶段 1/2 单测写法（阶段 4 已随 Q1=(c) 删除）"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "解析/typings 改动后的基线校验规程（A11）"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "强制编译命令与 dll 部署验证"}
+{"file": ".trellis/tasks/09-24-script-static-members/research/phase0-findings.md", "reason": "阶段 0 实测判定表：TS 产物形态(§0.1)、js_to_gd_var 两个重载的判定表(§0.2)、make_read_only 语义(§0.3)；阶段 1 分档与阶段 2 只读施加必须按此表执行"}

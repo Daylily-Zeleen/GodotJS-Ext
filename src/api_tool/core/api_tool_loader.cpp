@@ -29,9 +29,9 @@
 // Utility functions loaded as single batch. Supports cache invalidation callback.
 
 #include "api_tool_loader.h"
-#include "api_tool_store.h"
 #include "api_tool/core/api_tool_access.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool_store.h"
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/project_settings.hpp>

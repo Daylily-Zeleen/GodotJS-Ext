@@ -1280,6 +1280,19 @@ declare module "godot.annotations" {
         help: (
             message?: string,
         ) => (target: GObjectConstructor, context: ClassDecoratorContext | ClassValueMemberDecoratorContext) => void;
+        exposed: {
+            /**
+             * `()` -> member decorator for a `static` member declared in the class body.
+             * `(...names)` -> class decorator naming members declared outside the class body
+             * (normally in a same-named `namespace` merged with the class).
+             */
+            const: (() => ClassMemberDecorator<StaticMemberDecoratorContext>) & ((
+                ...names: string[]
+            ) => (target: GObjectConstructor, context: ClassDecoratorContext) => void);
+            shared: (() => ClassMemberDecorator<StaticMemberDecoratorContext>) & ((
+                ...names: string[]
+            ) => (target: GObjectConstructor, context: ClassDecoratorContext) => void);
+        };
     };
 
     type ExportOptions = {

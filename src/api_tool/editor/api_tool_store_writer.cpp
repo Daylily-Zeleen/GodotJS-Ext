@@ -27,8 +27,8 @@
 // Binary file writing implementation
 
 #include "api_tool_store_writer.h"
-#include "api_tool/core/api_tool_payload.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "api_tool/core/api_tool_payload.h"
 #include "api_tool_detail_storage_editor.h"
 
 using namespace godot;
@@ -68,16 +68,16 @@ static void serialize_property_info(PayloadWriter &w, const PropertyInfo &pi) {
 // must be written with the same concrete type the reader declares (a missing
 // cast or a wider type silently shifts the whole stream).
 void ApiMethodHotWriter::serialize_method_hot(PayloadWriter &w, const ApiMethodBase &p_method, uint16_t p_default_count) {
-	w.write(p_method.get_name());          // StringName
-	w.write(p_method.flags_);              // uint32_t (RAW: the internal NO_RETURN bit has no other home)
-	w.write(p_method.hash_);               // uint32_t
-	w.write(p_method.ret_.type);           // VariantType = uint8_t
-	w.write(p_method.ret_.meta);           // ArgMeta = uint8_t
-	w.write(p_method.arg_count_);          // uint16_t
-	w.write(p_default_count);              // uint16_t
+	w.write(p_method.get_name()); // StringName
+	w.write(p_method.flags_); // uint32_t (RAW: the internal NO_RETURN bit has no other home)
+	w.write(p_method.hash_); // uint32_t
+	w.write(p_method.ret_.type); // VariantType = uint8_t
+	w.write(p_method.ret_.meta); // ArgMeta = uint8_t
+	w.write(p_method.arg_count_); // uint16_t
+	w.write(p_default_count); // uint16_t
 	for (uint16_t i = 0; i < p_method.arg_count_; i++) {
-		w.write(p_method.args_[i].type);   // VariantType = uint8_t
-		w.write(p_method.args_[i].meta);   // ArgMeta = uint8_t
+		w.write(p_method.args_[i].type); // VariantType = uint8_t
+		w.write(p_method.args_[i].meta); // ArgMeta = uint8_t
 	}
 }
 

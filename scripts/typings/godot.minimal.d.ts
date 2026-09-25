@@ -127,6 +127,8 @@ declare module "godot-jsb" {
         ): void;
         function add_script_tool(constructor: GObjectConstructor): void;
         function add_script_icon(constructor: GObjectConstructor, path: string): void;
+        function add_script_constant(constructor: GObjectConstructor, name: string): void;
+        function add_script_shared_static(constructor: GObjectConstructor, name: string): void;
         function add_script_rpc(
             prototype: GObject,
             property_key: string,

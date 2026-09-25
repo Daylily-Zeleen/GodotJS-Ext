@@ -403,6 +403,41 @@ Dictionary build_class_binder() {
 		properties[member(name)] = make_func(msg_params, make_godot_args("Decorator", decorator_args));
 	}
 
+	// exposed (constant / shared static): each leaf is an overloaded factory, because the two
+	// accepted declaration forms need different decorator signatures.
+	//   `()`                    -> member decorator, for a `static` member declared in the class body
+	//   `(...names: string[])`  -> class decorator, naming members declared outside the class body
+	// A method inside an object literal cannot carry overload signatures, so the overload is
+	// expressed as the intersection of the two call signatures here; the runtime side
+	// (godot.annotations.ts) declares the same two signatures on a real function declaration.
+	// Order matters: with no arguments both signatures are applicable (the rest one accepts zero),
+	// so the zero-arg signature has to come first for `@bind.exposed.const()` to resolve to it.
+	{
+		Array class_decorator_params;
+		class_decorator_params.push_back(make_param("target", object_constructor));
+		class_decorator_params.push_back(make_param("context", class_decorator_context));
+
+		Array names_params;
+		names_params.push_back(make_param("...names", make_godot("string[]")));
+
+		// The zero-arg form is narrowed to a `static` data field: `ClassMemberDecorator`'s
+		// constraint is what rejects a wrong placement, and the Godot side only reads *own
+		// properties of the class object* - an instance field/accessor/method is dropped without a
+		// word, so the type is the only place that misuse can be caught. The type is declared by
+		// `godot.annotations.ts` (and reaches the user through the bundled declaration file).
+		Array static_member_context_args;
+		static_member_context_args.push_back(make_godot("StaticMemberDecoratorContext"));
+
+		Array exposed_leaf_types;
+		exposed_leaf_types.push_back(make_func(Array(), make_godot_args("ClassMemberDecorator", static_member_context_args)));
+		exposed_leaf_types.push_back(make_func(names_params, make_func(class_decorator_params, make_godot("void"))));
+
+		Dictionary exposed_props;
+		exposed_props[member("const")] = make_intersection(exposed_leaf_types);
+		exposed_props[member("shared")] = make_intersection(exposed_leaf_types);
+		properties[member("exposed")] = make_object(exposed_props);
+	}
+
 	// top-level: () => decorator-func & { ... }
 	Array top_types;
 	top_types.push_back(top);

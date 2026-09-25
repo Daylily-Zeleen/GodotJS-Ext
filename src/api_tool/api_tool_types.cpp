@@ -24,8 +24,8 @@
 /************************************************************************/
 
 #include "api_tool_types.h"
-#include "core/api_tool_store.h"
 #include "api_tool/core/api_tool_detail_storage.h"
+#include "core/api_tool_store.h"
 #include <godot_cpp/templates/hash_map.hpp>
 
 #ifndef DISABLE_DEPRECATED

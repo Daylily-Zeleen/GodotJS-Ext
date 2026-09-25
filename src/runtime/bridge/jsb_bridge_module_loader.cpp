@@ -29,6 +29,7 @@
 
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_callable.h"
+#include "jsb_class_info.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
 
@@ -486,6 +487,58 @@ void _add_script_signal(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 	info.GetReturnValue().Set(JSB_NEW_FUNCTION(context, ObjectReflectBindingUtil::_godot_object_signal_get, signal));
 }
+
+// Append `name` to the array held under `p_symbol` on `p_target`, creating the array on demand.
+void _append_symbol_array_entry(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_target, const v8::Local<v8::Symbol> &p_symbol, const v8::Local<v8::Value> &p_entry) {
+	v8::Local<v8::Array> collection;
+	uint32_t index;
+	if (p_target->HasOwnProperty(p_context, p_symbol).ToChecked()) {
+		v8::Local<v8::Value> collection_val = p_target->Get(p_context, p_symbol).ToLocalChecked();
+		jsb_check(collection_val->IsArray());
+		collection = collection_val.As<v8::Array>();
+		index = collection->Length();
+	} else {
+		index = 0;
+		collection = v8::Array::New(p_isolate);
+		p_target->Set(p_context, p_symbol, collection).Check();
+	}
+	collection->Set(p_context, index, p_entry).Check();
+}
+
+// function add_script_constant(target: GObjectConstructor, name: string): void
+void _add_script_constant(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	if (info.Length() != 2 || !info[0]->IsObject() || !info[1]->IsString()) {
+		jsb_throw(isolate, "bad param");
+		return;
+	}
+	// target is the class object itself (static members live on it, not on `prototype`)
+	v8::Local<v8::Object> target = info[0].As<v8::Object>();
+	Environment *environment = Environment::wrap(isolate);
+
+	//NOTE only the name is recorded: the parser derives the constant kind from the value itself,
+	//     so there is nothing useful for the annotation site to declare here.
+	_append_symbol_array_entry(isolate, context, target, jsb_symbol(environment, ClassConstants), info[1]);
+	JSB_LOG(VeryVerbose, "script define constant %s", impl::Helper::to_string(isolate, info[1]));
+}
+
+// function add_script_shared_static(target: GObjectConstructor, name: string): void
+void _add_script_shared_static(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	v8::Isolate *isolate = info.GetIsolate();
+	v8::HandleScope handle_scope(isolate);
+	v8::Local<v8::Context> context = isolate->GetCurrentContext();
+	if (info.Length() != 2 || !info[0]->IsObject() || !info[1]->IsString()) {
+		jsb_throw(isolate, "bad param");
+		return;
+	}
+	v8::Local<v8::Object> target = info[0].As<v8::Object>();
+	Environment *environment = Environment::wrap(isolate);
+
+	_append_symbol_array_entry(isolate, context, target, jsb_symbol(environment, ClassSharedStatics), info[1]);
+	JSB_LOG(VeryVerbose, "script define shared static %s", impl::Helper::to_string(isolate, info[1]));
+}
 } //namespace
 
 bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
@@ -545,6 +598,8 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "add_script_tool"), JSB_NEW_FUNCTION(context, _add_script_tool, {})).Check();
 			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "add_script_icon"), JSB_NEW_FUNCTION(context, _add_script_icon, {})).Check();
 			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "add_script_rpc"), JSB_NEW_FUNCTION(context, _add_script_rpc, {})).Check();
+			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "add_script_constant"), JSB_NEW_FUNCTION(context, _add_script_constant, {})).Check();
+			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "add_script_shared_static"), JSB_NEW_FUNCTION(context, _add_script_shared_static, {})).Check();
 			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "set_script_doc"), JSB_NEW_FUNCTION(context, _set_script_doc, {})).Check();
 			internal_obj->Set(context, impl::Helper::new_string_ascii(isolate, "notify_microtasks_run"), JSB_NEW_FUNCTION(context, _notify_microtasks_run, {})).Check();
 

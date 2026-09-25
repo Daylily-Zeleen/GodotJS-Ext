@@ -79,6 +79,8 @@ enum Type : uint8_t {
 	ClassRPCConfig, // @rpc annotation for rpc functions
 	Doc,
 	MemberDocMap,
+	ClassConstants, // array of all @bind.exposed.const() annotations
+	ClassSharedStatics, // array of all @bind.exposed.shared() annotations
 
 	ClassModuleId, // provides quick access from a class' constructor to its corresponding module ID
 	ConstructorBindObject, // indicates a constructor invocation is binding to an existing Godot native object

@@ -42,8 +42,9 @@
 namespace v8 {
 class Isolate;
 class Context;
-template <typename T> class Local;
-}
+template <typename T>
+class Local;
+} //namespace v8
 
 namespace jsb {
 

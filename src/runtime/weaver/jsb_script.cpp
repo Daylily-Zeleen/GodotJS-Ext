@@ -26,6 +26,7 @@
 /************************************************************************/
 
 #include "jsb_script.h"
+#include "../bridge/jsb_shared_statics.h"
 #include "../internal/jsb_path_util.h"
 #include "jsb_script_instance.h"
 #include "jsb_script_language.h"
@@ -333,19 +334,18 @@ bool GodotJSScript::_has_method(const StringName &p_method) const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
+	// Own methods only, like `GDScript::has_method` (`gdscript.cpp:362-363`). Walking the base chain
+	// is the caller's job and it differs per caller: `Object::has_method` (`object.cpp:738-758`)
+	// consults `script_instance->has_method` and does **not** walk, so `GodotJSScriptInstance`
+	// walks it itself (like `GDScriptInstance::has_method`, `gdscript.cpp:1906-1917`);
+	// `Object::get_method_argument_count` (`object.cpp:794-805`) walks `get_base_script()` on its own.
 	StringName exposed_name = p_method;
 
 	if (exposed_name.begins_with("_")) {
 		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
 	}
 
-	const GodotJSScript *current = this;
-	while (current) {
-		//TODO temp fix
-		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
-		if (current->_is_valid() && current->script_class_info_.methods.has(exposed_name)) return true;
-		current = current->base.ptr();
-	}
+	if (_is_valid() && script_class_info_.methods.has(exposed_name)) return true;
 
 	// ensure `_ready` called even if it's not actually defined in scripts
 	if (p_method == jsb_string_name(_ready)) {
@@ -363,12 +363,135 @@ bool GodotJSScript::_has_static_method(const StringName &p_method) const {
 	return false; // script_class_info_.methods.has(p_method);
 }
 Dictionary GodotJSScript::_get_method_info(const StringName &p_method) const {
-	jsb_check(loaded_);
-	jsb_check(_has_method(p_method));
-	//TODO details?
-	Dictionary item;
-	item["name"] = p_method;
-	return item;
+	ensure_module_loaded();
+
+	// Only a name that really exists as a script method yields a `MethodInfo`.
+	//NOTE This guard is required, not cosmetic: `GDScriptAnalyzer::reduce_identifier_from_base`
+	//     probes `get_method_info()` for *every* identifier of a non-GDScript script and has no
+	//     `has_method` guard of its own. Returning a non-empty dictionary for an arbitrary name
+	//     would shadow the signal and constant lookups that follow it, so constants could never
+	//     be resolved. An empty dictionary yields `MethodInfo::name == StringName()` and is
+	//     therefore ignored by the analyzer.
+	StringName exposed_name = p_method;
+	if (exposed_name.begins_with("_")) {
+		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
+	}
+
+	// Own methods only, like `GDScript::get_method_info` (`gdscript.cpp:385-392`). Callers that need
+	// the base chain walk it themselves: `GDScriptAnalyzer::get_function_signature`
+	// (`gdscript_analyzer.cpp:6076-6093`) loops `base_script->has_method()` + `get_method_info()`, and
+	// `Object::get_method_argument_count` (`object.cpp:794-805`) loops `get_base_script()`. The
+	// analyzer's non-GDScript probe (`:4366`) reads this single script only, so an inherited name
+	// does not resolve here. What that costs depends on how GDScript references the script, and it
+	// was measured (official 4.7.2, `.agent_tmp/probe_dconst.log`): with a `const` base the failure
+	// is at analysis time and the script does not load (`Cannot find member "F" in base "…"`),
+	// while a `var` base degrades to a runtime lookup through `_get`, which walks `base` itself.
+	if (_is_valid() && script_class_info_.methods.has(exposed_name)) {
+		// the reported name must be the queried one, otherwise the analyzer's equality check fails
+		Dictionary item;
+		item["name"] = p_method;
+		return item;
+	}
+	return Dictionary();
+}
+
+Dictionary GodotJSScript::_get_constants() const {
+	ensure_module_loaded();
+	Dictionary result;
+
+	// Own constants only, like `GDScript::get_constants` (`gdscript.cpp:911-917`). The ClassDB-bound
+	// `Script::get_script_constant_map()` (`script_language.cpp:106-112`) dumps exactly what this
+	// returns, so merging the base chain here makes that API diverge from GDScript for every foreign
+	// script: measured, a derived GDScript's `get_script_constant_map()` returns `{ DC: 2 }` and not
+	// the base's `BC`.
+	// Merging is not needed for resolution either. GDScript is duck-typed: an unresolved
+	// `DerivedScript.INHERITED_CONST` is not a load error, it degrades to a runtime lookup through
+	// `_get`, which walks `base` itself (`:465-467`). Measured on official 4.7.2 with the merge
+	// removed (`.agent_tmp/probe_dconst.log`): `D.F` still yields 1.5 in GDScript while
+	// `get_script_constant_map()` correctly reports own constants only (`["N"]`).
+	if (loaded_ && _is_valid()) {
+		for (const auto &it : script_class_info_.constants) {
+			result[it.key] = it.value.value;
+		}
+	}
+	return result;
+}
+
+TypedArray<StringName> GodotJSScript::_get_members() const {
+	// Own members only, like `GDScript::get_members` (`gdscript.cpp:919-925`). The single consumer,
+	// the remote debugger's object inspector (`scene_debugger_object.cpp:104`), walks the base chain
+	// itself and files every script's members under that script (`:111-122`); merging the base here
+	// would list an inherited member twice, once under the derived script and once under the base.
+	// Not gated on JSB_TOOLS: `GDScript::get_members` isn't gated either, and a debugger session is
+	// not editor-only (a remote debugger can attach to a debug/runtime build).
+	ensure_module_loaded();
+	TypedArray<StringName> result;
+
+	if (loaded_ && _is_valid()) {
+		for (const auto &it : script_class_info_.properties) {
+			result.push_back(it.key);
+		}
+	}
+	return result;
+}
+
+bool GodotJSScript::_get(const StringName &p_name, Variant &r_ret) const {
+	ensure_module_loaded();
+
+	if (loaded_ && _is_valid()) {
+		if (const HashMap<StringName, jsb::ScriptConstantInfo>::ConstIterator it = script_class_info_.constants.find(p_name)) {
+			r_ret = it->value.value;
+			return true;
+		}
+		// A shared static resolves against the process-wide store, so every environment and the
+		// GDScript side observe the same value.
+		if (script_class_info_.static_variables.has(p_name)
+				&& jsb::SharedStatics::get(script_class_info_.module_id, p_name, r_ret)) {
+			return true;
+		}
+	}
+
+	if (base.is_valid() && base->_is_valid()) {
+		return base->_get(p_name, r_ret);
+	}
+	return false;
+}
+
+bool GodotJSScript::_set(const StringName &p_name, const Variant &p_value) {
+	ensure_module_loaded();
+
+	//NOTE constants are deliberately not consulted: a write to a constant must fail, and returning
+	//     false here is what makes `Object::set` report it as an unknown property.
+	if (loaded_ && _is_valid() && script_class_info_.static_variables.has(p_name)) {
+		return jsb::SharedStatics::set(script_class_info_.module_id, p_name, p_value);
+	}
+
+	if (base.is_valid() && base->_is_valid()) {
+		return base->_set(p_name, p_value);
+	}
+	return false;
+}
+
+void GodotJSScript::_get_property_list(List<PropertyInfo> *p_list) const {
+	ensure_module_loaded();
+
+	// GDScript parity (`GDScript::_get_property_list`): the script source is offered as an
+	// internal, non-editable property.
+	p_list->push_back(PropertyInfo(Variant::STRING, "script/source", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
+
+	// Walk the chain from this script upwards so that a derived static variable shadows an
+	// inherited one of the same name, matching the `_get`/`_set` lookup order.
+	HashSet<StringName> emitted;
+	for (const GodotJSScript *current = this; current; current = current->base.ptr()) {
+		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
+		if (!current->_is_valid()) continue;
+		for (const KeyValue<StringName, jsb::ScriptStaticVariableInfo> &it : current->script_class_info_.static_variables) {
+			if (!emitted.has(it.key)) {
+				emitted.insert(it.key);
+				p_list->push_back(it.value.details);
+			}
+		}
+	}
 }
 ScriptLanguage *GodotJSScript::_get_language() const {
 	return GodotJSScriptLanguage::get_singleton();
@@ -390,6 +513,24 @@ bool GodotJSScript::_has_script_signal(const StringName &p_signal) const {
 TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	TypedArray<Dictionary> result;
 	get_script_property_list<Dictionary, TypedArray<Dictionary>, [](const jsb::ScriptPropertyInfo &p_info) { return p_info.details.operator Dictionary(); }>(result);
+
+	// A shared static has to be listed here as well, not only in the Object-level
+	// `_get_property_list`. `GDScriptAnalyzer::reduce_identifier_from_base` resolves a member of a
+	// *non*-GDScript script exclusively through this list (GDScript has a dedicated
+	// `STATIC_VARIABLE` channel of its own, foreign scripts do not) - without this entry
+	// `SomeScript.my_static` is unresolvable at analysis time and every access is a parse error.
+	// Walk from this script upwards so a derived static shadows an inherited one, matching `_get`.
+	HashSet<StringName> emitted;
+	for (const GodotJSScript *current = this; current; current = current->base.ptr()) {
+		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
+		if (!current->_is_valid()) continue;
+		for (const KeyValue<StringName, jsb::ScriptStaticVariableInfo> &it : current->script_class_info_.static_variables) {
+			if (!emitted.has(it.key)) {
+				emitted.insert(it.key);
+				result.push_back(it.value.details.operator Dictionary());
+			}
+		}
+	}
 	return result;
 }
 
@@ -472,6 +613,14 @@ void GodotJSScript::load_module_immediately() {
 	JSB_BENCHMARK_SCOPE(GodotJSScript, load_module);
 
 	const String path = jsb::internal::PathUtil::convert_typescript_path(get_path());
+	if (path.is_empty()) {
+		// A script resource without a path (e.g. one the editor created in memory) has no module
+		// to load. Bail out instead of handing an empty module id to the module resolver, which
+		// would index into an empty String and abort. `loaded_` stays false so that a later
+		// `set_path()` can still trigger the load.
+		JSB_LOG(Warning, "cannot load a GodotJSScript without a path");
+		return;
+	}
 	jsb::JSEnvironment env(get_path(), true);
 
 	loaded_ = true;
