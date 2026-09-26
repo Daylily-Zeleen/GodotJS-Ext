@@ -64,6 +64,10 @@ class GodotJSScript : public ScriptExtension {
 private:
 	bool loaded_ = false;
 
+	// 签名清单（sidecar）是否已尝试加载。**"尝试过"而非"加载成功"**：没有类成员的脚本不产出清单，
+	// 缺失是常态 ⇒ 必须记住这次失败，否则每次查询都会重读一次磁盘。`mutable` 因为查询钩子全是 const。
+	mutable bool signature_manifest_loaded_ = false;
+
 	bool source_changed_cache = false;
 	String source_;
 
@@ -220,14 +224,21 @@ public:
 		}
 	}
 
-	template <typename ElemTy, typename ListTy, Invocable<ElemTy, const StringName &, const jsb::ScriptMethodInfo &> auto ConvertFn>
+	// 每个名字**展开全部重载**（对齐 C# `csharp_script.cpp:2511-2515` 的"全部 push"）。
+	// `overloads` 为空（无签名清单）时按老行为每名字产出一项 ⇒ `p_signature_index` 恒为 0，
+	// 转换函数据此退回"只有名字"的形态。
+	template <typename ElemTy, typename ListTy, Invocable<ElemTy, const StringName &, const jsb::ScriptMethodInfo &, int> auto ConvertFn>
 		requires requires(ListTy list, ElemTy elem) { list.push_back(elem); }
 	void get_script_method_list(ListTy &r_list) const {
 		ensure_module_loaded();
 		jsb_check(loaded_);
 
+		_ensure_signature_manifest();
 		for (const auto &it : script_class_info_.methods) {
-			r_list.push_back(ConvertFn(it.key, it.value));
+			const int count = it.value.overloads.is_empty() ? 1 : (int)it.value.overloads.size();
+			for (int index = 0; index < count; ++index) {
+				r_list.push_back(ConvertFn(it.key, it.value, index));
+			}
 		}
 
 		if (base.is_valid() && base->_is_valid()) {
@@ -240,6 +251,7 @@ public:
 	void get_script_signal_list(ListTy &r_list) const {
 		if (!_is_valid()) return;
 
+		_ensure_signature_manifest();
 		for (const auto &it : script_class_info_.signals) {
 			r_list.push_back(ConvertFn(it.key, it.value));
 		}
@@ -255,6 +267,24 @@ private:
 		if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript *>(this)->load_module_immediately();
 	}
 	_FORCE_INLINE_ bool is_valid_internal() const { return jsb::internal::VariantUtil::is_valid_name(script_class_info_.module_id); }
+
+	// 懒加载签名清单（sidecar）：填 `methods[*].overloads` 与 `signals[*].arguments`。只做一次；
+	// 清单缺失/损坏时保持为空 ⇒ 所有消费点退回既有行为（只有名字 + 函数源文本扫描）。
+	// 编辑器运行时（`is_editor_hint()`）不缓存：作者改完 `.ts` 保存后应立刻看到新签名。
+	void _ensure_signature_manifest() const;
+
+	// Declared-parameter count of one of this script's **own** methods (the rest parameter excluded),
+	// with the Godot-side name mapped to the exposed one. `r_is_valid` reports whether the name is
+	// this script's own method at all; the count is **negative** when it is ours but could not be
+	// determined (`ScriptMethodInfo::argument_count`). Shared by
+	// `_get_script_method_argument_count` (the `Script` level, own methods only - GDScript parity)
+	// and `GodotJSScriptInstanceBase::get_method_argument_count` (which walks the base chain itself).
+	int _get_own_method_argument_count(const StringName &p_method, bool *r_is_valid) const;
+
+	// 把 `ScriptMethodInfo::argument_count` 从 `NotComputed` 收敛到确定值（`>= 0` 或 `Unknown`）。
+	// 顺序：先清单的 `overloads[0].arguments.size()`（C# 同形：重载取首个匹配），
+	// 没有清单时退回函数源文本扫描（`jsb::internal::resolve_declared_parameter_count`）。
+	int _resolve_method_argument_count(const StringName &p_exposed_name) const;
 
 	Variant _new(const Variant **p_args, GDExtensionInt p_argcount, GDExtensionCallError &r_error);
 

@@ -28,6 +28,7 @@
 #include "jsb_script_language.h"
 
 #include "../bridge/jsb_shared_statics.h"
+#include "../bridge/jsb_signature.h"
 
 struct ScriptInstanceInfo {
 public:
@@ -352,9 +353,11 @@ LocalVector<MethodInfo> *GodotJSScriptInstanceBase::make_temporary_method_list()
 	jsb_check(!temporary_script_method_list_cache);
 
 	temporary_script_method_list_cache = memnew(LocalVector<MethodInfo>);
-	script_->get_script_method_list<MethodInfo, LocalVector<MethodInfo>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo) {
+	script_->get_script_method_list<MethodInfo, LocalVector<MethodInfo>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_minfo, int p_index) {
+		if (!p_minfo.overloads.is_empty() && p_index >= 0 && p_index < (int)p_minfo.overloads.size()) {
+			return jsb::internal::signature_to_method_info(p_name, p_minfo.overloads[p_index]);
+		}
 		MethodInfo ret(p_name);
-		// TODO: 更多细节
 		return ret;
 	}>(*temporary_script_method_list_cache);
 
@@ -400,7 +403,33 @@ String GodotJSScriptInstanceBase::to_string(bool *r_valid) {
 		*r_valid = false;
 	}
 	// TODO:
-	return {}; //"<" + get_script()->_get_global_name() + "#" + itos(get_owner()->get_instance_id()) + ">" ;
+	return {}; //"<" + get_script()->_get_global_name() + "#" + itos(get_owner()->get_instance_id()) + ">";
+}
+
+int GodotJSScriptInstanceBase::get_method_argument_count(const StringName &p_method, bool *r_is_valid) const {
+	// The base chain is walked *here*, like `GDScriptInstance::get_method_argument_count`
+	// (`gdscript.cpp:1919-1931`): `Object::get_method_argument_count` (`object.cpp:772-781`) consults
+	// the script instance first and does **not** walk, while
+	// `GodotJSScript::_get_own_method_argument_count` reports own methods only (parity with
+	// `GDScript::get_script_method_argument_count`, `gdscript.cpp:370-383`).
+	const GodotJSScript *sptr = script_.ptr();
+	while (sptr) {
+		bool is_valid = false;
+		const int count = sptr->_get_own_method_argument_count(p_method, &is_valid);
+		if (is_valid) {
+			if (r_is_valid) {
+				*r_is_valid = true;
+			}
+			return count;
+		}
+		sptr = sptr->base.ptr();
+	}
+	// A total miss must report invalid: `Object::get_method_argument_count` treats a valid 0 as the
+	// answer and would otherwise claim every unknown name is a 0-argument method of ours.
+	if (r_is_valid) {
+		*r_is_valid = false;
+	}
+	return 0;
 }
 
 // ====== GodotJSShadowScriptInstance =====

@@ -73,6 +73,11 @@ enum class EnumParseResult {
 	Stringy,
 };
 
+//NOTE 已声明的参数个数**不再在此处（类解析期）计算** —— 解析期不做任何签名工作。
+//     取值改为查询期懒加载，见 `GodotJSScript::_resolve_method_argument_count`
+//     （`jsb_script.cpp`）与 `jsb::internal::count_declared_parameters` / `signature_load`
+//     （`jsb_signature.cpp`，design.md §7）。
+
 // `Array::make_read_only()` / `Dictionary::make_read_only()` are shallow (they only flag the shared
 // `_p`), so the inner containers have to be visited explicitly to match the depth of a GDScript
 // `const` container fetched through a script object (see research/phase0-findings.md §0.3 / §0.6).
@@ -436,6 +441,9 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 				v8::Local<v8::Value> prop_val;
 				if (prop_descriptor.As<v8::Object>()->Get(p_context, jsb_name(environment, value)).ToLocal(&prop_val) && prop_val->IsFunction()) {
 					//TODO property categories
+					// 解析期只登记名字。签名（参数表/返回值/重载）在查询期懒加载：
+					// `argument_count` 保持 `ScriptArgumentCount::NotComputed`，由
+					// `GodotJSScript::_resolve_method_argument_count` 首次查询时收敛。
 					ScriptMethodInfo method_info{};
 #if JSB_TOOLS
 					if (v8::Local<v8::Value> val; !doc_map.IsEmpty() && doc_map->Get(p_context, prop_name).ToLocal(&val) && val->IsObject()) {

@@ -185,7 +185,7 @@ public:
 	virtual void get_property_state(ScriptInstancePropertyState &r_state) const override;
 	// Method access
 	virtual bool has_method(const StringName &p_method) const = 0;
-	virtual int get_method_argument_count(const StringName &p_method, bool *r_is_valid = nullptr) const { return 0; } // TODO
+	virtual int get_method_argument_count(const StringName &p_method, bool *r_is_valid = nullptr) const;
 	virtual Variant callp(const StringName &p_method, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error) = 0;
 
 	// Notifications

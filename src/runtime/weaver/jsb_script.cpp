@@ -27,6 +27,7 @@
 
 #include "jsb_script.h"
 #include "../bridge/jsb_shared_statics.h"
+#include "../bridge/jsb_signature.h"
 #include "../internal/jsb_path_util.h"
 #include "jsb_script_instance.h"
 #include "jsb_script_language.h"
@@ -386,11 +387,30 @@ Dictionary GodotJSScript::_get_method_info(const StringName &p_method) const {
 	// was measured (official 4.7.2, `.agent_tmp/probe_dconst.log`): with a `const` base the failure
 	// is at analysis time and the script does not load (`Cannot find member "F" in base "…"`),
 	// while a `var` base degrades to a runtime lookup through `_get`, which walks `base` itself.
-	if (_is_valid() && script_class_info_.methods.has(exposed_name)) {
-		// the reported name must be the queried one, otherwise the analyzer's equality check fails
-		Dictionary item;
-		item["name"] = p_method;
-		return item;
+	if (_is_valid()) {
+		if (const jsb::ScriptMethodInfo *info = script_class_info_.methods.getptr(exposed_name)) {
+			_ensure_signature_manifest();
+			info = script_class_info_.methods.getptr(exposed_name);
+			jsb_check(info != nullptr);
+
+			// 重载：单个 `MethodInfo` 表达不了多个签名 ⇒ 返回空（对齐 C# `:2557-2576` 的
+			// "the best we can do"）。空字典的 `MethodInfo::name == StringName()` ⇒ 分析器忽略它，
+			// 与"名字不存在"同一条出口，不会遮蔽后续的信号/常量查找。
+			if (info->overloads.size() > 1) {
+				return {};
+			}
+
+			// the reported name must be the queried one, otherwise the analyzer's equality check fails
+			if (!info->overloads.is_empty()) {
+				// 有签名清单：交出真实签名（`args` / `default_args` / `flags` / `return`）。
+				// `default_arguments` 已按可选参数个数填好，所以最小 arity 是正确的
+				// （`gdscript_analyzer.cpp:6143`），填 `args` 不会再引入"参数全必填"的解析错误。
+				return jsb::internal::signature_to_method_info(p_method, info->overloads[0]);
+			}
+			Dictionary item;
+			item["name"] = p_method;
+			return item;
+		}
 	}
 	return Dictionary();
 }
@@ -537,10 +557,13 @@ TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const {
 	TypedArray<Dictionary> result;
 
-	get_script_method_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
+	get_script_method_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_info, int p_index) {
+		if (!p_info.overloads.is_empty() && p_index >= 0 && p_index < (int)p_info.overloads.size()) {
+			// 有签名清单：每个重载各出一项，带完整签名。
+			return jsb::internal::signature_to_method_info(p_name, p_info.overloads[p_index]).operator Dictionary();
+		}
 		Dictionary dict;
 		dict["name"] = p_name;
-		// TODO: 其他细节
 		return dict;
 	}>(result);
 
@@ -551,9 +574,15 @@ TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> result;
 
 	get_script_signal_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
+		if (!p_info.arguments.is_empty()) {
+			// 信号的参数表来自签名清单；返回值恒 void（`MethodInfo` 默认 NIL 且不带
+			// `NIL_IS_VARIANT`，正是"真 void"的编码，design.md §6.2）。
+			MethodInfo info(p_name);
+			info.arguments = p_info.arguments;
+			return info.operator Dictionary();
+		}
 		Dictionary dict;
 		dict["name"] = p_name;
-		// TODO: 其他细节
 		return dict;
 	}>(result);
 
@@ -597,8 +626,117 @@ void GodotJSScript::_update_exports() {
 }
 #endif // JSB_TOOLS
 
+int GodotJSScript::_get_own_method_argument_count(const StringName &p_method, bool *r_is_valid) const {
+	ensure_module_loaded();
+
+	// Same name mapping as `_has_method`: Godot queries the exposed (Godot-side) name, and a
+	// `_`-prefixed one is the snake_case spelling of a camelCase method.
+	StringName exposed_name = p_method;
+	if (exposed_name.begins_with("_")) {
+		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
+	}
+
+	// Own methods only, like `GDScript::get_script_method_argument_count` (`gdscript.cpp:370-383`).
+	// The base chain is walked by the callers that need it: `Object::get_method_argument_count`
+	// (`object.cpp:794-805`) loops `get_base_script()`, and `GodotJSScriptInstanceBase::
+	// get_method_argument_count` walks it itself (the instance is consulted first and that path does
+	// not walk, `object.cpp:772-781`, exactly as for `GDScriptInstance`).
+	if (_is_valid()) {
+		if (script_class_info_.methods.has(exposed_name)) {
+			const int count = _resolve_method_argument_count(exposed_name);
+			if (r_is_valid) {
+				// A negative count is "ours, but the parameter list could not be read"
+				// (`ScriptArgumentCount::Unknown`). The name *is* resolved, the count is not: report it
+				// as invalid so the caller degrades to `get_method_info()` instead of treating it as a
+				// 0-argument method.
+				*r_is_valid = count >= 0;
+			}
+			return count;
+		}
+	}
+
+	if (r_is_valid) {
+		*r_is_valid = false;
+	}
+	return 0;
+}
+
 Variant GodotJSScript::_get_script_method_argument_count(const StringName &p_method) const {
-	return {}; // JS 函数本身不定参数（TODO: 有没有办法解析出定义的参数个数？）
+	// An empty Variant - not `0` - is what makes the caller fall back:
+	// `ScriptExtension::get_script_method_argument_count` (`script_language_extension.h:114-124`)
+	// only accepts `Variant::INT` and otherwise delegates to
+	// `Script::get_script_method_argument_count`, which reads `get_method_info().arguments`. Returning
+	// INT 0 for an unknown name would claim every name is a 0-argument method of ours.
+	//
+	// Own methods only. `Object::get_method_argument_count` (`object.cpp:794-805`) walks
+	// `get_base_script()` on its own after this returns invalid, exactly as it does for
+	// `GDScript::get_script_method_argument_count` (`gdscript.cpp:370-383`).
+	bool is_valid = false;
+	const int count = _get_own_method_argument_count(p_method, &is_valid);
+	return is_valid ? Variant(count) : Variant();
+}
+
+void GodotJSScript::_ensure_signature_manifest() const {
+	// 编辑器里**每次都重读**：作者改完 `.ts` 保存后应当立刻看到新签名，不能缓存到进程结束
+	// （design.md §7.4）。非编辑器（导出后运行）只需一次。
+	const bool is_editor = Engine::get_singleton()->is_editor_hint();
+	if (!is_editor && signature_manifest_loaded_) {
+		return;
+	}
+	signature_manifest_loaded_ = true;
+	if (!_is_valid()) {
+		return;
+	}
+
+	GodotJSScript *self = const_cast<GodotJSScript *>(this);
+	HashMap<StringName, LocalVector<jsb::ScriptMethodSignature>> methods;
+	HashMap<StringName, LocalVector<PropertyInfo>> signals;
+	if (!jsb::internal::signature_load(script_class_info_.module_id, methods, signals)) {
+		// 没有清单是常态（无类成员的脚本不产出清单、纯 JS 项目、导出包）。静默回退。
+		return;
+	}
+
+	// 只填**已登记**的方法/信号：清单可能含运行期看不到的成员（例如被 `_` 前缀别名映射掉的写法），
+	// 凭空插入会让 `_has_method` / `has_script_signal` 报出实际不存在的方法。
+	for (const KeyValue<StringName, LocalVector<jsb::ScriptMethodSignature>> &it : methods) {
+		jsb::ScriptMethodInfo *info = self->script_class_info_.methods.getptr(it.key);
+		if (info == nullptr || it.value.is_empty()) {
+			continue;
+		}
+		info->overloads = it.value;
+		// 清单是权威签名来源 ⇒ 覆盖（含回退扫描先前写下的值）。
+		info->argument_count = (int)it.value[0].arguments.size();
+	}
+	for (const KeyValue<StringName, LocalVector<PropertyInfo>> &it : signals) {
+		jsb::ScriptSignalInfo *info = self->script_class_info_.signals.getptr(it.key);
+		if (info != nullptr) {
+			info->arguments = it.value;
+		}
+	}
+}
+
+int GodotJSScript::_resolve_method_argument_count(const StringName &p_exposed_name) const {
+	ensure_module_loaded();
+	if (!_is_valid()) {
+		return jsb::ScriptArgumentCount::Unknown;
+	}
+	_ensure_signature_manifest();
+
+	jsb::ScriptMethodInfo *info = const_cast<GodotJSScript *>(this)->script_class_info_.methods.getptr(p_exposed_name);
+	if (info == nullptr) {
+		return jsb::ScriptArgumentCount::Unknown;
+	}
+	if (info->argument_count != jsb::ScriptArgumentCount::NotComputed) {
+		return info->argument_count;
+	}
+
+	// 回退：没有签名清单时读函数源文本（与改动前的行为一致）。必须进入 isolate，
+	// 因此这条路径要求当前线程就是环境所属线程（`resolve_declared_parameter_count` 内已守卫）。
+	jsb::JSEnvironment env(get_path(), true);
+	const int count = jsb::internal::resolve_declared_parameter_count(env.operator->(), script_class_info_.module_id, p_exposed_name);
+	// 结果落字段（`Unknown` 也落）：解析期不再重算，"读不出来"也不必每次查询重试。
+	info->argument_count = count;
+	return count;
 }
 
 Variant GodotJSScript::_get_rpc_config() const {
