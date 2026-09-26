@@ -488,7 +488,9 @@ GDScript `static var` 的容器**不是** read-only；`const` 的容器**经脚�
       ③ `[gen] godot/tests/static-members/StaticMembers.tscn.gen.ts` —— 新增测试场景产物
       （**预期**，基线建立时该夹具不存在）。
       ⇒ 目前的 3 处**全部**可由本轮改动逐条归因，不存在"未归因差异"。
-      **仍未 `--update-baseline`**：一旦吸收就丧失对回归的检出能力，需用户拍板。
+      **`--update-baseline` 已于 2026-09-26 经用户批准执行**（`RC=0`），双轮确定性已成立；
+      上面三处即基线吸收的预期产出，非"未归因差异"。**2026-09-27 复跑**：`RC=0`、`✅ 校验通过`
+      （新增数组型 shared static 与 `_get_constants` 加载前守卫之后）⇒ 无新增差异。
 - [x] **A12** 文档写明：静态函数三种调用形态均不支持及其原因（R8.5）；常量**禁止写入**（R2.4）
       —— **已验证**：`godot.annotations.ts` 的 `exposed.const()` / `exposed.shared()` JSDoc 已写明
       常量是解析期快照 / TS `readonly` 被擦除 / 不可变性只对 Godot 侧成立 / 容器冻结的代价 /

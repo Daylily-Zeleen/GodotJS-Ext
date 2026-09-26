@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "Script 四个反射钩子只报自有（改 _get_method_info/_get_script_signal_list 的判据）；get_method_info 无 ClassDB 绑定；editor 不链接 runtime ⇒ 读取器必须放共享层或 runtime 侧"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "godot-cpp 虚函数带 _ 前缀、必须用 godot:: 类型与 GDEXTENSION_ 宏；新增 MethodInfo/PropertyInfo 构造需照此"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "头文件禁 using namespace；临时产物入 ./.agent_tmp/；third/ 只读"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "唯一合法编译命令与 dll 部署；新增提取器产物的构建接线（PresetDefine）须按此"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "新增 test_jsb_signature.h 的双套件/门控规则：tests=yes + JSB_TESTS_ENABLED 双门控、单 TU IMPLEMENT"}
+{"file": ".trellis/tasks/09-26-method-signal-signature/design.md", "reason": "sidecar 二进制格式(§4)、类型映射(§5)、三态编码(§6)、懒加载(§7) 的实施依据"}
+{"file": ".trellis/tasks/09-26-method-signal-signature/research/signature-approach.md", "reason": "提取器选型实测：不用 checker、AST getText 保留别名、不引入 tree-sitter"}

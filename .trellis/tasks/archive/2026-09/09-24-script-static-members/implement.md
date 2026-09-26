@@ -156,11 +156,12 @@
 
 ## 全阶段收尾
 
-- [ ] C1 `misc/verify_codegen.py` 全量校验（A11）；typings 基线仅预期变化
-      —— 复核（2026-09-25 追加轮）：**24 处差异**（20 → 24，增量全部是新增夹具的生成产物），
-      已逐项归因（见 `report.md`「A11 复核」表）。`--update-baseline` 仍未执行，待用户确认
-      —— 质询答复轮（2026-09-25）：**25 处**（+`jsb.runtime.bundle.d.ts`，因 Q3 修复新增导出类型
-      `StaticMemberDecoratorContext`），归因见 `report.md`「质询答复轮」段
+- [x] C1 `misc/verify_codegen.py` 全量校验（A11）
+      —— **已通过（2026-09-26）**：用户批准 `--update-baseline` → `RC=0`，随后全流程重跑（不 update）
+      → `RC=0`、`✅ 校验通过: 生成产物与基线一致`（双轮确定性成立）。见 PRD **A11** 的已验证段。
+      **2026-09-27 复跑**（本轮新增数组型 shared static 断言、`_get_constants` 加载前守卫之后）：
+      `RC=0`、`✅ 校验通过` ⇒ 本轮改动未引入任何 codegen 差异。
+      归因记录（20→24→25→3→0 的演变）保留在 `report.md`，勿再当作"未通过"。
 - [x] C2 完整验收：`cd project && godot --audio-driver Dummy --headless --path . --verbose`
       → Orphan StringName = 0、`GODOTJS_TEST_PROJECT_COMPLETED` = 1、`GODOTJS_TEST_PROJECT_FAILED` = 0
       （命令与判据见 `.trellis/spec/godotjs-ext/test/index.md`）

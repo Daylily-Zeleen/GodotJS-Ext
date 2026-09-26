@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收判据：Orphan StringName=0 / COMPLETED=1 / FAILED=0；新守卫必须负向验证"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "改动编辑器生成相关逻辑后的基线校验流程与归因方法论"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "套件触发与验收：--jsb-run-tests 单 flag 双套件、exit code 判成败"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git 操作须用户确认；临时文件入 .agent_tmp/；任务状态与归档走 task.py"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "复核改动的边界：Script 钩子只报自有、get_method_info 无绑定、editor/runtime 分侧"}

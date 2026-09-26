@@ -899,17 +899,47 @@ shared-static 键集合（保留仍存在的键的值，删除已移除的键）
   作者侧唯一入口（纯 JS 数组无提示路径返回 `false`；纯 JS 对象在任何路径都返回 `false`）。
   经 `js_to_gd_var` 的 `IF_VariantFieldCount` 分支转换后与 JS 侧**共享 `_p`** ⇒ 递归
   `make_read_only()` 即两侧同时只读。**代价**：JS 侧写该容器会报 engine error（须文档写明）。
-- **待定（阶段 3 阻塞项）**：`@…shared()` 静态变量的跨桥转换路径。静态变量不受 R2.3 白名单约束，
-  但 `Variant` 参数走**无提示** `js_to_gd_var`，而该路径对 **JS 原生数组返回 `false`**（§0.2）⇒
-  `static ARR = [1,2,3]` 装不进去。选项：① 桥接函数声明成具体类型/带提示重载（数组走
-  `Variant::ARRAY` 提示）；② 要求作者用 `GArray.create` / `GDictionary.create` 包装。
-  **纯 JS 对象字面量在任何路径都转不成 `Dictionary`** ⇒ 对象类静态变量必须走 ②。阶段 3 定案并实测。
-- `[INFERENCE]` 方案 A 的跨线程读写（GDScript 主线程读、JS worker 环境写）需要一把互斥锁，
-  锁的粒度与是否可能死锁**未评估**；`_get` 是 `const` 方法且可能被非 JS 线程调用，
-  `Environment::_access` 的线程归属是风险点（`jsb_environment.cpp:83-172`）。
-- `[INFERENCE]` `Variant` 存于进程级 map 的引用计数 / StringName 生命周期需按
-  `jsb::internal::VariantUtil` 的既有约定核对。
-- `[INFERENCE]` `_get_constants()` 的调用线程（`EditorFileSystem` 后台线程）与
-  `ensure_module_loaded()` 的加载时机是否安全，未评估。
-- `[INFERENCE]` `_get_property_list()` 对**无实例**的脚本资源（inspector 选中 `.ts` 文件时）是否
-  会被调用、以及 `script/source` 项在 GDExtension 路径上的实际呈现，未实测。
+- ~~**待定（阶段 3 阻塞项）**：`@…shared()` 静态变量的跨桥转换路径。~~ **已定案并实测**：
+  选项 ①（数组走 `Variant::ARRAY` 提示重载）已在两处落地 —— 初值播种
+  （`jsb_class_info.cpp:755-760`）与 `_shared_static_setter`（`:337-341`），形态统一为
+  「无提示 `js_to_gd_var` 失败且 `IsArray()` ⇒ 退回提示重载」。
+  **此前无任何覆盖，本轮补测**（`test_jsb_static_members.h` 的 store 用例，夹具加
+  `C.SHARED_ARR = [1,2,3]` 与 `C.SHARED_DICT = {a:1}`）：
+  - 原生数组 ⇒ 装进 store，`Variant::ARRAY`、`size()==3`、`[0]==1`、`[2]==3`；
+  - 经安装的访问器写原生数组 ⇒ 同样走提示重载（`size()==2`、`[0]==9`）；
+  - **纯 JS 对象字面量 ⇒ 槽位存在但值为 NIL**（任何路径都转不成 `Dictionary`，与预期一致）。
+  **负向控制**：把两处 `IsArray()` 改成 `false` ⇒ `TESTS_RC=1`、失败项
+  `value.get_type() == Variant::ARRAY values: 0 == 28` / `arr.size() == 3 values: 0 == 3`
+  ⇒ 断言非空转。还原后 `60/60 cases、821/821 assertions` 全绿。
+- ~~`[INFERENCE]` 方案 A 的跨线程读写需要互斥锁，粒度与死锁风险未评估。~~ **已实测**：
+  - 锁本体：`SharedStatics` 用 `std::recursive_mutex`（`jsb_shared_statics.cpp:46`），
+    `get`/`set`/`ensure`/`retain`/`clear` 各自 `lock_guard`；
+  - **锁序（决定死锁与否的那一条）**：`jsb_script.cpp` 里 7 处
+    `lock_guard(GodotJSScriptLanguage::mutex_)` 块内**无一**调用 `SharedStatics`
+    （`_get` 的 `SharedStatics::get` 在 `:469`、`_set` 的 `set` 在 `:486`，都在持锁块**之外**）
+    ⇒ 两把锁不存在嵌套，无 AB-BA 条件；
+  - 运行期：`-- --object-transfer-backend=worker`（GDScript 主线程 + JS worker 并发写同一槽位）
+    ⇒ `RC=0`、`COMPLETED=1`、`FAILED=0`、`orphan=0`、worker 四用例与三轮会话全 `done`、零崩溃。
+- ~~`[INFERENCE]` `Variant` 存于进程级 map 的引用计数 / StringName 生命周期需按
+  `VariantUtil` 既有约定核对。~~ **已核对**：`VariantUtil::is_valid_name`
+  （`src/internal/jsb_variant_util.h:189-191`）就是 `!p_name.is_empty()`；该约定已在两处生效 ——
+  成员名（`jsb_class_info.cpp:725`）与 module_id（`:772`，注释明写「空 id 会留下无人能剪枝的条目」）。
+  `Variant` 引用计数由 `HashMap<StringName, Variant>` 的值语义自动管理，`SharedStatics::clear()`
+  在 `_finish()` 显式释放 StringName 键（缺陷 A 的同型处理）⇒ 验收 `orphan=0` 实测成立。
+- ~~`[INFERENCE]` `_get_constants()` 的调用线程与 `ensure_module_loaded()` 时机是否安全。~~
+  **已实测**：`_get_constants()` 与 `_get_method_info()` 同族 —— 都会**在模块加载前**被调用
+  （`EditorFileSystem` 扫描期对每个脚本走 `_get_global_script_class` ⇒ `Script::load` ⇒ 构造
+  `GodotJSScript`，随后才读 `get_constants()`）。故入口必须 `ensure_module_loaded()`。
+  **本轮新增永久守卫** `script constants: queried before the module is loaded`
+  （`load_source_code` + `set_path` 构造、`loaded_ == false` 入口）：断言 `N==42`、`S=="hello"`、
+  且**不含**静态变量 `score`。
+  **负向控制**：去掉 `ensure_module_loaded()` ⇒ `TESTS_RC=1`、失败项
+  `constants.has("N") values: false` 等 4 条 ⇒ 守卫非空转。还原后 `60/60`、全量验收
+  `orphan=0`/`COMPLETED=1`/`FAILED=0`/`GD-OK=1`。
+- ~~`[INFERENCE]` `_get_property_list()` 对无实例脚本资源是否被调用、`script/source` 项的实际呈现。~~
+  **已实测**（探针打印 `load("res://tests/static-members/static-members-target.ts")` 这一**无实例**
+  脚本资源）：**会被调用**，且呈现为
+  `script/source`（type=4 STRING、usage=10）+ 静态变量 `score`（type=2 INT、usage=**4096**
+  = `PROPERTY_USAGE_SCRIPT_VARIABLE`，与静态变量 usage 定案一致）；
+  对比面 `get_script_property_list()` = `[tag, baseOnly, score]`（分析器读的那一面，含实例成员）。
+  ⇒ `script/source` 在 GDExtension 路径上**正常呈现**，无异常。

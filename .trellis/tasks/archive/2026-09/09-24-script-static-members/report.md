@@ -822,12 +822,31 @@ exposed: {
 `fieldonly_probe.ts`/`necessity_probe.ts`/`assign_narrow.ts`/`narrow_overload.ts`/`head_jsb_script.cpp`。
 `project/` 根与 `project/tests/` 复查无 `_` 前缀残留。
 
-### 遗留
+### 遗留（2026-09-27 更新：A11 已不再是遗留项）
 
-- A11 的 `--update-baseline` 仍未执行（需用户确认；且**必须用与验证同一引擎**——官方 4.7.x，
-  与 CI 的 `GODOT_VERSION: tags/4.7.1-stable` 对齐，否则会把 4.8 漂移再固化一次）。
+- ~~A11 的 `--update-baseline` 仍未执行~~ **已执行并通过（2026-09-26 用户批准）**：
+  `--update-baseline` → `RC=0`，随后全流程重跑（不 update）→ `RC=0`、`✅ 校验通过`
+  （双轮确定性成立）。**2026-09-27 复跑**（新增数组型 shared static 断言、`_get_constants`
+  加载前守卫之后）：`RC=0`、`✅ 校验通过` ⇒ 本轮改动未引入 codegen 差异。见 PRD **A11**。
 - `#2` 枚举成员点访问/补全对外来脚本不可达（用户已否决「摊平成独立常量」）⇒ 现状（仅索引访问）为最终形态。
 - `project/icon.svg.import` 的既有重写、`static-members/` 无 `.uid`：与本功能无关，未处理。
+
+### design.md §10 清零（2026-09-27，用户要求「全部实测」）
+
+「阶段 3 阻塞项」与四条 `[INFERENCE]` **已全部实测并回写 `design.md` §10**，本轮另补两条永久守卫
+与两条负向控制：
+
+| 项 | 取证 |
+|---|---|
+| 数组型 `@…shared()`（阶段 3 阻塞项） | 夹具 `C.SHARED_ARR = [1,2,3]` / `C.SHARED_DICT = {a:1}`；断言 `Variant::ARRAY`、`size()==3`、`[0]==1`、访问器写回 `size()==2`、纯对象 ⇒ NIL。**负控**：两处 `IsArray()` 改 `false` ⇒ `TESTS_RC=1`、`0 == 28` / `0 == 3` |
+| a 跨线程锁/死锁 | `SharedStatics` 用 `recursive_mutex`；`jsb_script.cpp` 7 处语言锁块内**无一**调 `SharedStatics`（`_get`/`_set` 的调用都在锁外）⇒ 无嵌套、无 AB-BA；`-- --object-transfer-backend=worker` ⇒ RC=0、COMPLETED=1、FAILED=0、orphan=0、零崩溃 |
+| b StringName/Variant 生命周期 | `VariantUtil::is_valid_name` = `!is_empty()`，已在成员名与 module_id 两处生效；`SharedStatics::clear()` 在 `_finish()` ⇒ orphan=0 实测 |
+| c `_get_constants` 调用线程/加载时机 | 新增永久用例 `script constants: queried before the module is loaded`（`load_source_code`+`set_path`，`loaded_==false` 入口）。**负控**：去掉 `ensure_module_loaded()` ⇒ 4 条失败（`constants.has("N") values: false`） |
+| d `_get_property_list` 无实例脚本资源 | 探针实跑：**会被调用**；呈现 `script/source`（type=4、usage=10）+ `score`（type=2、usage=**4096** `SCRIPT_VARIABLE`）；对比面 `get_script_property_list()` = `[tag, baseOnly, score]` |
+
+**验证**：scons RC=0；C++ **60/60 cases、821/821 assertions**；editor **4/4**、27/27；
+全量验收 **orphan=0 / COMPLETED=1 / FAILED=0 / GD-OK=1**；codegen `✅ 校验通过`。
+（`ERROR: failed to eval_source: Unexpected identifier 'is'` 为既有无关噪声，非本轮引入。）
 
 ### 补做的负向控制（2026-09-25，Q5/Q7 两个新守卫）
 
