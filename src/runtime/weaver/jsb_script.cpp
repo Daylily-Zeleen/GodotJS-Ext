@@ -241,6 +241,7 @@ void GodotJSScript::_set_source_code(const String &p_code) {
 	source_changed_cache = true;
 #endif
 }
+
 Error GodotJSScript::_reload(bool p_keep_state) {
 	if (!loaded_) return OK; // TODO: 这里堵死了怎么 reload ?
 	if (!is_valid_internal()) return ERR_UNAVAILABLE;
