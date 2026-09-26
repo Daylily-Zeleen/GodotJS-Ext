@@ -151,35 +151,26 @@
 // quickjs.impl only, all Object(JSValue) must be explicitly free-ed on the Isolate disposing
 #define JSB_STRICT_DISPOSE 1
 
-// use bigint if a value can not represented as Integer(Number)
+// Use `BigInt` for an integer that a `Number` cannot represent exactly. This is
+// the ONLY 64-bit switch, and it governs both directions:
+//
+//   - JS -> Godot: whether a BigInt argument is accepted at all. With the switch
+//     off an integer is read through `Number`, and the JS -> Godot direction
+//     never throws either way.
+//   - Godot -> JS: whether a value outside +-`JSB_MAX_SAFE_INTEGER` is written
+//     as `BigInt` (1) or as the lossy `Number` (0). Off reproduces exactly the
+//     behaviour from before the 64-bit work.
+//
+// The JS type of a 64-bit value is therefore NOT part of any contract: it is
+// decided per value by magnitude. The typings say so (`int64 = number | bigint`
+// with the switch on, `int64 = number` with it off), and a caller that needs a
+// definite type narrows the value itself.
 #define JSB_WITH_BIGINT 1
 
-// use `BigInt` if a value from godot greater than JSB_MAX_SAFE_INTEGER which can not represented as Integer(Number).
+// Use `BigInt` if a value from godot greater than JSB_MAX_SAFE_INTEGER which can not represented as Integer(Number).
 // used only if `JSB_WITH_BIGINT` is enabled.
 // DO NOT CHANGE THIS VALUE.
 #define JSB_MAX_SAFE_INTEGER (((int64_t)1 << 53) - 1) // 9007199254740991
-
-// Represent a 64-bit integer that leaves Godot as `BigInt` instead of `Number`.
-//
-// This is the OUTPUT-ONLY switch. The two macros are not interchangeable:
-//
-//   - `JSB_WITH_BIGINT`      -- whether the engine build has BigInt at all, and
-//                               whether the JS -> Godot direction accepts one.
-//   - `JSB_BIGINT_FOR_64BIT` -- how a 64-bit value *leaves* Godot: as `BigInt`
-//                               (1, the default) or as `Number` (0). Off is
-//                               lossy above 2^53-1, which is exactly the
-//                               behaviour from before the 64-bit work.
-//
-// Turning this off never makes an argument start throwing: the JS -> Godot
-// direction is governed by `JSB_WITH_BIGINT` alone. Only what
-// `get_instance_id()` / `get_u64()` / ... hand back to JS changes, so an
-// ObjectID round trip stops being lossless.
-#define JSB_BIGINT_FOR_64BIT 1
-
-// With no BigInt in the engine there is nothing for the switch to emit.
-#if JSB_BIGINT_FOR_64BIT && !JSB_WITH_BIGINT
-#	error "JSB_BIGINT_FOR_64BIT=1 requires JSB_WITH_BIGINT=1"
-#endif
 
 // [EXPERIMENTAL] use optimized wrapper function calls if possible
 #define JSB_FAST_REFLECTION 1
