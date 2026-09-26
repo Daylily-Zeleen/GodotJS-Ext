@@ -73,8 +73,8 @@ inline void verify_narrow_int_slot(GDExtensionClassMethodArgumentMetadata p_meta
 		JSB_LOG(Warning, "narrow slot argument: %d does not fit the declared %d-bit slot, truncating", (int)p_val, bits);
 	}
 #else
-	(void)p_meta;
-	(void)p_val;
+	jsb_unused(p_meta);
+	jsb_unused(p_val);
 #endif
 }
 
@@ -400,6 +400,11 @@ bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context
 			// (`is_ref_counted`), so writing it signed yields a negative BigInt
 			// and `instance_from_id()` then receives a different id than
 			// `get_instance_id()` returned.
+			//
+			// Everything else (int64, and the no-meta case: eval results, Variant
+			// hand-offs, container elements) goes through the signed writer. Both
+			// pick `Number` or `BigInt` by magnitude, so the JS type is not part
+			// of the contract -- a caller that needs one narrows it itself.
 			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64) {
 				r_jval = impl::Helper::new_unsigned_integer(isolate, (uint64_t)(int64_t)p_cvar);
 				return true;

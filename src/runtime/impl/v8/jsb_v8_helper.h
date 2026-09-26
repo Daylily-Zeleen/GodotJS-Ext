@@ -28,9 +28,10 @@
 #pragma once
 
 #include "../../internal/jsb_settings.h"
-#include "../jsb_primitive_conv.h"
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_v8_pch.h"
+
+#include "../jsb_primitive_conv.h"
 
 #define V8_VERSION_NEWER_THAN(major, minor, patch) VERSION_COMPARE(V8_MAJOR_VERSION, major, VERSION_COMPARE(V8_MINOR_VERSION, minor, VERSION_COMPARE(V8_BUILD_VERSION, patch, false)))
 
@@ -137,27 +138,27 @@ public:
 	// These stay as thin forwarders so the existing `impl::Helper::` call sites
 	// keep working, while the policy itself exists in exactly one place.
 	_FORCE_INLINE_ static bool to_int64(const v8::Local<v8::Value> p_val, int64_t &r_val) {
-		return jsb::impl::to_int64(p_val, r_val);
+		return jsb::impl::internal::to_int64(p_val, r_val);
 	}
 
 	_FORCE_INLINE_ static bool to_uint64(const v8::Local<v8::Value> p_val, uint64_t &r_val) {
-		return jsb::impl::to_uint64(p_val, r_val);
+		return jsb::impl::internal::to_uint64(p_val, r_val);
 	}
 
 	_FORCE_INLINE_ static bool to_double(const v8::Local<v8::Value> p_val, double &r_val) {
-		return jsb::impl::to_double(p_val, r_val);
+		return jsb::impl::internal::to_double(p_val, r_val);
 	}
 
 	_FORCE_INLINE_ static bool to_bool(v8::Isolate *isolate, const v8::Local<v8::Value> p_val, bool &r_val) {
-		return jsb::impl::to_bool(isolate, p_val, r_val);
+		return jsb::impl::internal::to_bool(isolate, p_val, r_val);
 	}
 
 	_FORCE_INLINE_ static v8::Local<v8::Value> new_integer(v8::Isolate *isolate, const int64_t p_val) {
-		return jsb::impl::new_integer(isolate, p_val);
+		return jsb::impl::internal::new_integer(isolate, p_val);
 	}
 
 	_FORCE_INLINE_ static v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *isolate, const uint64_t p_val) {
-		return jsb::impl::new_unsigned_integer(isolate, p_val);
+		return jsb::impl::internal::new_unsigned_integer(isolate, p_val);
 	}
 
 	/**

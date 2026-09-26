@@ -516,9 +516,9 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BINDING_MODE"), impl::Helper::new_string_ascii(isolate, binding_mode)).Check();
 		// Runtime-visible so a single integration scenario can assert both
 		// positions of the 64-bit output switch without being rebuilt per mode
-		// (see JSB_BIGINT_FOR_64BIT in jsb.config.h). Mirrors how BINDING_MODE
+		// (see JSB_WITH_BIGINT in jsb.config.h). Mirrors how BINDING_MODE
 		// lets one scene cover every binding leg.
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BIGINT_FOR_64BIT"), v8::Boolean::New(isolate, JSB_BIGINT_FOR_64BIT != 0)).Check();
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BIGINT_FOR_64BIT"), v8::Boolean::New(isolate, JSB_WITH_BIGINT != 0)).Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else

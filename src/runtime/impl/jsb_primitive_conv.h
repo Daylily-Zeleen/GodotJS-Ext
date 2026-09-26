@@ -7,8 +7,6 @@
 /*                                                                      */
 /*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
-/*  Copyright (c) Contributors of GodotJS                               */
-/*                 - <https://github.com/godotjs/GodotJS>               */
 /*                                                                      */
 /*  This library is free software; you can redistribute it and/or       */
 /*  modify it under the terms of the GNU Lesser General Public          */
@@ -61,26 +59,25 @@
 //     equality of behavior; it is consulted only in `to_double`, to tell a
 //     representable value from one that exceeds 64 bits.
 //
-// `ValueT` is the engine's `v8::Local<v8::Value>`. This header expects the
-// engine pch to be included first: the shims include it right after their own
-// pch, which is what brings in `v8::Local` / `Int32` / `Number` / `BigInt`.
+// Every reader takes `v8::Local<v8::Value>`. This header must be included
+// AFTER the engine's own pch, which is what brings in `v8::Local` / `Int32` /
+// `Number` / `BigInt` and the `_FORCE_INLINE_` macro.
 
-namespace jsb::impl {
+namespace jsb::impl::internal {
 
 // Number / Int32 / BigInt -> int64, bit-preserving (mod 2^64).
-template <typename ValueT>
-inline bool to_int64(const ValueT &p_val, int64_t &r_val) {
+_FORCE_INLINE_ bool to_int64(const v8::Local<v8::Value> p_val, int64_t &r_val) {
 	if (p_val->IsInt32()) {
-		r_val = p_val.template As<v8::Int32>()->Value();
+		r_val = p_val.As<v8::Int32>()->Value();
 		return true;
 	}
 	if (p_val->IsNumber()) {
-		r_val = (int64_t)p_val.template As<v8::Number>()->Value();
+		r_val = (int64_t)p_val.As<v8::Number>()->Value();
 		return true;
 	}
 #if JSB_WITH_BIGINT
 	if (p_val->IsBigInt()) {
-		r_val = p_val.template As<v8::BigInt>()->Int64Value();
+		r_val = p_val.As<v8::BigInt>()->Int64Value();
 		return true;
 	}
 #endif
@@ -88,14 +85,13 @@ inline bool to_int64(const ValueT &p_val, int64_t &r_val) {
 }
 
 // Number / Int32 / BigInt -> uint64, bit-preserving (mod 2^64).
-template <typename ValueT>
-inline bool to_uint64(const ValueT &p_val, uint64_t &r_val) {
+_FORCE_INLINE_ bool to_uint64(const v8::Local<v8::Value> p_val, uint64_t &r_val) {
 	if (p_val->IsInt32()) {
-		r_val = (uint64_t)(int64_t)p_val.template As<v8::Int32>()->Value();
+		r_val = (uint64_t)(int64_t)p_val.As<v8::Int32>()->Value();
 		return true;
 	}
 	if (p_val->IsNumber()) {
-		const double v = p_val.template As<v8::Number>()->Value();
+		const double v = p_val.As<v8::Number>()->Value();
 		// Two ranges, because one cast cannot cover both:
 		//   - [0, 2^64) casts directly. Routing it through int64 is undefined
 		//     for [2^63, 2^64) -- `1e19` lives there, and the x86 conversion
@@ -106,6 +102,17 @@ inline bool to_uint64(const ValueT &p_val, uint64_t &r_val) {
 		if (v >= 0.0 && v < 18446744073709551616.0) {
 			r_val = (uint64_t)v;
 		} else if (v < 0.0 && v >= -9223372036854775808.0) {
+#			if JSB_DEBUG
+			// A negative `Number` reaches this slot as its two's-complement bit
+			// pattern, not as a value: `-1` becomes 0xffffffffffffffff. That is
+			// what the engine itself does (`Variant::operator uint64_t()` is
+			// `static_cast<uint64_t>(operator int64_t())`), and rejecting it here
+			// would split the static and dynamic legs. Warn instead, in debug
+			// builds only, because silently accepting `-1` for an unsigned slot
+			// is an easy typo to stare past. `%d` + a cast: Godot's
+			// `String::sprintf` has no `%lld`.
+			JSB_LOG(Warning, "negative number %d fed to a uint64 slot: its bits are reinterpreted, not its value", (int)v);
+#			endif
 			r_val = (uint64_t)(int64_t)v;
 		} else {
 			// A double outside the 64-bit range has no representable value in
@@ -117,7 +124,7 @@ inline bool to_uint64(const ValueT &p_val, uint64_t &r_val) {
 	}
 #if JSB_WITH_BIGINT
 	if (p_val->IsBigInt()) {
-		r_val = p_val.template As<v8::BigInt>()->Uint64Value();
+		r_val = p_val.As<v8::BigInt>()->Uint64Value();
 		return true;
 	}
 #endif
@@ -145,15 +152,14 @@ inline bool to_uint64(const ValueT &p_val, uint64_t &r_val) {
 // applies (`static_cast<uint64_t>(operator int64_t())`). Telling that case apart
 // would need the `lossless` out-parameter, which only v8 provides, so branching
 // on it would make the engines disagree.
-template <typename ValueT>
-inline bool to_double(const ValueT &p_val, double &r_val) {
+_FORCE_INLINE_ bool to_double(const v8::Local<v8::Value> p_val, double &r_val) {
 	if (p_val->IsNumber()) {
-		r_val = p_val.template As<v8::Number>()->Value();
+		r_val = p_val.As<v8::Number>()->Value();
 		return true;
 	}
 #if JSB_WITH_BIGINT
 	if (p_val->IsBigInt()) {
-		r_val = (double)p_val.template As<v8::BigInt>()->Int64Value();
+		r_val = (double)p_val.As<v8::BigInt>()->Int64Value();
 		return true;
 	}
 #endif
@@ -165,8 +171,7 @@ inline bool to_double(const ValueT &p_val, double &r_val) {
 // Mirrors the engine's own strict-conversion table for BOOL
 // (`Variant::can_convert_strict`: INT / FLOAT / NIL, with STRING commented
 // out), so a string is still rejected rather than coerced.
-template <typename ValueT>
-inline bool to_bool(v8::Isolate *p_isolate, const ValueT &p_val, bool &r_val) {
+_FORCE_INLINE_ bool to_bool(v8::Isolate *p_isolate, const v8::Local<v8::Value> p_val, bool &r_val) {
 	if (p_val->IsNullOrUndefined()) {
 		r_val = false;
 		return true;
@@ -182,29 +187,38 @@ inline bool to_bool(v8::Isolate *p_isolate, const ValueT &p_val, bool &r_val) {
 	return false;
 }
 
-// int64 -> JS: int32 when it fits, BigInt beyond +-2^53, Number otherwise.
-// `JSB_BIGINT_FOR_64BIT=0` drops the BigInt arm: the value leaves as a `Number`
-// and loses low bits above 2^53, which is the pre-BigInt behaviour.
-inline v8::Local<v8::Value> new_integer(v8::Isolate *p_isolate, const int64_t p_val) {
+// int64 -> JS, value-dependent: `int32` when it fits, `BigInt` beyond +-2^53-1,
+// `Number` otherwise. `JSB_WITH_BIGINT=0` drops the BigInt arm (the value
+// leaves as the lossy `Number`, the pre-BigInt behaviour).
+//
+// This is the writer for every int64-shaped value: class-method returns,
+// property getters, the untyped `Variant::INT` fallback, narrow 32-bit uses,
+// eval results, `Variant` hand-offs. The result type is decided by MAGNITUDE
+// alone, so a caller that needs a definite type narrows it itself.
+_FORCE_INLINE_ v8::Local<v8::Value> new_integer(v8::Isolate *p_isolate, const int64_t p_val) {
 	if (const int32_t downscale = (int32_t)p_val;
 			(int64_t)downscale == p_val) {
 		return v8::Int32::New(p_isolate, downscale);
 	}
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 	if (p_val > JSB_MAX_SAFE_INTEGER || p_val < -JSB_MAX_SAFE_INTEGER) {
+		// Godot's `String::sprintf` has no `%lld`; a 64-bit value goes through
+		// `%d` with a cast (the project-wide convention), or the log line is dropped.
+		JSB_LOG(VeryVerbose, "represented as bigint %d", (int)p_val);
 		return v8::BigInt::New(p_isolate, p_val);
 	}
 #endif
 	return v8::Number::New(p_isolate, (double)p_val);
 }
 
-// uint64 -> JS: unsigned, so a value with bit 63 set stays positive.
-// Same switch: without it the value leaves as a `Number`.
-inline v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *p_isolate, const uint64_t p_val) {
+// uint64 -> JS: unsigned, so a value with bit 63 set (an ObjectID) stays
+// positive. Same magnitude rule: `int32` when it fits, `BigInt` beyond
+// 2^53-1, `Number` otherwise.
+_FORCE_INLINE_ v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *p_isolate, const uint64_t p_val) {
 	if (p_val <= (uint64_t)INT32_MAX) {
 		return v8::Int32::New(p_isolate, (int32_t)p_val);
 	}
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 	if (p_val > (uint64_t)JSB_MAX_SAFE_INTEGER) {
 		return v8::BigInt::NewFromUnsigned(p_isolate, p_val);
 	}
@@ -212,4 +226,4 @@ inline v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *p_isolate, const u
 	return v8::Number::New(p_isolate, (double)p_val);
 }
 
-} // namespace jsb::impl
+} // namespace jsb::impl::internal
