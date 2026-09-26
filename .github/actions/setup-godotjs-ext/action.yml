@@ -187,19 +187,25 @@ runs:
         }
         clang-cl --version
 
-    # libnode.a is compiled by GodotJS-Dependencies with gcc-12 (its
-    # scripts/node/build-linux.sh installs and exports gcc-12/g++-12). One of
-    # v8's SIMD sources (deps/v8/third_party/highway/.../print.cc) uses
-    # _Float16, whose _Float16 -> double conversion helper __extendhfdf2 only
-    # exists from GCC 12 on. A gcc-11 embedder links gcc-11's libgcc.a (the SCons
-    # link uses -static-libgcc), which has no such object, so the link dies with
-    # "undefined reference to __extendhfdf2". Verified: gcc-11's libgcc.a
-    # contains zero members named extendhfdf2, gcc-12's contains one.
+    # The dependency archives are built with gcc-12, so the legs that compile C++
+    # against them must use gcc-12 as well. Two concrete failures came from the
+    # mismatch, both verified:
     #
-    # Install gcc-12 and prove it ahead of the build, so a runner-image change
-    # fails here in seconds instead of after a long compile.
-    - name: Setup gcc-12 toolchain for the node engine (linux x86_64)
-      if: inputs.platform == 'linux' && inputs.engine == 'node' && inputs.arch == 'x86_64'
+    #   * __extendhfdf2 (libnode): one of v8's SIMD sources
+    #     (deps/v8/third_party/highway/.../print.cc) uses _Float16, whose
+    #     _Float16 -> double helper only exists in libgcc from GCC 12 on.
+    #     gcc-11's libgcc.a has zero members named extendhfdf2, gcc-12's has one.
+    #   * __glibcxx_assert_fail (v8): the published v8 monolith has 259 members
+    #     referring to it (GCC 12 / GLIBCXX_3.4.30, added with <debug> container
+    #     assertions). use_static_cpp adds -static-libstdc++, and gcc-11's static
+    #     libstdc++.a does NOT define it, so the symbol stays undefined and the
+    #     extension cannot even be dlopen'ed:
+    #       undefined symbol: _ZSt21__glibcxx_assert_failPKciS0_S0_
+    #
+    # Node is already built and linked with gcc-12; aligning every linux x86_64
+    # leg to the same compiler removes the asymmetry entirely.
+    - name: Setup gcc-12 toolchain (linux x86_64)
+      if: inputs.platform == 'linux' && inputs.arch == 'x86_64'
       shell: bash
       run: |
         set -euo pipefail
@@ -207,15 +213,21 @@ runs:
         sudo apt-get install -y -qq gcc-12 g++-12
         gcc-12 --version | head -1
         g++-12 --version | head -1
-        # Preflight: the archive references __extendhfdf2, so the libgcc.a that
-        # -static-libgcc will pick up must define it.
+        # Preflight: both symbols the archives need must be resolvable from the
+        # archives -static-libgcc / -static-libstdc++ will select.
         libgcc="$(g++-12 -print-libgcc-file-name)"
-        echo "libgcc: $libgcc"
-        if ! nm --defined-only "$libgcc" | grep -q '__extendhfdf2'; then
-          echo "::error::g++-12's libgcc.a does not define __extendhfdf2; the libnode link will fail"
+        libstdcpp="$(g++-12 -print-file-name=libstdc++.a)"
+        echo "libgcc:    $libgcc"
+        echo "libstdc++: $libstdcpp"
+        nm --defined-only "$libgcc" | grep -q '__extendhfdf2' || {
+          echo "::error::g++-12's libgcc.a does not define __extendhfdf2"
           exit 1
-        fi
-        echo "gcc-12 libgcc.a defines __extendhfdf2 (the symbol libnode.a needs)"
+        }
+        nm --defined-only "$libstdcpp" | grep -q '_ZSt21__glibcxx_assert_fail' || {
+          echo "::error::g++-12's static libstdc++.a does not define __glibcxx_assert_fail"
+          exit 1
+        }
+        echo "gcc-12 provides __extendhfdf2 and __glibcxx_assert_fail"
 
     - name: Install SCons
       shell: bash

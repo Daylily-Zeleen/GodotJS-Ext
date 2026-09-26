@@ -716,8 +716,20 @@ jobs:
             # be invoked at its in-bundle path (a copy would lose the bundle, and
             # a bare symlink makes CFBundleGetMainBundle resolve to the link).
             # A wrapper keeps the exec path inside the .app.
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "$GODOT" > tests/bin/godot
+            #
+            # The official macOS engine is a universal (x86_64 + arm64) binary.
+            # If it starts as x86_64 (Rosetta), Godot's OS::has_feature returns
+            # true for "universal" but false for "arm64" (core/os/os.cpp:529-556
+            # grants "universal" on both architectures), and the loader then
+            # picks the arch-less "macos.debug.editor" key, whose value names
+            # "...universal.dylib" - a file the arm64-only v8/node/jsc legs never
+            # produce. Observed exactly that: the log tried only
+            # "...universal.dylib" and never mentioned the arm64 one.
+            # `arch -arm64` forces the native slice, so the arm64 keys match.
+            printf '#!/bin/sh\nexec arch -arm64 "%s" "$@"\n' "$GODOT" > tests/bin/godot
             chmod +x tests/bin/godot
+            file "$GODOT" || true
+            arch -arm64 "$GODOT" --version || true
           else
             cp "$GODOT" "tests/bin/godot"
             chmod +x "tests/bin/godot"
