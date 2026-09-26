@@ -1,5 +1,18 @@
 import { Engine, GDictionary, instance_from_id, is_instance_id_valid, Node, Object as GodotObject, OS, PackedScene, Performance, Resource, ResourceLoader, Time, Vector2, weakref, WeakRef as GodotWeakRef } from 'godot';
 import { JSWorker } from 'godot.worker';
+
+/**
+ * A 64-bit alias is `int64` -- `number | bigint` when the build has BigInt, a
+ * plain `number` when it does not -- and the runtime writer picks by magnitude.
+ * Elapsed-time and ObjectID values fit a `number` here, so normalise once and
+ * keep the arithmetic ordinary. `Number()` is exact for these -- they stay
+ * well below 2^53.
+ */
+
+function asNumber(v: Numeric64): number {
+	return typeof v === 'bigint' ? Number(v) : v;
+}
+
 import type { TransferableJSShadowRealm } from 'godot.shadowRealm';
 import type * as ShadowRealmModule from 'godot.shadowRealm';
 import {
@@ -17,6 +30,7 @@ import {
 	PlainMessage,
 	TransferType,
 } from './messaging';
+import type { Numeric64 } from '../test-status';
 import { beginAsyncTest, endAsyncTest, reportTestFailure } from '../test-status';
 import TransferScriptedNode from './transfer-scripted-node';
 
@@ -403,9 +417,9 @@ export default class TestCrossEnvironment extends Node {
 	}
 
 	private async waitForObjectTransferState(predicate: () => boolean, describeFailure: () => string): Promise<void> {
-		const deadline = Time.get_ticks_msec() + ROUND_TRIP_TIMEOUT_MS;
+		const deadline = asNumber(Time.get_ticks_msec()) + ROUND_TRIP_TIMEOUT_MS;
 		while (!predicate()) {
-			if (Time.get_ticks_msec() >= deadline) fail(describeFailure());
+			if (asNumber(Time.get_ticks_msec()) >= deadline) fail(describeFailure());
 			await this.get_tree().process_frame.as_promise();
 		}
 	}
@@ -420,8 +434,8 @@ export default class TestCrossEnvironment extends Node {
 	private async runObjectTransfer(scenario: string, backend: CrossEnvironmentBackend): Promise<void> {
 		const peer = await this.createPeer(backend);
 		let terminated = false;
-		let objectId: number | undefined;
-		let childId: number | undefined;
+		let objectId: Numeric64 | undefined;
+		let childId: Numeric64 | undefined;
 		let resourceObserver: GodotWeakRef | undefined;
 		const nativeHolder = new Node();
 		try {
@@ -523,8 +537,8 @@ export default class TestCrossEnvironment extends Node {
 	private async persistentCount(monitor: string): Promise<number> {
 		// The existing monitor caches the MAIN Environment for 1ms, even in workers.
 		// Wait for an engine frame and cache expiry, not an arbitrary sleep.
-		const after = Time.get_ticks_usec() + 1000;
-		do { await this.get_tree().process_frame.as_promise(); } while (Time.get_ticks_usec() < after);
+		const after = asNumber(Time.get_ticks_usec()) + 1000;
+		do { await this.get_tree().process_frame.as_promise(); } while (asNumber(Time.get_ticks_usec()) < after);
 		const count: unknown = Performance.get_custom_monitor(monitor);
 		if (typeof count !== 'number') fail('persistent monitor did not return a number');
 		return count;

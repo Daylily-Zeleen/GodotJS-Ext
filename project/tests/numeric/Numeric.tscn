@@ -1,4 +1,4 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://m5fnxpjtwopo"]
 
 [ext_resource type="Script" path="res://tests/numeric/test-numeric.ts" id="1_numeric"]
 
