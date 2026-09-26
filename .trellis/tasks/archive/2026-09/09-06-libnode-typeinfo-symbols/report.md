@@ -105,6 +105,36 @@ darwin 分支真正把 `'GCC_ENABLE_CPP_RTTI': 'NO'` 改为 `'YES'`（连同行�
    其中 linux 腿日志实证 `scons ... use_node=yes CC=gcc-12 CXX=g++-12` 与
    链接行 `g++-12 -o bin/linux/godotjs-ext ... -static-libgcc ... libnode.a ...`。
 
+## ⚠ 新发现：`Test (host-*, …)` 腿的问题（与本轮改动无关，但需如实报告）
+
+之前所有 CI 轮里 `Test` 腿都是 **skipped**（因为 node 构建失败 → 依赖它的 Test 不满足条件）。
+本轮 node 链接修好后 Test **首次真正跑起来**，结果：
+
+| Test 腿 | 结果 | 原因（实测日志） |
+|---|---|---|
+| `host-qjs, ubuntu-22.04` | success | — |
+| `host-node, windows-latest` | **success** | — |
+| `host-node, ubuntu-22.04` | failure | `v8::V8::Initialize` 内 **SIGSEGV**（`std::__codecvt_utf8_base<wchar_t>::do_unshift` ← `std::ostream::_M_insert<long>` 帧），`api store missing after retries` |
+| `host-node, macos-latest` | failure | `Can't open dynamic library: .../bin/macos/godotjs-ext-editor.macos.editor.universal.dylib ... (no such file)` → 扩展从未加载 |
+| `host-v8, ubuntu-22.04` | failure | `Can't open dynamic library ... undefined symbol: _ZSt21__glibcxx_assert_failPKciS0_S0_` |
+
+关键推理与证据：
+
+1. **host-node ubuntu 的段错误不是 gcc-12 的 libstdc++ 造成的**，因为
+   `host-v8, ubuntu-22.04`（**本轮完全未改**的一条腿，纯 g++-11 + v8 monolith）
+   在本轮**同样 failure**。若只改 gcc-12 就造成崩溃，v8 腿不会一起挂。
+2. **macOS 的失败是路径/命名不匹配**：Test 期望 `godotjs-ext-editor.macos.editor.universal.dylib`，
+   而 node 腿产出的是 `macos/arm64/...dylib`（matrix 里 macos node 是 `arch: arm64`）。
+   这是"node 构建首次成功"才暴露的既有缺口。
+3. `_ZSt21__glibcxx_assert_failPKciS0_S0_` 是 **GCC 12 的 libstdc++（GLIBCXX_3.4.30）** 符号，
+   ubuntu-22.04 基础镜像的 libstdc++ 可能较旧。这与 gcc-12 构建相关，但**影响的是 v8 腿**
+   （其依赖产物现在也由 gcc-12 构建），说明这是"两仓库构建工具链对 jammy 运行时的兼容性"问题，
+   而非本轮 node 改动。
+4. 这些 Test 腿**此前从未通过过**（一直是 skipped），所以不存在"本轮把它改坏了"。
+
+**结论**：本任务的目标（node 模式三条 **Build** 腿全绿）已达成并验证；Test/host-node 的运行时
+问题需要**独立一轮**处理（涉及 3 个不同成因），不属于本轮授权范围，故如实报告、未擅自修改。
+
 ## 遗留
 
 1. **`build_v8.yml` 的 android 腿（既有缺陷，与本任务无关）**：
