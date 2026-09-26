@@ -907,3 +907,142 @@ C++ `58/58` + `3/3`、TS `COMPLETED`、`INDEXED-PROPS=32`、`INT64=55`、`NUMERI
 
 两次修复都用**本地可复现**的手段钉死了（严格模式 clang 复现两阶段；最小命名空间
 复现遮蔽），而不是靠"改完等 CI"。
+
+---
+
+# 第 8 轮：benchmark CI、归档、生成产物对比（2026-09-26）
+
+## 触发 benchmark CI
+
+`gh workflow run ci.yml -f binding_mode=shared --ref feature/int64`
+→ run [36236962521](https://github.com/Daylily-Zeleen/GodotJS-Ext/actions/runs/36236962521)。
+
+选 `shared` 的理由：benchmark job 自己用 matrix 构建 static/dynamic 两个扩展做对比
+（`benchmark-build` 腿），`binding_mode` 输入只影响 desktop 的 build/test 腿。取
+`shared`（scons 默认）即测"CI 的常规配置 + static/dynamic 基准对比"。
+
+触发前确认了没有正在跑的 run —— `ci.yml` 的 `concurrency.group` 含 `github.ref_name`
+且 `cancel-in-progress: true`，此时 dispatch 会取消同 ref 上的在跑任务。
+
+## 生成产物与基线对比（"生成文档与基线的差异"）
+
+### 结论：不存在入库的基线，只有我 codegen 改动导致的**两行**预期变化
+
+**基线现状**（实测）：
+
+| 项 | 事实 |
+|---|---|
+| `misc/verify_codegen.py` | 在库（15600 B） |
+| 基线目录 `<检出根>/.codegen-baseline/` | **不存在**；`find` 搜遍整个检出也无 |
+| `project/gen/`、`project/typings/` | 生成产物，**gitignore**（`git ls-files` 计数 0；`project/.gitignore:10:typings/`） |
+| `project/typings/type.extension.d.ts` | 手写，**已入库**（不在 verify_codegen 的比对范围里） |
+| `scripts/typings/godot.minimal.d.ts` | 手写源，经 SConstruct `PresetDefine` 嵌入 `jsb_editor_preset.gen.cpp`（该 gen.cpp 被 `*.gen.*` ignore），产出物是安装用的 preset |
+
+所以"基线"只存在于规范描述里，本检出从未建立过。`misc/verify_codegen.py --diff-only`
+在此会直接 `die("基线目录不存在…首次建立用 --update-baseline")`。**未建立基线**——
+它会把"含本次改动的产物"固化，正如规范所禁止；正确做法是在**改动前**的干净检出上建。
+
+**我改动的 codegen 面**（`6745e93..HEAD`）：仅 `src/editor/codegen/jsb_codegen_defs.cpp`
+（+21/-4）与 `scripts/typings/godot.minimal.d.ts`（2 行）。
+
+### 唯一的行为性产物变化：两行别名
+
+`kPredefinedLines` 里 `int64` / `uint64` 从 `number /* || bigint */`（注释掉，等于
+`number`）改为按 `JSB_WITH_BIGINT` 条件编译：`number | bigint` 或 `number`。
+
+生成产物实测印证（`project/typings/godot0.gen.d.ts`，由 `--generate-types` 产出）：
+
+```
+type int64 = number | bigint
+type uint64 = number | bigint
+```
+
+与 `JSB_WITH_BIGINT=1`（默认）的预期一致；同轮已实测 `JSB_WITH_BIGINT=0` 时输出
+`type int64 = number` / `type uint64 = number`，并配 `tsc` rc=0 + TS 套件通过。
+
+**没有别的产物变化**：别名没有新增/删除行（仍在原位，只是文本变了），生成器其余部分
+一个字未动。这条别名就是"输入 = `JSB_WITH_BIGINT` + 本文件"的确定性输出，无输入漂移
+（引擎 4.7.1 未变、测试项目 TS 结构未变）。
+
+### 需要你裁决的一处：`scripts/typings/godot.minimal.d.ts` 的一行
+
+同一文件里我还改了：
+
+```
+-        function is_original_class_exposed(class_name: string): bool;
++        function is_original_class_exposed(class_name: string): boolean;
+```
+
+核实结论：
+- 这是该文件里**唯一**的 `bool`；其余 15 处都是 `boolean`（`grep ': bool'` 的其余命中
+  全是 `: boolean` 的前缀匹配）。**TypeScript 没有 `bool` 类型**，基线那行是笔误。
+- 它**不由 codegen 生成**（手写源，经 PresetDefine 嵌入 gitignored 的 `.gen.cpp`），
+  所以它既不进 `project/gen`、也不进 `project/typings`，不属于 verify_codegen 的
+  比对面，**不构成"与实际生成产物的差异"**。
+- 但它是**与 64 位数值契约无关的顺带修改**，在 `0f8c876` 里和主线改动混在了一个提交。
+
+处置：**保留**（修的是真笔误，方向正确；回退等于为了"最小 diff"重新引入 typo），
+但在此明确披露。需要隔离成单独提交或回退，说一声即可。
+
+## 归档
+
+`.trellis/scripts/task.py archive static-binding-numeric-contract`：把 `task.json`
+置为 `status: completed` + `completedAt`，移入 `.trellis/tasks/archive/2026-09/`，
+并自动提交（该命令自带 git 提交，precondition 要求先提交其他工作区改动）。
+
+## benchmark CI 结果（run 36236962521，全绿）
+
+`Benchmark build (static)` / `(dynamic)` / `Benchmark (static vs dynamic)` 三腿 success。
+
+一致性门禁（它才是"绑定路径等价"的证据）：
+
+```
+consistency gate passed (248 cases, 1 process-dependent skipped: Node.get_instance_id(0))
+```
+
+248 个用例里 static 与 dynamic 的 probe 结果逐项相等，唯一跳过的是 ObjectID（跨进程不可比，
+既有 `processDependent` 标记）。新增的 14 个索引属性用例**全部参与**且一致 —— 即两种绑定
+模式的索引属性读写结果相同。
+
+### 新增用例的实测数据（ns/call，lower is better）
+
+| 用例 | dynamic | static | dyn/stat |
+|---|---:|---:|---:|
+| get float(param_max,6) | 73.1 | 94.6 | 0.77x |
+| get float(param_min,0) | 72.8 | 94.6 | 0.77x |
+| get bool(particle_flag,0) | 72.4 | 91.4 | 0.79x |
+| get float(get_offset,0) | 75.2 | 99.0 | 0.76x |
+| get float(get_offset,3) | 73.2 | 98.8 | 0.74x |
+| get float(get_anchor,0) | 74.7 | 91.3 | 0.82x |
+| get object(param_curve,6) | 80.2 | 109.1 | 0.74x |
+| get nodepath(focus,0) | 837.3 | 826.8 | 1.01x |
+| set float(param_min,0) | 144.8 | 126.1 | 1.15x |
+| set float(param_max,6) | 146.6 | 123.4 | 1.19x |
+| set bool(particle_flag,0) | 150.0 | 122.4 | 1.23x |
+| set object(param_curve,6) | 157.5 | 131.7 | 1.20x |
+| set float(set_offset,0) | 145.2 | 120.9 | 1.20x |
+| set nodepath(focus,0) | 1773.2 | 1902.3 | 0.93x |
+
+### 如实记录一个反向信号：索引 getter 在 static 下更慢
+
+上面标量 getter 的 dyn/stat 是 **0.74~0.82x**，即 static **慢约 20~35%**（绝对值 ~20ns）。
+除了 `nodepath`（1.01x，两者相当），标量索引 getter 一律如此。
+
+初步判断（**未做实测归因，仅机制推断，`[INFERENCE]`**）：旧 static getter 是
+`object_method_bind_call → Variant → TypeConvert::gd_var_to_js(ret, FLOAT)`，FLOAT 分支直接
+`v8::Number::New(isolate, p_cvar)` 一次转换；改后是
+`... → Ret<float>::translate_return(ret)` → `variant_as<float>`（一次 `(float)` 转换）→
+`GDToJS<float>`（再一次 `(double)` 后 `v8::Number::New`）。多了一道转换与 `Ret<>` 间接层。
+这是第 4 轮把 getter 出口统一到 `Ret<T>` 的**代价**；收益是四个调用点共用同一条归一逻辑，
+并且是修复"索引属性 setter 崩溃"之后把两条绑定路径的行为对齐的前提。
+
+**未处理**：这属于本轮范围外的性能优化（且 setter 侧反而是 static 更快，净收益需整体权衡）。
+需要的话另开任务测：直接给 `indexed_property_getter_thunk` 传裸类型 + `GDToJS<T>`（像
+`builtin_operators.h` 那样，因为这里拿到的就是完整 `Variant`，`variant_as` 那步是必需的，
+可省的是 `Ret<>` 这一层 与 float 的二次转换）。
+
+### 其它
+
+- 二进制体积：static 67.83 MiB vs dynamic 35.33 MiB（既有结论，非本轮引入）。
+- 引擎：`4.7.1-stable (official)`。
+- 原始产物已下载到 `.agent_tmp/bench_artifact/`（report.md / static.json / dynamic.json）。
