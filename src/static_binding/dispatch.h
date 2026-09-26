@@ -125,8 +125,9 @@ const ThunkFn find_shared_utility_binding(const godot::StringName &p_name,
 		uint32_t p_hash,
 		const void **r_method_data);
 
-// binding_mode=shared: signature-shared builtin member accessors (one thunk per
-// unique (VTC, MemberVT) signature). On success resolves-and-caches both
+// binding_mode=shared: signature-shared builtin member accessors (one getter
+// thunk per unique (VTC, concrete C++ member type) signature, one setter thunk
+// per unique (VTC, Variant member type) signature). On success resolves-and-caches both
 // getter/setter ptrcall functions EAGERLY (mount-time; variant_get_ptr_getter/
 // variant_get_ptr_setter, see ensure_member_accessor) and sets *r_method_data
 // to the per-member SharedMemberAccessorData that the mount point forwards
