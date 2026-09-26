@@ -171,6 +171,23 @@ void GodotJSExportPlugin::_export_begin(const PackedStringArray &p_features, boo
 }
 
 bool GodotJSExportPlugin::export_raw_file(const String &p_path, bool p_remap) {
+#if JSB_USE_TYPESCRIPT
+	// 函数/信号签名清单与编译产物同名同目录（`<outDir>/<rel>.sig`），而 `.godot` 树不参与 EFS
+	// 扫描 ⇒ 必须像 `.paths_mapping` 一样显式打包，否则导出包里没有清单，运行时只能退回源码文本扫描。
+	// 挂在 `export_raw_file` 而非各个调用点：这是所有 `.js` 产物落进导出包的唯一收口
+	// （含 `export_compiled_script` 的桥接分支与 `export_raw_files` 的 `.ts` 分支），
+	// 放在调用点会漏掉其中一条。`.sig` 不再触发本分支，无递归。
+	if (p_path.ends_with("." JSB_JAVASCRIPT_EXT)) {
+		//NOTE `std::size` 计入结尾 NUL ⇒ 减 `std::size(...) - 1` 只剥字母、保留那个点（见
+		//     `jsb_signature.cpp` 的同一推导式）。
+		const String stem = p_path.substr(0, p_path.length() - (std::size(JSB_JAVASCRIPT_EXT) - 1));
+		const String sidecar = stem + String(JSB_SIGNATURE_EXT);
+		if (FileAccess::file_exists(sidecar)) {
+			// 先打包清单再打包脚本本身：`add_file` 的重映射由脚本那条负责，清单不重映射。
+			export_raw_file(sidecar, false);
+		}
+	}
+#endif // JSB_USE_TYPESCRIPT
 	if (exported_paths_.has(p_path)) {
 		return true;
 	}

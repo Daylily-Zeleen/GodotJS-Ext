@@ -113,6 +113,14 @@ private:
 #if JSB_USE_TYPESCRIPT
 	// 解析 tsconfig.json 并重新生成 .paths_mapping（MD5 未变化时空操作）
 	static void _regenerate_paths_mapping();
+	// 用 Node 提取器刷新各脚本的函数/信号签名清单（输入摘要未变化时空操作）
+	void _regenerate_signatures();
+
+	// 上一次投递提取器时的输入摘要（.ts 数量 | 最大 mtime | tsconfig md5）。
+	// 不能用 tsconfig 的 md5 单独当门控：改 .ts 不会碰 tsconfig。
+	String signature_input_digest_;
+	// 提取器进程句柄：下一次触发时先收尾（短命进程，届时通常已自行退出）
+	std::shared_ptr<jsb::internal::Process> signature_tool_;
 #endif
 
 protected:
