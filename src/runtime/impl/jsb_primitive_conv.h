@@ -63,7 +63,7 @@
 // AFTER the engine's own pch, which is what brings in `v8::Local` / `Int32` /
 // `Number` / `BigInt` and the `_FORCE_INLINE_` macro.
 
-namespace jsb::impl::internal {
+namespace jsb::impl::detail {
 
 // Number / Int32 / BigInt -> int64, bit-preserving (mod 2^64).
 _FORCE_INLINE_ bool to_int64(const v8::Local<v8::Value> p_val, int64_t &r_val) {
@@ -226,4 +226,4 @@ _FORCE_INLINE_ v8::Local<v8::Value> new_unsigned_integer(v8::Isolate *p_isolate,
 	return v8::Number::New(p_isolate, (double)p_val);
 }
 
-} // namespace jsb::impl::internal
+} // namespace jsb::impl::detail
