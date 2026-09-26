@@ -423,9 +423,9 @@ struct GDToJS {
 			// Unsigned has to go through the unsigned writer: a value with bit 63
 			// set (an ObjectID) would otherwise come back negative.
 			if constexpr (std::is_signed_v<T>) {
-				r_out = impl::internal::new_integer(p_isolate, (int64_t)p_src);
+				r_out = impl::detail::new_integer(p_isolate, (int64_t)p_src);
 			} else {
-				r_out = impl::internal::new_unsigned_integer(p_isolate, (uint64_t)p_src);
+				r_out = impl::detail::new_unsigned_integer(p_isolate, (uint64_t)p_src);
 			}
 			return true;
 		} else if constexpr (std::is_floating_point_v<T>) {
