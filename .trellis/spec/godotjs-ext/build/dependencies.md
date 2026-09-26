@@ -321,27 +321,51 @@ v8 target；那两个变量被编进多个不同归档）。
   （`find ... -name '*.ninja' -exec grep -l ccache {} +`，注意 macOS 是 BSD grep，
   **没有** `--include`），并且放在**编译之前**——失败应该几秒内发生，不是一小时后。
 
-- **v8 的源码缓存跨平台串用，会让 android 腿在 `gn gen` 就炸（踩过，2026-09-26）**。
+- **v8 的源码缓存跨平台串用，会让 android 腿在 `gn gen` 就炸（踩过，2026-09-26，已修）**。
   `build_v8.yml` 的缓存 key 是 `v8src-${{ runner.os }}-${{ v8_version }}-${{ hashFiles(config/v8) }}`，
   **只看 runner OS**——于是 `v8/android-*`（跑在 ubuntu-22.04）与 `v8/linux-*` 命中**同一个** Linux 条目。
   而 v8 的 `DEPS` 里有一批依赖带 `'condition': 'checkout_android'`
   （例：`third_party/catapult`，v8 12.4.254.21 的 DEPS 第 240-243 行），
   只有 `.gclient` 写了 `target_os = ['android']` 时 `gclient sync` 才会把它们 checkout 下来。
-  `v8/fetch` action **只在冷启动（无缓存）时**写这个 `target_os`；命中缓存时直接
-  `gclient sync`，而缓存的 `.gclient` 是 linux 腿建的、没有 `target_os`，android 专属依赖
-  就永远缺失。症状是在**编译之前**就失败：
+  旧 `v8/fetch` **只在冷启动（无缓存）时**写这个 `target_os`；命中缓存时直接 `gclient sync`，
+  而缓存的 `.gclient` 是 linux 腿建的、没有 `target_os`，android 专属依赖就永远缺失。
+  症状是在**编译之前**就失败：
 
   ```
   ERROR at //build/android/BUILD.gn:219:5: Unable to load
     ".../v8/v8/third_party/catapult/tracing/BUILD.gn"
   ```
 
-  该轮 `v8 source tree restored from cache` 是判据。影响：`publish` job 的条件是
+  该轮 `v8 source tree restored from cache` 是判据。影响很大：`publish` job 的条件是
   `v8.result == 'success'`，所以 android 腿一挂，**整个版本化 release 都不会发布**
   （`build_all` 里 `publish` 直接 skipped），只有 `ci-<runid>`（per-platform）照常发布。
 
+  **修法与取舍**：不要去改缓存 key（加 `matrix.platform` 会让 4.3 GB 的 v8 条目按平台翻倍，
+  撑爆 actions 的 10 GB 配额）；根因是 `.gclient` 的 `target_os` 没跟腿对齐。现在
+  `v8/fetch` **每次运行都归一化**那一行：android/ios 重写为对应 target，宿主平台则
+  **删掉**遗留的 `target_os`。用重写而非追加，保证幂等（暖缓存与冷启动结果一致、
+  不会累积两行）。并在 `gclient sync` 之后**立刻断言** `third_party/catapult` 存在：
+  旧症状要等 69 秒后以一句指向 `.gn` 文件的报错出现，完全看不出是"缺 checkout"。
+  本地已按平台逐一验证（提取 action 里那段 bash 实跑，含 fail-closed 反例）。
+
 - **改了依赖仓库 ≠ 本仓生效**：本仓 `third/` 下是已下载的产物，`dependency_is_ready()`
   命中就跳过下载。换产物要么删掉对应 `third/<name>/` 让下次构建重下，要么手动替换。
+
+- **`third/libnode` 的缓存会掩盖"固定发布里是坏归档"（踩过，2026-09-26）**。
+  本仓 CI 的缓存 key 是
+  `node-dependency-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('SConstruct') }}`——
+  **不含发布 tag**。所以只要 `SConstruct` 没变，`third/libnode` 就一直从缓存恢复，
+  **根本不会去下载 `deps_release_tag` 指向的那个发布**。实测踩过：固定发布
+  `260925-node-final` 的 macOS 归档至今仍缺 `__ZTI/__ZTS`，但某轮 CI 的 macos node 腿
+  却显示 success，日志里是 `Cache restored from key: node-dependency-macOS-arm64-...`
+  （缓存内容来自之前用 `deps_run` 验证时装入的**好**归档）；一旦缓存过期（7 天未用 /
+  换分支 / 新 runner）就会重新下载坏归档而失败。
+
+  **判据**：验证"发布产物本身是否修好"时，日志里必须出现
+  `Dependency '<name>' not found at 'third/<name>'. Downloading <asset> from .../<tag>/...`，
+  以及**真实的编译量**（例如 253 条 `clang++ -c`），不能只看 job 的 success。
+  好消息是缓存 key 含 `hashFiles('SConstruct')`，所以**改 tag 本身就会让缓存失效**，
+  切换发布后必然真下载（已验证）。
 
 - **libnode 用 gcc-12 编译，消费方也必须用 gcc-12（踩过，2026-09-25）**。
   `scripts/node/build-linux.sh` 装并导出 `CC=gcc-12 CXX=g++-12`。归档里
