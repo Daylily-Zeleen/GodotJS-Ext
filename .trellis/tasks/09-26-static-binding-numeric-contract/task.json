@@ -1,0 +1,28 @@
+{
+  "id": "static-binding-numeric-contract",
+  "name": "static-binding-numeric-contract",
+  "title": "静态绑定数值转换与 64 位返回契约收敛",
+  "description": "收敛静态绑定数值转换与 64 位返回契约：机械清理批（CI binding_mode 去掉重复 default、jsb_primitive_conv.h 去掉 ValueT 模板、jsb_unused 替换 (void)、新文件去掉 GodotJS Contributors 头、StaticBindingUtil 加 _FORCE_INLINE_、补回 VeryVerbose 日志）与结构改造批（jsb_primitive_conv.h 移到 pch 之后并改用 _FORCE_INLINE_ + jsb::impl::internal、新增 GDToJS<T> 覆盖全部类型、Ret::translate_return 收敛掉 uint64 特判与非 Variant 路径的 Variant 构造、出口三态宏 JSB_64BIT_RETURN_FIXED_BIGINT、typings 别名随构建开关生成），并给负 Number 进 uint64 槽加 debug 告警、更正 design.md 措辞。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "godotjs-ext",
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-09-26",
+  "completedAt": null,
+  "branch": "feature/int64",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-06-lowprio-uint64-bigint-codegen",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "area": "static-binding"
+  }
+}

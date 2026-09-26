@@ -38,7 +38,7 @@ Godot 的整数内部就是 64 位，JS 的 `Number` 只能精确表示到 2^53-
 | jsc | `JSValueToUInt64` | 文档：BigInt 被 truncate 到 uint64_t |
 | web | `jsbi_Uint64Value`（**已存在**） | 裸 `BigInt(val)` 写入，不检查 |
 
-只有 v8 能报 lossless。若选「报错」，五个引擎语义分叉；选「按位回绕」，五个引擎**原生就一致**。
+只有 v8 能报 lossless。若选「报错」，五个引擎语义分叉；选「按位模式」，五个引擎**原生就一致**。
 因此：**`lossless == false` 在 v8 上只记 `VeryVerbose` 日志，不抛异常**。
 
 ### 1.4 目标语义
@@ -53,8 +53,13 @@ Godot 的整数内部就是 64 位，JS 的 `Number` 只能精确表示到 2^53-
 **写（JS → Godot）**
 - int64/uint64 槽同时接受 `Number` 与 `BigInt`。
 - BigInt 按 meta 读法：uint64 → `Uint64Value`，int64 → `Int64Value`，随后**按位**写入槽。
-- 超 64 位 / 负值给 uint64 槽：**mod 2^64 回绕，不报错**（与引擎 `PtrToArg<uint64_t>` 及
+- 超 64 位 / 负值给 uint64 槽：**按位模式写入，不报错**（与引擎 `PtrToArg<uint64_t>` 及
   三个非 v8 引擎的 C API 一致）。
+  **定位说明（2026-09-26 更正）**：这是「位模式回传 / 引擎对齐」，**不是**「用 53 位负值
+  扩大 64 位表示范围」——后者在数学上不成立：负 double 只多携带 1 bit（第 54 位）信息，
+  `[-2^53, -1]` 只覆盖 `[2^64-2^53, 2^64-1]` 一条窄缝。保留该分支的唯一理由是**静态腿与
+  动态腿（即引擎自身转换）保持一致**；若在此拒绝，就会重新制造 static/dynamic 分叉。
+  DEBUG 构建下对该输入告警（release 零开销），见 `jsb_primitive_conv.h`。
 - 窄整数（int8/16/32、uint8/16/32、char32）**保持现有范围检查**——它们是真的窄槽。
 
 **`JSB_MAX_SAFE_INTEGER` 的值不动**（`src/jsb.config.h:160` 标注 DO NOT CHANGE），只改判据。
@@ -461,7 +466,7 @@ TS 侧断言一律经 `reportTestFailure`；**不进 bench**；守卫要断言�
 |---|---|
 | 读方向改动波及 `|v| <= 2^53-1` 的既有行为 | 只在超阈值时改出口；`2^53-1` 及以下仍出 `Number`，`Int32` 快路径不动（AC4 守） |
 | 现有脚本依赖「uint64 高位出负 Number」 | 这是要修的缺陷；受影响面 = RefCounted ObjectID，TS 测试已用 `weakref` 绕开，不依赖旧行为 |
-| quickjs/jsc/web 无法报 lossless，v8 能 | §1.3：`lossless` 只记日志不抛，五引擎统一按位回绕 |
+| quickjs/jsc/web 无法报 lossless，v8 能 | §1.3：`lossless` 只记日志不抛，五引擎统一按位模式 |
 | 每引擎 shim 再次漂移 | A-1 收敛为一份实现；shim 只提供 `Uint64Value` 一个原语 |
 | 改 `impl/*/jsb_*_helper.h` 触发全量重编 | §4 一次列全变体，每步只编一次 |
 | A/B 并行时对 `jsb_primitive_conv.h` 的契约分歧 | 契约（函数签名与语义）在 dispatch 的 `context` 中预先固定，B 只消费不修改 |

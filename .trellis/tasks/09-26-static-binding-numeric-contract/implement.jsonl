@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/09-26-static-binding-numeric-contract/design.md", "reason": "本任务设计：命名空间/内联、GDToJS 形态、出口三态与别名分工（已定）"}
+{"file": ".trellis/tasks/09-26-static-binding-numeric-contract/research/64bit-api-surface.md", "reason": "64 位接口全清单与 meta 分布实测，决定 typings 与出口改动的覆盖面"}
+{"file": ".trellis/spec/godotjs-ext/cpp/ptrcall-encoding.md", "reason": "ptrcall 编码 EncodeT / 数值槽接受面契约；本任务改返回路径须与此一致"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/任务流程硬约束"}
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "cpp 层规范落点（含需新增的『新文件不声明 GodotJS Contributors』规则）"}
+{"file": ".trellis/tasks/09-06-lowprio-uint64-bigint-codegen/design.md", "reason": "上一轮共享技术方案与实测数据，本任务是其收敛"}

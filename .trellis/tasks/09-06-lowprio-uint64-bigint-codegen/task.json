@@ -22,7 +22,8 @@
     "09-24-uint64-bigint-return",
     "09-24-uint64-bigint-arg",
     "09-24-uint64-bigint-switch",
-    "09-24-uint64-bigint-ctor-operators"
+    "09-24-uint64-bigint-ctor-operators",
+    "09-26-static-binding-numeric-contract"
   ],
   "parent": "09-06-lowprio-improvements",
   "relatedFiles": [],
