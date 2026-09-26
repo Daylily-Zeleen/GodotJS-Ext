@@ -8,11 +8,14 @@ import {
     ClassDB,
     GArray,
     Color,
+    Control,
+    CPUParticles2D,
     Engine,
     Image,
     Input,
     Node,
     Node2D,
+    NodePath,
     ProjectSettings,
     ResourceLoader,
     Vector2,
@@ -103,6 +106,44 @@ export const OBJECT_CASES: CaseGroup[] = [
         cases: [
             { name: "class_has_method(2+1default)", fn: () => ClassDB.class_has_method("Node", "get_name", true) },
             { name: "class_has_method(2)", fn: () => ClassDB.class_has_method("Node", "get_name") },
+        ],
+    },
+    // Indexed properties (`prop.index >= 0`): the accessor forwards a constant
+    // index to a backing method shared by several properties, so one method
+    // serves `get_param_min(i)` / `get_param_max(i)` / `get_param_curve(i)`.
+    // Under static bindings these take the generated
+    // `indexed_property_getter/setter_thunk`; otherwise the reflect path.
+    {
+        group: "IndexedProp",
+        makeTarget: () => new CPUParticles2D(),
+        cases: [
+            // float, index 6 (damping pair) and index 0 (initial_velocity pair)
+            { name: "get float(param_max,6)", fn: (t: CPUParticles2D) => t.damping_max },
+            { name: "set float(param_max,6)", fn: (t: CPUParticles2D) => { t.damping_max = 1.5; } },
+            { name: "get float(param_min,0)", fn: (t: CPUParticles2D) => t.initial_velocity_min },
+            { name: "set float(param_min,0)", fn: (t: CPUParticles2D) => { t.initial_velocity_min = -1.5; } },
+            // bool, index 0
+            { name: "get bool(particle_flag,0)", fn: (t: CPUParticles2D) => t.particle_flag_align_y },
+            { name: "set bool(particle_flag,0)", fn: (t: CPUParticles2D) => { t.particle_flag_align_y = true; } },
+            // object, index 6 -- the slot whose write crashed before the fix
+            { name: "get object(param_curve,6)", fn: (t: CPUParticles2D) => t.damping_curve },
+            { name: "set object(param_curve,6)", fn: (t: CPUParticles2D) => { t.damping_curve = null; } },
+        ],
+    },
+    // The same accessor shape on an Object-derived class whose backing methods
+    // take a leading ENUM argument (`get_offset(Side)` / `set_offset(Side,float)`,
+    // `get_anchor(Side)`, `get/set_focus_neighbor(Side)`). The constant index is
+    // what fills that leading argument.
+    {
+        group: "IndexedPropEnum",
+        makeTarget: () => new Control(),
+        cases: [
+            { name: "get float(get_offset,0)", fn: (t: Control) => t.offset_left },
+            { name: "set float(set_offset,0)", fn: (t: Control) => { t.offset_left = 1.5; } },
+            { name: "get float(get_offset,3)", fn: (t: Control) => t.offset_bottom },
+            { name: "get float(get_anchor,0)", fn: (t: Control) => t.anchor_left },
+            { name: "get nodepath(focus,0)", fn: (t: Control) => t.focus_neighbor_left },
+            { name: "set nodepath(focus,0)", fn: (t: Control) => { t.focus_neighbor_left = new NodePath("Path/To/Target"); } },
         ],
     },
 ];

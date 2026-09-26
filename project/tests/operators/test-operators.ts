@@ -1,3 +1,4 @@
+// uid://du1soqwk5jkko This line is generated, don't modify or remove it.
 // Operator coverage test: every bound builtin operator, in member form.
 //
 // OP_METHODS / OP_CALLS are machine-extracted from the two code generators

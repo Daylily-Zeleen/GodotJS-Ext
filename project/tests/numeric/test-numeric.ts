@@ -1,3 +1,4 @@
+// uid://cpvafbvxrxyl7 This line is generated, don't modify or remove it.
 // Numeric-slot acceptance for builtin constructors and operators, shared by
 // both binding legs (static / dynamic).
 //
@@ -10,11 +11,23 @@
 // Assertions go through reportTestFailure: a raw throw inside _ready would not
 // reach start.ts and the suite would falsely report COMPLETED.
 import { Node, Projection, String as GString, Vector2, Vector2i } from "godot";
+import { BIGINT_FOR_64BIT } from "godot-jsb";
 import { reportTestFailure } from "../test-status";
+
+/**
+ * Whether the build has BigInt (`JSB_WITH_BIGINT`). With it off, `probe_vt` has
+ * no BigInt branch and answers VARIANT_MAX, so a BigInt argument fails the
+ * overload filter -- the build cannot receive one at all, and the BigInt cases
+ * below are skipped rather than asserted.
+ */
+const BIGINT_MODE = BIGINT_FOR_64BIT;
 
 // Every assertion this scenario must make. Hardcoded (not derived) so that
 // deleting a case shows up as a failure instead of silently shrinking the run.
-const EXPECTED_CHECKS = 21;
+// Six assertions cover BigInt arguments (int slot, float slot, operator, and two
+// bool cases); a build without BigInt cannot receive one, so they are skipped and
+// only the count changes. Everything else runs in both positions.
+const EXPECTED_CHECKS = BIGINT_MODE ? 23 : 15;
 
 let checks = 0;
 
@@ -59,20 +72,28 @@ export default class TestNumeric extends Node {
 	_ready(): void {
 		try {
 			section("int slot / builtin constructor", () => {
-				// AC4.1: the overload filter used to reject a BigInt because
-				// `probe_vt` had no IsBigInt branch, so it probed as VARIANT_MAX.
-				const fromBigInt = new Vector2i(2n as unknown as number, 3);
-				const fromNumber = new Vector2i(2, 3);
-				check("Vector2i(2n,3).x", fromBigInt.x === 2 && fromBigInt.x === fromNumber.x, `got ${String(fromBigInt.x)}`);
-				check("Vector2i(2n,3).y", fromBigInt.y === 3 && fromBigInt.y === fromNumber.y, `got ${String(fromBigInt.y)}`);
+				if (BIGINT_MODE) {
+					// AC4.1: the overload filter used to reject a BigInt because
+					// `probe_vt` had no IsBigInt branch, so it probed as VARIANT_MAX.
+					const fromBigInt = new Vector2i(2n as unknown as number, 3);
+					const fromNumber = new Vector2i(2, 3);
+					check("Vector2i(2n,3).x", fromBigInt.x === 2 && fromBigInt.x === fromNumber.x, `got ${String(fromBigInt.x)}`);
+					check("Vector2i(2n,3).y", fromBigInt.y === 3 && fromBigInt.y === fromNumber.y, `got ${String(fromBigInt.y)}`);
+				}
+				// The plain-number path is unconditional.
+				const plain = new Vector2i(2, 3);
+				check("Vector2i(2,3).x", plain.x === 2, `got ${String(plain.x)}`);
+				check("Vector2i(2,3).y", plain.y === 3, `got ${String(plain.y)}`);
 			});
 
 			section("float slot / builtin constructor", () => {
 				// AC4.2: FLOAT accepts INT, so a BigInt has to reach the float
 				// marshaller and follow Number() semantics.
-				const fromBigInt = new Vector2(2n as unknown as number, 3n as unknown as number);
-				check("Vector2(2n,3n).x", fromBigInt.x === 2, `got ${String(fromBigInt.x)}`);
-				check("Vector2(2n,3n).y", fromBigInt.y === 3, `got ${String(fromBigInt.y)}`);
+				if (BIGINT_MODE) {
+					const fromBigInt = new Vector2(2n as unknown as number, 3n as unknown as number);
+					check("Vector2(2n,3n).x", fromBigInt.x === 2, `got ${String(fromBigInt.x)}`);
+					check("Vector2(2n,3n).y", fromBigInt.y === 3, `got ${String(fromBigInt.y)}`);
+				}
 
 				// The existing number path must not regress.
 				const fromNumber = new Vector2(2.5, 3.5);
@@ -86,10 +107,12 @@ export default class TestNumeric extends Node {
 				// BigInt as garbage. Assert the concrete components, not "no
 				// throw".
 				const base = new Vector2(1, 2);
-				const viaBigInt = base.OP_MULTIPLY(2n as unknown as number);
-				const viaNumber = base.OP_MULTIPLY(2);
-				check("OP_MULTIPLY(2n) matches number", viaBigInt.x === viaNumber.x && viaBigInt.y === viaNumber.y, `${String(viaBigInt.x)},${String(viaBigInt.y)}`);
-				check("OP_MULTIPLY(2n) values", viaBigInt.x === 2 && viaBigInt.y === 4, `${String(viaBigInt.x)},${String(viaBigInt.y)}`);
+				if (BIGINT_MODE) {
+					const viaBigInt = base.OP_MULTIPLY(2n as unknown as number);
+					const viaNumber = base.OP_MULTIPLY(2);
+					check("OP_MULTIPLY(2n) matches number", viaBigInt.x === viaNumber.x && viaBigInt.y === viaNumber.y, `${String(viaBigInt.x)},${String(viaBigInt.y)}`);
+					check("OP_MULTIPLY(2n) values", viaBigInt.x === 2 && viaBigInt.y === 4, `${String(viaBigInt.x)},${String(viaBigInt.y)}`);
+				}
 
 				// ...and the float slot still works. (A boolean right operand is
 				// NOT asserted here: the engine registers no Vector2 × bool
@@ -110,8 +133,8 @@ export default class TestNumeric extends Node {
 					["false", false, false],
 					["1", 1, true],
 					["0", 0, false],
-					["1n", 1n, true],
-					["0n", 0n, false],
+					// A BigInt is not receivable without BigInt in the build.
+					...(BIGINT_MODE ? [["1n", 1n, true], ["0n", 0n, false]] as [string, unknown, boolean][] : []),
 					["null", null, false],
 					["undefined", undefined, false],
 				];

@@ -7,8 +7,6 @@
 /*                                                                      */
 /*  Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)                  */
 /*                 - Contact: daylily-zeleen@foxmail.com                */
-/*  Copyright (c) Contributors of GodotJS                               */
-/*                 - <https://github.com/godotjs/GodotJS>               */
 /*                                                                      */
 /*  This library is free software; you can redistribute it and/or       */
 /*  modify it under the terms of the GNU Lesser General Public          */
@@ -60,6 +58,23 @@ inline v8::Local<v8::BigInt> new_bigint_unsigned(v8::Isolate *isolate, uint64_t 
 	return v8::BigInt::NewFromUnsigned(isolate, value);
 }
 
+// A BigInt's whole existence in this suite depends on `JSB_WITH_BIGINT`: with the
+// switch off, BigInt is not a value the engine build can produce or receive, and
+// every reader (`to_int64` / `to_uint64` / `to_double` / `to_bool` / `JSToGD<T>`)
+// compiles without its BigInt arm. So each BigInt-shaped case is written against
+// this predicate instead of sprinkling `#if` through the assertions:
+//
+//     if (constexpr bool bigint_case = bigint_inputs_supported; bigint_case) { ... }
+//
+// The alternative -- asserting BigInt behavior unconditionally -- fails on that
+// build, which is a configuration the project supports.
+inline constexpr bool bigint_inputs_supported =
+#if JSB_WITH_BIGINT
+		true;
+#else
+		false;
+#endif
+
 } //namespace int64_conv_detail
 
 TEST_CASE("[runtime] [jsb.int64] new_integer threshold is two-sided") {
@@ -81,10 +96,10 @@ TEST_CASE("[runtime] [jsb.int64] new_integer threshold is two-sided") {
 
 		// One past it becomes a BigInt, on BOTH sides. The negative side is the
 		// regression: it used to fall through to `Number::New((double)v)`.
-		// `JSB_BIGINT_FOR_64BIT=0` drops that arm by design (the value leaves as
+		// `JSB_WITH_BIGINT=0` drops that arm by design (the value leaves as
 		// the lossy Number instead), so this is the one part that is
 		// configuration-dependent.
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 		CHECK(impl::Helper::new_integer(isolate, JSB_MAX_SAFE_INTEGER + 1)->IsBigInt());
 		CHECK(impl::Helper::new_integer(isolate, -JSB_MAX_SAFE_INTEGER - 1)->IsBigInt());
 		CHECK(impl::Helper::new_integer(isolate, INT64_MIN)->IsBigInt());
@@ -117,7 +132,7 @@ TEST_CASE("[runtime] [jsb.int64] new_integer preserves negative bits above 2^53"
 		};
 		for (const int64_t value : cases) {
 			const v8::Local<v8::Value> jv = impl::Helper::new_integer(isolate, value);
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 			CHECK(jv->IsBigInt());
 			// Reading it back is the round-trip the ObjectID handoff depends on.
 			CHECK(jv.As<v8::BigInt>()->Int64Value() == value);
@@ -145,7 +160,7 @@ TEST_CASE("[runtime] [jsb.int64] new_unsigned_integer writes high-bit values uns
 		// Above the int32 fast path but within the safe range: still a Number.
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)INT32_MAX + 1)->IsNumber());
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)JSB_MAX_SAFE_INTEGER)->IsNumber());
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)JSB_MAX_SAFE_INTEGER + 1)->IsBigInt());
 
 		// The point of this writer: a value whose bit 63 is set must read back
@@ -198,23 +213,38 @@ TEST_CASE("[runtime] [jsb.int64] to_int64 and to_uint64 read bit patterns") {
 		}
 
 		// A BigInt above 2^53 keeps its exact bits (the read-side regression).
+		// With `JSB_WITH_BIGINT=0` the readers have no BigInt arm at all, so a
+		// BigInt is rejected here as any other non-numeric value.
+#if JSB_WITH_BIGINT
 		{
 			int64_t out = 0;
 			const int64_t value = int64_conv_detail::kRefCountedObjectId;
 			CHECK(impl::Helper::to_int64(int64_conv_detail::new_bigint(isolate, value), out));
 			CHECK(out == value);
 		}
+#else
+		{
+			int64_t out = 0;
+			CHECK(!impl::Helper::to_int64(int64_conv_detail::new_bigint(isolate, int64_conv_detail::kRefCountedObjectId), out));
+		}
+#endif
 
 		// uint64 reads the same bits, so a negative int64 view maps onto the
 		// unsigned one the engine's `Variant::operator uint64_t()` would give.
 		{
 			uint64_t out = 0;
+#if JSB_WITH_BIGINT
 			CHECK(impl::Helper::to_uint64(int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX), out));
 			CHECK(out == UINT64_MAX);
 			CHECK(impl::Helper::to_uint64(int64_conv_detail::new_bigint(isolate, -1), out));
 			CHECK(out == UINT64_MAX);
+#else
+			CHECK(!impl::Helper::to_uint64(int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX), out));
+			CHECK(!impl::Helper::to_uint64(int64_conv_detail::new_bigint(isolate, -1), out));
+#endif
 			// A negative Number wraps the same way, so `put_u64(-1)` and
-			// `put_u64(0xffffffffffffffffn)` agree.
+			// `put_u64(0xffffffffffffffffn)` agree. Number input is unaffected by
+			// the switch.
 			CHECK(impl::Helper::to_uint64(v8::Number::New(isolate, -1.0), out));
 			CHECK(out == UINT64_MAX);
 		}
@@ -239,7 +269,7 @@ TEST_CASE("[runtime] [jsb.int64] to_int64 and to_uint64 read bit patterns") {
 			CHECK(TypeConvert::gd_var_to_js(isolate, context, id_variant, Variant::INT, GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, signed_js));
 			v8::Local<v8::Value> unsigned_js;
 			CHECK(TypeConvert::gd_var_to_js(isolate, context, id_variant, Variant::INT, GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64, unsigned_js));
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 			CHECK(signed_js->IsBigInt());
 			CHECK(signed_js.As<v8::BigInt>()->Int64Value() == int64_conv_detail::kRefCountedObjectId);
 			CHECK(unsigned_js->IsBigInt());
@@ -267,13 +297,16 @@ TEST_CASE("[runtime] [jsb.int64] to_double and to_bool accept the engine's numer
 		JSB_TESTS_EXECUTION_SCOPE(env.get());
 		v8::Isolate *isolate = env->get_isolate();
 
-		// to_double: numbers pass through, BigInt follows the int64 view.
+		// to_double: numbers pass through; a BigInt follows the int64 view, but
+		// only when the build has BigInt at all.
 		{
 			double out = 0;
 			CHECK(impl::Helper::to_double(v8::Number::New(isolate, 1.5), out));
 			CHECK(out == 1.5);
-			CHECK(impl::Helper::to_double(int64_conv_detail::new_bigint(isolate, (int64_t)1 << 40), out));
-			CHECK(out == (double)((int64_t)1 << 40));
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(impl::Helper::to_double(int64_conv_detail::new_bigint(isolate, (int64_t)1 << 40), out));
+				CHECK(out == (double)((int64_t)1 << 40));
+			}
 			CHECK(!impl::Helper::to_double(v8::String::NewFromUtf8Literal(isolate, "1"), out));
 			CHECK(!impl::Helper::to_double(v8::Null(isolate), out));
 		}
@@ -293,11 +326,13 @@ TEST_CASE("[runtime] [jsb.int64] to_double and to_bool accept the engine's numer
 			CHECK(out);
 			CHECK(impl::Helper::to_bool(isolate, v8::Number::New(isolate, -1.0), out));
 			CHECK(out);
-			// BigInt: 0n is false, 1n is true.
-			CHECK(impl::Helper::to_bool(isolate, int64_conv_detail::new_bigint(isolate, 0), out));
-			CHECK(!out);
-			CHECK(impl::Helper::to_bool(isolate, int64_conv_detail::new_bigint(isolate, 1), out));
-			CHECK(out);
+			// BigInt: 0n is false, 1n is true (build-dependent).
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(impl::Helper::to_bool(isolate, int64_conv_detail::new_bigint(isolate, 0), out));
+				CHECK(!out);
+				CHECK(impl::Helper::to_bool(isolate, int64_conv_detail::new_bigint(isolate, 1), out));
+				CHECK(out);
+			}
 			// null / undefined are false, not rejected.
 			CHECK(impl::Helper::to_bool(isolate, v8::Null(isolate), out));
 			CHECK(!out);
@@ -334,9 +369,11 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 		};
 		for (const uint64_t value : accepted) {
 			uint64_t out = 0;
-			// Through a BigInt, the exact-bit form.
-			CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, value), out));
-			CHECK(out == value);
+			// Through a BigInt, the exact-bit form (build-dependent).
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, value), out));
+				CHECK(out == value);
+			}
 			// And through a plain Number, which is what the old code rejected.
 			// Above 2^53 a double cannot represent every integer, so the number
 			// form is only checked where it is exact.
@@ -353,19 +390,23 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 			uint64_t out = 0;
 			CHECK(JSToGD<uint64_t>::convert(isolate, context, v8::Number::New(isolate, -1.0), out));
 			CHECK(out == UINT64_MAX);
-			CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, -1), out));
-			CHECK(out == UINT64_MAX);
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(JSToGD<uint64_t>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, -1), out));
+				CHECK(out == UINT64_MAX);
+			}
 		}
 
 		// The `StaticBindingUtil` path (used by the reflect/dynamic constructor
 		// route) must accept the same surface, and write back unsigned.
 		{
 			uint64_t out = 0;
-			CHECK(StaticBindingUtil<uint64_t>::get(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX), out));
-			CHECK(out == UINT64_MAX);
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(StaticBindingUtil<uint64_t>::get(isolate, context, int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX), out));
+				CHECK(out == UINT64_MAX);
+			}
 			v8::Local<v8::Value> jv;
 			CHECK(StaticBindingUtil<uint64_t>::set(isolate, context, UINT64_MAX, jv));
-#if JSB_BIGINT_FOR_64BIT
+#if JSB_WITH_BIGINT
 			CHECK(jv->IsBigInt());
 			CHECK(jv.As<v8::BigInt>()->Uint64Value() == UINT64_MAX);
 #else
@@ -421,7 +462,7 @@ TEST_CASE("[runtime] [jsb.int64] JSToGD<uint64_t> writes high-bit values instead
 
 		// A BigInt that cannot fit the slot narrows the same way (the read is a
 		// bit-pattern read, then the C++ cast).
-		{
+		if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
 			int8_t i8 = 0;
 			CHECK(JSToGD<int8_t>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 300), i8));
 			CHECK(i8 == 44);
@@ -453,14 +494,18 @@ TEST_CASE("[runtime] [jsb.numeric] probe_vt maps a BigInt onto the INT slot") {
 		v8::Isolate *isolate = env->get_isolate();
 
 		CHECK(static_binding::probe_vt(v8::Int32::New(isolate, 2)) == Variant::INT);
-		CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
-		CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX)) == Variant::INT);
+		if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+			CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
+			CHECK(static_binding::probe_vt(int64_conv_detail::new_bigint_unsigned(isolate, UINT64_MAX)) == Variant::INT);
+		}
 		CHECK(static_binding::probe_vt(v8::Number::New(isolate, 2.5)) == Variant::FLOAT);
 		CHECK(static_binding::probe_vt(v8::Boolean::New(isolate, true)) == Variant::BOOL);
 		CHECK(static_binding::probe_vt(v8::Null(isolate)) == Variant::NIL);
 		// Both probe orders must agree -- binary operator dispatch probes its left
 		// operand object-first and its right operand primitive-first.
-		CHECK(static_binding::probe_vt<static_binding::probe_prefer_object_types>(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
+		if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+			CHECK(static_binding::probe_vt<static_binding::probe_prefer_object_types>(int64_conv_detail::new_bigint(isolate, 2)) == Variant::INT);
+		}
 	}
 
 	env.reset();
@@ -483,12 +528,14 @@ TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine 
 			double d = 0;
 			CHECK(JSToGD<double>::convert(isolate, context, v8::Number::New(isolate, 1.5), d));
 			CHECK(d == 1.5);
-			CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 3), d));
-			CHECK(d == 3.0);
-			// A BigInt above 2^53 loses low bits in a double slot -- inherent to
-			// the slot, not an error.
-			CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, (int64_t)1 << 53), d));
-			CHECK(d == (double)((int64_t)1 << 53));
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 3), d));
+				CHECK(d == 3.0);
+				// A BigInt above 2^53 loses low bits in a double slot -- inherent
+				// to the slot, not an error.
+				CHECK(JSToGD<double>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, (int64_t)1 << 53), d));
+				CHECK(d == (double)((int64_t)1 << 53));
+			}
 			CHECK(JSToGD<double>::convert(isolate, context, v8::Boolean::New(isolate, true), d));
 			CHECK(d == 1.0);
 			CHECK(JSToGD<double>::convert(isolate, context, v8::Boolean::New(isolate, false), d));
@@ -497,8 +544,10 @@ TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine 
 			CHECK(!JSToGD<double>::convert(isolate, context, v8::Null(isolate), d));
 
 			float f = 0;
-			CHECK(JSToGD<float>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 2), f));
-			CHECK(f == 2.0f);
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(JSToGD<float>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 2), f));
+				CHECK(f == 2.0f);
+			}
 			CHECK(JSToGD<float>::convert(isolate, context, v8::Boolean::New(isolate, true), f));
 			CHECK(f == 1.0f);
 			CHECK(!JSToGD<float>::convert(isolate, context, v8::String::NewFromUtf8Literal(isolate, "2"), f));
@@ -529,10 +578,12 @@ TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine 
 			CHECK(b);
 			CHECK(JSToGD<bool>::convert(isolate, context, v8::Number::New(isolate, 0.0), b));
 			CHECK(!b);
-			CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 1), b));
-			CHECK(b);
-			CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 0), b));
-			CHECK(!b);
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 1), b));
+				CHECK(b);
+				CHECK(JSToGD<bool>::convert(isolate, context, int64_conv_detail::new_bigint(isolate, 0), b));
+				CHECK(!b);
+			}
 			CHECK(JSToGD<bool>::convert(isolate, context, v8::Null(isolate), b));
 			CHECK(!b);
 			CHECK(JSToGD<bool>::convert(isolate, context, v8::Undefined(isolate), b));
@@ -552,8 +603,10 @@ TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine 
 			CHECK(!StaticBindingUtil<bool>::get(isolate, context, v8::String::NewFromUtf8Literal(isolate, "1"), b));
 
 			double d = 0;
-			CHECK(StaticBindingUtil<double>::get(isolate, context, int64_conv_detail::new_bigint(isolate, 4), d));
-			CHECK(d == 4.0);
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(StaticBindingUtil<double>::get(isolate, context, int64_conv_detail::new_bigint(isolate, 4), d));
+				CHECK(d == 4.0);
+			}
 			float f = 0;
 			CHECK(StaticBindingUtil<float>::get(isolate, context, v8::Boolean::New(isolate, true), f));
 			CHECK(f == 1.0f);
@@ -564,7 +617,9 @@ TEST_CASE("[runtime] [jsb.numeric] numeric JSToGD acceptance matches the engine 
 		{
 			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Boolean::New(isolate, true), Variant::BOOL));
 			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Number::New(isolate, 0.0), Variant::BOOL));
-			CHECK(TypeConvert::can_convert_strict(isolate, context, int64_conv_detail::new_bigint(isolate, 1), Variant::BOOL));
+			if (constexpr bool bigint_case = int64_conv_detail::bigint_inputs_supported; bigint_case) {
+				CHECK(TypeConvert::can_convert_strict(isolate, context, int64_conv_detail::new_bigint(isolate, 1), Variant::BOOL));
+			}
 			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Null(isolate), Variant::BOOL));
 			CHECK(TypeConvert::can_convert_strict(isolate, context, v8::Undefined(isolate), Variant::BOOL));
 			CHECK(!TypeConvert::can_convert_strict(isolate, context, v8::String::NewFromUtf8Literal(isolate, "true"), Variant::BOOL));

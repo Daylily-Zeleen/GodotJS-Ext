@@ -1,14 +1,17 @@
+// uid://biyom8jmnnfv3 This line is generated, don't modify or remove it.
 // 64-bit integer coverage, both directions.
 //
 // Two axes this scenario has to cover without being rebuilt per configuration:
 //
 //   - binding leg (static / shared / dynamic) -- the whole point of task A/B.
-//   - `JSB_BIGINT_FOR_64BIT` (jsb.config.h), exported to JS as `BIGINT_FOR_64BIT`.
+//   - `JSB_WITH_BIGINT` (jsb.config.h), exported to JS as `BIGINT_FOR_64BIT`.
 //     On (the default): a 64-bit value above 2^53-1 leaves Godot as a `BigInt`,
-//     so an ObjectID round trip is lossless. Off: it leaves as the lossy
-//     `Number` -- exactly the behaviour from before this work. Either way the
-//     JS -> Godot direction must not start throwing, which is what the write
-//     section pins.
+//     so an ObjectID round trip is lossless, and the typings alias is
+//     the generated alias `int64` is `number | bigint`. Off: BigInt does not
+//     exist in that build at all, so the value leaves as the lossy `Number` and
+//     `int64` is a plain `number`.
+//     Either way the JS -> Godot direction must not start throwing, which is
+//     what the write section pins.
 //
 // The generated typings declare `type uint64 = number /* || bigint */` and
 // `type int64 = number` -- the BigInt arm is commented out because the
@@ -17,12 +20,14 @@
 import { Node, PackedByteArray, Resource, StreamPeerBuffer, instance_from_id, is_instance_id_valid } from "godot";
 import { BIGINT_FOR_64BIT } from "godot-jsb";
 import { reportTestFailure } from "../test-status";
+import type { Numeric64 } from "../test-status";
 
 /** 2^53-1: the largest integer a JS Number represents exactly. */
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
-/** The `JSB_BIGINT_FOR_64BIT` position this binary was built with. */
+/** The `JSB_WITH_BIGINT` position this binary was built with. */
 const BIGINT_MODE = BIGINT_FOR_64BIT;
+
 
 /**
  * Typings boundary: a 64-bit slot is declared `number` but accepts a BigInt at
@@ -45,13 +50,13 @@ function asSlot(v: bigint): number {
  */
 const TWO_POW_64 = 1n << 64n;
 
-function asUint64(v: number | bigint): bigint {
+function asUint64(v: bigint | Numeric64): bigint {
 	const x = typeof v === "bigint" ? v : BigInt(v);
 	return ((x % TWO_POW_64) + TWO_POW_64) % TWO_POW_64;
 }
 
 /**
- * The unsigned bit pattern a value leaves Godot as when `JSB_BIGINT_FOR_64BIT`
+ * The unsigned bit pattern a value leaves Godot as when `JSB_WITH_BIGINT`
  * is off: the engine writes `Number::New((double)v)`, so the low bits are gone.
  * `Number()` on these values is always integral, so `BigInt()` is safe.
  */
@@ -60,7 +65,7 @@ function lossy64(v: bigint): bigint {
 }
 
 /** Names the pad-to-16-digits hex form used in every failure detail. */
-function hex64(v: number | bigint): string {
+function hex64(v: bigint | Numeric64): string {
 	return `0x${asUint64(v).toString(16).padStart(16, "0")}`;
 }
 
@@ -106,7 +111,10 @@ const NUMBER_FORM_CASES: SlotCase[] = [
 // range-checked narrow metas (a pre-existing divergence, out of scope), so a
 // leg-agnostic assertion would be red on `dynamic`. `test_jsb_int64_conv.h`
 // covers `JSToGD<int8_t> / <uint8_t> / <char32_t>` at the converter instead.
-const EXPECTED_CHECKS = BIGINT_MODE ? 55 : 50;
+// The BigInt round-trip sections (u64/i64 readback, u64 write, ObjectID) cannot
+// run without BigInt in the build; only the narrow-slot truncation section is
+// mode-independent, and it keeps its number-form case.
+const EXPECTED_CHECKS = BIGINT_MODE ? 55 : 5;
 
 let checks = 0;
 
@@ -127,10 +135,17 @@ function section(name: string, fn: () => void): void {
 	}
 }
 
+/** Normalises a declared-64-bit return (`bigint` under the fixed switch) to a `number`. */
+
+function asNumber(v: Numeric64): number {
+	return typeof v === 'bigint' ? Number(v) : v;
+}
+
 /** Little-endian payload of a StreamPeerBuffer, folded back into one integer. */
 function storedBits(bytes: PackedByteArray): bigint {
 	let acc = 0n;
-	for (let i = bytes.size() - 1; i >= 0; i--) {
+	// `size()` is a declared-64-bit return: `bigint` under the fixed switch.
+	for (let i = asNumber(bytes.size()) - 1; i >= 0; i--) {
 		acc = (acc << 8n) | BigInt(bytes.get(i) ?? 0);
 	}
 	return acc;
@@ -152,7 +167,7 @@ function writeU64(spb: StreamPeerBuffer, value: number, viaDynamic: boolean): bi
 }
 
 /** Writes through the dynamic channel, then reads back through the static one. */
-function readBackU64(spb: StreamPeerBuffer, value: bigint): number | bigint {
+function readBackU64(spb: StreamPeerBuffer, value: bigint): Numeric64 {
 	spb.seek(0);
 	spb.call("put_u64", asSlot(value));
 	spb.seek(0);
@@ -160,7 +175,7 @@ function readBackU64(spb: StreamPeerBuffer, value: bigint): number | bigint {
 }
 
 /** Same for the signed slot. */
-function readBackI64(spb: StreamPeerBuffer, value: bigint): number | bigint {
+function readBackI64(spb: StreamPeerBuffer, value: bigint): Numeric64 {
 	spb.seek(0);
 	spb.call("put_64", asSlot(value));
 	spb.seek(0);
@@ -169,8 +184,15 @@ function readBackI64(spb: StreamPeerBuffer, value: bigint): number | bigint {
 
 export default class Int64 extends Node {
 	_ready(): void {
+		// A build without BigInt (`JSB_WITH_BIGINT=0`) cannot receive a BigInt
+		// argument at all -- `probe_vt` has no BigInt branch and the readers have
+		// no BigInt arm -- so the round-trip cases below cannot run there. The
+		// narrow-slot and number-form cases are mode-independent and stay.
+		if (!BIGINT_MODE) {
+			console.warn(`INT64-DIAG skipped BigInt round-trip cases (JSB_WITH_BIGINT=0)`);
+		}
 		try {
-			section("u64 readback", () => {
+			if (BIGINT_MODE) section("u64 readback", () => {
 				const spb = new StreamPeerBuffer();
 				for (const { label, value } of U64_CASES) {
 					const got = readBackU64(spb, value);
@@ -187,7 +209,7 @@ export default class Int64 extends Node {
 				}
 			});
 
-			section("i64 readback", () => {
+			if (BIGINT_MODE) section("i64 readback", () => {
 				const spb = new StreamPeerBuffer();
 				for (const { label, value } of I64_CASES) {
 					const got = readBackI64(spb, value);
@@ -196,14 +218,14 @@ export default class Int64 extends Node {
 					// signed direction is the one that used to be rounded
 					// regardless of magnitude.
 					const inSafeRange = value >= -MAX_SAFE;
-					const expected = inSafeRange || !BIGINT_MODE ? "number" : "bigint";
+					const expected = (inSafeRange || !BIGINT_MODE) ? "number" : "bigint";
 					check(`i64 ${label} typeof`, typeof got === expected, `got ${typeof got}, want ${expected}`);
 					const want = BIGINT_MODE ? asUint64(value) : lossy64(value);
 					check(`i64 ${label} bits`, asUint64(got) === want, `${hex64(got)} != ${hex64(want)}`);
 				}
 			});
 
-			section("u64 write", () => {
+			if (BIGINT_MODE) section("u64 write", () => {
 				// AC2.1 / AC3.2: the static leg used to reject everything >= 2^63 (a
 				// `wide < 0 -> false` early return), while the dynamic vararg leg
 				// wrote those same bytes. Both legs must now write `v mod 2^64`,
@@ -277,11 +299,14 @@ export default class Int64 extends Node {
 				spb.seek(0);
 				check("put_u16(70000) truncates", spb.get_u16() === 4464, `got ${String(spb.get_u16())}`);
 
-				// A BigInt narrows the same way (same slot, same cast).
-				spb.seek(0);
-				spb.put_8(asSlot(300n));
-				spb.seek(0);
-				check("put_8(300n) truncates", spb.get_8() === 44, `got ${String(spb.get_8())}`);
+				// A BigInt narrows the same way (same slot, same cast) -- but a
+				// build without BigInt cannot receive one.
+				if (BIGINT_MODE) {
+					spb.seek(0);
+					spb.put_8(asSlot(300n));
+					spb.seek(0);
+					check("put_8(300n) truncates", spb.get_8() === 44, `got ${String(spb.get_8())}`);
+				}
 
 				// The dynamic channel must agree byte for byte.
 				spb.seek(0);
@@ -290,12 +315,13 @@ export default class Int64 extends Node {
 				check("put_8(300) dynamic agrees", spb.get_8() === 44, `got ${String(spb.get_8())}`);
 			});
 
-			section("ObjectID round-trip", () => {
+			if (BIGINT_MODE) section("ObjectID round-trip", () => {
 				// AC1.1: the ordinary handle round-trip has to work. `this` is a
 				// live Node already in the tree, so the case needs no allocation
-				// and no explicit free. A non-RefCounted id is small, so it stays
-				// a Number in both switch positions.
-				const selfId: number | bigint = this.get_instance_id();
+				// and no explicit free. A non-RefCounted id is small, so it is a
+				// Number under the value-dependent switch -- but a DECLARED 64-bit
+				// return of a small id is a Number (magnitude decides, not width).
+				const selfId: Numeric64 = this.get_instance_id();
 				check("Node id typeof", typeof selfId === "number", `got ${typeof selfId}`);
 				check("Node id valid", is_instance_id_valid(asSlot(BigInt(selfId))));
 				check("Node id round-trip", instance_from_id(asSlot(BigInt(selfId))) === this);
@@ -303,7 +329,7 @@ export default class Int64 extends Node {
 				// RefCounted ids set bit 63 (`is_ref_counted`), so this is the case
 				// that used to be silently corrupted.
 				const res = new Resource();
-				const resId: number | bigint = res.get_instance_id();
+				const resId: Numeric64 = res.get_instance_id();
 				if (BIGINT_MODE) {
 					// AC1.4: it must leave unsigned, i.e. a positive BigInt.
 					check("Resource id typeof", typeof resId === "bigint", `got ${typeof resId}`);

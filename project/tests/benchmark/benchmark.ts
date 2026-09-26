@@ -22,6 +22,8 @@ import { BUILTIN_CASES } from "./cases.builtin";
 import { OBJECT_CASES } from "./cases.object";
 import { BINDING_MODE } from "godot-jsb";
 
+import type { Numeric64 } from "../test-status";
+
 export interface CaseGroup {
     group: string;
     makeTarget: () => any;
@@ -64,8 +66,16 @@ interface BenchOutcome {
     sample?: string;
 }
 
+/** Normalises a declared-64-bit return (`bigint` under the fixed switch) to a `number`. */
+
+function asNumber(v: Numeric64): number {
+	return typeof v === 'bigint' ? Number(v) : v;
+}
+
 // Use the engine's monotonic microsecond clock without relying on performance.
-const nowMs = (): number => Time.get_ticks_usec() / 1000;
+// The generated 64-bit alias (`number | bigint`, or a plain `number` when the
+// build has no BigInt); the writer picks by magnitude, so normalise first.
+const nowMs = (): number => asNumber(Time.get_ticks_usec()) / 1000;
 
 const _args_user = OS.get_cmdline_user_args();
 const GC_REQUESTED = _args_user.has("--gc");
