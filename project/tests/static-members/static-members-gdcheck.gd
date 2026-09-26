@@ -104,7 +104,44 @@ func _ready() -> void:
 	var derived_instance := D.new()
 	_check("inherited method reachable on the instance", derived_instance.has_method("greet"), true)
 	_check("unknown method is not reported", derived_instance.has_method("__nope__"), false)
+
+	# `get_method_argument_count()` is ClassDB-bound on Object and consults the *script instance*
+	# first (`object.cpp:772-781`), which does not walk the base chain - so the walk lives in
+	# `GodotJSScriptInstanceBase::get_method_argument_count`, aligned with
+	# `GDScriptInstance::get_method_argument_count`. `add` is declared by the base alone, so resolving
+	# it here proves the walk. The count comes from the function source text: `Function.length` stops
+	# at the first default value and would report 1 for `add(a, b = 2, ...rest)`, while the declared
+	# count is 2 (the rest parameter excluded).
+	_check("inherited method argument count", derived_instance.get_method_argument_count("add"), 2)
+	_check("inherited method without parameters", derived_instance.get_method_argument_count("greet"), 0)
+
+	# 运行期调用形态照常可用（默认值由 JS 函数默认参数生效）。
+	# 注意：**这几行不覆盖分析期 arity**。原因是 `add` 由**基类**声明，而 `Script::get_method_info`
+	# **只报自有方法** ⇒ 分析器对 `derived_instance` 拿不到 `add` 的 `MethodInfo` ⇒ 不检查 arity
+	# （GDScript 只在拿得到 `MethodInfo` 时才做 arity 检查）。要覆盖 arity 必须用**自有**该方法的
+	# 脚本实例 —— 实测见 `.trellis/tasks/09-26-method-signal-signature/report.md` 第六轮：
+	# `add()` 报 `Too few arguments … Expected at least 1`（= arguments 2 - default_arguments 1），
+	# 即分析器确实读了 `default_arguments`；把 `default_count` 改成"数全部可选参数"则该数字会错。
+	# 保留它们是为了钉住"清单填充没有改变运行期行为"。
+	_check("arity: omitted optional arg", derived_instance.add(1), 3)
+	_check("arity: optional arg given", derived_instance.add(1, 2), 3)
+	_check("arity: varargs accepted", derived_instance.add(1, 2, 3), 4)
+	# A name that is not a script method at all must fall through to ClassDB, which is what makes
+	# `Object::get_method_argument_count` (`object.cpp:783-793`) the second leg. If the instance
+	# reported a *valid* 0 for an unknown name it would shadow ClassDB and answer 0 here.
+	_check("unknown method falls through to ClassDB", derived_instance.get_method_argument_count("has_method"), 1)
 	derived_instance.free()
+
+	# The `Script` object itself takes the other path: `Object::get_method_argument_count` walks
+	# `get_base_script()` on its own (`object.cpp:794-805`) and our own-methods-only hook
+	# (`GodotJSScript::_get_script_method_argument_count`) is reached through
+	# `ScriptExtension::get_script_method_argument_count`. An unknown name must yield an *empty*
+	# Variant rather than INT 0 - otherwise every name would look like a 0-argument method of ours and
+	# this fallback would never be taken.
+	var dscr := load("res://tests/static-members/static-members-derived.ts") as Script
+	_check("script-level inherited method argument count", dscr.get_method_argument_count("add"), 2)
+	_check("script-level method argument count", scr.get_method_argument_count("add"), 2)
+	_check("script-level method without parameters", scr.get_method_argument_count("greet"), 0)
 
 	# The class form: the members are declared in a namespace merged with the class and named at
 	# the class level. GDScript must resolve them exactly like the member form.

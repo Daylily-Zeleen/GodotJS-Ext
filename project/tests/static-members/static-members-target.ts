@@ -80,4 +80,13 @@ export default class StaticMembersTarget extends Node {
   greet(): number {
     return 1;
   }
+
+  // The declared parameter count is read off this method's source text at parse time
+  // (`_count_declared_parameters`, `jsb_class_info.cpp`). It is deliberately the shape that
+  // `Function.length` cannot report: `length` stops at the first default value or rest parameter and
+  // would say 1, while the declared count is 2 - the rest parameter is excluded, matching
+  // `GDScriptFunction::_argument_count`.
+  add(a: number, b: number = 2, ...rest: number[]): number {
+    return a + b + rest.length;
+  }
 }
