@@ -121,7 +121,6 @@ NativeClassInfoPtr ObjectReflectBindingUtil::reflect_bind(Environment *p_env, co
 						setter_method ? _godot_object_set2 : nullptr,
 						remap_index);
 			} else {
-				// TODO: 改用更简单的访问器回调取代 _godot_object_method
 				class_builder.Instance().Property(exposed_property_name,
 						getter_method ? _godot_object_method : nullptr,
 						(void *)getter_method,
@@ -612,8 +611,14 @@ void ObjectReflectBindingUtil::_godot_object_set2(const v8::FunctionCallbackInfo
 	}
 
 	Variant cvar;
-	const Variant::Type setter_arg_type = property_info.setter_func->get_argument_type(0);
-	const GDExtensionClassMethodArgumentMetadata setter_arg_meta = property_info.setter_func->get_argument_metadata(0);
+	// An indexed property's setter takes the constant property index first and
+	// the assigned value LAST (`set_offset(Side, float)`,
+	// `set_param_max(Parameter, float)`, `set_flag(Flags, bool)`, ...). Reading
+	// argument 0 here would convert the value against the INDEX's type (INT), so
+	// every indexed write was rejected or truncated.
+	const uint16_t value_arg = property_info.setter_func->get_argument_count() - 1;
+	const Variant::Type setter_arg_type = property_info.setter_func->get_argument_type(value_arg);
+	const GDExtensionClassMethodArgumentMetadata setter_arg_meta = property_info.setter_func->get_argument_metadata(value_arg);
 	if (!TypeConvert::js_to_gd_var(isolate, context, info[0], setter_arg_type, setter_arg_meta, cvar)) {
 		const String error_message = jsb_errorf("Failed to set property: %s. Unable to convert provided JS %s to Godot %s",
 				property_info.setter_func->get_name(),
