@@ -37,6 +37,7 @@ export default class Start extends Node {
 					"res://tests/operators/Operators.tscn",
 					"res://tests/numeric/Numeric.tscn",
 					"res://tests/int64/Int64.tscn",
+					"res://tests/indexed-props/IndexedProps.tscn",
 				];
 			// Count derived from the list: a hardcoded literal here silently
 			// desyncs whenever a scene is added (the whole point of the DIAG).
