@@ -126,6 +126,16 @@ TEST_CASE("[runtime] [jsb.path] convert typescript/javascript paths") {
 	CHECK(internal::PathUtil::convert_javascript_path(out_root.path_join("test.mjs")) == "res://test.ts");
 	// non-javascript input passes through unchanged
 	CHECK(internal::PathUtil::convert_javascript_path("res://test.ts") == "res://test.ts");
+
+	// signature sidecar -> ts. 扩展名长度与 `.cjs` 相同（4 字符含点），但必须走独立分支：
+	// `.sig` 不在 `.js`/`.cjs`/`.mjs` 之列，若共用 `convert_javascript_path` 会原样返回，
+	// `collect_invalid_files` 就会把每个 sidecar 判为陈旧产物删除。
+	CHECK(internal::PathUtil::convert_signature_path(out_root.path_join("test.sig")) == "res://test.ts");
+	CHECK(internal::PathUtil::convert_signature_path(out_root.path_join("dir/test.sig")) == "res://dir/test.ts");
+	// 非签名输入原样返回
+	CHECK(internal::PathUtil::convert_signature_path("res://test.ts") == "res://test.ts");
+	// 边界：`.sig` 必须是完整扩展名，不得把 `x.sigar` 之类当作 sidecar
+	CHECK(internal::PathUtil::convert_signature_path("res://test.sigar") == "res://test.sigar");
 }
 
 TEST_CASE("[runtime] [jsb.path] to_platform_specific_path") {

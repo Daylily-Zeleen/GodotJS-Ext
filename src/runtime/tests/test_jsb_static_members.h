@@ -32,6 +32,7 @@
 #include "../weaver/jsb_script.h"
 #include "jsb_test_helpers.h"
 
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
 #include <initializer_list>
@@ -68,6 +69,13 @@ C.LIT_ARR = [1, 2, 3];
 C.LIT_OBJ = { a: 1 };
 C.SHARED = 5;
 C.CONFLICT = 9;
+// `@…shared()` 侧的容器形态：静态变量**不受** R2.3 常量白名单约束，
+// 但跨桥 `Variant` 转换走 `js_to_gd_var`，而**无提示**路径对 JS 原生数组返回 false
+// （`research/phase0-findings.md` §0.2）⇒ 必须由 `IsArray()` 回退到 `Variant::ARRAY`
+// 提示重载（见 `jsb_class_info.cpp` 的 `_shared_static_setter` 与初值播种处）。
+// 这两条此前**无任何覆盖**，是 design.md §10 遗留的「阶段 3 阻塞项」。
+C.SHARED_ARR = [1, 2, 3];
+C.SHARED_DICT = { a: 1 };
 globalThis.__C = C;
 return 1;
 })()
@@ -351,6 +359,35 @@ TEST_CASE("[runtime] [jsb] script shared static store") {
 		// an undeclared name is not silently created by a write
 		CHECK(!SharedStatics::set(module_id, "NOPE", 1));
 		CHECK(!SharedStatics::get(module_id, "NOPE", value));
+		// 容器型静态变量：`js_to_gd_var` 的**无提示**路径对 JS 原生数组返回 false，
+		// 必须回退到 `Variant::ARRAY` 提示重载才能装进 store（design.md §10 的「阶段 3 阻塞项」）。
+		// 这条路径此前**无任何覆盖**。
+		set_shared_names({ "SHARED", "SHARED_ARR", "SHARED_DICT" });
+		REQUIRE(internal::_parse_script_class_iterate(context, class_info, class_obj));
+		{
+			// 原生数组 ⇒ 提示重载 ⇒ 新建 Array（不与作者的字面量共享 `_p`）
+			REQUIRE(SharedStatics::get(module_id, "SHARED_ARR", value));
+			REQUIRE(value.get_type() == Variant::ARRAY);
+			const Array arr = value;
+			CHECK(arr.size() == 3);
+			CHECK((int)arr[0] == 1);
+			CHECK((int)arr[2] == 3);
+			// 纯 JS 对象字面量在**任何**路径都转不成 Dictionary ⇒ 槽位存在但值为 NIL
+			REQUIRE(SharedStatics::get(module_id, "SHARED_DICT", value));
+			CHECK(value.get_type() == Variant::NIL);
+		}
+		// 通过安装的访问器写入原生数组，同样必须走提示重载而非被丢弃
+		{
+			const v8::Local<v8::Array> js_arr = v8::Array::New(isolate);
+			js_arr->Set(context, 0, v8::Integer::New(isolate, 9)).Check();
+			js_arr->Set(context, 1, v8::Integer::New(isolate, 8)).Check();
+			CHECK(class_obj->Set(context, impl::Helper::new_string(isolate, "SHARED_ARR"), js_arr).ToChecked());
+			REQUIRE(SharedStatics::get(module_id, "SHARED_ARR", value));
+			CHECK(value.get_type() == Variant::ARRAY);
+			const Array arr = value;
+			CHECK(arr.size() == 2);
+			CHECK((int)arr[0] == 9);
+		}
 	}
 
 	SharedStatics::clear();
@@ -396,9 +433,12 @@ TEST_CASE("[runtime] [jsb] script members: own members only") {
 }
 
 // `_get_method_info()` is reachable *before* the module was ever loaded:
-// `Object::get_method_argument_count` (`object.cpp:1964`) -> `Script::get_script_method_argument_count`
-// (`script_language.cpp:122-136`) -> `get_method_info()`, and that fallback is always taken because
-// our `_get_script_method_argument_count()` returns an empty Variant (`jsb_script.cpp:590-592`).
+// `Object::get_method_argument_count` (`object.cpp:1964`) -> `ScriptExtension::
+// get_script_method_argument_count` (`script_language_extension.h:114-124`) -> the fallback
+// `Script::get_script_method_argument_count` (`script_language.cpp:122-136`) -> `get_method_info()`.
+// The fallback is taken for any name our own-methods-only hook does not answer: an unknown name,
+// or a name that belongs to ClassDB rather than to the script (the case below uses the latter's
+// shape - an arbitrary identifier).
 // So `_get_method_info()` has to self-load rather than assert `loaded_` - and `jsb_check` is a no-op
 // in release, which is how the previous build ended up returning `{"name": p_method}` for *every*
 // name (that shadowed the signal/constant lookups of `reduce_identifier_from_base`).
@@ -421,6 +461,145 @@ TEST_CASE("[runtime] [jsb] script method info: queried before the module is load
 	const Dictionary known = script->_get_method_info(StringName("greet"));
 	REQUIRE(known.has("name"));
 	CHECK((StringName)known["name"] == StringName("greet"));
+}
+
+// §10-c：`_get_constants()` 会**在模块加载前**被调用 —— `EditorFileSystem` 扫描期对每个脚本
+// 走 `_get_global_script_class` ⇒ `Script::load` ⇒ 构造 `GodotJSScript`，随后 `get_constants()`
+// 才被读取。故它必须像 `_get_method_info()` 那样 `ensure_module_loaded()` 自加载，而不能断言
+// `loaded_`。构造方式与上面两个用例同型（`load_source_code` + `set_path`，不碰资源缓存）。
+TEST_CASE("[runtime] [jsb] script constants: queried before the module is loaded") {
+	GodotJSScriptLanguageIniter initer;
+
+	const String path = "res://tests/static-members/static-members-target.ts";
+	Ref<GodotJSScript> script;
+	script.instantiate();
+	REQUIRE(script->load_source_code(path) == OK);
+	script->set_path(path);
+
+	const Dictionary constants = script->_get_constants();
+	// 自加载生效 ⇒ 真能读到常量；若退化成空表，常量在分析期全部解析不到
+	REQUIRE(constants.has("N"));
+	CHECK((int)constants["N"] == 42);
+	CHECK(constants.has("S"));
+	CHECK((String)constants["S"] == "hello");
+	// 常量是解析期快照：不该混入静态变量（静态变量走 `_get_property_list` / `_get` 那一面）
+	CHECK(!constants.has("score"));
+}
+
+// `_get_script_method_argument_count()` is the `Script`-level channel of the declared parameter
+// count. Two contracts are pinned here, both reachable before the module was ever loaded (same
+// pre-load construction as the case above):
+//  - the count is read off the function source text (`_count_declared_parameters`,
+//    `jsb_class_info.cpp`). `Function.length` stops at the first default value or rest parameter and
+//    would report 1 for `add(a, b = 2, ...rest)`, while the declared count is 2 - the rest parameter
+//    is excluded, matching `GDScriptFunction::_argument_count` (`gdscript_byte_codegen.cpp:35-39`)
+//    and the documented `Callable::get_argument_count` ("including optional arguments");
+//  - a miss yields an **empty** Variant, not INT 0: `ScriptExtension::get_script_method_argument_count`
+//    (`script_language_extension.h:114-124`) only accepts INT and otherwise delegates to
+//    `Script::get_script_method_argument_count`, which reads `get_method_info()`. INT 0 would claim
+//    every name is a 0-argument method of ours and that fallback would never be taken.
+//
+// Own methods only, like `GDScript::get_script_method_argument_count` (`gdscript.cpp:370-383`): the
+// base chain is walked by the caller (`Object::get_method_argument_count`, `object.cpp:794-805`) or
+// by `GodotJSScriptInstanceBase::get_method_argument_count`.
+TEST_CASE("[runtime] [jsb] script method argument count") {
+	GodotJSScriptLanguageIniter initer;
+
+	const String target_path = "res://tests/static-members/static-members-target.ts";
+	Ref<GodotJSScript> target;
+	target.instantiate();
+	REQUIRE(target->load_source_code(target_path) == OK);
+	target->set_path(target_path);
+
+	const Variant no_params = target->_get_script_method_argument_count(StringName("greet"));
+	REQUIRE(no_params.get_type() == Variant::INT);
+	CHECK((int64_t)no_params == 0);
+
+	const Variant defaults_and_rest = target->_get_script_method_argument_count(StringName("add"));
+	REQUIRE(defaults_and_rest.get_type() == Variant::INT);
+	CHECK((int64_t)defaults_and_rest == 2);
+
+	// 签名清单（sidecar）**真的被消费了**：`_get_script_method_list()` 只有在清单加载成功时才带
+	// `args` / `default_args` / `flags` —— 没有清单时 `overloads` 为空，只交出名字。上面对
+	// `add` 的计数断言不具备这个鉴别力（回退扫描同样得到 2），所以这里直接查方法表。
+	// 清单是编辑器侧构建产物；本套件已硬依赖 `res://.godot/godotjs_ext/test_01.js`
+	// （见 `check_required_files`），同一次编辑器产出即保证它存在。缺失时**明确报出**而不是静默通过，
+	// 否则这条断言会退化成"什么都没测到"。
+	{
+		const String sig_path = "res://.godot/godotjs_ext/tests/static-members/static-members-target.sig";
+		if (FileAccess::file_exists(sig_path)) {
+			const TypedArray<Dictionary> methods = target->_get_script_method_list();
+			bool found_add = false;
+			for (int i = 0; i < methods.size(); ++i) {
+				const Dictionary entry = methods[i];
+				if (StringName(entry.get("name", StringName())) != StringName("add")) {
+					continue;
+				}
+				found_add = true;
+				const Array args = entry.get("args", Array());
+				CHECK(args.size() == 2);
+				const Array default_args = entry.get("default_args", Array());
+				CHECK(default_args.size() == 1);
+				// 剩余参数只置 VARARG（不入 args），否则 GDScript 会判 Too many arguments。
+				CHECK(((int64_t)entry.get("flags", (int64_t)0) & (int64_t)GDEXTENSION_METHOD_FLAG_VARARG) != 0);
+				// 参数名与类型都来自清单（`number` -> FLOAT）。
+				if (args.size() == 2) {
+					CHECK(StringName(Dictionary(args[0]).get("name", StringName())) == StringName("a"));
+					CHECK((int)Dictionary(args[0]).get("type", -1) == Variant::FLOAT);
+					CHECK(StringName(Dictionary(args[1]).get("name", StringName())) == StringName("b"));
+				}
+				// 返回值来自清单：`number` -> FLOAT（非 NIL ⇒ 不是 void）。
+				CHECK((int)Dictionary(entry.get("return", Dictionary())).get("type", -1) == Variant::FLOAT);
+			}
+			CHECK_MESSAGE(found_add, "the signature manifest was not reflected into the method list");
+		} else {
+			MESSAGE("signature manifest absent at " << sig_path << "; skipped the manifest-integration assertions");
+		}
+	}
+
+	// `test_01.ts` 的信号 `test_signal!: Signal<(value: number) => void>` 也必须带参数表
+	// （design.md §12 / A7）。清单里的 `kind=1` 记录只有在被消费时才反映到信号表上。
+	// 走 `ResourceLoader` 取**缓存实例**：`load_source_code + set_path` 构造新对象会与已缓存的
+	// 同一路径冲突（实测 "Another resource is loaded from path"）。本套件已有同型先例
+	// （`script members: own members only`）。
+	{
+		const String sig_path = "res://.godot/godotjs_ext/test_01.sig";
+		if (FileAccess::file_exists(sig_path)) {
+			const Ref<GodotJSScript> signal_script = ResourceLoader::get_singleton()->load("res://test_01.ts", jsb_typename(GodotJSScript));
+			REQUIRE(signal_script.is_valid());
+			REQUIRE(signal_script->_is_valid());
+			const TypedArray<Dictionary> signals = signal_script->_get_script_signal_list();
+			bool found = false;
+			for (int i = 0; i < signals.size(); ++i) {
+				const Dictionary entry = signals[i];
+				if (StringName(entry.get("name", StringName())) != StringName("test_signal")) {
+					continue;
+				}
+				found = true;
+				const Array args = entry.get("args", Array());
+				REQUIRE(args.size() == 1);
+				CHECK(StringName(Dictionary(args[0]).get("name", StringName())) == StringName("value"));
+				CHECK((int)Dictionary(args[0]).get("type", -1) == Variant::FLOAT);
+			}
+			CHECK_MESSAGE(found, "the signal manifest entry was not reflected into the signal list");
+		} else {
+			MESSAGE("test_01 manifest absent; skipped the signal-integration assertions");
+		}
+	}
+
+	CHECK(target->_get_script_method_argument_count(StringName("__not_a_method__")).get_type() != Variant::INT);
+
+	const String derived_path = "res://tests/static-members/static-members-derived.ts";
+	Ref<GodotJSScript> derived;
+	derived.instantiate();
+	REQUIRE(derived->load_source_code(derived_path) == OK);
+	derived->set_path(derived_path);
+
+	// `_is_valid()` forces the module load, so the assertions below cannot pass merely because the
+	// derived script failed to load (an invalid script reports no methods at all).
+	CHECK(derived->_is_valid());
+	// `add` is declared by the base alone and this hook reports own methods only
+	CHECK(derived->_get_script_method_argument_count(StringName("add")).get_type() != Variant::INT);
 }
 
 } //namespace jsb::tests
