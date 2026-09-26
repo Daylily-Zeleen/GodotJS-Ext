@@ -421,6 +421,9 @@ def collect(data, vt_map):
                 "name_str": mem["name"],
                 # the member's OWN declared type drives its ptrcall slot
                 "member_type": VARIANT_TYPE_VALUES.get(mem["type"], -1),
+                # ...and its concrete C++ type (same one the engine's named
+                # member getter encodes) types the getter thunk's exit.
+                "type_str": mem["type"],
             })
         for ctor in bc.get("constructors", []):
             m.constructors.append({
@@ -513,9 +516,11 @@ def collect(data, vt_map):
                 # Declared property type drives strict conversion in the setter.
                 "prop_type": prop.get("type", "Variant"),
                 # Resolved accessor definitions (None for an unresolved side);
-                # each property side gets its own index-bearing thunk.
+                # each property side gets its own index-bearing thunk. The
+                # getter's own declared return type types its thunk's exit.
                 "_gdef": gdef,
                 "_sdef": sdef,
+                "_gret": method_ret_expr(gdef) if gdef else None,
                 "getter_name_id": m.pool.get(gname),
                 "setter_name_id": m.pool.get(sname),
                 "getter_hash": int(gdef["hash"]) if gdef and "hash" in gdef else 0,
@@ -788,6 +793,18 @@ def arg_template_expr(a):
     return ct
 
 
+def member_cpp_type(t, meta=None):
+    """json member / property type -> concrete C++ type, matching the ptrcall
+    slot the engine's own named accessor uses (float -> real_t, int -> int64_t,
+    see arg_template_expr). Compound hints ("Texture2D,-AnimatedTexture")
+    are a filter list: the first entry is the accepted base class."""
+    if "," in t:
+        t = t.split(",", 1)[0]
+    if t.startswith(("enum::", "bitfield::")):
+        return "int64_t"
+    return arg_template_expr({"type": t, "meta": meta})
+
+
 def args_pack_expr(args):
     """The FULL parameter type list (required first, optional tail
     contiguous) wrapped in one Args<> class argument."""
@@ -913,6 +930,14 @@ def ret_template_expr(t, usage=0, meta=None):
     else:
         ct = "godot::Object*"  # Object-derived engine class name (Button, ...)
     return "Ret<%s>" % ct
+
+
+def method_ret_expr(meth):
+    """A resolved method definition -> its `Ret<...>` return descriptor."""
+    rv = meth.get("return_value")
+    if isinstance(rv, dict):
+        return ret_template_expr(rv.get("type", "void"), rv.get("usage", 0), rv.get("meta"))
+    return ret_template_expr(rv or "void", 0, None)
 
 
 def builtin_entry_expr(m, e, is_utility=False):
@@ -1244,6 +1269,8 @@ def _emit_builtin_member_accessors(m, L, binding_mode="static"):
         return
 
     def emit_member_lookup(fn_name, side):
+        # The getter exit is typed by the member's concrete C++ type; the
+        # setter still converts through the Variant type (strict conversion).
         tmpl = ("thunks::member_getter_thunk" if side == "g"
                 else "thunks::member_setter_thunk")
         L.append("const ThunkFn %s(godot::Variant::Type p_vt, const godot::StringName &p_name) {" % fn_name)
@@ -1252,9 +1279,10 @@ def _emit_builtin_member_accessors(m, L, binding_mode="static"):
             L.append("\tcase %s: {" % vt_value_to_enum(vt))
             for e in by_vt[vt]:
                 nlit = cxx_str(e["name_str"])
+                mt = member_cpp_type(e["type_str"]) if side == "g" else vt_value_to_enum(e["member_type"])
                 L.append("\t\tif (p_name == godot::StringName(%s))" % nlit)
                 L.append("\t\t\treturn (ThunkFn)&%s<%s, %s, %s>;"
-                         % (tmpl, vt_value_to_enum(vt), vt_value_to_enum(e["member_type"]), nlit))
+                         % (tmpl, vt_value_to_enum(vt), mt, nlit))
             L.append("\t\treturn nullptr;")
             L.append("\t}")
         L.append("\tdefault: return nullptr;")
@@ -1273,16 +1301,20 @@ def _emit_shared_builtin_member_accessors(m, L, by_vt):
     serving both accessor thunks of the property), and top-level
     find_shared_member_getter/setter_binding that eagerly resolves+caches both
     ptrcall functions before returning."""
-    # ---- shared accessor thunk instantiations (dedup by (VTC, MemberVT)) ----
-    sigs = sorted({(vt, e["member_type"]) for vt, es in by_vt.items() for e in es})
-    sig_id = {(vt, mt): i for i, (vt, mt) in enumerate(sigs)}
+    # ---- shared accessor thunk instantiations ------------------------------
+    # The getter is keyed by the member's concrete C++ type, the setter by its
+    # Variant type (the two no longer share a signature).
+    g_sigs = sorted({(vt, member_cpp_type(e["type_str"])) for vt, es in by_vt.items() for e in es})
+    g_sig_id = {(vt, ct): i for i, (vt, ct) in enumerate(g_sigs)}
+    s_sigs = sorted({(vt, e["member_type"]) for vt, es in by_vt.items() for e in es})
+    s_sig_id = {(vt, mt): i for i, (vt, mt) in enumerate(s_sigs)}
     L.append("static const ThunkFn k_shared_member_getters[] = {")
-    for vt, mt in sigs:
+    for vt, ct in g_sigs:
         L.append("\t(ThunkFn)&thunks::shared_member_getter_thunk<%s, %s>,"
-                 % (vt_value_to_enum(vt), vt_value_to_enum(mt)))
+                 % (vt_value_to_enum(vt), ct))
     L.append("};")
     L.append("static const ThunkFn k_shared_member_setters[] = {")
-    for vt, mt in sigs:
+    for vt, mt in s_sigs:
         L.append("\t(ThunkFn)&thunks::shared_member_setter_thunk<%s, %s>,"
                  % (vt_value_to_enum(vt), vt_value_to_enum(mt)))
     L.append("};")
@@ -1308,7 +1340,7 @@ def _emit_shared_builtin_member_accessors(m, L, by_vt):
         for row, e in enumerate(entries):
             nlit = cxx_str(e["name_str"])
             L.append("\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_member_data_%s[%d]; return k_shared_member_getters[%d]; }"
-                     % (nlit, vt_ident, row, sig_id[(vt, e["member_type"])]))
+                     % (nlit, vt_ident, row, g_sig_id[(vt, member_cpp_type(e["type_str"]))]))
         L.append("\treturn nullptr;")
         L.append("}")
         L.append("")
@@ -1316,7 +1348,7 @@ def _emit_shared_builtin_member_accessors(m, L, by_vt):
         for row, e in enumerate(entries):
             nlit = cxx_str(e["name_str"])
             L.append("\tif (strcmp(p_name, %s) == 0) { *r_method_data = &k_member_data_%s[%d]; return k_shared_member_setters[%d]; }"
-                     % (nlit, vt_ident, row, sig_id[(vt, e["member_type"])]))
+                     % (nlit, vt_ident, row, s_sig_id[(vt, e["member_type"])]))
         L.append("\treturn nullptr;")
         L.append("}")
         L.append("")
@@ -1704,8 +1736,8 @@ def _emit_shared_class_dispatch(m):
             return "thunks::indexed_property_setter_thunk<%du, %s, %s, %d, %s>" % (
                 int(d["hash"]), cxx_str(cname), cxx_str(nm),
                 p["index"], vt_value_to_enum(prop_vt_value(p["prop_type"])))
-        return "thunks::indexed_property_getter_thunk<%du, %s, %s, %d>" % (
-            int(d["hash"]), cxx_str(cname), cxx_str(nm), p["index"])
+        return "thunks::indexed_property_getter_thunk<%du, %s, %s, %s, %d>" % (
+            int(d["hash"]), cxx_str(cname), cxx_str(nm), p["_gret"], p["index"])
 
     ip_entries = []
     for cid in sorted(ip_by_cls, key=lambda cid: m.pool.strings[cid]):
@@ -1872,8 +1904,8 @@ def emit_class_dispatch_cpp(m, binding_mode="static"):
             return "thunks::indexed_property_setter_thunk<%du, %s, %s, %d, %s>" % (
                 int(d["hash"]), cxx_str(cname), cxx_str(nm),
                 p["index"], vt_value_to_enum(prop_vt_value(p["prop_type"])))
-        return "thunks::indexed_property_getter_thunk<%du, %s, %s, %d>" % (
-            int(d["hash"]), cxx_str(cname), cxx_str(nm), p["index"])
+        return "thunks::indexed_property_getter_thunk<%du, %s, %s, %s, %d>" % (
+            int(d["hash"]), cxx_str(cname), cxx_str(nm), p["_gret"], p["index"])
 
     ip_entries = []
     for cid in sorted(ip_by_cls, key=lambda cid: m.pool.strings[cid]):
