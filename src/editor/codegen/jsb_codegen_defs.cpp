@@ -37,17 +37,34 @@ namespace jsb {
 namespace codegen {
 
 const char *const kPredefinedLines[] = {
+	// Fixed-width ladder: signed by width, then the floats, then unsigned by
+	// width, then the character units.
+	//
+	// The 64-bit aliases are ONE alias covering both directions, and they follow
+	// `JSB_WITH_BIGINT`: with BigInt available the declaration admits either (the
+	// writer picks `Number` or `BigInt` per value, so no narrower promise is
+	// true); without it, `BigInt` does not exist in the build and the alias is a
+	// plain `number`. A caller that needs a definite type narrows the value.
 	"type byte = number",
 	"type int8 = number",
 	"type int16 = number",
 	"type int32 = number",
-	"type int64 = number /* || bigint */",
+#if JSB_WITH_BIGINT
+	"type int64 = number | bigint",
+#else
+	"type int64 = number",
+#endif
 	"type float32 = number",
 	"type float64 = number",
 	"type uint8 = number",
 	"type uint16 = number",
 	"type uint32 = number",
-	"type uint64 = number /* || bigint */",
+#if JSB_WITH_BIGINT
+	"type uint64 = number | bigint",
+#else
+	"type uint64 = number",
+#endif
+
 	"type char16 = number",
 	"type char32 = number",
 	"type StringName = string",
