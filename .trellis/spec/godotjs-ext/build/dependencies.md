@@ -321,6 +321,25 @@ v8 target；那两个变量被编进多个不同归档）。
   （`find ... -name '*.ninja' -exec grep -l ccache {} +`，注意 macOS 是 BSD grep，
   **没有** `--include`），并且放在**编译之前**——失败应该几秒内发生，不是一小时后。
 
+- **v8 的源码缓存跨平台串用，会让 android 腿在 `gn gen` 就炸（踩过，2026-09-26）**。
+  `build_v8.yml` 的缓存 key 是 `v8src-${{ runner.os }}-${{ v8_version }}-${{ hashFiles(config/v8) }}`，
+  **只看 runner OS**——于是 `v8/android-*`（跑在 ubuntu-22.04）与 `v8/linux-*` 命中**同一个** Linux 条目。
+  而 v8 的 `DEPS` 里有一批依赖带 `'condition': 'checkout_android'`
+  （例：`third_party/catapult`，v8 12.4.254.21 的 DEPS 第 240-243 行），
+  只有 `.gclient` 写了 `target_os = ['android']` 时 `gclient sync` 才会把它们 checkout 下来。
+  `v8/fetch` action **只在冷启动（无缓存）时**写这个 `target_os`；命中缓存时直接
+  `gclient sync`，而缓存的 `.gclient` 是 linux 腿建的、没有 `target_os`，android 专属依赖
+  就永远缺失。症状是在**编译之前**就失败：
+
+  ```
+  ERROR at //build/android/BUILD.gn:219:5: Unable to load
+    ".../v8/v8/third_party/catapult/tracing/BUILD.gn"
+  ```
+
+  该轮 `v8 source tree restored from cache` 是判据。影响：`publish` job 的条件是
+  `v8.result == 'success'`，所以 android 腿一挂，**整个版本化 release 都不会发布**
+  （`build_all` 里 `publish` 直接 skipped），只有 `ci-<runid>`（per-platform）照常发布。
+
 - **改了依赖仓库 ≠ 本仓生效**：本仓 `third/` 下是已下载的产物，`dependency_is_ready()`
   命中就跳过下载。换产物要么删掉对应 `third/<name>/` 让下次构建重下，要么手动替换。
 
