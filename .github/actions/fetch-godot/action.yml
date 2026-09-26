@@ -92,5 +92,23 @@ runs:
           echo "could not locate the extracted Godot engine under $GODOT_TARGET" >&2
           exit 1
         fi
-        echo "GODOT=$GITHUB_WORKSPACE/$GODOT_BIN" >> "$GITHUB_ENV"
-        echo "Using GODOT=$GITHUB_WORKSPACE/$GODOT_BIN"
+        GODOT_PATH="$GITHUB_WORKSPACE/$GODOT_BIN"
+        echo "Using GODOT=$GODOT_PATH"
+        echo "GODOT=$GODOT_PATH" >> "$GITHUB_ENV"
+        # On macOS also expose an arch-forced launcher as $GODOT. The official
+        # engine is a universal binary, and Godot grants the "universal" feature
+        # on BOTH macOS architectures while granting "arm64" only when the
+        # process really is arm64 (core/os/os.cpp:529-556). An engine started as
+        # x86_64 therefore cannot match the arm64 library keys, falls back to the
+        # arch-less one, and looks for "...universal.dylib" - a file the
+        # arm64-only v8/node/jsc legs never produce. Forcing the native slice
+        # keeps every invocation (including the direct "$GODOT" calls) consistent.
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          # Absolute path: subsequent steps run from different working
+          # directories, so a relative $GODOT would not resolve.
+          LAUNCHER="$GITHUB_WORKSPACE/$GODOT_TARGET/godot-native"
+          printf '#!/bin/sh\nexec arch -arm64 "%s" "$@"\n' "$GODOT_PATH" > "$LAUNCHER"
+          chmod +x "$LAUNCHER"
+          echo "GODOT=$LAUNCHER" >> "$GITHUB_ENV"
+          echo "Using (arch-forced) GODOT=$LAUNCHER"
+        fi

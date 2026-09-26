@@ -717,19 +717,16 @@ jobs:
             # a bare symlink makes CFBundleGetMainBundle resolve to the link).
             # A wrapper keeps the exec path inside the .app.
             #
-            # The official macOS engine is a universal (x86_64 + arm64) binary.
-            # If it starts as x86_64 (Rosetta), Godot's OS::has_feature returns
-            # true for "universal" but false for "arm64" (core/os/os.cpp:529-556
-            # grants "universal" on both architectures), and the loader then
-            # picks the arch-less "macos.debug.editor" key, whose value names
-            # "...universal.dylib" - a file the arm64-only v8/node/jsc legs never
-            # produce. Observed exactly that: the log tried only
-            # "...universal.dylib" and never mentioned the arm64 one.
-            # `arch -arm64` forces the native slice, so the arm64 keys match.
-            printf '#!/bin/sh\nexec arch -arm64 "%s" "$@"\n' "$GODOT" > tests/bin/godot
+            # $GODOT is already an arch-forced launcher on macOS (see
+            # fetch-godot): the official engine is a universal binary and Godot
+            # grants the "universal" feature on BOTH macOS architectures while
+            # granting "arm64" only when the process really is arm64
+            # (core/os/os.cpp:529-556). An engine started as x86_64 cannot match
+            # the arm64 library keys and looks for "...universal.dylib" - a file
+            # the arm64-only v8/node/jsc legs never build. Re-exec through $GODOT
+            # so the same arch-forced path is used here too.
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$GODOT" > tests/bin/godot
             chmod +x tests/bin/godot
-            file "$GODOT" || true
-            arch -arm64 "$GODOT" --version || true
           else
             cp "$GODOT" "tests/bin/godot"
             chmod +x "tests/bin/godot"
@@ -741,6 +738,20 @@ jobs:
         run: |
           mkdir -p project/addons/godotjs-ext.daylily-zeleen/bin
           cp -r runtime-artifacts/. project/addons/godotjs-ext.daylily-zeleen/bin/
+          # Record what the engine will actually match. If a macOS leg still
+          # resolves the arch-less "universal" key while the artifact only
+          # contains an arm64 dylib, this makes the cause visible immediately
+          # instead of only as a missing-file error.
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "--- runner arch ---"
+            uname -m
+            arch
+            echo "--- engine launcher ---"
+            echo "GODOT=$GODOT"
+            file "$GODOT" 2>/dev/null || true
+            echo "--- staged macOS libraries ---"
+            ls -la project/addons/godotjs-ext.daylily-zeleen/bin/macos/ 2>/dev/null || true
+          fi
 
       # Bootstrap emit ONLY. `project/typings/` does not exist yet — it is
       # generated from the api store that the next step produces — so this pass
