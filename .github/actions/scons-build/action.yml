@@ -171,8 +171,21 @@ runs:
         # node leg fails at link time with "undefined reference to
         # __extendhfdf2". Select gcc-12 explicitly; setup-godotjs-ext installs it
         # for this platform and preflights both symbols.
+        #
+        # use_static_cpp=no: godot-cpp defaults it to yes, which links a PRIVATE
+        # libstdc++ into the extension. Godot's own binary also carries a static
+        # libstdc++ (it imports zero GLIBCXX symbols - verified with nm/objdump),
+        # so a statically linked extension puts two copies of the C++ runtime in
+        # one process. V8's startup then dies formatting a number:
+        #   v8::V8::Initialize -> internal::V8::Initialize -> FlagList::Hash
+        #     -> ComputeFlagListHash -> operator<<(ostream&, Flag const&)
+        #     -> std::ostream::_M_insert<long> -> codecvt::do_unshift  SIGSEGV
+        # (symbolicated from the CI backtrace with addr2line; both linux legs
+        # fail identically, while host-qjs - which links no C++ archive - passes).
+        # Using the shared libstdc++ leaves exactly one C++ runtime in the
+        # process, which is what an engine-internal extension must do.
         if [ "$LEG_PLATFORM" = "linux" ] && [ "$LEG_ARCH" = "x86_64" ]; then
-          args+=(CC=gcc-12 CXX=g++-12)
+          args+=(CC=gcc-12 CXX=g++-12 use_static_cpp=no)
         fi
 
         if [ -n "$LEG_FLAGS" ]; then
