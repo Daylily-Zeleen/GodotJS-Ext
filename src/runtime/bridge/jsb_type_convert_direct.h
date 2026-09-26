@@ -68,6 +68,18 @@ inline bool js_unwrap_proxy(v8::Isolate *p_isolate, const v8::Local<v8::Context>
 template <typename T>
 struct JSToGD;
 
+// Forward-declared because the `JSToGD` primary template below calls it, and a
+// template's unqualified call to a name that does not depend on its own
+// parameters is resolved at the point of DEFINITION (two-phase lookup). Without
+// this, Clang rejects the call outright ("neither visible in the template
+// definition nor found by argument-dependent lookup"); MSVC and GCC accept it by
+// accident. The definition follows the primary template.
+template <typename CppT>
+inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
+		const v8::Local<v8::Context> &p_context,
+		const v8::Local<v8::Value> &p_jval,
+		CppT &r_out);
+
 // untyped: delegate to the dynamic converter (used for vararg tails and
 // json-typed "Variant" parameters)
 template <>
