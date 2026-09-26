@@ -29,10 +29,10 @@
 // SEVERITY_* macro pollution, see jsb_node_pch.h).
 #include <uv.h>
 
+#include "internal/jsb_bridge_table.h"
 #include "jsb_node_bridge.h"
 #include "jsb_node_global_init.h"
 #include "jsb_node_helper.h"
-#include "internal/jsb_bridge_table.h"
 
 namespace jsb::impl {
 NodeRuntime::NodeRuntime() {
@@ -128,7 +128,19 @@ NodeRuntime::NodeRuntime() {
 NodeRuntime::~NodeRuntime() {
 	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
 
-	// Node Environment.
+	// Node environment teardown.
+	//
+	// node::Stop() schedules the environment's handles to close, and
+	// node::FreeEnvironment() -> Environment::RunCleanup() -> CleanupHandles()
+	// closes more of them with uv_close(). A uv_close() only COMPLETES while the
+	// loop runs, and its completion is what removes the handle from libuv's
+	// fd/platform tables - so the loop must be drained between these calls.
+	// Without that drain, libuv faults while tearing down a handle whose close
+	// callback never ran (observed on Linux as a SIGSEGV in
+	// uv__platform_invalidate_fd <- uv__stream_close <- uv_close <-
+	// node::HandleWrap::Close <- Environment::CleanupHandles <-
+	// Environment::RunCleanup <- node::FreeEnvironment). The loop only got run
+	// later, in the block below, which was too late.
 	{
 		jsb_check(node_env_);
 		JSB_ISOLATE_SCOPE(isolate_);
@@ -140,6 +152,14 @@ NodeRuntime::~NodeRuntime() {
 		node::SpinEventLoop(node_env_).ToChecked(); // 如果有未完成任务（如 setInterval） 可能会卡住
 	}
 	node::Stop(node_env_);
+	// Run the loop so the closes scheduled by Stop() actually complete before
+	// FreeEnvironment() tears the environment down. UV_RUN_NOWAIT-style ticks
+	// are used rather than UV_RUN_DEFAULT: a still-active handle (a stray
+	// setInterval, a listening socket) would otherwise block the destructor
+	// forever. Closing callbacks need only a tick or two.
+	for (int i = 0; i < 8 && uv_loop_alive(loop_) != 0; ++i) {
+		uv_run(loop_, UV_RUN_NOWAIT);
+	}
 	node::FreeEnvironment(node_env_);
 
 	{
@@ -187,7 +207,7 @@ NodeRuntime::~NodeRuntime() {
 
 	// Allocator
 	allocator_.reset();
-	
+
 	// drop the console hook state owned by this isolate before it goes away
 	// (see jsb_bridge_table.cpp)
 	jsb::bridge_console_hook_on_isolate_releasing(isolate_);
