@@ -653,3 +653,257 @@ static void gdextension_object_method_bind_call(..., GDExtensionUninitializedVar
 
 故属既有缺陷；一行修复即 `object_method_bind_call(..., &ret, &call_error)`（返回值丢弃）。
 本轮**未改**（未被要求）。工作区已恢复为 `nullptr`。
+
+---
+
+# 第 6 轮：修复索引属性 setter 的两条路径 + 提交推送（2026-09-26）
+
+用户授权：「把这个修了，在基准测试里新增几个相关的测试进行覆盖。然后根据实际情况
+分次提交，再推送，让 CI 跑测」。
+
+## 修复 1：static 路径 `r_return = nullptr`
+
+`indexed_property_setter_thunk` 调 `object_method_bind_call` 时传 `nullptr` 作为
+`r_return`。引擎实现在 `core/extension/gdextension_interface.cpp:1337-1345`：
+
+```cpp
+memnew_placement(r_return, Variant(mb->call(o, args, p_arg_count, error)));  // 无条件
+if (r_error) { ... }
+```
+
+`memnew_placement` **不判空**，且 `MethodBindT::call` 即使对 void 方法也
+`return Variant();` —— 所以"无返回值"在这一层不存在，永远会写一次。**即使方法无
+返回值，`r_return` 也不能传 `nullptr`。** 对比紧邻的 `object_method_bind_ptrcall`：
+它直接 `mb->ptrcall(o, args, p_ret)`，void 时确实可为 null。godot-cpp 自己的生成代码
+（`binding_generator.py:2261`、`gen/src/classes/*.cpp`）一律传 `&ret`。
+
+全仓 6 个 `object_method_bind_call` 调用点里，只有这一处传 `nullptr`。
+
+**clean A/B 对照**（同一份源码、同一参数顺序，唯一变量就是这一个实参）：
+
+| 组 | 调用点 | 结果 |
+|---|---|---|
+| A | `..., 2, nullptr, &call_error)` | `Control.offset_left = -1.25` → 崩溃（`gdextension_interface.cpp:1343`） |
+| B | `..., 2, &ret, &call_error)` | 通过 |
+
+修复：传一个真实 `godot::Variant ret`（返回值丢弃）。
+
+## 修复 2：reflect 路径取错了参数
+
+覆盖测试在 dynamic 腿立刻暴露第二个既有缺陷：`_godot_object_set2` 用
+`get_argument_type(0)` 转换**被赋的值**。但索引属性的 setter 首参是**常量索引 /
+枚举**，值在末位：
+
+```
+set_offset(Side, float)                  set_param_max(Parameter, float)
+set_flag(Flags, bool)                    set_param_texture(Parameter, Texture2D)
+set_particle_flag(CPUParticles2D.Particle, bool)
+```
+
+实测 `project/extension_api.json`：**415 个已解析的索引 setter 全部恰好 2 个参数**
+（arg0 = index/enum，arg1 = 值），无一例外。所以按 arg0 转换必然错：
+- `initial_velocity_min = 11.5` → 按 INT 转换 → 读回 `11`（截断）
+- `particle_flag_align_y = true` → `Failed to convert JS variable to Variant.
+  Expected: int. Found: boolean`
+
+修复：读末位参数 `get_argument_count() - 1`。
+
+## 覆盖
+
+- **新增 `project/tests/indexed-props/test-indexed-props.ts`**（+`.tscn`，注册进
+  `start.ts` 场景列表）。这是必要的，不只是"顺手加"：**benchmark job 的 `if` 是
+  `github.event_name == 'workflow_dispatch'`，push 不会跑它**，而 `test` job 跑
+  `project/`。不放集成场景的话，推送后 CI 根本不会验证这些修复。
+  覆盖 float / bool / object / NodePath / enum-首参 五种形状，**get 与 set 都测**，
+  且每个值再通过方法 API 回读交叉验证；四个 offset 索引互不相同的断言抓"常量索引
+  被共享"；失败走 `reportTestFailure` 哨兵，CI 会失败。`EXPECTED_CHECKS = 32` 硬编码。
+- **benchmark 新增 14 个用例**：`IndexedProp`（CPUParticles2D：float idx6/idx0、
+  bool idx0、object idx6 —— 最后这个就是修复前必崩的）与 `IndexedPropEnum`
+  （Control：get/set_offset、get_anchor、get/set_focus_neighbor）。
+
+## 验证
+
+| 腿 | 构建 | C++ | TS | bench |
+|---|---|---|---|---|
+| v8 static | rc=0 267s | `58/58` + `3/3` | `COMPLETED` `INDEXED-PROPS=32` `checks=55` `NUMERIC=23` | invalid=0，新用例 14/14 无错 |
+| v8 shared | rc=0 80s | `58/58` + `3/3` | `COMPLETED` `INDEXED-PROPS=32` | — |
+| v8 dynamic | rc=0 59s | `57/57` + `3/3` | `COMPLETED` `INDEXED-PROPS=32`（修前 25/32 失败） | invalid=0，新用例 14/14 无错 |
+| qjs static | rc=0 | `59/59` + `3/3` | `COMPLETED` `INDEXED-PROPS=32` | — |
+| qjs dynamic | rc=0 | `58/58` + `3/3` | `COMPLETED` `INDEXED-PROPS=32` | — |
+
+## 提交与推送
+
+已推送 `6745e93..62044ef` → `origin/feature/int64`，8 个分批提交：
+
+```
+62044ef docs: record the copyright-header rule and align a stale comment
+bc8702c docs(trellis): record the numeric contract work and its evidence
+970f9ac ci: let the binding mode be selected for a manual run
+5b9d775 test: make the suites build-mode aware and expand the benchmark
+583a898 fix(binding): repair both indexed-property setter paths
+56a395e feat(codegen): derive the fixed-width alias ladder and type the generated thunks
+ddb60ab refactor(static_binding): type the getter exits instead of round-tripping a Variant
+0f8c876 fix(runtime): converge fixed-width numeric conversion and the 64-bit return contract
+```
+
+不提交并保留原样：`third/quickjs-ng`（子模块内未跟踪的 `.obj` 编译产物，假修改）。
+
+`push` 事件触发 CI 的 `build` + `test` job（三个 runtime 矩阵 host-v8 / host-qjs /
+host-node 均运行 `project/`，含新集成场景）。**benchmark job 不会因 push 触发**
+（`if: github.event_name == 'workflow_dispatch'`），需手动 `gh workflow run`。
+
+> 更正：早期记录里写过"本机无 `gh`，未做手动触发"，**那是错的**。当时是用出故障的
+> `bash -lc` 子 shell 去 `which gh`，那个环境 PATH 与原生 Windows 不同，于是误判。
+> 实测 `gh` 在 `C:\Program Files\GitHub CLI\gh.exe`，已在 PATH 且已登录
+> （token scope 含 `repo` + `workflow`）。
+
+**注意**：`ci.yml` 的 `concurrency.group` 含 `github.ref_name` 且
+`cancel-in-progress: true`，所以 `gh workflow run --ref feature/int64` 会**取消**同一
+ref 上正在跑的 push CI。必须先等 push 那次跑完，再 dispatch 跑 benchmark。
+
+---
+
+# 第 7 轮：CI 抓到的两阶段名字查找 bug（2026-09-26）
+
+## 事实
+
+推送 `62044ef` 后 CI run `36229359756` 结束，**15 个 Build 腿失败**，全部同一个根因：
+
+```
+src/runtime/bridge/jsb_type_convert_direct.h:161:11: error: call to function
+'js_to_fixed_width_int' that is neither visible in the template definition
+nor found by argument-dependent lookup
+```
+
+MinGW g++ 报同一件事的另一种措辞：`'js_to_fixed_width_int' was not declared in
+this scope, and no declarations were found by argument-dependent lookup at the
+point of instantiation`。
+
+失败腿覆盖 clang 与 MinGW 家族：macos-{v8,qjs-ng,jsc}、ios-{v8,qjs-ng,jsc}、
+android-{v8,qjs-ng}×2、web-{v8,qjs-ng}×2、windows-x86_64-qjs-ng(mingw)。
+通过的是 MSVC 与 Linux/GCC 的腿。
+
+对照：改动前的 base `6745e93` 的 CI run `36116332535` 是 **success**。所以这是
+本次工作引入的回归，不是既有问题。
+
+## 根因
+
+`jsb_type_convert_direct.h` 里 `JSToGD<T>` 主模板（第 120 行）的窄整数分支调用
+`js_to_fixed_width_int<T>`，而该函数**定义在第 191 行**——在模板定义点之后。
+
+模板里对**不依赖自身模板参数**的非限定名字的调用，按两阶段查找是在**定义点**
+解析的（2.5 阶段的 ADL 也无法救：`CppT` 是 `int8_t`/`uint16_t` 这类内建类型，
+关联命名空间集合为空）。所以名字必须在定义点可见。
+
+MSVC 不做严格两阶段查找（默认延迟模板解析），GCC 在这个形状上也放过，因此**本地
+MSVC 构建全绿**，而所有 clang/minGW 腿全红。本地此前只跑了 MSVC 静态/共享/动态 +
+quickjs 的 Windows 构建，从未用 clang 工具链编过一次。
+
+## 修复
+
+在 `JSToGD` 主模板之前加前向声明（与文件里 `JSToGD` 自身已有的
+`template <typename T> struct JSToGD;` 做法一致）：
+
+```cpp
+template <typename T>
+struct JSToGD;
+
+// Forward-declared because the `JSToGD` primary template below calls it, and a
+// template's unqualified call to a name that does not depend on its own
+// parameters is resolved at the point of DEFINITION (two-phase lookup).
+template <typename CppT>
+inline bool js_to_fixed_width_int(v8::Isolate *p_isolate,
+        const v8::Local<v8::Context> &p_context,
+        const v8::Local<v8::Value> &p_jval,
+        CppT &r_out);
+```
+
+## 验证（本地复现 → 修复 → 全量）
+
+**复现**（`.agent_tmp/probe_2phase.cpp`，强制实例化窄整数臂；已删除）：
+
+```
+clang++ -fsyntax-only -std=c++20 -fno-ms-compatibility -fno-delayed-template-parsing   -Dalloca=_alloca ... .agent_tmp/probe_2phase.cpp
+```
+
+修复前：`error: call to function 'js_to_fixed_width_int' that is neither visible in
+the template definition nor found by argument-dependent lookup`（2 处）。
+修复后：**rc=0，0 错误**。
+
+（注：`-Dalloca=_alloca` 是 Windows 特有的噪声绕过——`api_tool_types.h` 的
+`stack_alloc` 用 `alloca`，严格模式下的 clang 在 MSVC 头里找不到它；与目标 bug 无关。）
+
+**全量 clang 构建**：`scons ... binding_mode=static windows_compiler=clang-cl` →
+**rc=0、0 错误**，覆盖包括 `static_binding/gen/*.gen.cpp` 在内的全部 TU。
+
+**clang-cl 产物实跑**：C++ `58/58` + `3/3`；TS `COMPLETED`、
+`INDEXED-PROPS=32`、`INT64=55`、`NUMERIC=23`。即换成 clang 编译后行为与 MSVC 一致。
+
+## 推送
+
+`62044ef..46809bb` → `origin/feature/int64`。新 run `36229993231`。
+
+## 第 7 轮之二：CI 抓到的第二个回归——命名空间遮蔽（web 腿）
+
+修掉两阶段查找后，`36229993231` 只剩 **web-v8** 一条腿失败（其余全过）：
+
+```
+src/runtime/impl/web/jsb_web_global_init.cpp:190: error: no member named 'Logger'
+  in namespace 'jsb::impl::internal'; did you mean '::jsb::internal::Logger'?
+src/runtime/impl/web/jsb_web_global_init.cpp:211: error: no member named 'settings'
+  in namespace 'jsb::impl::internal'; did you mean '::jsb::internal::settings'?
+```
+
+**也是我引入的**：我把共享标量转换函数移进新建的 `jsb::impl::internal`
+（`jsb_primitive_conv.h:66`）。C++ 名字查找里，**内层命名空间会遮蔽外层的同名
+命名空间**——`namespace jsb::impl { ... internal::Logger ... }` 里的非限定
+`internal::` 先看 `jsb::impl::internal`，找到就停，而那里没有 `Logger`。于是项目
+全局的 `jsb::internal::Logger` / `::settings` 被挡掉。
+
+为什么只有 web 腿炸：只有 `src/runtime/impl/web/jsb_web_global_init.cpp` 恰好在
+`namespace jsb::impl` 里用**非限定**的 `internal::Logger` / `internal::settings`；
+v8/quickjs/jsc 的同类文件写的是非限定名但那些 TU 的 include 顺序/内容不同，
+或者它们用的是其它限定形式。而这些 TU **只在各自后端构建时才编译**——本机只编
+过 v8 与 quickjs-ng，所以本地全绿。
+
+**修复**：把新命名空间改名为 `jsb::impl::detail`（28 处替换，6 个文件），与任何东西
+都不冲突。
+
+**机制最小复现**（`.agent_tmp/repro_shadow.cpp`，已删除）：
+
+```cpp
+namespace jsb {
+namespace internal { struct Logger { static void set_callbacks(); }; }
+namespace impl {
+#ifdef REPRO_SHADOW
+namespace internal { struct to_int64_placeholder {}; }   // 旧名字：在这里重新引入
+#endif
+void global_init() { internal::Logger::set_callbacks(); }  // 与 jsb_web_global_init.cpp 同形
+}
+}
+```
+
+| 组 | 结果 |
+|---|---|
+| 有内层 `internal`（修复前） | `error: no member named 'Logger' in namespace 'jsb::impl::internal'; did you mean '::jsb::internal::Logger'?` |
+| 改名后 | rc=0 |
+
+错误文本与 CI **逐字一致**，机制确认；同时说明它是**后端相关**的——只有该后端的
+TU 会编译到，这也是本机 MSVC 构建发现不了的根本原因。
+
+**验证**：`windows_compiler=clang-cl` 全量构建 **rc=0、0 错误**；产物实跑
+C++ `58/58` + `3/3`、TS `COMPLETED`、`INDEXED-PROPS=32`、`INT64=55`、`NUMERIC=23`。
+
+**推送**：`46809bb..84a9a26` → `origin/feature/int64`。
+
+## 第 7 轮小结：本机验证的根本盲区
+
+两次 CI 失败（两阶段查找、命名空间遮蔽）都是**本地 MSVC 构建永远不会发现**的类型：
+
+| 盲区 | 本机为何漏掉 | CI 为何抓到 |
+|---|---|---|
+| 两阶段名字查找 | MSVC 默认延迟模板解析，不做严格两阶段查找 | 所有 clang 腿 + MinGW g++ |
+| 命名空间遮蔽（后端特有 TU） | 本机只编过 v8 / quickjs-ng 的 Windows 构建 | web / ios / android 各自编译自己的 TU |
+
+两次修复都用**本地可复现**的手段钉死了（严格模式 clang 复现两阶段；最小命名空间
+复现遮蔽），而不是靠"改完等 CI"。
