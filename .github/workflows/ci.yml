@@ -760,8 +760,10 @@ jobs:
             #
             # printf (not a heredoc) because a column-0 terminator would end the
             # YAML block scalar; spaces (not \t, which single quotes keep
-            # literal) because GDScript needs real indentation.
-            probe=/tmp/jsb_arch_probe.gd
+            # literal) because GDScript needs real indentation. The script lives
+            # inside the project so --script can resolve it, and the full output
+            # is shown because a silent failure here is worse than noise.
+            probe=project/jsb_arch_probe.gd
             printf '%s\n' \
               'extends SceneTree' \
               'func _init():' \
@@ -769,9 +771,12 @@ jobs:
               '        print("PROBE ", f, "=", OS.has_feature(f))' \
               '    print("PROBE engine_arch=", Engine.get_architecture_name())' \
               '    quit()' > "$probe"
+            echo "--- generated probe ---"
+            cat "$probe"
             echo "--- engine feature probe ---"
-            timeout 120 "$GODOT" --headless --script "$probe" 2>&1 | grep -E '^PROBE' || \
-              echo "  (probe unavailable)"
+            timeout 180 "$GODOT" --headless --path project --script res://jsb_arch_probe.gd 2>&1 \
+              | grep -aE 'PROBE|ERROR|error' | head -30 || echo "  (probe run failed)"
+            rm -f "$probe"
           fi
 
       # Bootstrap emit ONLY. `project/typings/` does not exist yet — it is
