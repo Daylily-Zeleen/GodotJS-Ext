@@ -35,7 +35,7 @@
 
 namespace jsb::static_binding::thunks {
 
-template <godot::Variant::Type VTC, godot::Variant::Type MemberVT, FixedString NameLit>
+template <godot::Variant::Type VTC, typename T, FixedString NameLit>
 void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -56,14 +56,15 @@ void member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	void *base_opaque = get_opaque_typed<VTC>(const_cast<Variant *>(p_self));
 
 	// Ptrcall ABI: base points into the Variant; the result uses EncodeT storage.
-	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_val{};
+	// `T` is the member's concrete C++ type (the same one the engine's named
+	// member getter encodes -- the generated instantiation carries it), so the
+	// result crosses through `GDToJS<T>` with no Variant in between.
+	VariantEncodeType<T> ret_val{};
 	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_val);
 
-	// Convert native slot back to Variant for JS
-	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_val);
-
+	const T value = godot::PtrToArg<T>::convert(&ret_val);
 	v8::Local<v8::Value> rval;
-	if (!TypeConvert::gd_var_to_js(isolate, context, result, rval)) {
+	if (!GDToJS<T>::convert(isolate, context, value, rval)) {
 		jsb_throw(isolate, "bad translate");
 		return;
 	}
@@ -105,8 +106,9 @@ void member_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 
 #	if JSB_WITH_SHARED_THUNKS
 // ---------------------------------------------------------------------------
-// Signature-shared builtin member accessors (binding_mode=shared): one thunk
-// instance per unique (VTC, MemberVT) signature (19 each); the member identity
+// Signature-shared builtin member accessors (binding_mode=shared): one getter
+// thunk per unique (VTC, concrete C++ member type) signature and one setter
+// thunk per unique (VTC, Variant member type) signature (19 each); the member identity
 // (name) and the eagerly-resolved getter/setter ptrcall functions arrive
 // through info.Data() (SharedMemberAccessorData) instead of template params.
 
@@ -136,7 +138,7 @@ _FORCE_INLINE_ bool ensure_member_accessor(godot::Variant::Type p_vt, const godo
 	return true;
 }
 
-template <godot::Variant::Type VTC, godot::Variant::Type MemberVT>
+template <godot::Variant::Type VTC, typename T>
 void shared_member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -154,12 +156,12 @@ void shared_member_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info)
 	const Variant *p_self = (Variant *)info.This()->GetAlignedPointerFromInternalField(IF_Pointer);
 	void *base_opaque = get_opaque_typed<VTC>(const_cast<Variant *>(p_self));
 
-	VariantEncodeType<VariantNativeType_t<MemberVT>> ret_val{};
+	VariantEncodeType<T> ret_val{};
 	getter((GDExtensionConstTypePtr)base_opaque, (GDExtensionTypePtr)&ret_val);
 
-	const godot::Variant result = godot::PtrToArg<VariantNativeType_t<MemberVT>>::convert(&ret_val);
+	const T value = godot::PtrToArg<T>::convert(&ret_val);
 	v8::Local<v8::Value> rval;
-	if (!TypeConvert::gd_var_to_js(isolate, context, result, rval)) {
+	if (!GDToJS<T>::convert(isolate, context, value, rval)) {
 		jsb_throw(isolate, "bad translate");
 		return;
 	}
