@@ -51,16 +51,15 @@ on:
     inputs:
       binding_mode:
         description: >-
-          Class-method binding mode to build and test. 'default' keeps every
-          leg on the scons default (shared). A specific mode overrides it for
-          the desktop legs only -- mobile/web are template-only and stay on the
-          default, so a static/shared/dynamic run stays cheap. Named
-          `binding_mode` to match the scons option it maps to.
+          Class-method binding mode to build and test. The value is passed to
+          scons verbatim, so it must be one of scons' own accepted values
+          (`shared` is scons' default). It overrides the desktop legs only --
+          mobile/web are template-only and never run the runtime tests, so a
+          static/shared/dynamic run stays cheap.
         required: false
-        default: default
+        default: shared
         type: choice
         options:
-          - default
           - static
           - shared
           - dynamic
@@ -575,11 +574,11 @@ jobs:
           engine: ${{ matrix.engine }}
           windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           threads: ${{ matrix.threads }}
-          # A manually selected binding mode applies to the desktop legs, which
-          # the `test` job can actually run. Mobile/web stay on the scons default
-          # (shared): they are template-only and never run the runtime tests, so
-          # overriding them would only multiply build time.
-          flags: ${{ (inputs.binding_mode != '' && inputs.binding_mode != 'default' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos')) && format('binding_mode={0}', inputs.binding_mode) || '' }}
+          # The manually selected binding mode applies to the desktop legs,
+          # which the `test` job can actually run. Mobile/web stay on the scons
+          # default (shared): they are template-only and never run the runtime
+          # tests, so overriding them would only multiply build time.
+          flags: ${{ (inputs.binding_mode != '' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos')) && format('binding_mode={0}', inputs.binding_mode) || '' }}
           scons-cache: ${{ matrix.platform != 'windows' && format('{0}/.scons-cache', github.workspace) || '' }}
 
       - name: Upload GDExtension artifact
