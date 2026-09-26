@@ -2,7 +2,7 @@
   "name": "@godot-js/jsb-editor",
   "private": true,
   "scripts": {
-    "build": "tsc"
+    "build": "tsc && tsc -p tsconfig.signature.json"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",
