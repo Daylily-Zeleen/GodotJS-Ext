@@ -751,6 +751,27 @@ jobs:
             file "$GODOT" 2>/dev/null || true
             echo "--- staged macOS libraries ---"
             ls -la project/addons/godotjs-ext.daylily-zeleen/bin/macos/ 2>/dev/null || true
+            # Ask the ENGINE itself which features it reports, instead of
+            # inferring it from the error message later. Godot's matcher keeps
+            # the key with the most all-matching feature tags
+            # (gdextension_library_loader.cpp:74-97) and OS::has_feature grants
+            # "universal" on BOTH macOS arches but "arm64" only for a real arm64
+            # process (os.cpp:529-556) - so this prints the decisive bit.
+            #
+            # printf (not a heredoc) because a column-0 terminator would end the
+            # YAML block scalar; spaces (not \t, which single quotes keep
+            # literal) because GDScript needs real indentation.
+            probe=/tmp/jsb_arch_probe.gd
+            printf '%s\n' \
+              'extends SceneTree' \
+              'func _init():' \
+              '    for f in ["macos", "universal", "arm64", "x86_64", "debug", "editor", "template_debug", "64"]:' \
+              '        print("PROBE ", f, "=", OS.has_feature(f))' \
+              '    print("PROBE engine_arch=", Engine.get_architecture_name())' \
+              '    quit()' > "$probe"
+            echo "--- engine feature probe ---"
+            timeout 120 "$GODOT" --headless --script "$probe" 2>&1 | grep -E '^PROBE' || \
+              echo "  (probe unavailable)"
           fi
 
       # Bootstrap emit ONLY. `project/typings/` does not exist yet — it is
