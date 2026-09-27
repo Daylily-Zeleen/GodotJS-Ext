@@ -67,7 +67,12 @@ on:
   push:
 
 concurrency:
-  group: ${{ github.workflow }}|${{ github.ref_name }}
+  # A push to a PR branch fires BOTH `push` and `pull_request`, and the two events disagree on
+  # `ref_name` (branch name vs. PR number) - keying on it split one commit across two concurrency
+  # groups, so `cancel-in-progress` could never dedupe them and every commit ran the full matrix
+  # twice. Key on the PR number when the event carries one, otherwise on the ref, so both events
+  # of the same commit land in one group.
+  group: ${{ github.workflow }}|${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
