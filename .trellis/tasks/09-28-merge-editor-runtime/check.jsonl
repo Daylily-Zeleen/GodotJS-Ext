@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "两侧 C++ 测试合并为一套后的形态与 tests=yes 判别方式"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "验收标准：C++ doctest 与 TS 集成测试跑通口径"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建规范入口，含 dll 部署/质量检查单（合并后只剩一份 gdextension，需据此更新）"}
