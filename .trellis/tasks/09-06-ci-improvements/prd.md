@@ -24,5 +24,6 @@ CI 缺口归组父任务：测试矩阵补齐（ci-macos-test-legs）、发布�
   macos + host-v8(arm64) / host-jsc 测试腿至今仍未实现（test job 矩阵
   ci.yml:754-780 只有 5 条，macos 上仅 host-node 一条）。缺口真实存在，只是决定
   不去补；归档性质为 won't-do，非完成、非过时。详见归档目录下该任务的 prd.md。
-- `ci-release-packaging`、`ci-ios-infoplist` —— 仍为 planning。
+- ~~`ci-ios-infoplist`~~ —— **已实现（2026-09-28），已归档**。原担忧（xcframework 缺 Info.plist 导致 Xcode 集成告警）不成立：`xcodebuild -create-xcframework` 会自行生成该清单。已下载 CI run 36291137069 的 `ios-template_release-arm64-qjs-ng` 实测核对（两个 slice + 完整字段 + arm64 Mach-O）。性质为 superseded，非新增实现。详见归档目录下该任务的 prd.md。
+- `ci-release-packaging` —— 仍为 planning（CI 改进组下唯一未处置项）。
 - `libnode-typeinfo-symbols` —— 已归档（2026-09-26，依赖切换工作中解决）。
