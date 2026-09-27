@@ -54,12 +54,13 @@ static String diag_state(const char *p_where, const void *p_this, uv_loop_t *p_l
 			+ " live=" + String::num_int64(s_nr_live)
 			+ " backend_fd=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_backend_fd(p_loop) : -1)
 			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1)
-			// The fault reads inv->nfds; inv is lfields->inv, a slot inside the
-			// loop's internal_fields block. Print the slot and the inv pointer so
-			// its corruption is visible in the log at each stage.
-			+ " internal_fields=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)p_loop + 0x1b8) : nullptr)
-			+ " inv_slot=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)*(void **)((char *)p_loop + 0x1b8) + 0x8) : nullptr)
-			+ " inv_nfds=" + String::num_int64(p_loop != nullptr ? *(int *)*(void **)((char *)*(void **)((char *)p_loop + 0x1b8) + 0x8) : -1);
+			// The fault reads lfields->inv; internal_fields is at loop+0x28 and
+			// inv lives at internal_fields+0x1b8 (uv__loop_internal_fields_s:
+			// flags, loop_metrics(184), current_timeout, ctl(120), iou(120), inv).
+			// Report the slot and inv->nfds so its corruption is visible per stage.
+			+ " lfields=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)p_loop + 0x28) : nullptr)
+			+ " inv=" + diag_ptr(p_loop != nullptr && *(void **)((char *)p_loop + 0x28) != nullptr ? *(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) : nullptr)
+			+ " inv_nfds=" + String::num_int64(p_loop != nullptr && *(void **)((char *)p_loop + 0x28) != nullptr && *(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) != nullptr ? (int64_t)*(int *)*(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) : -1);
 }
 
 NodeRuntime::NodeRuntime() {
@@ -151,6 +152,7 @@ NodeRuntime::NodeRuntime() {
 		jsb::bridge_console_hook_ensure(isolate_, get_node_context());
 	}
 #endif
+	WARN_PRINT(diag_state("NodeRuntime:ctor-done", this, loop_, node_env_));
 }
 
 NodeRuntime::~NodeRuntime() {
