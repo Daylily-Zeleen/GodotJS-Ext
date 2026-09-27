@@ -2,7 +2,7 @@
   "id": "ci-release-packaging",
   "name": "ci-release-packaging",
   "title": "发布打包收尾",
-  "description": "jsc/node 无 upload job（verify-release-artifacts 守卫自认 not in merge flow）；zip 名 godotjs-ext-v8-windows-linux-macos 与实际内容（已 merge android/ios/web）不符，需改名或按平台分包",
+  "description": "按 JS 引擎为单位发布：每个 release 包对应一个引擎且只含该引擎实际支持的平台/架构，并配套只声明该引擎真实提供条目的 .gdextension。现状是只有 v8/qjs-ng 两个按后缀 glob 的 upload job（jsc/node 永远进不了 release，且门禁不检查它们，漏洞静默），zip 名 windows-linux-macos 与实际内容（还含 android/ios/web）不符。详见 prd.md。",
   "status": "planning",
   "dev_type": null,
   "scope": null,
