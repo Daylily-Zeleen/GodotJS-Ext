@@ -36,9 +36,10 @@
 
 namespace jsb::impl {
 
-// TEMPORARY DIAGNOSTIC (remove before finishing): live-instance counter plus a
-// pointer formatter, so a double destruction and the loop's identity/liveness
-// are visible in the CI log (the fault is a use-after-free of the uv loop).
+// TEMPORARY DIAGNOSTIC (remove before finishing): live-instance counter plus the
+// uv loop's identity/liveness, so a double destruction and a dead loop are
+// visible in the CI log (the fault is uv__platform_invalidate_fd reading the
+// loop's internal fields long after the loop was created).
 static int s_nr_live = 0;
 static String diag_ptr(const void *p_ptr) {
 	return String::num_int64((int64_t)(uintptr_t)p_ptr);
@@ -47,20 +48,27 @@ static String diag_state(const char *p_where, const void *p_this, uv_loop_t *p_l
 	// uv_backend_fd()/uv_loop_alive() read the loop's memory: if the loop has
 	// already been freed, this faults (and the backtrace then points HERE, which
 	// is itself the proof that the loop was dead at this point).
-	return String("[jsb-diag] ") + p_where
+	String s = String("[jsb-diag] ") + p_where
 			+ " this=" + diag_ptr(p_this)
 			+ " loop=" + diag_ptr(p_loop)
 			+ " env=" + diag_ptr(p_env)
 			+ " live=" + String::num_int64(s_nr_live)
 			+ " backend_fd=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_backend_fd(p_loop) : -1)
-			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1)
-			// The fault reads lfields->inv; internal_fields is at loop+0x28 and
-			// inv lives at internal_fields+0x1b8 (uv__loop_internal_fields_s:
-			// flags, loop_metrics(184), current_timeout, ctl(120), iou(120), inv).
-			// Report the slot and inv->nfds so its corruption is visible per stage.
-			+ " lfields=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)p_loop + 0x28) : nullptr)
-			+ " inv=" + diag_ptr(p_loop != nullptr && *(void **)((char *)p_loop + 0x28) != nullptr ? *(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) : nullptr)
-			+ " inv_nfds=" + String::num_int64(p_loop != nullptr && *(void **)((char *)p_loop + 0x28) != nullptr && *(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) != nullptr ? (int64_t)*(int *)*(void **)((char *)*(void **)((char *)p_loop + 0x28) + 0x1b8) : -1);
+			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1);
+#if defined(__linux__)
+	// Linux's uv__loop_internal_fields_s has ctl/iou before inv
+	// (flags, loop_metrics, current_timeout, ctl[120], iou[120], inv); the slot
+	// is internal_fields + 0x1e8. Layout is platform-specific, keep it guarded.
+	if (p_loop != nullptr) {
+		void *lfields = *reinterpret_cast<void **>(reinterpret_cast<char *>(p_loop) + 0x28);
+		void *inv = lfields != nullptr
+				? *reinterpret_cast<void **>(reinterpret_cast<char *>(lfields) + 0x1e8)
+				: nullptr;
+		s += " lfields=" + diag_ptr(lfields) + " inv=" + diag_ptr(inv)
+				+ " inv_nfds=" + String::num_int64(inv != nullptr ? (int64_t)*reinterpret_cast<int *>(inv) : -1);
+	}
+#endif
+	return s;
 }
 
 NodeRuntime::NodeRuntime() {
@@ -72,6 +80,14 @@ NodeRuntime::NodeRuntime() {
 	jsb_check(loop_);
 	const int err = uv_loop_init(loop_);
 	jsb_checkf(err == 0, "uv_loop_init failed: %d", uv_err_name(err));
+	// TEMPORARY DIAGNOSTIC: compare the library's idea of the loop size with the
+	// compile-time one. If the headers used to build this extension disagree with
+	// the libuv inside libnode.a, the loop struct is written past its allocation
+	// and its private fields (notably lfields->inv) end up garbage.
+	WARN_PRINT(String("[jsb-diag] uv_loop_size=") + String::num_int64((int64_t)uv_loop_size())
+			+ " sizeof(uv_loop_t)=" + String::num_int64((int64_t)sizeof(uv_loop_t))
+			+ " sizeof(uv_handle_t)=" + String::num_int64((int64_t)sizeof(uv_handle_t))
+			+ " uv_handle_size(UV_NAMED_PIPE)=" + String::num_int64((int64_t)uv_handle_size(UV_NAMED_PIPE)));
 
 	node::MultiIsolatePlatform *platform = GlobalInitialize::get_platform();
 	jsb_check(platform);
