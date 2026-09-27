@@ -61,7 +61,6 @@ struct PathsEntry {
 	godot::Vector<PathsCandidate> candidates;
 };
 
-#	if JSB_RUNTIME_LIB_BUILD
 // 文件内缓存：运行时侧已加载的映射表（pattern 前缀长度降序，最长优先）
 godot::Vector<PathsEntry> s_mappings;
 
@@ -71,13 +70,12 @@ struct PathsEntryComparator {
 		return a.pattern_prefix.length() > b.pattern_prefix.length();
 	}
 };
-#	endif
 
 // .paths_mapping 与编译产物（jsb::internal::settings::get_jsb_out_res_path，默认 res://.godot/godotjs_ext）同目录
 godot::String get_paths_mapping_path() {
 	return jsb::internal::settings::get_jsb_out_res_path().path_join(".paths_mapping");
 }
-#	if JSB_EDITOR_LIB_BUILD
+#	if JSB_TOOLS
 // JSONC 注释剔除：保留字符串字面量内容，移除 // 与 /* */ 注释
 godot::String strip_jsonc_comments(const godot::String &p_jsonc) {
 	godot::String result;
@@ -128,11 +126,10 @@ godot::String strip_jsonc_comments(const godot::String &p_jsonc) {
 
 	return result;
 }
-#	endif // JSB_EDITOR_LIB_BUILD
+#	endif // JSB_TOOLS
 
 } // namespace
 
-#	if JSB_RUNTIME_LIB_BUILD
 bool PathsMapping::refresh() {
 	return refresh_from(get_paths_mapping_path());
 }
@@ -237,9 +234,8 @@ bool PathsMapping::resolve(const godot::String &p_import_path, void *p_userdata,
 	}
 	return false;
 }
-#	endif // JSB_RUNTIME_LIB_BUILD
 
-#	if JSB_EDITOR_LIB_BUILD
+#	if JSB_TOOLS
 bool PathsMapping::generate_from_tsconfig(const godot::String &p_jsonc_content) {
 	godot::Ref<godot::JSON> json_parser = memnew(godot::JSON);
 	const godot::Error err = json_parser->parse(strip_jsonc_comments(p_jsonc_content));
@@ -368,7 +364,7 @@ bool PathsMapping::generate_from_tsconfig(const godot::String &p_jsonc_content) 
 godot::String PathsMapping::get_paths_mapping_file_path() {
 	return get_paths_mapping_path();
 }
-#	endif // JSB_EDITOR_LIB_BUILD
+#	endif // JSB_TOOLS
 
 } // namespace jsb
 
