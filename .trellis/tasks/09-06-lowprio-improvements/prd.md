@@ -13,10 +13,12 @@
 | `lowprio-lws-pic` | lws 非 PIC（Linux） | 构建/上游重打包 |
 | ~~`lowprio-hermes-engine`~~ | ~~添加 Hermes 引擎与 NAPI~~ | ~~新功能（大）~~ **已取消（2026-09-21）** |
 | ~~`lowprio-tsc-compiler-api`~~ | ~~TSC Compiler API 替代外部 tsc~~ | ~~编辑器优化~~ **已取消（2026-09-21）** |
-| `lowprio-tree-sitter-ast` | tree-sitter 解析 AST 替代正则 | 编辑器优化 |
+__TS_ROW__
 | ~~`lowprio-scenetree-quit-mainloop`~~ | ~~quit SceneTree <- MainLoop~~ | ~~原始愿望~~ **已关闭（2026-09-24，无对应实现）** |
 | `lowprio-node-orphan-stringname` | node 构建 Orphan StringName 泄漏 | 缺陷排查 |
-| `lowprio-config-compile-flags` | 编译参数控制 jsb.config.h | 构建改进 |
+| ~~`lowprio-tree-sitter-ast`~~ | ~~tree-sitter 解析 AST 替代正则~~ | ~~编辑器优化~~ **已否决（2026-09-28）：不引入，代价 ~9 MB 语法源码 + 六平台接线；类型信息走既有注解路线** |
+| ~~`lowprio-config-compile-flags`~~ | ~~编译参数控制 jsb.config.h~~ | ~~构建改进~~ **明确不做（2026-09-28）：手工编辑已满足需要；头文件含 ABI/序列化敏感项，参数化收益低于成本** |
+__CF_ROW__
 | `lowprio-uint64-bigint-codegen` | bigint/uint64 codegen | 类型映射评估 |
 
 ## Acceptance Criteria
