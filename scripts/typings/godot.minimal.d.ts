@@ -47,6 +47,13 @@ declare module "godot-jsb" {
     const TOOLS_ENABLED: boolean;
     const BINDING_MODE: "static" | "shared" | "dynamic";
 
+    /**
+     * `JSB_WITH_BIGINT` (jsb.config.h): whether a 64-bit integer leaving
+     * Godot above 2^53-1 is emitted as `BigInt` (true) or the lossy `Number`
+     * (false). It only affects the Godot -> JS direction.
+     */
+    const BIGINT_FOR_64BIT: boolean;
+
     /** version of GodotJS */
     const version: string;
 
@@ -352,7 +359,7 @@ declare module "godot-jsb" {
 
         function find_exposed_base_class(class_name: string): string;
 
-        function is_original_class_exposed(class_name: string): bool;
+        function is_original_class_exposed(class_name: string): boolean;
 
         const VERSION_DOCS_URL: string;
     }

@@ -63,6 +63,20 @@ on:
         type: string
         required: false
         default: ''
+      binding_mode:
+        description: >-
+          Class-method binding mode to build and test. The value is passed to
+          scons verbatim, so it must be one of scons' own accepted values
+          (`shared` is scons' default). It overrides the desktop legs only --
+          mobile/web are template-only and never run the runtime tests, so a
+          static/shared/dynamic run stays cheap.
+        required: false
+        default: shared
+        type: choice
+        options:
+          - static
+          - shared
+          - dynamic
   pull_request:
   push:
 
@@ -163,15 +177,21 @@ jobs:
       - name: Upload benchmark binary
         uses: actions/upload-artifact@v7
         with:
-          name: benchmark-${{ matrix.static-binding }}
+          name: benchmark-${{ matrix.binding-mode }}
           path: benchmark/
           retention-days: 1
 
   benchmark:
     name: Benchmark (static vs dynamic)
     if: github.event_name == 'workflow_dispatch'
-    needs: [environment, benchmark-build]
+    # `build` is required, not just convenient: this job generates the project
+    # runtime state with the editor extension, and that library only exists once
+    # linux-editor-x86_64-v8 has been built and uploaded.
+    needs: [environment, benchmark-build, build]
     runs-on: ubuntu-22.04
+    # Bounds a hang. A JS runtime that never starts leaves the engine idling for
+    # the 6h job ceiling (see the startup guard in "Run benchmark" below).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -194,6 +214,36 @@ jobs:
           path: /tmp/bench
           pattern: benchmark-*
 
+      # The editor extension, used only by "Generate project runtime state"
+      # below. `benchmark-build` stages just the runtime `.so`, and the runtime
+      # alone cannot generate what this job needs: both `.godot/extension_list.cfg`
+      # and `.godot/godotjs_ext/.paths_mapping` are written by the editor plugin
+      # (`_regenerate_paths_mapping` -> PathsMapping::generate_from_tsconfig).
+      - name: Download editor extension (linux)
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-editor-x86_64-v8
+          path: /tmp/editor-ext
+
+      - name: Stage extension libraries
+        shell: bash
+        run: |
+          ADDONS=project/addons/godotjs-ext.daylily-zeleen/bin/linux
+          mkdir -p "$ADDONS"
+          # Runtime library: `--bench` never loads this one, but keeping it here
+          # means the project resolves the rest of the extension surface the
+          # same way the `test` job does.
+          cp /tmp/bench/benchmark-static/godotjs-ext.so \
+             "$ADDONS/godotjs-ext.linux.editor.x86_64.so"
+          # Editor library: `godotjs-ext-editor.gdextension` points at this exact
+          # name; without it the editor plugin never loads and nothing below
+          # gets generated. The artifact's root is the build's `bin/` directory
+          # (see the `test` job, which copies it into the addon's `bin/`), hence
+          # the `linux/` prefix.
+          cp /tmp/editor-ext/linux/godotjs-ext-editor.linux.editor.x86_64.so \
+             "$ADDONS/godotjs-ext-editor.linux.editor.x86_64.so"
+          ls -la "$ADDONS"
+
       # Bootstrap emit only: this job never builds the api store, so
       # `project/typings/` cannot be generated here and the emit cannot be
       # type-checked. The benchmark scene only needs runnable JS; the
@@ -205,18 +255,51 @@ jobs:
           pnpm exec tsc --noCheck
         working-directory: project
 
+      # The benchmark scene loads through the project's autoloads, which import
+      # `@tests/*` -- a tsconfig path alias the runtime resolves only through
+      # `.godot/godotjs_ext/.paths_mapping`. Without the generated runtime state
+      # those imports throw, `start.ts` never reaches its `quit()`, and the
+      # engine idles until the job ceiling: precisely how this job used to die,
+      # with no log to explain it (GitHub does not persist the log of a step
+      # that never finishes). Generate exactly what a normal runtime launch
+      # needs. Order matters: the emit above creates `.godot/godotjs_ext/`, and
+      # this step adds `.paths_mapping` alongside it.
+      - name: Generate project runtime state
+        shell: bash
+        # The editor crashes during shutdown after writing its data (a known
+        # engine-side teardown issue, the same one the `test` job tolerates), so
+        # the exit code is ignored and the artifacts are checked instead.
+        run: |
+          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+          test -f project/extension_api.json
+          "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          test -f project/.godot/.api_dumping/header.capi
+          test -f project/.godot/extension_list.cfg
+          test -f project/.godot/godotjs_ext/.paths_mapping
+          echo "paths mapping: $(cat project/.godot/godotjs_ext/.paths_mapping)"
+
       - name: Run benchmark (both legs)
         shell: bash
         run: |
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
           mkdir -p project/addons/godotjs-ext.daylily-zeleen/bin/linux
           for leg in static dynamic; do
-            if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-yes/godotjs-ext.so; else SO=/tmp/bench/benchmark-no/godotjs-ext.so; fi
+            if [ "$leg" == "static" ]; then SO=/tmp/bench/benchmark-static/godotjs-ext.so; else SO=/tmp/bench/benchmark-dynamic/godotjs-ext.so; fi
             cp "$SO" "$ADDONS_SO"
             rm -f /tmp/bench/${leg}.json
-            "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            # `timeout` is the backstop, not the diagnosis: if the JS runtime
+            # fails to start, nothing ever quits and the engine would idle to the
+            # job ceiling. Failing at 300s turns that into a readable log.
+            timeout 300 "$GODOT" --audio-driver Dummy --headless --path project -- --bench > /tmp/bench/${leg}.log 2>&1 || true
+            # Name the cause explicitly instead of reporting a bare missing
+            # BENCH_JSON: this is the failure mode that produced a 6h no-op.
+            if grep -q "No loader found for resource\|unknown module\|godot class not found" /tmp/bench/${leg}.log; then
+              echo "::error::${leg} leg: the JS runtime did not start -- see the log"
+              tail -40 /tmp/bench/${leg}.log
+              exit 1
+            fi
             grep 'BENCH_JSON ' /tmp/bench/${leg}.log | sed 's/.*BENCH_JSON //' > /tmp/bench/${leg}.json
-            test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; exit 1; }
+            test -s /tmp/bench/${leg}.json || { echo "missing BENCH_JSON for $leg leg"; tail -40 /tmp/bench/${leg}.log; exit 1; }
           done
 
       - name: Crash diagnosis (gdb backtrace on the teardown SEGV)
@@ -225,7 +308,7 @@ jobs:
         run: |
           sudo apt-get install -y gdb
           ADDONS_SO=project/addons/godotjs-ext.daylily-zeleen/bin/linux/godotjs-ext.linux.editor.x86_64.so
-          cp /tmp/bench/benchmark-yes/godotjs-ext.so "$ADDONS_SO"
+          cp /tmp/bench/benchmark-static/godotjs-ext.so "$ADDONS_SO"
           gdb -batch -ex run -ex 'bt 40' --args "$GODOT" --audio-driver Dummy --headless --path project -- --bench \
             > /tmp/bench/gdb_static.log 2>&1 || true
           tail -60 /tmp/bench/gdb_static.log || true
@@ -238,43 +321,63 @@ jobs:
           def load(p):
               with open(p) as f:
                   return json.load(f)
-          a = load("/tmp/bench/static.json")
-          b = load("/tmp/bench/dynamic.json")
+          # Named for their leg, not `a`/`b`: both files hold identically named
+          # keys, so a swap here publishes two correct numbers under the wrong
+          # headers (and an inverted ratio) with nothing failing to flag it.
+          static = load("/tmp/bench/static.json")
+          dynamic = load("/tmp/bench/dynamic.json")
+
+          def find(leg, name):
+              return next((r for r in leg["results"] if r["name"] == name), None)
 
           # CONSISTENCY GATE: per-case result summaries must match exactly
           # between the two binding paths before any performance number is
           # considered valid. A mismatch fails the job outright.
+          #
+          # Cases flagged `processDependent` are exempt: their probe result is a
+          # property of the process (an ObjectID), and the two legs are separate
+          # engine processes, so the values can never be equal. That is not a
+          # binding divergence. The performance table below still lists them.
           mismatches = []
-          for ra in a["results"]:
-              rb = next((r for r in b["results"] if r["name"] == ra["name"]), None)
-              if rb is None or rb.get("error") or ra.get("error"):
+          skipped = []
+          for rs in static["results"]:
+              rd = find(dynamic, rs["name"])
+              if rd is None or rs.get("error") or rd.get("error"):
                   continue
-              if ra.get("sample") != rb.get("sample"):
-                  mismatches.append((ra["name"], ra.get("sample"), rb.get("sample")))
+              if rs.get("processDependent") or rd.get("processDependent"):
+                  skipped.append(rs["name"])
+                  continue
+              if rs.get("sample") != rd.get("sample"):
+                  mismatches.append((rs["name"], rs.get("sample"), rd.get("sample")))
           if mismatches:
               print("RESULT MISMATCH static vs dynamic:")
               for n, s_, d_ in mismatches:
                   print(f"  {n}: static={s_} dynamic={d_}")
               raise SystemExit(1)
-          print(f"consistency gate passed ({len(a['results'])} cases)")
+          print(f"consistency gate passed ({len(static['results'])} cases"
+                + (f", {len(skipped)} process-dependent skipped: {', '.join(skipped)}" if skipped else "")
+                + ")")
 
+          # Rows are (name, dynamic, static); the two table columns below read them
+          # in exactly that order, so check the tuple and the header together.
           rows = []
-          for name in {r["name"] for r in a["results"]} | {r["name"] for r in b["results"]}:
-              ra = next((r for r in a["results"] if r["name"] == name), None)
-              rb = next((r for r in b["results"] if r["name"] == name), None)
-              if not ra or not rb or ra.get("error") or rb.get("error"):
+          for name in {r["name"] for r in static["results"]} | {r["name"] for r in dynamic["results"]}:
+              rs = find(static, name)
+              rd = find(dynamic, name)
+              if not rs or not rd or rs.get("error") or rd.get("error"):
                   continue
-              rows.append((name, ra["nsPerCall"], rb["nsPerCall"]))
-          rows.sort(key=lambda r: r[2] / max(r[1], 1), reverse=True)
+              rows.append((name, rd["nsPerCall"], rs["nsPerCall"]))
+          # Descending dyn/stat = the cases where static wins the most come first.
+          rows.sort(key=lambda r: r[1] / max(r[2], 0.1), reverse=True)
           lines = [
               "# Static vs Dynamic binding benchmark (ns/call, lower is better)",
-              f"engine: {a['engine']}  |  invalid cases skipped",
+              f"engine: {static['engine']}  |  invalid cases skipped",
               "",
               "## Binary size",
           ]
           import os
           for leg in ("dynamic", "static"):
-              sz = os.path.getsize(f"/tmp/bench/benchmark-{'yes' if leg == 'static' else 'no'}/godotjs-ext.so")
+              sz = os.path.getsize(f"/tmp/bench/benchmark-{leg}/godotjs-ext.so")
               lines.append(f"- {leg} gdextension: {sz / 1024 / 1024:.2f} MiB")
           lines.append("")
           lines += [
@@ -582,6 +685,11 @@ jobs:
           engine: ${{ matrix.engine }}
           windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           threads: ${{ matrix.threads }}
+          # The manually selected binding mode applies to the desktop legs,
+          # which the `test` job can actually run. Mobile/web stay on the scons
+          # default (shared): they are template-only and never run the runtime
+          # tests, so overriding them would only multiply build time.
+          flags: ${{ (inputs.binding_mode != '' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos')) && format('binding_mode={0}', inputs.binding_mode) || '' }}
           scons-cache: ${{ matrix.platform != 'windows' && format('{0}/.scons-cache', github.workspace) || '' }}
 
       - name: Upload GDExtension artifact

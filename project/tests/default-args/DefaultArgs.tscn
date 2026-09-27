@@ -1,4 +1,4 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://7ie2br6qf0aq"]
 
 [ext_resource type="Script" path="res://tests/default-args/test-default-args.ts" id="1_dflt"]
 

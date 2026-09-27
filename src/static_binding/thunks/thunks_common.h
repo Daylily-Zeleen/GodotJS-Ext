@@ -118,19 +118,36 @@ struct DefVs {
 template <typename T>
 using VariantEncodeType = typename godot::PtrToArg<T>::EncodeT;
 
-namespace internal {
-template <typename VarT>
-static _FORCE_INLINE_ bool translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, VarT &&p_ret_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
-	v8::Local<v8::Value> jrval;
-	if (!TypeConvert::gd_var_to_js(p_isolate, p_context, std::forward<VarT>(p_ret_val), jrval)) {
-		jsb_throw(p_isolate, "failed to translate godot variant to v8 value");
-		return false;
-	}
-	p_info.GetReturnValue().Set(jrval);
-	return true;
-}
+// The character code units. No standard trait groups them: `std::is_integral`
+// also covers `bool` and every integer type, and there is no `is_character`.
+// The set is exactly "types with no `godot::Variant` conversion operator" --
+// `Variant` provides bool, int8..int64, uint8..uint64, double and float, but
+// none of these -- so each reads through its int64 view, which is the
+// conversion `Variant::operator uint32_t()` / `operator uint16_t()` themselves
+// perform (`static_cast<T>(operator int64_t())`).
+template <typename T>
+inline constexpr bool is_character_code_unit_v =
+		std::is_same_v<T, char> || std::is_same_v<T, wchar_t> || std::is_same_v<T, char8_t>
+		|| std::is_same_v<T, char16_t> || std::is_same_v<T, char32_t>;
 
-} //namespace internal
+// Reads a declared return type out of a complete `Variant` (the class-MethodBind
+// shape).
+//
+// Every other type `Variant` can hold converts directly. The `static_assert`
+// keeps the list exhaustive: a new engine return type, or a newly generated one,
+// stops the build here instead of being read through the wrong operator.
+template <typename T>
+_FORCE_INLINE_ T variant_as(const godot::Variant &p_v) {
+	if constexpr (is_character_code_unit_v<T>) {
+		return (T)(int64_t)p_v;
+	} else {
+		static_assert(std::is_convertible_v<const godot::Variant &, T>
+						|| std::is_same_v<T, godot::Variant>,
+				"no godot::Variant conversion operator for this return type; "
+				"add an explicit arm here instead of reading it through the wrong one");
+		return (T)p_v;
+	}
+}
 
 // Return metadata: builtin/utility ptrcalls use PtrToArg<T>::EncodeT slots;
 // class MethodBind calls always return a complete Variant.
@@ -140,15 +157,27 @@ struct Ret {
 	using type = T;
 	using encoded_type = VariantEncodeType<T>;
 
-	// Complete Variant slots need no decoding; other slots use PtrToArg<T>.
+	// Two callers, two buffer shapes, one place that knows about it: a class
+	// `MethodBind` return arrives as a complete `Variant` (the engine writes it
+	// through `object_method_bind_call`), a builtin / utility ptrcall as
+	// `PtrToArg<T>::EncodeT`. Normalizing here keeps `GDToJS<T>` mirror-shaped --
+	// it takes the declared type and nothing else, exactly like `JSToGD<T>`.
 	template <class ReturnBufT>
 	static _FORCE_INLINE_ void translate_return(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ReturnBufT &p_ret_val, const v8::FunctionCallbackInfo<v8::Value> &p_info) {
 		if constexpr (has_return) {
-			if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
-				internal::translate_return(p_isolate, p_context, p_ret_val, p_info);
-			} else {
-				internal::translate_return(p_isolate, p_context, Variant(godot::PtrToArg<type>::convert(&p_ret_val)), p_info);
+			const type value = [&] {
+				if constexpr (std::is_same_v<ReturnBufT, godot::Variant>) {
+					return variant_as<type>(p_ret_val);
+				} else {
+					return godot::PtrToArg<type>::convert(&p_ret_val);
+				}
+			}();
+			v8::Local<v8::Value> jrval;
+			if (!GDToJS<type>::convert(p_isolate, p_context, value, jrval)) {
+				jsb_throw(p_isolate, "failed to translate godot return value to js value");
+				return;
 			}
+			p_info.GetReturnValue().Set(jrval);
 		}
 	}
 };
@@ -353,6 +382,13 @@ Variant::Type probe_vt(const v8::Local<v8::Value> &val) {
 
 	if (val->IsInt32()) return Variant::INT;
 	if (val->IsNumber()) return Variant::FLOAT;
+	// A BigInt is a member of the engine's INT surface (its valid[] list holds
+	// INT and FLOAT), so it takes the INT slot; `JSToGD<int64_t>` already reads
+	// BigInt. Without this branch it probed as VARIANT_MAX and every constructor
+	// overload filter rejected it.
+#	if JSB_WITH_BIGINT
+	if (val->IsBigInt()) return Variant::INT;
+#	endif
 	if (val->IsBoolean()) return Variant::BOOL;
 	if (val->IsString()) return Variant::STRING;
 

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "TS 集成测试前提、采数纪律、覆盖守卫断言要求"}
+{"file": ".trellis/tasks/09-06-lowprio-uint64-bigint-codegen/design.md", "reason": "验收判据与三腿验证要求"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "C++ 套件验收标准"}

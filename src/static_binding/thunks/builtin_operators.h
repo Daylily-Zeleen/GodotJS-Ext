@@ -96,12 +96,30 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	typename godot::PtrToArg<R>::EncodeT right_slot{};
+	// These slots are reached through the probe in `operator_dispatch_binary`,
+	// which maps a BigInt to INT; and the acceptance surface widened by
+	// `JSToGD<bool>` / `JSToGD<float>` / `JSToGD<double>` (number, bigint,
+	// null/undefined) means each of them can see more than one JS shape. A bare
+	// `As<S>()` is a pure handle reinterpretation (v8 `Local<S>::Cast`) with no
+	// runtime check, so a BigInt read as Int32 returns garbage. Go through the
+	// conversion primitives, which are the same ones the constructors use.
 	if constexpr (std::is_same_v<R, int64_t>) {
-		right_slot = (int64_t)info[0].As<v8::Int32>()->Value();
+		if (!impl::Helper::to_int64(info[0], right_slot)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
 	} else if constexpr (std::is_same_v<R, double>) {
-		right_slot = info[0].As<v8::Number>()->Value();
+		if (!impl::Helper::to_double(info[0], right_slot)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
 	} else if constexpr (std::is_same_v<R, bool>) {
-		right_slot = info[0].As<v8::Boolean>()->Value();
+		bool b = false;
+		if (!impl::Helper::to_bool(isolate, info[0], b)) {
+			jsb_throw(isolate, "operator: bad right operand");
+			return;
+		}
+		right_slot = b;
 	} else if constexpr (std::is_same_v<R, godot::String>) {
 		right_slot = impl::Helper::to_string(isolate, info[0]);
 	} else if constexpr (std::is_same_v<R, godot::Variant>) {
@@ -122,9 +140,12 @@ void operator_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	typename godot::PtrToArg<Ret>::EncodeT ret_slot{};
 	eval(left_opaque, &right_slot, &ret_slot);
 
-	Variant ret_val = godot::PtrToArg<Ret>::convert(&ret_slot);
+	// `Ret` is known here, so the result crosses through `GDToJS<Ret>`; the
+	// operator tables only ever return `bool` or a builtin wrapper type, and
+	// neither needs a Variant in between.
+	const Ret value = godot::PtrToArg<Ret>::convert(&ret_slot);
 	v8::Local<v8::Value> rval;
-	if (!TypeConvert::gd_var_to_js(isolate, context, ret_val, rval)) {
+	if (!GDToJS<Ret>::convert(isolate, context, value, rval)) {
 		jsb_throw(isolate, "operator: bad translate");
 		return;
 	}
@@ -158,9 +179,12 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	typename godot::PtrToArg<Ret>::EncodeT ret_slot{};
 	eval(left_opaque, nullptr, &ret_slot);
 
-	Variant ret_val = godot::PtrToArg<Ret>::convert(&ret_slot);
+	// `Ret` is known here, so the result crosses through `GDToJS<Ret>`; the
+	// operator tables only ever return `bool` or a builtin wrapper type, and
+	// neither needs a Variant in between.
+	const Ret value = godot::PtrToArg<Ret>::convert(&ret_slot);
 	v8::Local<v8::Value> rval;
-	if (!TypeConvert::gd_var_to_js(isolate, context, ret_val, rval)) {
+	if (!GDToJS<Ret>::convert(isolate, context, value, rval)) {
 		jsb_throw(isolate, "operator: bad translate");
 		return;
 	}
@@ -168,6 +192,8 @@ void operator_unary_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 // Dynamic fallback: convert both operands to Variants and use generic evaluation.
+// This is the one operator exit with no compile-time type -- `Variant::evaluate`
+// produces the result at run time, so it stays on the untyped `gd_var_to_js`.
 static void evaluate_dynamic_binary(const v8::FunctionCallbackInfo<v8::Value> &info,
 		v8::Isolate *isolate,
 		const v8::Local<v8::Context> &context,

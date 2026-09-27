@@ -289,6 +289,21 @@ int64_t BigInt::Int64Value(bool *lossless) const {
 	return rval;
 }
 
+uint64_t BigInt::Uint64Value(bool *lossless) const {
+	// `JS_ToBigUint64` shares `JS_ToBigInt64Free`, whose own comment reads
+	// "return the value mod 2^64": the read is a bit-pattern read, not a range
+	// check. That is the contract the callers rely on.
+	const JSValue val = (JSValue) * this;
+	uint64_t rval;
+	if (JS_ToBigUint64(isolate_->ctx(), &rval, val) == -1) {
+		jsb::impl::QuickJS::MarkExceptionAsTrivial(isolate_->ctx());
+		if (lossless) *lossless = false;
+		return 0;
+	}
+	if (lossless) *lossless = true;
+	return rval;
+}
+
 Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
 	const JSValue val = JS_NewBigInt64(isolate->ctx(), value);
 	jsb_check(!JS_IsException(val));

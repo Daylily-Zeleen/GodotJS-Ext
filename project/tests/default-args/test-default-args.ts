@@ -34,9 +34,27 @@ import { hasTestFailure, reportTestFailure } from "../test-status";
  * not propagate to start.ts (deferred add_child stack) and the suite would
  * falsely report COMPLETED.
  */
+/**
+ * A 64-bit alias is `number | bigint`: the runtime writer picks by magnitude,
+ * so the declaration says both and the value may be either. The values asserted
+ * here are indices and counts that fit a `number`, so normalise before
+ * comparing.
+ */
+function asNumber(value: unknown): unknown {
+    if (typeof value === "bigint" && value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)) {
+        return Number(value);
+    }
+    return value;
+}
+
+/** `JSON.stringify` throws on `bigint`; render it tagged so failures stay readable. */
+function stringify(value: unknown): string {
+    return JSON.stringify(value, (_key, item: unknown) => (typeof item === "bigint" ? `${String(item)}n` : item));
+}
+
 function check(context: string, actual: unknown, expected: unknown): void {
-    if (actual !== expected) {
-        reportTestFailure(context, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    if (asNumber(actual) !== asNumber(expected)) {
+        reportTestFailure(context, `expected ${stringify(expected)}, got ${stringify(actual)}`);
     }
 }
 

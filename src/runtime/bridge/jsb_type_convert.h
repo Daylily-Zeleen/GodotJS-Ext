@@ -53,9 +53,23 @@ struct TypeConvert {
 	 */
 	static bool js_to_gd_obj(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Object *&r_godot_obj);
 
-	_FORCE_INLINE_ static bool gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, v8::Local<v8::Value> &r_jval) { return gd_var_to_js(isolate, context, p_cvar, p_cvar.get_type(), r_jval); }
-	static bool gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, v8::Local<v8::Value> &r_jval);
-	static bool js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, Variant &r_cvar);
+	_FORCE_INLINE_ static bool gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, v8::Local<v8::Value> &r_jval) { return gd_var_to_js(isolate, context, p_cvar, p_cvar.get_type(), GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, r_jval); }
+	// `p_meta` carries the width/signedness of an INT slot, in both directions:
+	//
+	//   - Godot -> JS: a uint64 return must leave through the unsigned writer,
+	//     otherwise an ObjectID (bit 63 = `is_ref_counted`) comes back negative.
+	//   - JS -> Godot: a *number* in [2^63, 2^64) has to be read as uint64. The
+	//     Variant INT slot holds the same bits either way, but getting the bits
+	//     from the double requires the unsigned conversion -- reading it as
+	//     int64 is undefined for that range and yields the INT64_MIN sentinel
+	//     (e.g. `put_u64(1e19)` landing as 0x8000000000000000).
+	static bool gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, v8::Local<v8::Value> &r_jval);
+	static bool js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, Variant &r_cvar);
+
+	// Metadata-less overloads: callers with no slot metadata to supply (vararg
+	// tails, container elements, callbacks). Same as passing NONE.
+	_FORCE_INLINE_ static bool gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, v8::Local<v8::Value> &r_jval) { return gd_var_to_js(isolate, context, p_cvar, p_type, GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, r_jval); }
+	_FORCE_INLINE_ static bool js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, Variant &r_cvar) { return js_to_gd_var(isolate, context, p_jval, p_type, GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE, r_cvar); }
 
 	/**
 	 * Translate js val into gd variant without any type hint

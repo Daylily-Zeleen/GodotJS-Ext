@@ -22,10 +22,19 @@ import { BUILTIN_CASES } from "./cases.builtin";
 import { OBJECT_CASES } from "./cases.object";
 import { BINDING_MODE } from "godot-jsb";
 
+import type { Numeric64 } from "../test-status";
+
 export interface CaseGroup {
     group: string;
     makeTarget: () => any;
-    cases: { name: string; fn: (t: any) => any }[];
+    /**
+     * `processDependent` marks a case whose probe result is a property of the
+     * *process* rather than of the binding path -- an ObjectID, for instance.
+     * The static/dynamic legs run as two separate engine processes, so such a
+     * value can never be equal between them; the CI consistency gate compares
+     * `sample` across the legs and must skip these.
+     */
+    cases: { name: string; fn: (t: any) => any; processDependent?: boolean }[];
 }
 
 interface CaseResult {
@@ -34,6 +43,7 @@ interface CaseResult {
     iterations: number;
     sample?: string;
     error?: string;
+    processDependent?: boolean;
 }
 
 // Probe-result fingerprint: primitive value, or constructor name for objects.
@@ -56,8 +66,16 @@ interface BenchOutcome {
     sample?: string;
 }
 
+/** Normalises a declared-64-bit return (`bigint` under the fixed switch) to a `number`. */
+
+function asNumber(v: Numeric64): number {
+	return typeof v === 'bigint' ? Number(v) : v;
+}
+
 // Use the engine's monotonic microsecond clock without relying on performance.
-const nowMs = (): number => Time.get_ticks_usec() / 1000;
+// The generated 64-bit alias (`number | bigint`, or a plain `number` when the
+// build has no BigInt); the writer picks by magnitude, so normalise first.
+const nowMs = (): number => asNumber(Time.get_ticks_usec()) / 1000;
 
 const _args_user = OS.get_cmdline_user_args();
 const GC_REQUESTED = _args_user.has("--gc");
@@ -141,7 +159,7 @@ export default class Benchmark extends Node {
             for (let i = 0; i < 5000; i++) a.length();
         }
 
-        const runGroup = async (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any }[]) => {
+        const runGroup = async (group: string, makeTarget: () => any, cases: { name: string; fn: (t: any) => any; processDependent?: boolean }[]) => {
             let target: any;
             try {
                 target = makeTarget();
@@ -152,6 +170,7 @@ export default class Benchmark extends Node {
                         nsPerCall: 0,
                         iterations: 0,
                         error: "target: " + String(e?.message ?? e),
+                        processDependent: c.processDependent,
                     });
                 }
                 return;
@@ -167,6 +186,7 @@ export default class Benchmark extends Node {
                         iterations: 0,
                         sample: r.sample,
                         error: r.error,
+                        processDependent: c.processDependent,
                     });
                 } else {
                     results.push({
@@ -174,6 +194,7 @@ export default class Benchmark extends Node {
                         nsPerCall: r.nsPerCall,
                         iterations: r.iterations,
                         sample: r.sample,
+                        processDependent: c.processDependent,
                     });
                 }
                 await this.get_tree().process_frame.as_promise();

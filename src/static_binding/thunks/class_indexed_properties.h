@@ -39,7 +39,7 @@ namespace jsb::static_binding::thunks {
 // several indexed properties. Pass that index as the first Variant argument,
 // followed by the assigned value for setters.
 // ---------------------------------------------------------------------------
-template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC>
+template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, class RetT, int IndexC>
 void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::HandleScope handle_scope(isolate);
@@ -73,12 +73,12 @@ void indexed_property_getter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 		jsb_throw(isolate, jsb_errorf("Failed to get property: %s::%s. Execution failed", ClassLit.value, MethodLit.value));
 		return;
 	}
-	v8::Local<v8::Value> jrval;
-	if (TypeConvert::gd_var_to_js(isolate, context, ret, jrval)) {
-		info.GetReturnValue().Set(jrval);
-		return;
+	// The backing method returns through `object_method_bind_call`, i.e. a
+	// complete `Variant` -- exactly the buffer shape `Ret<T>::translate_return`
+	// normalizes. `RetT` is the getter method's own declared return type.
+	if constexpr (RetT::has_return) {
+		RetT::translate_return(isolate, context, ret, info);
 	}
-	jsb_throw(isolate, jsb_errorf("Failed to get property: %s::%s. Failed to translate returned Godot %s", ClassLit.value, MethodLit.value, godot::Variant::get_type_name(ret.get_type())));
 }
 
 template <uint32_t HashC, FixedString ClassLit, FixedString MethodLit, int IndexC, godot::Variant::Type ArgVT>
@@ -115,9 +115,17 @@ void indexed_property_setter_thunk(const v8::FunctionCallbackInfo<v8::Value> &in
 	godot::Variant argv[] = { godot::Variant((int64_t)IndexC), std::move(value) };
 	const godot::Variant *arg_ptrs[] = { &argv[0], &argv[1] };
 
+	// The setter's return value is discarded, but the engine still writes it
+	// through `r_return`: `gdextension_object_method_bind_call` does
+	// `memnew_placement(r_return, Variant(mb->call(...)))` UNCONDITIONALLY, and
+	// `MethodBindT::call` returns a Variant even for a void method. A null
+	// buffer there is a crash, not a "no return value" hint. (Contrast
+	// `object_method_bind_ptrcall`, which forwards `r_ret` to the engine and
+	// does accept null for a void method.)
+	godot::Variant ret;
 	GDExtensionCallError call_error{};
 	::godot::gdextension_interface::object_method_bind_call(
-			method_bind, instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, 2, nullptr, &call_error);
+			method_bind, instance->_owner, (const GDExtensionConstVariantPtr *)arg_ptrs, 2, &ret, &call_error);
 	if (call_error.error != GDEXTENSION_CALL_OK) {
 		jsb_throw(isolate, jsb_errorf("Failed to set property: %s::%s. Execution failed", ClassLit.value, MethodLit.value));
 	}

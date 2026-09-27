@@ -33,6 +33,51 @@
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
 namespace jsb {
+
+// Warn (debug builds only) when a value is about to be narrowed into an INT
+// slot narrower than the 64-bit Variant storage.
+//
+// The type list mirrors the static leg's `JSB_DIRECT_FIXED_INT`: both legs must
+// report the same slots, or a debug build would flag a truncation on one and
+// stay silent on the other. Metadata that does not name a narrow width (INT64 /
+// UINT64 / none) is ignored.
+//
+// Diagnostics only -- the conversion truncates unconditionally either way, which
+// is what the engine does. See `js_to_fixed_width_int` in
+// jsb_type_convert_direct.h for the measurements behind that.
+inline void verify_narrow_int_slot(GDExtensionClassMethodArgumentMetadata p_meta, int64_t p_val) {
+#if JSB_DEBUG
+	int bits = 0;
+	int64_t lo = 0, hi = 0;
+	switch (p_meta) {
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:
+			bits = 8; lo = INT8_MIN; hi = INT8_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8:
+			bits = 8; lo = 0; hi = UINT8_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT16:
+			bits = 16; lo = INT16_MIN; hi = INT16_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT16:
+			bits = 16; lo = 0; hi = UINT16_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT32:
+			bits = 32; lo = INT32_MIN; hi = INT32_MAX; break;
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT32:
+			bits = 32; lo = 0; hi = UINT32_MAX; break;
+		// char32_t is a 32-bit code unit; the engine takes the whole uint32
+		// range and never checks the Unicode bound.
+		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR32:
+			bits = 32; lo = 0; hi = UINT32_MAX; break;
+		default:
+			return;
+	}
+	if (p_val < lo || p_val > hi) {
+		JSB_LOG(Warning, "narrow slot argument: %d does not fit the declared %d-bit slot, truncating", (int)p_val, bits);
+	}
+#else
+	jsb_unused(p_meta);
+	jsb_unused(p_val);
+#endif
+}
+
 template <typename ElemTy, typename PackedTy>
 static bool try_convert_array(v8::Isolate *isolate, const v8::Local<v8::Context> &context, v8::Local<v8::Value> p_val, Variant &r_packed) {
 	if constexpr (GetTypeInfo<ElemTy>::METADATA == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8) {
@@ -146,7 +191,7 @@ String TypeConvert::js_debug_typeof(v8::Isolate *isolate, const v8::Local<v8::Va
 }
 
 // translate js val into gd variant with an expected type
-bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, Variant &r_cvar) {
+bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_jval, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, Variant &r_cvar) {
 #if JSB_WITH_V8
 	if (p_jval->IsProxy())
 #else
@@ -158,7 +203,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		v8::Local<v8::Value> target;
 
 		if (maybe_target.ToLocal(&target) && !target->IsUndefined()) {
-			return js_to_gd_var(isolate, context, target, p_type, r_cvar);
+			return js_to_gd_var(isolate, context, target, p_type, p_meta, r_cvar);
 		}
 	}
 
@@ -170,8 +215,26 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			}
 			break;
 		case Variant::INT:
+			// The Variant INT slot is 64 bits either way, so both reads produce
+			// the same storage -- but only the unsigned one gets the right bits
+			// from a number in [2^63, 2^64). Reading such a double as int64 is
+			// undefined and yields the INT64_MIN sentinel on x86, so
+			// `put_u64(1e19)` would land as 0x8000000000000000.
+			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64) {
+				if (uint64_t val; impl::Helper::to_uint64(p_jval, val)) {
+					// Cast back for the signed slot: the bit pattern is what the
+					// engine reads out of it, so this is the value it wants.
+					r_cvar = (int64_t)val;
+					return true;
+				}
+				break;
+			}
 			// strict?
 			if (int64_t val; impl::Helper::to_int64(p_jval, val)) {
+				// A narrow slot truncates, exactly as the engine does -- but this is
+				// the last point that still sees the untruncated value, so this is
+				// where the debug warning belongs (no-op in release).
+				verify_narrow_int_slot(p_meta, val);
 				r_cvar = val;
 				return true;
 			}
@@ -196,9 +259,11 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			return true;
 		}
 		case Variant::BOOL:
-			// strict?
-			if (p_jval->IsBoolean()) {
-				r_cvar = p_jval->BooleanValue(isolate);
+			// Same surface as `can_convert_strict<BOOL>` and `JSToGD<bool>`
+			// (number / bigint / null / undefined; a string is still rejected),
+			// so the reflect path and the direct path agree.
+			if (bool val; impl::Helper::to_bool(isolate, p_jval, val)) {
+				r_cvar = val;
 				return true;
 			}
 			break;
@@ -323,13 +388,27 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 	return false;
 }
 
-bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, v8::Local<v8::Value> &r_jval) {
+bool TypeConvert::gd_var_to_js(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const Variant &p_cvar, Variant::Type p_type, GDExtensionClassMethodArgumentMetadata p_meta, v8::Local<v8::Value> &r_jval) {
 	switch (p_type) {
 		case Variant::FLOAT: {
 			r_jval = v8::Number::New(isolate, p_cvar);
 			return true;
 		}
 		case Variant::INT: {
+			// A uint64 slot has to leave through the unsigned writer. The stored
+			// bits are the same either way, but an ObjectID sets bit 63
+			// (`is_ref_counted`), so writing it signed yields a negative BigInt
+			// and `instance_from_id()` then receives a different id than
+			// `get_instance_id()` returned.
+			//
+			// Everything else (int64, and the no-meta case: eval results, Variant
+			// hand-offs, container elements) goes through the signed writer. Both
+			// pick `Number` or `BigInt` by magnitude, so the JS type is not part
+			// of the contract -- a caller that needs one narrows it itself.
+			if (p_meta == GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT64) {
+				r_jval = impl::Helper::new_unsigned_integer(isolate, (uint64_t)(int64_t)p_cvar);
+				return true;
+			}
 			r_jval = impl::Helper::new_integer(isolate, p_cvar);
 			return true;
 		}
@@ -562,7 +641,14 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &p_val, Variant::Type p_type) {
 	switch (p_type) {
 		case Variant::BOOL: {
-			return p_val->IsBoolean();
+			// Mirrors the engine's own BOOL surface: `Variant::can_convert_strict`
+			// lists INT / FLOAT / NIL (STRING is commented out there), and
+			// `JSToGD<bool>` / `to_bool` are the marshallers on the other side.
+			return p_val->IsBoolean() || p_val->IsNumber()
+#if JSB_WITH_BIGINT
+					|| p_val->IsBigInt()
+#endif
+					|| p_val->IsNullOrUndefined();
 		}
 		case Variant::FLOAT: // return p_val->IsNumber();
 		case Variant::INT: {

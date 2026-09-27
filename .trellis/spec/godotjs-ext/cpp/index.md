@@ -18,6 +18,10 @@
 ## 质量检查
 
 - [ ] 头文件无 `using namespace`（局部作用域除外）
+- [ ] **新增文件不声明 `GodotJS Contributors`**：版权头只保留项目自身版权
+      （`Copyright (c) 2026-present 忘忧の (Daylily-Zeleen)` 一节），不得带
+      `Copyright (c) Contributors of GodotJS` / `<https://github.com/godotjs/GodotJS>` 两行。
+      既有文件不用回改，仅新文件适用。
 - [ ] 无临时文件散落在 `src/`、`project/` 等业务目录（一律 `./.agent_tmp/`）
 - [ ] 未直接编辑任何 `*.gen.*` / `*.def.*` 文件
 - [ ] ptrcall 参数/返回内存按 `MaxSizeEncodeArgType` 分配（新增 Variant 类型时同步 `all_encode_types`）

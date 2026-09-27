@@ -107,3 +107,147 @@ base_ptr   = builtin self / 运算符操作数内存
 - `produce_variant<ArgT>`：typed 转换到局部 gd_type 后赋值进 Variant
 - `marshal_one<ArgT>`：ptrcall 风格，按 `PtrToArg<T>::encode` 写入参数内存
 - 失败路径：所有 produce 转换失败时目标内存保持调用前状态（不部分写入），调用方按"未构造"/"已构造"对应处理
+
+## int64 / uint64 按位契约与 BigInt 阈值（jsb_primitive_conv.h）
+
+> 引擎无关的数值转换实现在 `src/runtime/impl/jsb_primitive_conv.h`，四个引擎 shim
+> （`impl/{v8,node,quickjs,jsc,web}/jsb_*_helper.h`）只做转发。**新增数值转换必须改这个头，
+> 不要在 shim 里再写一份**——四份复制粘贴正是本类缺陷反复漂移的结构性原因。
+
+### 读方向（Godot → JS）
+
+- **64 位整数按位读，不做范围检查**。越界值按 mod 2^64 回绕，与引擎自身一致
+  （`Variant::operator uint64_t()` 就是 `static_cast<uint64_t>(operator int64_t())`；
+  quickjs-ng / jsc / web 的 C API 原生也是 mod 2^64）。
+- 出口判据**必须双边**：`v > JSB_MAX_SAFE_INTEGER || v < -JSB_MAX_SAFE_INTEGER` → `BigInt`；
+  否则 `Number`（能塞进 int32 时先出 `Int32`）。
+  **单边判据是历史缺陷**：负且幅值 > 2^53 的值会落到 `Number::New((double)v)` 被舍入。
+- uint64 槽必须走**无符号**出口（`new_unsigned_integer` / `BigInt::NewFromUnsigned`）。
+  `ObjectID` 的 bit63 承载 `is_ref_counted`（`core/object/object.h` `OBJECTDB_REFERENCE_BIT`），
+  有符号出口会让每个 RefCounted 的 id 变成负数，`instance_from_id()` 随即收到不同的 id。
+- 无符号语义来自 **C++ 类型本身**（`Ret<uint64_t>` 与 `Args<uint64_t>` 是不同模板实例），
+  静态路径不需要 meta。
+- 动态（reflect）路径靠 `GDExtensionClassMethodArgumentMetadata`，**两个方向都需要**：
+  - 返回方向：`gd_var_to_js` 的 `INT_IS_UINT64` 分支走 `new_unsigned_integer`。
+  - 参数方向：`js_to_gd_var` 的 `INT_IS_UINT64` 分支走 `to_uint64` 再写回有符号槽。
+    两个方向的 Variant INT 槽存的确实是同样的 64 位，**但取位方式不同**：从
+    `[2^63, 2^64)` 的 double 取位时，`(int64_t)` 是 UB（x86 返回 INT64_MIN 哨兵），
+    必须走无符号转换。实测 `put_u64(1e19)` 在 dynamic 腿因此写成了
+    `0x8000000000000000` 而不是 `0x8ac7230489e80000`。
+  调用点：`jsb_object_bindings.cpp` 的 `_godot_object_method`（参数 + 返回）、
+  `_godot_object_set2`（setter 参数）、`_godot_object_get2`（getter 返回）。
+  vararg 尾参没有声明类型，保持无 meta。
+
+### 每引擎原语表
+
+| 引擎 | `BigInt::Uint64Value` 实现 | 越界行为 |
+|---|---|---|
+| v8 / node | 官方 `v8::BigInt::Uint64Value(bool*)` | 有 `lossless` 反馈 |
+| quickjs-ng | `JS_ToBigUint64`（内部 `JS_ToBigInt64Free`，注释「return the value mod 2^64」） | 不检查 |
+| jsc | `JSValueToUInt64`（文档：BigInt 被 truncate 到 uint64_t） | 不检查 |
+| web | `jsbi_Uint64Value`（JS 侧裸 `BigInt(val)` 写入） | 不检查 |
+
+**`lossless` 不得参与分支**：只有 v8 能报，分支会让五引擎语义分叉。选「按位回绕」时五引擎
+原生就一致。
+
+**测试辅助不得用 `BigInt.asUintN`（quickjs-ng 上是坏的）**：其快路径在
+`bits >= JS_SHORT_BIG_INT_BITS` 时直接返回原值，而 quickjs-ng 的
+`JS_SHORT_BIG_INT_BITS = JS_LIMB_BITS = 32`，故 `BigInt.asUintN(64, -1n)` 得 `-1n`
+而非 `18446744073709551615n`（v8 正确）。用它会造出「两侧十六进制字符串相同却不等」的
+假失败。取模掩码 `((x % 2n**64n) + 2n**64n) % 2n**64n` 在五引擎等价。
+（本项目转换层无此问题：quickjs-ng 腿 `get_u64() = 2^63` 实测得到 `9223372036854775808n`。）
+
+### 数值槽的接受面（与引擎 `can_convert_strict` 对齐）
+
+引擎 `Variant::can_convert_strict`（`core/variant/variant.cpp`）：
+
+| 目标 | 引擎接受 | 对应 JS |
+|---|---|---|
+| `BOOL` | `INT` / `FLOAT` / `NIL` | number / bigint / null / undefined |
+| `INT` | `BOOL` / `FLOAT` / `NIL` | boolean / number / bigint / null / undefined |
+| `FLOAT` | `BOOL` / `INT` / `NIL` | boolean / number / bigint / null / undefined |
+
+三处的 `STRING` 在引擎里都是**被注释掉**的 → 字符串仍拒。
+
+- **`to_double` 不走引擎 `NumberValue`**：v8 的 `NumberValue` 是 `ToNumber()` 语义，
+  对 BigInt 抛 TypeError 并留下 pending exception（只有 `Number()` 函数特判 BigInt）。
+  改读 64 位有符号值，全引擎一致且精确。
+- **`to_bool`** 放行 number / bigint / null / undefined，字符串拒。
+- ⚠ **默认值优先级不能破坏**：`undefined` 在**有默认值**的位置仍走默认值替换，
+  只有**无默认值**的位置才走转换。测这条必须用**默认值为 `true`** 的 bool 参数
+  （默认值 `false` 与 `undefined` 的真值相同，两条假设不可区分）——
+  实测判据：`String.strip_edges("  x", undefined)` 得 `"x"`（走了默认值 `true`）。
+
+### 出口表示：`JSB_WITH_BIGINT` 是唯一的 64 位开关
+
+历史上分支上短暂存在过 `JSB_BIGINT_FOR_64BIT`（只管出口）与
+`JSB_64BIT_RETURN_FIXED_BIGINT`（declared-64-bit 出口恒 `bigint`）两个宏，
+**都已删除**，理由是：
+
+- FIXED 开关会让 `Vector2i(2n,3).x` 变成 BigInt：`member_getter_thunk` 的模板参数是
+  Variant **存储类型**（恒 `int64_t`），不是 API **声明宽度**（`Vector2i.x` 是 `int32`）。
+  指望存储类型携带「这是不是 declared-64-bit」本身就是错的。
+- `JSB_WITH_BIGINT` 的既有语义就是「值不能用 Number 精确表示时用 BigInt」，
+  FOR_64BIT 与之重复。
+
+现在只有一个开关，双向都管：
+
+| 方向 | `JSB_WITH_BIGINT = 1`（默认） | `= 0` |
+|---|---|---|
+| Godot → JS（出口） | 幅值 > `JSB_MAX_SAFE_INTEGER` 出 `BigInt`，否则 `Number` | 一律 `Number`（超 2^53-1 静默丢位，= 64 位工作之前的行为） |
+| JS → Godot（入口） | 接受 BigInt 参数 | BigInt 被拒（整数经 `Number` 读） |
+
+两条硬约束：
+
+- **入口方向两种模式都不抛异常**。开关只改「BigInt 能不能进来」，不把转换失败变成异常。
+- **64 位值的 JS 类型不属于任何契约**，按值的大小逐个决定；需要确定类型的调用方自己收窄。
+  typings 随之条件编译：`int64 = number | bigint`（=1）/ `number`（=0）。断言 JS 类型前
+  先判 `BIGINT_MODE`，或复用 `test-status.ts` 的 `Numeric64`（= 按构建生成的
+  `int64 | uint64`，不要硬编码联合类型 —— 在 `=0` 时它比 `int64` 更宽，反而报错）。
+
+- **运行期可见**：`BIGINT_FOR_64BIT`（`godot-jsb` 模块导出，取自 `JSB_WITH_BIGINT`，
+  与 `BINDING_MODE` 同一用途）—— 让单个集成场景能在两种配置下都通过，
+  而不必为每种模式分别构建场景。
+- **`JSB_WITH_BIGINT=0` 是合法配置，必须保证它能跑通**：该配置下 `to_int64` / `to_uint64` /
+  `to_double` / `to_bool` 的 BigInt 分支被编译期门控掉，`test_jsb_int64_conv.h` 里对应的
+  输入断言也要按 `bigint_inputs_supported` 门控（断言「被拒」而不是断言「能读」）。
+  实测过：分支合并前该配置下 42 个 C++ 断言必然失败，且从未被测过。
+
+### 窄整型（int8/16/32、uint8/16/32、char32）按引擎语义**截断**
+
+**2026-09-25 修订**（原为「保持范围检查」，实测后推翻）。判据是用户规则
+「引擎有检查就以动态腿为准，没有就以静态腿为准」。实测引擎**不检查宽度**：
+
+| 调用 | 引擎结果 |
+|---|---|
+| `PackedByteArray.put_8(300)` | OK，`[44]` |
+| `put_8(-129)` | OK，`[127]` |
+| `put_8(2^40)` | OK，`[0]` |
+| `put_u16(70000)` | OK，`[112,17]` |
+| `put_8(1e300)` | OK，`[0]` |
+| `Vector2i(3000000000, -3000000000)` | `(-1294967296, 1294967296)` |
+| `put_8("abc")` / `put_8(null)` | 报错（类型类别不匹配，**仍拒**） |
+
+`core/variant/binder_common.h:58-72`：DEBUG 只走 `VariantCasterAndValidate<T>::cast`
+→ `Variant::can_convert_strict`（**Variant 类型类别级，拿不到宽度**）；release 直接
+`VariantCaster<T>::cast` → `Variant::_to_int<int8_t>()` → `T(_data._int)`，即 `static_cast`。
+
+因此本项目静态腿与动态腿**统一为截断**，且：
+- 越界只在 `JSB_DEBUG` 构建下告警（release 零开销）；
+- 静态腿告警走 `js_to_fixed_width_int`（含目标值），动态腿走统一入口
+  `js_to_gd_var` 的 `verify_narrow_int_slot`（按 meta 查 lo/hi，一处覆盖
+  class 方法 / utility / setter-ctor 三条路径）；
+- **非数值输入仍然拒绝**（引擎也拒），截断只针对数值。
+
+`StaticBindingUtil` 的六个窄整型特化（`int8_t/int16_t/uint8_t/uint16_t/uint32_t/char32_t`）
+已由 `JSB_STATIC_BINDING_FIXED_INT` 宏补齐并统一委托 `JSToGD<T>`，与动态腿接受面一致。
+
+> ⚠ `String::sprintf` **不支持 `%lld`**：用了会让整行日志变空。64 位值必须走
+> `%d` + `(int)`（项目既有惯例）。
+
+### 测试落点
+
+- C++：`src/runtime/tests/test_jsb_int64_conv.h`（须在 `jsb_test_main.cpp` 登记）。
+- TS：`project/tests/int64/`（须在 `project/tests/start.ts` 的 `scenes` 登记）。
+  **场景内不要调 `get_tree().quit()`** —— 那会抢在 `start.ts` 打印
+  `GODOTJS_TEST_PROJECT_COMPLETED` 之前退出引擎，表现为「测试跑了但没有哨兵」。

@@ -1,6 +1,8 @@
 import { GAny, GArray, GDictionary, Object as GodotObject, Resource, Vector2 } from 'godot';
 import type TransferScriptedNode from './transfer-scripted-node';
 
+import type { Numeric64 } from "../test-status";
+
 export type DictionaryPayload = GDictionary<{
 	nested: GDictionary<{
 		marker: Vector2;
@@ -98,8 +100,12 @@ export type ObjectTransferMessage = {
 	type: MessageType.ObjectTransfer;
 	action: ObjectTransferAction;
 	object?: GodotObject;
-	objectId?: number;
-	controlId?: number;
+	// A 64-bit slot value: the runtime writer picks Number or BigInt by magnitude,
+	// and without BigInt in the build it is a plain number. `Numeric64` is the
+	// suite's name for that (the generated `int64` / `uint64` aliases are separate
+	// types, so neither alone covers both directions).
+	objectId?: Numeric64;
+	controlId?: Numeric64;
 	singletonName?: string;
 };
 
