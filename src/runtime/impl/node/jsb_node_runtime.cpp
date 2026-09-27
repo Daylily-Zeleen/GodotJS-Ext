@@ -53,7 +53,13 @@ static String diag_state(const char *p_where, const void *p_this, uv_loop_t *p_l
 			+ " env=" + diag_ptr(p_env)
 			+ " live=" + String::num_int64(s_nr_live)
 			+ " backend_fd=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_backend_fd(p_loop) : -1)
-			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1);
+			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1)
+			// The fault reads inv->nfds; inv is lfields->inv, a slot inside the
+			// loop's internal_fields block. Print the slot and the inv pointer so
+			// its corruption is visible in the log at each stage.
+			+ " internal_fields=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)p_loop + 0x1b8) : nullptr)
+			+ " inv_slot=" + diag_ptr(p_loop != nullptr ? *(void **)((char *)*(void **)((char *)p_loop + 0x1b8) + 0x8) : nullptr)
+			+ " inv_nfds=" + String::num_int64(p_loop != nullptr ? *(int *)*(void **)((char *)*(void **)((char *)p_loop + 0x1b8) + 0x8) : -1);
 }
 
 NodeRuntime::NodeRuntime() {
@@ -175,6 +181,7 @@ NodeRuntime::~NodeRuntime() {
 		node::SpinEventLoop(node_env_).ToChecked(); // 如果有未完成任务（如 setInterval） 可能会卡住
 	}
 	node::Stop(node_env_);
+	WARN_PRINT(diag_state("~NodeRuntime:post-Stop", this, loop_, node_env_));
 	// Run the loop so the closes scheduled by Stop() actually complete before
 	// FreeEnvironment() tears the environment down. UV_RUN_NOWAIT-style ticks
 	// are used rather than UV_RUN_DEFAULT: a still-active handle (a stray

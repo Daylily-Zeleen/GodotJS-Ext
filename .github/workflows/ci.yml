@@ -873,30 +873,21 @@ jobs:
           echo \n===== FRAME0 =====\n
           frame 0
           p loop
-          p inv
-          p uv_version()
           p/x loop->internal_fields
-          p/x loop->data
-          p/x loop->active_handles
-          p/x loop->nwatchers
-          p/x loop->nfds
+          p &((uv_loop_t*)0)->internal_fields
           p/x loop->backend_fd
-          p/x loop->watchers
-          p/x loop->watcher_queue
-          echo \n===== FRAME1 =====\n
-          frame 1
-          p w
-          p/x w->fd
-          p/x w->loop
-          p/x w->pevents
-          p/x w->events
+          p/x loop->nfds
+          p/x loop->nwatchers
+          x/40gx loop->internal_fields
+          x/6gx (char*)loop->internal_fields + 0x1b8
+          x/12gx loop
           echo \n===== FRAME2 =====\n
           frame 2
           p handle
           p/x handle->loop
           p/x handle->type
           p/x handle->flags
-          p/x handle->data
+          x/16gx handle
           echo \n===== FRAME9 (our dtor) =====\n
           frame 9
           p this
