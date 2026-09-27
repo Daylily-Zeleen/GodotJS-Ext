@@ -863,6 +863,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          set +e   # the crash aborts the engine; keep going through all modes
           for mode in "" "0" "1"; do
             if [ -z "$mode" ]; then label="unset"; else label="$mode"; fi
             echo "===== UV_USE_IO_URING=$label ====="
@@ -870,6 +871,8 @@ jobs:
             rc=$?
             echo "exit=$rc crash=$(grep -ac handle_crash "/tmp/mode_$label.log")"
             grep -a "test cases:" "/tmp/mode_$label.log" | tail -1 || true
+            echo "--- crash top frames ($label) ---"
+            grep -aA8 "handle_crash" "/tmp/mode_$label.log" | grep -aE "signal|^\[[0-9]+\]" | head -8 || true
             # keep the api store: later steps depend on it
             ( cd project && rm -f .godot/.tsbuildinfo && pnpm exec tsc --noCheck >/dev/null 2>&1 ) || true
           done
