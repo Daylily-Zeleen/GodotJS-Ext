@@ -424,46 +424,19 @@ TEST_CASE("[runtime] [jsb] script members: own members only") {
 		const TypedArray<StringName> members = derived->_get_members();
 		// the derived script re-declares `tag`, so its own list carries it exactly once
 		int64_t tag_count = 0;
-		// TEMP DEBUG reference print (unconditional)
-		{
-			String dbg = vformat("DBG members: size=%d typed_builtin=%d", members.size(), (int)members.get_typed_builtin());
-			for (int64_t i = 0; i < members.size(); ++i) {
-				const Variant &e = members[i];
-				dbg += vformat(" [%d]type=%d eq_expr=%d eq_str=%d eq_names=%d sizepath=%d",
-						i,
-						(int)e.get_type(),
-						(int)(members[i] == StringName("tag")),
-						(int)(members[i] == String("tag")),
-						(int)(StringName((String)e) == StringName("tag")),
-						(int)members.size());
-			}
-			godot::UtilityFunctions::print(dbg);
-		}
 		for (int64_t index = 0; index < members.size(); ++index) {
-			if (members[index] == StringName("tag")) {
+			//NOTE compared by name, not with `== StringName(...)`: `StringName::operator==` is an
+			//     identity test on the interned pointer (`_data == p_name._data`), and the name
+			//     built here and the one the parser interned are two different entries - a
+			//     `StringName` literal is created as a *static* name
+			//     (`string_name_new_with_latin1_chars`) while the parser interns through
+			//     `string_name_new_with_utf8_chars`. They coalesce on MSVC/clang but not on
+			//     g++/Linux (`has()`/`find()` still agree there because `Array` compares STRING
+			//     and STRING_NAME through `StringLikeVariantComparator`). The contract under test
+			//     is the member *name*, so compare that.
+			if (StringName((String)members[index]) == StringName(::String("tag"))) {
 				++tag_count;
 			}
-		}
-		if (tag_count != 1) {
-			// Report what the list actually holds, and *why* the comparison above failed: `has()` and
-			// `find()` go through `StringLikeVariantComparator` (STRING and STRING_NAME compare
-			// across types), whereas `Variant::operator==` compares the type first - so an element
-			// carrying STRING repels the `== StringName(...)` test that `has()` accepts.
-			// Rendered through `UtilityFunctions::print`, not a doctest MESSAGE: doctest turns a
-			// `godot::String` into `{?}` and a `const char *` into a pointer.
-			String detail = vformat("derived members: size=%d typed_builtin=%d (STRING_NAME=%d) has_tag=%d has_baseOnly=%d", members.size(), (int)members.get_typed_builtin(), (int)Variant::STRING_NAME, (int)members.has(StringName("tag")), (int)members.has(StringName("baseOnly")));
-			for (int64_t index = 0; index < members.size(); ++index) {
-				const Variant entry = members[index];
-				const String entry_str = entry;
-				detail += vformat(" [%d] type=%d (STRING=%d STRING_NAME=%d) str=\"%s\" len=%d cp={", index, (int)entry.get_type(), (int)Variant::STRING, (int)Variant::STRING_NAME, entry_str, entry_str.length());
-				for (int i = 0; i < entry_str.length(); ++i) {
-					detail += itos((int64_t)entry_str[i]) + ",";
-				}
-				detail += vformat("} eq_variant=%d eq_stringname=%d",
-						(int)(entry == Variant(StringName("tag"))),
-						(int)(StringName(entry_str) == StringName("tag")));
-			}
-			godot::UtilityFunctions::print(detail);
 		}
 		CHECK(tag_count == 1);
 		// `baseOnly` is declared by the base alone: the debugger collects it from the base script,
