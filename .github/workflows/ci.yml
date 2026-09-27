@@ -868,37 +868,29 @@ jobs:
           set print elements 32
           set disable-randomization off
           run
-          echo \n===== THREADS =====\n
-          info threads
           echo \n===== FRAME0 =====\n
           frame 0
+          bt 8
+          echo \n===== LIBUV INTERNAL FIELDS LAYOUT =====\n
+          ptype /o uv__loop_internal_fields_s
+          ptype /o struct uv__invalidate
+          p sizeof(uv__loop_internal_fields_s)
+          p &((uv__loop_internal_fields_s*)0)->inv
+          p &((uv__loop_internal_fields_s*)0)->ctl
+          p &((uv__loop_internal_fields_s*)0)->iou
+          echo \n===== VARS =====\n
           p loop
-          p/x loop->internal_fields
+          p lfields
+          p inv
           p &((uv_loop_t*)0)->internal_fields
+          x/8gx (char*)loop + 0x28
+          p/x loop->stop_flag
+          p/x loop->active_handles
           p/x loop->backend_fd
           p/x loop->nfds
-          p/x loop->nwatchers
-          x/40gx loop->internal_fields
-          x/6gx (char*)loop->internal_fields + 0x1b8
-          x/12gx loop
-          echo \n===== FRAME2 =====\n
-          frame 2
-          p handle
-          p/x handle->loop
-          p/x handle->type
-          p/x handle->flags
-          x/16gx handle
-          echo \n===== FRAME9 (our dtor) =====\n
-          frame 9
-          p this
-          p/x this->loop_
-          p/x this->node_env_
-          p/x this->isolate_
-          echo \n===== BT (limit 40) =====\n
-          bt 40
           echo \n===== END DIAG =====\n
           EOF
-          gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -300
+          gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -260
 
       - name: Run C++ unit tests
         shell: bash
