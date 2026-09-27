@@ -868,44 +868,36 @@ jobs:
               perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
             fi
           }
-          # TEMPORARY PROBE (remove once the teardown crash is fixed). Break at the
-          # NodeRuntime destructor, then hardware-watch the loop's lfields->inv
-          # slot (*(loop+0x28) is internal_fields, +0x1b8 is inv on linux) so the
-          # exact write that poisons it is caught with a backtrace, instead of
-          # inferring it from the crash.
+          # TEMPORARY PROBE (remove once the teardown crash is fixed). The SIGSEGV
+          # is Linux-only, in libuv's uv__platform_invalidate_fd, which reads
+          # lfields->inv: lfields = *(loop+0x28), inv = *(lfields+0x1b8) (linux
+          # layout: flags, loop_metrics, current_timeout, ctl, iou, inv). Commands
+          # go through -ex instead of a heredoc, which cannot be written inside a
+          # YAML run block without breaking the terminator.
           if [ "$RUNNER_OS" == "Linux" ]; then
             set +e
-            cat > /tmp/gdbcmds <<'EOF'
-            set pagination off
-            set confirm off
-            set print elements 16
-            set disable-randomization off
-            break jsb::impl::NodeRuntime::~NodeRuntime
-            run
-            echo \n===== DTOR ENTRY =====\n
-            p this
-            p this->loop_
-            set $lf = *(void**)((char*)this->loop_ + 0x28)
-            p $lf
-            p *(void**)((char*)$lf + 0x1b8)
-            watch *(void**)((char*)$lf + 0x1b8)
-            commands
-              silent
-              printf "INVWRITE now=%p\n", *(void**)((char*)$lf + 0x1b8)
-              bt 5
-              continue
-            end
-            continue
-            echo \n===== STOPPED =====\n
-            bt 20
-            EOF
-            gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests > /tmp/gdb.log 2>&1
-            echo "gdb log lines: $(wc -l < /tmp/gdb.log)"
-            echo "---- INVWRITE records (last 6) ----"
-            grep -n "INVWRITE" /tmp/gdb.log | tail -6
-            echo "---- around last INVWRITE ----"
-            n=$(grep -n "INVWRITE" /tmp/gdb.log | tail -1 | cut -d: -f1)
-            if [ -n "$n" ]; then sed -n "$((n>40?n-40:1)),$((n+45))p" /tmp/gdb.log; fi
+            gdb -batch \
+              -ex 'set pagination off' \
+              -ex 'set confirm off' \
+              -ex 'run' \
+              -ex 'echo \n== FRAME0 ==\n' \
+              -ex 'frame 0' \
+              -ex 'bt 7' \
+              -ex 'p loop' \
+              -ex 'p/x fd' \
+              -ex 'p/x *(void**)((char*)loop+0x28)' \
+              -ex 'p/x *(void**)((char*)*(void**)((char*)loop+0x28)+0x1b8)' \
+              -ex 'p/x *(int*)((char*)*(void**)((char*)loop+0x28)+0x1b8)' \
+              -ex 'echo \n== FRAME2 ==\n' \
+              -ex 'frame 2' \
+              -ex 'p/x handle' \
+              -ex 'p/x handle->loop' \
+              -ex 'p/x handle->type' \
+              -ex 'p/x handle->flags' \
+              --args "$GODOT" --headless --path project --jsb-run-tests > /tmp/gdb.log 2>&1
+            echo "gdb exit=$?"
+            echo "---- relevant gdb lines ----"
+            grep -aE '^\$[0-9]+ =|^#[0-9]+|== FRAME|received signal' /tmp/gdb.log | head -40
             set -e
           fi
           if [ "$RUNNER_OS" == "Windows" ]; then
