@@ -321,8 +321,14 @@ jobs:
           def load(p):
               with open(p) as f:
                   return json.load(f)
-          a = load("/tmp/bench/static.json")
-          b = load("/tmp/bench/dynamic.json")
+          # Named for their leg, not `a`/`b`: both files hold identically named
+          # keys, so a swap here publishes two correct numbers under the wrong
+          # headers (and an inverted ratio) with nothing failing to flag it.
+          static = load("/tmp/bench/static.json")
+          dynamic = load("/tmp/bench/dynamic.json")
+
+          def find(leg, name):
+              return next((r for r in leg["results"] if r["name"] == name), None)
 
           # CONSISTENCY GATE: per-case result summaries must match exactly
           # between the two binding paths before any performance number is
@@ -334,35 +340,38 @@ jobs:
           # binding divergence. The performance table below still lists them.
           mismatches = []
           skipped = []
-          for ra in a["results"]:
-              rb = next((r for r in b["results"] if r["name"] == ra["name"]), None)
-              if rb is None or rb.get("error") or ra.get("error"):
+          for rs in static["results"]:
+              rd = find(dynamic, rs["name"])
+              if rd is None or rs.get("error") or rd.get("error"):
                   continue
-              if ra.get("processDependent") or rb.get("processDependent"):
-                  skipped.append(ra["name"])
+              if rs.get("processDependent") or rd.get("processDependent"):
+                  skipped.append(rs["name"])
                   continue
-              if ra.get("sample") != rb.get("sample"):
-                  mismatches.append((ra["name"], ra.get("sample"), rb.get("sample")))
+              if rs.get("sample") != rd.get("sample"):
+                  mismatches.append((rs["name"], rs.get("sample"), rd.get("sample")))
           if mismatches:
               print("RESULT MISMATCH static vs dynamic:")
               for n, s_, d_ in mismatches:
                   print(f"  {n}: static={s_} dynamic={d_}")
               raise SystemExit(1)
-          print(f"consistency gate passed ({len(a['results'])} cases"
+          print(f"consistency gate passed ({len(static['results'])} cases"
                 + (f", {len(skipped)} process-dependent skipped: {', '.join(skipped)}" if skipped else "")
                 + ")")
 
+          # Rows are (name, dynamic, static); the two table columns below read them
+          # in exactly that order, so check the tuple and the header together.
           rows = []
-          for name in {r["name"] for r in a["results"]} | {r["name"] for r in b["results"]}:
-              ra = next((r for r in a["results"] if r["name"] == name), None)
-              rb = next((r for r in b["results"] if r["name"] == name), None)
-              if not ra or not rb or ra.get("error") or rb.get("error"):
+          for name in {r["name"] for r in static["results"]} | {r["name"] for r in dynamic["results"]}:
+              rs = find(static, name)
+              rd = find(dynamic, name)
+              if not rs or not rd or rs.get("error") or rd.get("error"):
                   continue
-              rows.append((name, ra["nsPerCall"], rb["nsPerCall"]))
-          rows.sort(key=lambda r: r[2] / max(r[1], 1), reverse=True)
+              rows.append((name, rd["nsPerCall"], rs["nsPerCall"]))
+          # Descending dyn/stat = the cases where static wins the most come first.
+          rows.sort(key=lambda r: r[1] / max(r[2], 0.1), reverse=True)
           lines = [
               "# Static vs Dynamic binding benchmark (ns/call, lower is better)",
-              f"engine: {a['engine']}  |  invalid cases skipped",
+              f"engine: {static['engine']}  |  invalid cases skipped",
               "",
               "## Binary size",
           ]

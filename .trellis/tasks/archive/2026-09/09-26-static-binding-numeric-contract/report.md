@@ -1006,7 +1006,11 @@ consistency gate passed (248 cases, 1 process-dependent skipped: Node.get_instan
 
 ### 新增用例的实测数据（ns/call，lower is better）
 
-| 用例 | dynamic | static | dyn/stat |
+> ⚠ **本表的 dynamic / static 两列当时是反的**（抄自 CI 产出的 `report.md`，而该表的两列
+> 与 `ratio` 方向本身就是错的，见下节）。2026-09-28 已按原始 `static.json` / `dynamic.json`
+> 重新取数，正确值见下方「更正」表。
+
+| 用例 | ~~dynamic~~(=真实 static) | ~~static~~(=真实 dynamic) | ~~dyn/stat~~(=真实 stat/dyn) |
 |---|---:|---:|---:|
 | get float(param_max,6) | 73.1 | 94.6 | 0.77x |
 | get float(param_min,0) | 72.8 | 94.6 | 0.77x |
@@ -1023,23 +1027,50 @@ consistency gate passed (248 cases, 1 process-dependent skipped: Node.get_instan
 | set float(set_offset,0) | 145.2 | 120.9 | 1.20x |
 | set nodepath(focus,0) | 1773.2 | 1902.3 | 0.93x |
 
-### 如实记录一个反向信号：索引 getter 在 static 下更慢
+### ~~如实记录一个反向信号：索引 getter 在 static 下更慢~~ **该结论已撤回**
 
-上面标量 getter 的 dyn/stat 是 **0.74~0.82x**，即 static **慢约 20~35%**（绝对值 ~20ns）。
-除了 `nodepath`（1.01x，两者相当），标量索引 getter 一律如此。
+本节原先写道「标量 getter 的 dyn/stat 是 0.74~0.82x，即 static 慢约 20~35%」，并给了一段
+机制推断。三条都不成立，**2026-09-28 的第二次 benchmark CI（run 36336888619）已推翻**：
 
-初步判断（**未做实测归因，仅机制推断，`[INFERENCE]`**）：旧 static getter 是
-`object_method_bind_call → Variant → TypeConvert::gd_var_to_js(ret, FLOAT)`，FLOAT 分支直接
-`v8::Number::New(isolate, p_cvar)` 一次转换；改后是
-`... → Ret<float>::translate_return(ret)` → `variant_as<float>`（一次 `(float)` 转换）→
-`GDToJS<float>`（再一次 `(double)` 后 `v8::Number::New`）。多了一道转换与 `Ret<>` 间接层。
-这是第 4 轮把 getter 出口统一到 `Ret<T>` 的**代价**；收益是四个调用点共用同一条归一逻辑，
-并且是修复"索引属性 setter 崩溃"之后把两条绑定路径的行为对齐的前提。
+1. **表本身错了**：CI 的 `Comparison report` 把 `static.json` 的值放进 `dynamic` 列、
+   把 `dynamic.json` 的值放进 `static` 列，且 `ratio` 取的是倒数。逐行交叉验证 248/248 行
+   全部符合这个错位。所以原「static 更慢」是按**反了的表**读出来的。
+2. **绝对值整体变化，差异消失**：同一批用例两次 run 之间，逐腿绝对值的漂移中位数
+   就有 **0.76~0.79x** —— 比当初测出的 0.74~0.82x「差异」还大。那个差异整体落在
+   run-to-run 噪声里，根本不足以支撑任何结论。
+3. 重跑后 14 个索引属性用例里没有一个重现该形态：`get float(param_max,6)` 从
+   static 73.1 / dynamic 94.6 变成 static 63.4 / dynamic 65.1（基本持平），
+   `get bool` 甚至**反向**（static 81.4 / dynamic 66.9）。全 248 例里 static 更慢的数量
+   从 204/248 降到 179/248，中位 dyn/stat 从 1.10x 收到 1.06x。
 
-**未处理**：这属于本轮范围外的性能优化（且 setter 侧反而是 static 更快，净收益需整体权衡）。
-需要的话另开任务测：直接给 `indexed_property_getter_thunk` 传裸类型 + `GDToJS<T>`（像
-`builtin_operators.h` 那样，因为这里拿到的就是完整 `Variant`，`variant_as` 那步是必需的，
-可省的是 `Ret<>` 这一层 与 float 的二次转换）。
+**结论：索引 getter 在 static 下更慢这一现象不存在**，无需为此做性能优化，第 4 轮把 getter
+出口统一到 `Ret<T>` 也没有这层代价。
+
+#### 更正后的真实数据（run 36336888619，2026-09-28）
+
+| 用例 | static | dynamic | dyn/stat |
+|---|---:|---:|---:|
+| get bool(particle_flag,0) | 81.4 | 66.9 | 0.82x |
+| get float(param_max,6) | 63.4 | 65.1 | 1.03x |
+| get float(param_min,0) | 60.0 | 65.9 | 1.10x |
+| get object(param_curve,6) | 57.9 | 69.4 | 1.20x |
+| set bool(particle_flag,0) | 84.7 | 99.9 | 1.18x |
+| set float(param_min,0) | 83.4 | 98.8 | 1.18x |
+| set float(param_max,6) | 83.5 | 100.9 | 1.21x |
+| set object(param_curve,6) | 85.2 | 103.4 | 1.21x |
+| get float(get_anchor,0) | 60.0 | 66.4 | 1.11x |
+| get float(get_offset,0) | 59.8 | 65.9 | 1.10x |
+| get float(get_offset,3) | 60.0 | 66.1 | 1.10x |
+| get nodepath(focus,0) | 659.2 | 651.6 | 0.99x |
+| set float(set_offset,0) | 81.1 | 98.3 | 1.21x |
+| set nodepath(focus,0) | 1478.2 | 1611.0 | 1.09x |
+
+#### 教训（写入此处以免重蹈）
+
+- **不要直接信 `report.md` 的列名**：两手数据文件名相同、键名相同，错位的风险全在读表的一侧。
+  取数一律回到 `static.json` / `dynamic.json`。
+- **单次 benchmark 的差异必须先跟 run-to-run 噪声比**。本机/job 之间的绝对值漂移中位数可达
+  0.76~0.79x，小于这个量级的「结论」一律不成立。
 
 ### 其它
 

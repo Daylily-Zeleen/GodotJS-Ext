@@ -178,21 +178,40 @@ base_ptr   = builtin self / 运算符操作数内存
   （默认值 `false` 与 `undefined` 的真值相同，两条假设不可区分）——
   实测判据：`String.strip_edges("  x", undefined)` 得 `"x"`（走了默认值 `true`）。
 
-### 出口表示开关（`JSB_BIGINT_FOR_64BIT`，`src/jsb.config.h`）
+### 出口表示：`JSB_WITH_BIGINT` 是唯一的 64 位开关
 
-两个宏不要混用：
+历史上分支上短暂存在过 `JSB_BIGINT_FOR_64BIT`（只管出口）与
+`JSB_64BIT_RETURN_FIXED_BIGINT`（declared-64-bit 出口恒 `bigint`）两个宏，
+**都已删除**，理由是：
 
-| 宏 | 管什么 |
-|---|---|
-| `JSB_WITH_BIGINT` | 引擎构建**有没有** BigInt，以及 JS → Godot 方向是否接受 BigInt（入口） |
-| `JSB_BIGINT_FOR_64BIT` | 64 位值**离开** Godot 时的表示：`1` = 超 2^53-1 出 `BigInt`（默认，与历史行为兼容）；`0` = 仍出 `Number`，超 2^53-1 静默丢位 |
+- FIXED 开关会让 `Vector2i(2n,3).x` 变成 BigInt：`member_getter_thunk` 的模板参数是
+  Variant **存储类型**（恒 `int64_t`），不是 API **声明宽度**（`Vector2i.x` 是 `int32`）。
+  指望存储类型携带「这是不是 declared-64-bit」本身就是错的。
+- `JSB_WITH_BIGINT` 的既有语义就是「值不能用 Number 精确表示时用 BigInt」，
+  FOR_64BIT 与之重复。
 
-- **只作用于出口**。关掉它**不会**让任何参数开始抛异常 —— 入口接受面由 `JSB_WITH_BIGINT` 单独决定。
-- `JSB_BIGINT_FOR_64BIT=1` 依赖 `JSB_WITH_BIGINT=1`，非法组合在 `jsb.config.h` 里有 `#error` 拒绝。
-- 运行期可见：`BIGINT_FOR_64BIT`（`godot-jsb` 模块），与 `BINDING_MODE` 同一用途 ——
-  让单个集成场景能在两种配置下都通过，而不必为每种模式分别构建场景。
-- 关掉后的可观察差异：RefCounted 的 ObjectID 往返不再无损（`get_instance_id()` 出丢位 `Number`）；
-  `put_u64` 等**入口**行为与字节写入**完全不变**。
+现在只有一个开关，双向都管：
+
+| 方向 | `JSB_WITH_BIGINT = 1`（默认） | `= 0` |
+|---|---|---|
+| Godot → JS（出口） | 幅值 > `JSB_MAX_SAFE_INTEGER` 出 `BigInt`，否则 `Number` | 一律 `Number`（超 2^53-1 静默丢位，= 64 位工作之前的行为） |
+| JS → Godot（入口） | 接受 BigInt 参数 | BigInt 被拒（整数经 `Number` 读） |
+
+两条硬约束：
+
+- **入口方向两种模式都不抛异常**。开关只改「BigInt 能不能进来」，不把转换失败变成异常。
+- **64 位值的 JS 类型不属于任何契约**，按值的大小逐个决定；需要确定类型的调用方自己收窄。
+  typings 随之条件编译：`int64 = number | bigint`（=1）/ `number`（=0）。断言 JS 类型前
+  先判 `BIGINT_MODE`，或复用 `test-status.ts` 的 `Numeric64`（= 按构建生成的
+  `int64 | uint64`，不要硬编码联合类型 —— 在 `=0` 时它比 `int64` 更宽，反而报错）。
+
+- **运行期可见**：`BIGINT_FOR_64BIT`（`godot-jsb` 模块导出，取自 `JSB_WITH_BIGINT`，
+  与 `BINDING_MODE` 同一用途）—— 让单个集成场景能在两种配置下都通过，
+  而不必为每种模式分别构建场景。
+- **`JSB_WITH_BIGINT=0` 是合法配置，必须保证它能跑通**：该配置下 `to_int64` / `to_uint64` /
+  `to_double` / `to_bool` 的 BigInt 分支被编译期门控掉，`test_jsb_int64_conv.h` 里对应的
+  输入断言也要按 `bigint_inputs_supported` 门控（断言「被拒」而不是断言「能读」）。
+  实测过：分支合并前该配置下 42 个 C++ 断言必然失败，且从未被测过。
 
 ### 窄整型（int8/16/32、uint8/16/32、char32）按引擎语义**截断**
 
