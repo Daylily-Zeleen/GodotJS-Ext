@@ -84,6 +84,20 @@ String PathUtil::convert_javascript_path(const String &p_source_path) {
 	return p_source_path;
 }
 
+String PathUtil::convert_signature_path(const String &p_source_path) {
+	if (!p_source_path.ends_with("." JSB_SIGNATURE_EXT)) {
+		return p_source_path;
+	}
+	const String root_path = jsb::internal::settings::get_jsb_out_res_path();
+	jsb_checkf(p_source_path.begins_with(root_path + String("/")), "can not proceed signature sources not under the project data directory");
+	// 保留末尾的点、只丢扩展名字母（与上面 `.cjs` 的 4 同形：`std::size` 计入结尾 NUL）。
+	const int64_t extension_length = std::size(JSB_SIGNATURE_EXT);
+	const String replaced = String("res://").path_join(
+			p_source_path.substr(root_path.length() + 1, p_source_path.length() - root_path.length() - extension_length)
+			+ JSB_TYPESCRIPT_EXT);
+	return replaced;
+}
+
 bool PathUtil::is_recognized_javascript_extension(const String &p_path) {
 	return p_path.ends_with("." JSB_JAVASCRIPT_EXT) || p_path.ends_with("." JSB_COMMONJS_EXT) || p_path.ends_with("." JSB_MODULE_EXT);
 }

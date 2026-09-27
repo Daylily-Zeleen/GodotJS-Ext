@@ -26,6 +26,8 @@
 /************************************************************************/
 
 #include "jsb_script.h"
+#include "../bridge/jsb_shared_statics.h"
+#include "../bridge/jsb_signature.h"
 #include "../internal/jsb_path_util.h"
 #include "jsb_script_instance.h"
 #include "jsb_script_language.h"
@@ -333,19 +335,18 @@ bool GodotJSScript::_has_method(const StringName &p_method) const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
+	// Own methods only, like `GDScript::has_method` (`gdscript.cpp:362-363`). Walking the base chain
+	// is the caller's job and it differs per caller: `Object::has_method` (`object.cpp:738-758`)
+	// consults `script_instance->has_method` and does **not** walk, so `GodotJSScriptInstance`
+	// walks it itself (like `GDScriptInstance::has_method`, `gdscript.cpp:1906-1917`);
+	// `Object::get_method_argument_count` (`object.cpp:794-805`) walks `get_base_script()` on its own.
 	StringName exposed_name = p_method;
 
 	if (exposed_name.begins_with("_")) {
 		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
 	}
 
-	const GodotJSScript *current = this;
-	while (current) {
-		//TODO temp fix
-		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
-		if (current->_is_valid() && current->script_class_info_.methods.has(exposed_name)) return true;
-		current = current->base.ptr();
-	}
+	if (_is_valid() && script_class_info_.methods.has(exposed_name)) return true;
 
 	// ensure `_ready` called even if it's not actually defined in scripts
 	if (p_method == jsb_string_name(_ready)) {
@@ -363,12 +364,154 @@ bool GodotJSScript::_has_static_method(const StringName &p_method) const {
 	return false; // script_class_info_.methods.has(p_method);
 }
 Dictionary GodotJSScript::_get_method_info(const StringName &p_method) const {
-	jsb_check(loaded_);
-	jsb_check(_has_method(p_method));
-	//TODO details?
-	Dictionary item;
-	item["name"] = p_method;
-	return item;
+	ensure_module_loaded();
+
+	// Only a name that really exists as a script method yields a `MethodInfo`.
+	//NOTE This guard is required, not cosmetic: `GDScriptAnalyzer::reduce_identifier_from_base`
+	//     probes `get_method_info()` for *every* identifier of a non-GDScript script and has no
+	//     `has_method` guard of its own. Returning a non-empty dictionary for an arbitrary name
+	//     would shadow the signal and constant lookups that follow it, so constants could never
+	//     be resolved. An empty dictionary yields `MethodInfo::name == StringName()` and is
+	//     therefore ignored by the analyzer.
+	StringName exposed_name = p_method;
+	if (exposed_name.begins_with("_")) {
+		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
+	}
+
+	// Own methods only, like `GDScript::get_method_info` (`gdscript.cpp:385-392`). Callers that need
+	// the base chain walk it themselves: `GDScriptAnalyzer::get_function_signature`
+	// (`gdscript_analyzer.cpp:6076-6093`) loops `base_script->has_method()` + `get_method_info()`, and
+	// `Object::get_method_argument_count` (`object.cpp:794-805`) loops `get_base_script()`. The
+	// analyzer's non-GDScript probe (`:4366`) reads this single script only, so an inherited name
+	// does not resolve here. What that costs depends on how GDScript references the script, and it
+	// was measured (official 4.7.2, `.agent_tmp/probe_dconst.log`): with a `const` base the failure
+	// is at analysis time and the script does not load (`Cannot find member "F" in base "…"`),
+	// while a `var` base degrades to a runtime lookup through `_get`, which walks `base` itself.
+	if (_is_valid()) {
+		if (const jsb::ScriptMethodInfo *info = script_class_info_.methods.getptr(exposed_name)) {
+			_ensure_signature_manifest();
+			info = script_class_info_.methods.getptr(exposed_name);
+			jsb_check(info != nullptr);
+
+			// 重载：单个 `MethodInfo` 表达不了多个签名 ⇒ 返回空（对齐 C# `:2557-2576` 的
+			// "the best we can do"）。空字典的 `MethodInfo::name == StringName()` ⇒ 分析器忽略它，
+			// 与"名字不存在"同一条出口，不会遮蔽后续的信号/常量查找。
+			if (info->overloads.size() > 1) {
+				return {};
+			}
+
+			// the reported name must be the queried one, otherwise the analyzer's equality check fails
+			if (!info->overloads.is_empty()) {
+				// 有签名清单：交出真实签名（`args` / `default_args` / `flags` / `return`）。
+				// `default_arguments` 已按可选参数个数填好，所以最小 arity 是正确的
+				// （`gdscript_analyzer.cpp:6143`），填 `args` 不会再引入"参数全必填"的解析错误。
+				return jsb::internal::signature_to_method_info(p_method, info->overloads[0]);
+			}
+			Dictionary item;
+			item["name"] = p_method;
+			return item;
+		}
+	}
+	return Dictionary();
+}
+
+Dictionary GodotJSScript::_get_constants() const {
+	ensure_module_loaded();
+	Dictionary result;
+
+	// Own constants only, like `GDScript::get_constants` (`gdscript.cpp:911-917`). The ClassDB-bound
+	// `Script::get_script_constant_map()` (`script_language.cpp:106-112`) dumps exactly what this
+	// returns, so merging the base chain here makes that API diverge from GDScript for every foreign
+	// script: measured, a derived GDScript's `get_script_constant_map()` returns `{ DC: 2 }` and not
+	// the base's `BC`.
+	// Merging is not needed for resolution either. GDScript is duck-typed: an unresolved
+	// `DerivedScript.INHERITED_CONST` is not a load error, it degrades to a runtime lookup through
+	// `_get`, which walks `base` itself (`:465-467`). Measured on official 4.7.2 with the merge
+	// removed (`.agent_tmp/probe_dconst.log`): `D.F` still yields 1.5 in GDScript while
+	// `get_script_constant_map()` correctly reports own constants only (`["N"]`).
+	if (loaded_ && _is_valid()) {
+		for (const auto &it : script_class_info_.constants) {
+			result[it.key] = it.value.value;
+		}
+	}
+	return result;
+}
+
+TypedArray<StringName> GodotJSScript::_get_members() const {
+	// Own members only, like `GDScript::get_members` (`gdscript.cpp:919-925`). The single consumer,
+	// the remote debugger's object inspector (`scene_debugger_object.cpp:104`), walks the base chain
+	// itself and files every script's members under that script (`:111-122`); merging the base here
+	// would list an inherited member twice, once under the derived script and once under the base.
+	// Not gated on JSB_TOOLS: `GDScript::get_members` isn't gated either, and a debugger session is
+	// not editor-only (a remote debugger can attach to a debug/runtime build).
+	ensure_module_loaded();
+	TypedArray<StringName> result;
+
+	if (loaded_ && _is_valid()) {
+		for (const auto &it : script_class_info_.properties) {
+			result.push_back(it.key);
+		}
+	}
+	return result;
+}
+
+bool GodotJSScript::_get(const StringName &p_name, Variant &r_ret) const {
+	ensure_module_loaded();
+
+	if (loaded_ && _is_valid()) {
+		if (const HashMap<StringName, jsb::ScriptConstantInfo>::ConstIterator it = script_class_info_.constants.find(p_name)) {
+			r_ret = it->value.value;
+			return true;
+		}
+		// A shared static resolves against the process-wide store, so every environment and the
+		// GDScript side observe the same value.
+		if (script_class_info_.static_variables.has(p_name)
+				&& jsb::SharedStatics::get(script_class_info_.module_id, p_name, r_ret)) {
+			return true;
+		}
+	}
+
+	if (base.is_valid() && base->_is_valid()) {
+		return base->_get(p_name, r_ret);
+	}
+	return false;
+}
+
+bool GodotJSScript::_set(const StringName &p_name, const Variant &p_value) {
+	ensure_module_loaded();
+
+	//NOTE constants are deliberately not consulted: a write to a constant must fail, and returning
+	//     false here is what makes `Object::set` report it as an unknown property.
+	if (loaded_ && _is_valid() && script_class_info_.static_variables.has(p_name)) {
+		return jsb::SharedStatics::set(script_class_info_.module_id, p_name, p_value);
+	}
+
+	if (base.is_valid() && base->_is_valid()) {
+		return base->_set(p_name, p_value);
+	}
+	return false;
+}
+
+void GodotJSScript::_get_property_list(List<PropertyInfo> *p_list) const {
+	ensure_module_loaded();
+
+	// GDScript parity (`GDScript::_get_property_list`): the script source is offered as an
+	// internal, non-editable property.
+	p_list->push_back(PropertyInfo(Variant::STRING, "script/source", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
+
+	// Walk the chain from this script upwards so that a derived static variable shadows an
+	// inherited one of the same name, matching the `_get`/`_set` lookup order.
+	HashSet<StringName> emitted;
+	for (const GodotJSScript *current = this; current; current = current->base.ptr()) {
+		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
+		if (!current->_is_valid()) continue;
+		for (const KeyValue<StringName, jsb::ScriptStaticVariableInfo> &it : current->script_class_info_.static_variables) {
+			if (!emitted.has(it.key)) {
+				emitted.insert(it.key);
+				p_list->push_back(it.value.details);
+			}
+		}
+	}
 }
 ScriptLanguage *GodotJSScript::_get_language() const {
 	return GodotJSScriptLanguage::get_singleton();
@@ -390,16 +533,37 @@ bool GodotJSScript::_has_script_signal(const StringName &p_signal) const {
 TypedArray<Dictionary> GodotJSScript::_get_script_property_list() const {
 	TypedArray<Dictionary> result;
 	get_script_property_list<Dictionary, TypedArray<Dictionary>, [](const jsb::ScriptPropertyInfo &p_info) { return p_info.details.operator Dictionary(); }>(result);
+
+	// A shared static has to be listed here as well, not only in the Object-level
+	// `_get_property_list`. `GDScriptAnalyzer::reduce_identifier_from_base` resolves a member of a
+	// *non*-GDScript script exclusively through this list (GDScript has a dedicated
+	// `STATIC_VARIABLE` channel of its own, foreign scripts do not) - without this entry
+	// `SomeScript.my_static` is unresolvable at analysis time and every access is a parse error.
+	// Walk from this script upwards so a derived static shadows an inherited one, matching `_get`.
+	HashSet<StringName> emitted;
+	for (const GodotJSScript *current = this; current; current = current->base.ptr()) {
+		if (!current->loaded_) const_cast<GodotJSScript *>(current)->load_module_immediately();
+		if (!current->_is_valid()) continue;
+		for (const KeyValue<StringName, jsb::ScriptStaticVariableInfo> &it : current->script_class_info_.static_variables) {
+			if (!emitted.has(it.key)) {
+				emitted.insert(it.key);
+				result.push_back(it.value.details.operator Dictionary());
+			}
+		}
+	}
 	return result;
 }
 
 TypedArray<Dictionary> GodotJSScript::_get_script_method_list() const {
 	TypedArray<Dictionary> result;
 
-	get_script_method_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_info) {
+	get_script_method_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptMethodInfo &p_info, int p_index) {
+		if (!p_info.overloads.is_empty() && p_index >= 0 && p_index < (int)p_info.overloads.size()) {
+			// 有签名清单：每个重载各出一项，带完整签名。
+			return jsb::internal::signature_to_method_info(p_name, p_info.overloads[p_index]).operator Dictionary();
+		}
 		Dictionary dict;
 		dict["name"] = p_name;
-		// TODO: 其他细节
 		return dict;
 	}>(result);
 
@@ -410,9 +574,15 @@ TypedArray<Dictionary> GodotJSScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> result;
 
 	get_script_signal_list<Dictionary, TypedArray<Dictionary>, [](const StringName &p_name, const jsb::ScriptSignalInfo &p_info) {
+		if (!p_info.arguments.is_empty()) {
+			// 信号的参数表来自签名清单；返回值恒 void（`MethodInfo` 默认 NIL 且不带
+			// `NIL_IS_VARIANT`，正是"真 void"的编码，design.md §6.2）。
+			MethodInfo info(p_name);
+			info.arguments = p_info.arguments;
+			return info.operator Dictionary();
+		}
 		Dictionary dict;
 		dict["name"] = p_name;
-		// TODO: 其他细节
 		return dict;
 	}>(result);
 
@@ -456,8 +626,117 @@ void GodotJSScript::_update_exports() {
 }
 #endif // JSB_TOOLS
 
+int GodotJSScript::_get_own_method_argument_count(const StringName &p_method, bool *r_is_valid) const {
+	ensure_module_loaded();
+
+	// Same name mapping as `_has_method`: Godot queries the exposed (Godot-side) name, and a
+	// `_`-prefixed one is the snake_case spelling of a camelCase method.
+	StringName exposed_name = p_method;
+	if (exposed_name.begins_with("_")) {
+		exposed_name = jsb::internal::NamingUtil::get_member_name(exposed_name);
+	}
+
+	// Own methods only, like `GDScript::get_script_method_argument_count` (`gdscript.cpp:370-383`).
+	// The base chain is walked by the callers that need it: `Object::get_method_argument_count`
+	// (`object.cpp:794-805`) loops `get_base_script()`, and `GodotJSScriptInstanceBase::
+	// get_method_argument_count` walks it itself (the instance is consulted first and that path does
+	// not walk, `object.cpp:772-781`, exactly as for `GDScriptInstance`).
+	if (_is_valid()) {
+		if (script_class_info_.methods.has(exposed_name)) {
+			const int count = _resolve_method_argument_count(exposed_name);
+			if (r_is_valid) {
+				// A negative count is "ours, but the parameter list could not be read"
+				// (`ScriptArgumentCount::Unknown`). The name *is* resolved, the count is not: report it
+				// as invalid so the caller degrades to `get_method_info()` instead of treating it as a
+				// 0-argument method.
+				*r_is_valid = count >= 0;
+			}
+			return count;
+		}
+	}
+
+	if (r_is_valid) {
+		*r_is_valid = false;
+	}
+	return 0;
+}
+
 Variant GodotJSScript::_get_script_method_argument_count(const StringName &p_method) const {
-	return {}; // JS 函数本身不定参数（TODO: 有没有办法解析出定义的参数个数？）
+	// An empty Variant - not `0` - is what makes the caller fall back:
+	// `ScriptExtension::get_script_method_argument_count` (`script_language_extension.h:114-124`)
+	// only accepts `Variant::INT` and otherwise delegates to
+	// `Script::get_script_method_argument_count`, which reads `get_method_info().arguments`. Returning
+	// INT 0 for an unknown name would claim every name is a 0-argument method of ours.
+	//
+	// Own methods only. `Object::get_method_argument_count` (`object.cpp:794-805`) walks
+	// `get_base_script()` on its own after this returns invalid, exactly as it does for
+	// `GDScript::get_script_method_argument_count` (`gdscript.cpp:370-383`).
+	bool is_valid = false;
+	const int count = _get_own_method_argument_count(p_method, &is_valid);
+	return is_valid ? Variant(count) : Variant();
+}
+
+void GodotJSScript::_ensure_signature_manifest() const {
+	// 编辑器里**每次都重读**：作者改完 `.ts` 保存后应当立刻看到新签名，不能缓存到进程结束
+	// （design.md §7.4）。非编辑器（导出后运行）只需一次。
+	const bool is_editor = Engine::get_singleton()->is_editor_hint();
+	if (!is_editor && signature_manifest_loaded_) {
+		return;
+	}
+	signature_manifest_loaded_ = true;
+	if (!_is_valid()) {
+		return;
+	}
+
+	GodotJSScript *self = const_cast<GodotJSScript *>(this);
+	HashMap<StringName, LocalVector<jsb::ScriptMethodSignature>> methods;
+	HashMap<StringName, LocalVector<PropertyInfo>> signals;
+	if (!jsb::internal::signature_load(script_class_info_.module_id, methods, signals)) {
+		// 没有清单是常态（无类成员的脚本不产出清单、纯 JS 项目、导出包）。静默回退。
+		return;
+	}
+
+	// 只填**已登记**的方法/信号：清单可能含运行期看不到的成员（例如被 `_` 前缀别名映射掉的写法），
+	// 凭空插入会让 `_has_method` / `has_script_signal` 报出实际不存在的方法。
+	for (const KeyValue<StringName, LocalVector<jsb::ScriptMethodSignature>> &it : methods) {
+		jsb::ScriptMethodInfo *info = self->script_class_info_.methods.getptr(it.key);
+		if (info == nullptr || it.value.is_empty()) {
+			continue;
+		}
+		info->overloads = it.value;
+		// 清单是权威签名来源 ⇒ 覆盖（含回退扫描先前写下的值）。
+		info->argument_count = (int)it.value[0].arguments.size();
+	}
+	for (const KeyValue<StringName, LocalVector<PropertyInfo>> &it : signals) {
+		jsb::ScriptSignalInfo *info = self->script_class_info_.signals.getptr(it.key);
+		if (info != nullptr) {
+			info->arguments = it.value;
+		}
+	}
+}
+
+int GodotJSScript::_resolve_method_argument_count(const StringName &p_exposed_name) const {
+	ensure_module_loaded();
+	if (!_is_valid()) {
+		return jsb::ScriptArgumentCount::Unknown;
+	}
+	_ensure_signature_manifest();
+
+	jsb::ScriptMethodInfo *info = const_cast<GodotJSScript *>(this)->script_class_info_.methods.getptr(p_exposed_name);
+	if (info == nullptr) {
+		return jsb::ScriptArgumentCount::Unknown;
+	}
+	if (info->argument_count != jsb::ScriptArgumentCount::NotComputed) {
+		return info->argument_count;
+	}
+
+	// 回退：没有签名清单时读函数源文本（与改动前的行为一致）。必须进入 isolate，
+	// 因此这条路径要求当前线程就是环境所属线程（`resolve_declared_parameter_count` 内已守卫）。
+	jsb::JSEnvironment env(get_path(), true);
+	const int count = jsb::internal::resolve_declared_parameter_count(env.operator->(), script_class_info_.module_id, p_exposed_name);
+	// 结果落字段（`Unknown` 也落）：解析期不再重算，"读不出来"也不必每次查询重试。
+	info->argument_count = count;
+	return count;
 }
 
 Variant GodotJSScript::_get_rpc_config() const {
@@ -472,6 +751,14 @@ void GodotJSScript::load_module_immediately() {
 	JSB_BENCHMARK_SCOPE(GodotJSScript, load_module);
 
 	const String path = jsb::internal::PathUtil::convert_typescript_path(get_path());
+	if (path.is_empty()) {
+		// A script resource without a path (e.g. one the editor created in memory) has no module
+		// to load. Bail out instead of handing an empty module id to the module resolver, which
+		// would index into an empty String and abort. `loaded_` stays false so that a later
+		// `set_path()` can still trigger the load.
+		JSB_LOG(Warning, "cannot load a GodotJSScript without a path");
+		return;
+	}
 	jsb::JSEnvironment env(get_path(), true);
 
 	loaded_ = true;

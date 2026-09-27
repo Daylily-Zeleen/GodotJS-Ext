@@ -200,7 +200,14 @@ Local<Object> Object::New(Isolate *isolate) {
 
 MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context, Local<Name> key) const {
 	JSContext *ctx = isolate_->ctx();
+
+	// `JS_GetOwnPropertyInternal2` only initializes `desc` when the property is found, so a miss would
+	// leave `desc.flags` holding whatever was on the stack. Clear it first.
 	JSPropertyDescriptor desc;
+	desc.flags = 0;
+	desc.value = JS_UNDEFINED;
+	desc.getter = JS_UNDEFINED;
+	desc.setter = JS_UNDEFINED;
 
 	const JSValue self = (JSValue) * this;
 	const jsb::impl::QuickJS::Atom prop(ctx, (JSValue)key);
@@ -210,18 +217,30 @@ MaybeLocal<Value> Object::GetOwnPropertyDescriptor(Local<Context> context, Local
 		jsb::impl::QuickJS::MarkExceptionAsTrivial(ctx);
 		return MaybeLocal<Value>();
 	}
+	if (res == 0) {
+		// No own property (the prototype chain is not consulted). Emit no descriptor instead of one
+		// whose members all read `undefined`, otherwise callers cannot tell a data property from an
+		// accessor and every absent name looks like an existing one.
+		return MaybeLocal<Value>();
+	}
+
 	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getOwnPropertyDescriptor
+	// The descriptor carries *either* `get`/`set` *or* `value`/`writable`, never both: `JS_PROP_GETSET`
+	// is exactly the discriminator quickjs itself uses in `js_object_getOwnPropertyDescriptor`.
 	const JSValue desc_js = JS_NewObject(ctx);
 	jsb_check(JS_IsObject(desc_js));
 
 	// JSValues in desc are free-ed by set
-	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_get, desc.getter) != -1);
-	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_set, desc.setter) != -1);
-	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_value, desc.value) != -1);
+	if (desc.flags & JS_PROP_GETSET) {
+		jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_get, desc.getter) != -1);
+		jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_set, desc.setter) != -1);
+	} else {
+		jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_value, desc.value) != -1);
+		jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_writable, JS_MKVAL(JS_TAG_BOOL, !!(desc.flags & JS_PROP_WRITABLE))) != -1);
+	}
 
 	// property flags
 	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_configurable, JS_MKVAL(JS_TAG_BOOL, !!(desc.flags & JS_PROP_CONFIGURABLE))) != -1);
-	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_writable, JS_MKVAL(JS_TAG_BOOL, !!(desc.flags & JS_PROP_WRITABLE))) != -1);
 	jsb_ensure(JS_SetProperty(ctx, desc_js, jsb::impl::JS_ATOM_enumerable, JS_MKVAL(JS_TAG_BOOL, !!(desc.flags & JS_PROP_ENUMERABLE))) != -1);
 
 	return MaybeLocal<Value>(Data(isolate_, isolate_->push_steal(desc_js)));
@@ -333,8 +352,13 @@ MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context, PropertyFi
 	if ((filter & SKIP_SYMBOLS) == 0) flags |= JS_GPN_SYMBOL_MASK;
 	if ((filter & ONLY_ENUMERABLE) != 0) flags |= JS_GPN_ENUM_ONLY;
 
-	// key_conversion is not available in quickjs.impl
-	jsb_check(key_conversion == v8::KeyConversionMode::kNoNumbers);
+	// `key_conversion` is not implemented here, matching the jsc and web shims (see the TODO in
+	// `src/runtime/impl/web/bridge/src/monolith.ts`): quickjs reports array indices as string atoms
+	// (`JS_AtomToValue` formats a tagged int into its decimal string), so every mode yields names.
+	// `kConvertToString` is therefore exact; `kKeepNumbers` / `kNoNumbers` degrade to it instead of
+	// aborting, which is what the callers of those modes already tolerate (they filter non-strings
+	// themselves and additionally accept indices on the other engines).
+	jsb_unused(key_conversion);
 
 	int res = JS_GetOwnPropertyNames(ctx, &tab, &len, (JSValue) * this, flags);
 	if (res == -1) {

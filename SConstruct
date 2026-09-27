@@ -652,6 +652,10 @@ generate_code([
     PresetDefine("scripts/out/jsb.runtime.bundle.js.map", ""),
     PresetDefine("scripts/out/jsb.editor.bundle.d.ts", ""),
     PresetDefine("scripts/out/jsb.editor.bundle.js.map", ""),
+    # 函数/信号签名清单提取器：Node 目标的独立产物（不是 AMD 模块，故不套
+    # AMDSourceTransformer，也不做零终止），作为普通 preset 文件安装进项目后被编辑器
+    # spawn。见 .trellis/tasks/09-26-method-signal-signature/design.md §8。
+    PresetDefine("scripts/out/jsb.signature.extract.cjs", "jsb.signature.extract.cjs"),
     PresetDefine("scripts/presets/package.json.txt", "package.json"),
     PresetDefine("scripts/presets/tsconfig.json.txt", "tsconfig.json"),
     PresetDefine("scripts/presets/jsconfig.json.txt", "jsconfig.json"),

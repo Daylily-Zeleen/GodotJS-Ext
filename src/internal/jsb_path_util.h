@@ -95,6 +95,15 @@ public:
 	 */
 	static String convert_javascript_path(const String &p_source_path);
 
+	/**
+	 * convert a function/signal signature sidecar path back into its source typescript path
+	 * (project-relative mapping: `<outDir>/<rel>.sig` -> `res://<rel>.ts`, boundary-aware)
+	 * @note the mapped path is relative to the project root, NOT to the out dir: the `<rel>`
+	 *       part is preserved verbatim (a sidecar under `<outDir>/tests/x.sig` maps to
+	 *       `res://tests/x.ts`).
+	 */
+	static String convert_signature_path(const String &p_source_path);
+
 	/** simply verify the file extension (.js || .cjs || .mjs) */
 	static bool is_recognized_javascript_extension(const String &p_path);
 

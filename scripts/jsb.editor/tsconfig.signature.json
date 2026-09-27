@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "es2022",
+		"module": "commonjs",
+		"lib": ["es2022"],
+		"types": ["node"],
+		"rootDir": "./src/signature",
+		"outDir": "../out",
+		"sourceMap": false,
+		"declaration": false,
+		"noEmitOnError": true,
+		"strict": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"skipLibCheck": true,
+		"newLine": "crlf"
+	},
+	"include": ["src/signature/**/*"]
+}

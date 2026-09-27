@@ -689,6 +689,26 @@ export type ClassValueMemberDecoratorContext<This = unknown, Value = unknown> =
     | ClassFieldDecoratorContext<This, Value>
     | ClassAccessorDecoratorContext<This, Value>;
 
+/**
+ * The only shape `@bind.exposed.const()` / `@bind.exposed.shared()` accept in their member form:
+ * a `static` **data field**. Narrowing the decorator to this context is what turns a wrong
+ * placement into a compile error instead of a silent mis-registration:
+ *
+ * - instance field / accessor / method — the Godot side only reads *own properties of the class
+ *   object*, so anything on the prototype or on an instance is dropped without a word;
+ * - `static accessor` / `static get` / `static set` — for a constant the parser rejects the
+ *   accessor with a warning, and for a shared static it would silently break the cross-environment
+ *   contract: the parser only installs the store-backed accessor when the member is *not* already
+ *   an accessor, so JS would keep reading the per-isolate backing field while GDScript reads the
+ *   process-wide store.
+ *
+ * `static` alone is not enough: `ClassFieldDecoratorContext` already covers the field kind, so the
+ * `& { static: true }` intersection is what excludes the instance field.
+ */
+export type StaticMemberDecoratorContext<This = unknown, Value = unknown> = ClassFieldDecoratorContext<This, Value> & {
+    static: true;
+};
+
 type OnReadyAssignment<T = unknown, R = unknown> = (this: T, self: T) => R;
 
 export function createClassBinder(): ClassBinder {
@@ -701,10 +721,109 @@ export function createClassBinder(): ClassBinder {
     const deprecated_map: Record<string, string> = {};
     const experimental_map: Record<string, string> = {};
     const help_map: Record<string, string> = {};
+    const constant_names: string[] = [];
+    const shared_static_names: string[] = [];
 
     let executed = false;
 
     const hint_string_name = jsb.internal.names.get_member("hint_string");
+
+    // `@bind.exposed.const()` / `@bind.exposed.shared()` each accept two declaration forms, so
+    // they are local overloaded function declarations rather than object-literal methods - a
+    // method written inside an object literal cannot carry overload signatures.
+    //
+    //   member form (no arguments): a member decorator for a `static` member declared in the
+    //     class body. The name comes from the decorator context.
+    //   class form (one or more names): a class decorator naming members declared *outside* the
+    //     class body - in practice a same-named `namespace` merged with the class, because
+    //     TypeScript rejects a decorator on a namespace member (TS1206).
+    //
+    // Both forms end up in the same `jsb.internal.*` call, so the Godot side cannot tell them
+    // apart. The class form is resolved at parse time, reading each named member off the class
+    // object; the member form is flushed by the class decorator, which is the first point where
+    // the class object is available.
+    function exposed_const(): ClassMemberDecorator<StaticMemberDecoratorContext>;
+    function exposed_const(...names: string[]): (target: GObjectConstructor, context: ClassDecoratorContext) => void;
+    function exposed_const(
+        ...names: string[]
+    ): ClassMemberDecorator<StaticMemberDecoratorContext> | ((target: GObjectConstructor, context: ClassDecoratorContext) => void) {
+        if (names.length > 0) {
+            return (target: GObjectConstructor, context: ClassDecoratorContext | ClassMemberDecoratorContext): void => {
+                // The class form has to be applied to the class itself: a name list recorded on a
+                // prototype is not an own property of the class object, so the parser would drop it
+                // without a word. TypeScript already rejects that placement, so this only catches
+                // untyped misuse - turning a silent drop into a clear error.
+                if (context.kind !== "class") {
+                    throw new Error(`The class-level @bind.exposed.const(...) must decorate a class, not a ${context.kind}`);
+                }
+                for (const name of names) {
+                    jsb.internal.add_script_constant(target, name);
+                }
+            };
+        }
+
+        return (_target: unknown, context: ClassMemberDecoratorContext): void => {
+            if (typeof context !== "object") {
+                throw new Error(
+                    "The createClassBinder() requires modern decorator support. Disable legacy decorators (experimentalDecorators) in your tsconfig.json",
+                );
+            }
+
+            const name = context.name;
+
+            if (typeof name !== "string") {
+                throw new Error("Only static members with a string name can be exposed as a constant");
+            }
+
+            if (!context.static) {
+                throw new Error(
+                    `The constant "${name}" must be a static member. To expose members declared outside the class body, name them at the class level: @bind.exposed.const("${name}")`,
+                );
+            }
+
+            constant_names.push(name);
+        };
+    }
+
+    function exposed_shared(): ClassMemberDecorator<StaticMemberDecoratorContext>;
+    function exposed_shared(...names: string[]): (target: GObjectConstructor, context: ClassDecoratorContext) => void;
+    function exposed_shared(
+        ...names: string[]
+    ): ClassMemberDecorator<StaticMemberDecoratorContext> | ((target: GObjectConstructor, context: ClassDecoratorContext) => void) {
+        if (names.length > 0) {
+            return (target: GObjectConstructor, context: ClassDecoratorContext | ClassMemberDecoratorContext): void => {
+                // see the matching guard in `exposed_const`: the class form must decorate the class
+                if (context.kind !== "class") {
+                    throw new Error(`The class-level @bind.exposed.shared(...) must decorate a class, not a ${context.kind}`);
+                }
+                for (const name of names) {
+                    jsb.internal.add_script_shared_static(target, name);
+                }
+            };
+        }
+
+        return (_target: unknown, context: ClassMemberDecoratorContext): void => {
+            if (typeof context !== "object") {
+                throw new Error(
+                    "The createClassBinder() requires modern decorator support. Disable legacy decorators (experimentalDecorators) in your tsconfig.json",
+                );
+            }
+
+            const name = context.name;
+
+            if (typeof name !== "string") {
+                throw new Error("Only static members with a string name can be exposed as a shared static");
+            }
+
+            if (!context.static) {
+                throw new Error(
+                    `The shared static "${name}" must be a static member. To expose members declared outside the class body, name them at the class level: @bind.exposed.shared("${name}")`,
+                );
+            }
+
+            shared_static_names.push(name);
+        };
+    }
 
     // primary class decorator
 
@@ -755,6 +874,16 @@ export function createClassBinder(): ClassBinder {
 
             if (icon_path) {
                 jsb.internal.add_script_icon(target, icon_path);
+            }
+
+            //NOTE these two carry the class object itself: the annotated members are static, so they
+            //     live on `target`, not on `proto`.
+            for (const name of constant_names) {
+                jsb.internal.add_script_constant(target, name);
+            }
+
+            for (const name of shared_static_names) {
+                jsb.internal.add_script_shared_static(target, name);
             }
 
             for (const [name, message] of Object.entries(deprecated_map)) {
@@ -1230,6 +1359,96 @@ export function createClassBinder(): ClassBinder {
 
                     help_map[name] = message ?? "";
                 };
+            },
+
+            // member decorators: members exposed to Godot (and to other JS environments)
+
+            exposed: {
+                /**
+                 * Expose a member to Godot as a **constant**.
+                 *
+                 * Two declaration forms are accepted and they are **equivalent** - both end up in
+                 * the same constant map, and the Godot side cannot tell them apart:
+                 *
+                 * - **member form** - `@bind.exposed.const()`, no arguments, applied to a `static`
+                 *   member declared in the class body. The name comes from the decorated member.
+                 * - **class form** - `@bind.exposed.const("A", "B")`, one or more names, applied to
+                 *   the class itself. The named members are declared *outside* the class body,
+                 *   normally in a same-named `namespace` merged with the class. Use this when you
+                 *   want the values grouped under their own namespace; TypeScript rejects a
+                 *   decorator on a namespace member (TS1206), so the names have to be listed at
+                 *   the class level instead.
+                 *
+                 * ```ts
+                 * // member form
+                 * @bind()
+                 * class C extends Node {
+                 *     @bind.exposed.const() static readonly MAX = 100;
+                 * }
+                 *
+                 * // class form - the same constant, declared in a merged namespace
+                 * @bind()
+                 * @bind.exposed.const("MAX")
+                 * class C extends Node {}
+                 * namespace C {
+                 *     export const MAX = 100;
+                 * }
+                 * export default C; // a merged declaration cannot itself be `export default`
+                 * ```
+                 *
+                 * The class form is resolved when the module is parsed, by reading each named
+                 * member off the class object. A name that is missing, not an own property, an
+                 * accessor, or of a rejected type is ignored with a warning - the same rules the
+                 * member form follows.
+                 *
+                 * Accepted values are JS primitives, TS enums and containers built with
+                 * `GArray.create(...)` / `GDictionary.create(...)`. Anything else (Godot value
+                 * types, plain JS arrays/objects, objects, functions) is ignored.
+                 *
+                 * The value is a **snapshot taken when the module is parsed**. TypeScript's
+                 * `readonly` is erased by the compiler, so `MyClass.MAX = 999` is still legal from
+                 * JS and will succeed - it just has no effect on what GDScript reads, because the
+                 * Godot-side value was already captured. Immutability holds for the Godot side
+                 * only; the two sides are not linked.
+                 *
+                 * Container constants are frozen in place: they share their storage with the JS
+                 * side, so flagging them read-only locks both. The visible cost is that writing
+                 * through the JS container afterwards raises an engine error ("read-only state").
+                 * The freeze is applied recursively, so nested containers are frozen too.
+                 *
+                 * Reading from GDScript: `SomeScript.MAX` / `SomeScript.ARR[0]` work, and
+                 * assigning to them is rejected. An enum constant reads as a `Dictionary`; its
+                 * members must be accessed **by index** (`SomeScript.E["Red"]`) - dotted access
+                 * (`SomeScript.E.Red`) is a compile error, because a foreign script's constant is
+                 * a plain dictionary rather than a GDScript enum.
+                 *
+                 * Note: `const enum` is **not** supported - TypeScript erases it at compile time, so
+                 * there is nothing left to read at runtime. Use a regular `enum`.
+                 */
+                const: exposed_const,
+
+                /**
+                 * Expose a `static` member to Godot as a **shared static variable**: readable and
+                 * writable from GDScript, with a single value shared by every JS environment.
+                 *
+                 * The member is backed by a process-wide store rather than the JS class field, so a
+                 * worker or shadow realm observes the same value as the main environment. The
+                 * initializer runs once, for whichever environment loads the module first; later
+                 * environments read the live value instead of re-running it.
+                 *
+                 * Use this for anything that is not a constant - notably `Node`/`Resource`
+                 * instances and Godot value types (`Vector2`, `Color`, ...), which cannot be
+                 * exposed as constants.
+                 *
+                 * Note: **static functions are not supported** in any form - neither
+                 * `SomeScript.fn()`, nor `SomeScript.fn.call(...)`, nor
+                 * `SomeScript.call("fn", ...)`. A `GodotJSScript` is shared by every JS
+                 * environment while the parse result deliberately carries no environment
+                 * identity, so there is no defensible environment to dispatch a static call
+                 * to; and any module-level state a static function touched would silently
+                 * diverge per isolate. Expose the behaviour as an instance method instead.
+                 */
+                shared: exposed_shared,
             },
         }),
     );

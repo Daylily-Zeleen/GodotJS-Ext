@@ -215,14 +215,32 @@ public:
 	}
 
 	virtual void on_stop() override {
+		// 先判活再置 `is_closing`：`_is_running()` 会读 `is_closing`，顺序反了会让活进程永不被终止，
+		// 子进程不死 ⇒ 管道不关 ⇒ 读取线程的 ReadFile 永久阻塞 ⇒ 下面的 join 挂死。
+		// 进程已自行退出时跳过 `TerminateProcess`（句柄可能已无效）。
+		const bool was_running = _is_running();
 		is_closing = true;
-		JSB_PROCESS_LOG(Verbose, "[%s] terminating...", proc_name);
-		TerminateProcess(pi.pi.hProcess, 0);
-		CloseHandle(pi.pi.hProcess);
-		CloseHandle(pi.pi.hThread);
-		CloseHandle(rd_pipe);
-		rd_pipe = nullptr;
-		thread->wait_to_finish();
+		if (was_running) {
+			JSB_PROCESS_LOG(Verbose, "[%s] terminating...", proc_name);
+			TerminateProcess(pi.pi.hProcess, 0);
+		}
+		// 关闭后置空：`stop()` 可被重复调用（如 kill + 析构），必须幂等。
+		if (pi.pi.hProcess != nullptr) {
+			CloseHandle(pi.pi.hProcess);
+			pi.pi.hProcess = nullptr;
+		}
+		if (pi.pi.hThread != nullptr) {
+			CloseHandle(pi.pi.hThread);
+			pi.pi.hThread = nullptr;
+		}
+		if (rd_pipe != nullptr) {
+			CloseHandle(rd_pipe);
+			rd_pipe = nullptr;
+		}
+		// 启动失败的进程没有读取线程（见 on_start 的提前返回）。
+		if (thread.is_valid() && thread->is_started()) {
+			thread->wait_to_finish();
+		}
 		JSB_PROCESS_LOG(Log, "[%s] terminated", proc_name);
 	}
 };
@@ -230,7 +248,9 @@ public:
 //TODO not tested on linux
 class ProcessImpl : public Process {
 	String proc_name;
-	int pipefd[2] = { 0, 0 };
+	// `-1` 而非 `0`：`0` 是 stdin，若 `pipe()` 失败（on_start 提前返回、无读取线程）
+	// 会让任何按 fd 有效性判定的清理路径误关标准输入。
+	int pipefd[2] = { -1, -1 };
 	pid_t child_id_ = -1;
 	Ref<Thread> thread;
 	bool is_closing = false;
@@ -339,16 +359,24 @@ public:
 	}
 
 	virtual void on_stop() override {
+		// 与 Windows 实现同因：先判活（`_is_running()` 读 `is_closing`），再置标志。
+		const bool was_running = _is_running();
 		is_closing = true;
-		JSB_PROCESS_LOG(Verbose, "[%s] terminating...", proc_name);
-		const int ret = ::kill(child_id_, SIGKILL);
-		close(pipefd[0]);
-		pipefd[0] = pipefd[1] = 0;
-		if (!ret) {
-			int st;
-			::waitpid(child_id_, &st, 0);
+		if (was_running) {
+			JSB_PROCESS_LOG(Verbose, "[%s] terminating...", proc_name);
+			// 子进程可能已被读取线程 waitpid 回收，`kill` 失败属正常。
+			::kill(child_id_, SIGKILL);
 		}
-		thread->wait_to_finish();
+		// 不在这里关 `pipefd`：宿主线程与读取线程各关一次是双重 close（fd 可能已被复用于
+		// 别的对象）。`pipefd[0]` 的唯一所有者是读取线程，它在循环退出后关闭。
+		if (thread.is_valid() && thread->is_started()) {
+			thread->wait_to_finish();
+		} else {
+			// 启动失败的进程没有读取线程（见 on_start 的提前返回）⇒ 两个 fd 都还在我们手上。
+			if (pipefd[0] >= 0) close(pipefd[0]);
+			if (pipefd[1] >= 0) close(pipefd[1]);
+			pipefd[0] = pipefd[1] = -1;
+		}
 		JSB_PROCESS_LOG(Log, "[%s] terminated", proc_name);
 	}
 };
@@ -378,7 +406,9 @@ Process::~Process() {
 }
 
 void Process::stop() {
-	if (!is_running()) return;
+	// 不按 `is_running()` 提前返回：短命进程（如一次性工具）往往在持有者收尾前就自行退出，
+	// 而读取 stdout 的后台线程持有 `this` 的裸指针 —— 未 join 就析构 ProcessImpl 会造成 use-after-free。
+	// `on_stop()` 两个平台实现都已是幂等的（先判活、关闭后置空句柄、线程已启动才 join）。
 	on_stop();
 }
 

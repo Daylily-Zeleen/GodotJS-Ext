@@ -40,5 +40,6 @@
 // headers. See src/tests/jsb_test_runner.h for the --jsb-run-tests
 // entry point wired into the editor extension's startup callback.
 #	include "tests/test_jsb_editor_bridge.h"
+#	include "tests/test_jsb_editor_cleanup.h"
 
 #endif // JSB_TESTS_ENABLED

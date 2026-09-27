@@ -54,6 +54,10 @@ public:
 		jsbi_StackSetInt32(data_.isolate_->rt(), data_.stack_pos_, value);
 	}
 
+	void SetUndefined() const {
+		jsbi_StackSet(data_.isolate_->rt(), data_.stack_pos_, jsb::impl::StackBase::Undefined);
+	}
+
 private:
 	Data data_;
 };

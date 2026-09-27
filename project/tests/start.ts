@@ -35,6 +35,8 @@ export default class Start extends Node {
 					"res://tests/中文路径/SourceMapTest.tscn",
 					"res://tests/default-args/DefaultArgs.tscn",
 					"res://tests/operators/Operators.tscn",
+					"res://tests/static-members/StaticMembers.tscn",
+					"res://tests/static-members/StaticMembersGd.tscn",
 				];
 			// Count derived from the list: a hardcoded literal here silently
 			// desyncs whenever a scene is added (the whole point of the DIAG).

@@ -139,7 +139,7 @@ globalThis.__instance_id = globalThis.__realm.evaluate(`
 	CHECK(js_instance->get_env() != main_env);
 
 	REQUIRE(obj->is_class("Node")); // 本测试中约定测试对象是一个 Node.
-	static_cast<Node*>(obj)->queue_free(); // 释放测试对象
+	static_cast<Node *>(obj)->queue_free(); // 释放测试对象
 }
 
 } //namespace jsb::tests

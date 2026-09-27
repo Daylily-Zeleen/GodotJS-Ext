@@ -236,6 +236,8 @@
 
 #define JSB_DTS_EXT "d.ts"
 #define JSB_TYPESCRIPT_EXT "ts"
+/** 函数/信号签名清单（sidecar）的扩展名：与编译产物同名、同目录，只换扩展名。 */
+#define JSB_SIGNATURE_EXT "sig"
 #define JSB_JAVASCRIPT_EXT "js"
 #define JSB_COMMONJS_EXT "cjs"
 #define JSB_MODULE_EXT "mjs"

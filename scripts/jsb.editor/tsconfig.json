@@ -1,5 +1,7 @@
 {
   "include": ["src/**/*", "../typings/**/*"],
+  // `src/signature` 是 Node 目标的独立产物（tsconfig.signature.json），不得并进引擎内嵌的 AMD bundle。
+  "exclude": ["src/signature"],
   "compilerOptions": {
     /* Visit https://aka.ms/tsconfig to read more about this file */
 

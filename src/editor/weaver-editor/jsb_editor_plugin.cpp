@@ -57,15 +57,19 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/reg_ex.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/timer.hpp>
 
-
 #include <compat/misc.h>
 #define JSB_TYPE_ROOT "typings"
+// 函数/信号签名清单提取器（Node 目标）；作为 preset 文件安装到项目数据目录后被 spawn。
+// 落在项目数据目录（而非 jsb 输出目录）是为了避开 collect_invalid_files 的陈旧产物清理：
+// 它以 `.cjs` 结尾，而输出目录的规则是"没有对应 .ts 源即判陈旧"。
+#define JSB_SIGNATURE_TOOL_NAME "jsb.signature.extract.cjs"
 
 using AutoGenSettingFlags = jsb::internal::settings::AutoGenSettingFlags;
 
@@ -143,6 +147,42 @@ static String string_join(const String &separator, const StrArray &parts) {
 
 	return ret;
 }
+
+#if JSB_USE_TYPESCRIPT
+// 统计 res:// 下的 TypeScript 源：数量 + 最新 mtime。用作「是否需要重跑签名提取器」的廉价输入摘要。
+//
+// 排除规则必须与提取器侧（`jsb.signature.extract.cts` 的 `shouldIgnorePath`）**一致**，两者都照抄
+// `EditorFileSystem`（引擎 `editor/file_system/editor_file_system.cpp`）：
+//  - 点开头的**目录与文件**：`_scan_fs_changes` 有两条独立判据（`:1478` 文件走 `current_is_hidden()`、
+//    `:1483` 目录走 `begins_with(".")`）⇒ 文件本身也要排除，否则 `.foo.ts` 会被计入数量；
+//  - 含 `.gdignore` 或 `project.godot`（嵌套项目）的目录：`_should_skip_directory`（`:3511-3531`）。
+// 不一致的后果是门控摘要与提取器看到的集合对不上（例如隐藏文件的增删只改一边）。
+static void _accumulate_typescript_stats(const String &p_dir, int &r_count, uint64_t &r_max_mtime) {
+	Ref<DirAccess> dir = DirAccess::open(p_dir);
+	if (dir.is_null()) return;
+
+	const String data_dir_name = jsb::internal::settings::get_project_data_dir_name();
+	dir->list_dir_begin();
+	String it = dir->get_next();
+	while (!it.is_empty()) {
+		const String it_path = p_dir.path_join(it);
+		if (dir->current_is_dir()) {
+			// 跳过项目数据目录与所有隐藏目录（`.git`/`.godot`/`.import` 等）——它们不承载用户源码。
+			if (!it.begins_with(".") && it != "node_modules" && it != data_dir_name
+					&& !FileAccess::file_exists(it_path.path_join(".gdignore"))
+					&& !FileAccess::file_exists(it_path.path_join("project.godot"))) {
+				_accumulate_typescript_stats(it_path, r_count, r_max_mtime);
+			}
+		} else if (it.ends_with("." JSB_TYPESCRIPT_EXT) && !it.ends_with("." JSB_DTS_EXT) && !it.begins_with(".")) {
+			++r_count;
+			const uint64_t mtime = FileAccess::get_modified_time(it_path);
+			if (mtime > r_max_mtime) r_max_mtime = mtime;
+		}
+		it = dir->get_next();
+	}
+	dir->list_dir_end();
+}
+#endif // JSB_USE_TYPESCRIPT
 } //namespace
 
 jsb::internal::PresetSource GodotJSEditorPlugin::get_preset_source(const String &p_filename) {
@@ -161,8 +201,9 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 				}
 			}
 #if JSB_USE_TYPESCRIPT
-			// 窗口获得焦点时检查路径映射是否需要更新
+			// 窗口获得焦点时检查路径映射与签名清单是否需要更新
 			_regenerate_paths_mapping();
+			_regenerate_signatures();
 #endif
 			break;
 		case NOTIFICATION_PREDELETE: {
@@ -211,8 +252,9 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 			}
 
 #if JSB_USE_TYPESCRIPT
-			// 编辑器就绪即生成/刷新路径映射（MD5 未变化时为空操作）
+			// 编辑器就绪即生成/刷新路径映射与签名清单（输入摘要未变化时为空操作）
 			_regenerate_paths_mapping();
+			_regenerate_signatures();
 #endif
 
 			break;
@@ -452,6 +494,12 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	// obsolete files (for upgrading from old versions)
 	add_install_file({ "jsb.bundle.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS | jsb::weaver::CH_OBSOLETE });
 
+#if JSB_USE_TYPESCRIPT
+	// 函数/信号签名清单提取器（Node 目标的独立产物，见 design.md §8）。装到项目数据目录
+	// 而非 jsb 输出目录：输出目录的清理规则是"没有对应 `.ts` 源即判陈旧"，会把它删掉。
+	add_install_file({ JSB_SIGNATURE_TOOL_NAME, "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
+#endif // JSB_USE_TYPESCRIPT
+
 	// write `.gdignore` in the `node_modules` folder anyway to avoid scanning in the situation that `node_modules` is generated externally before starting the Godot engine.
 	if (DirAccess::dir_exists_absolute("res://node_modules") && !FileAccess::file_exists("res://node_modules/.gdignore")) {
 		_ignore_node_modules();
@@ -463,6 +511,12 @@ GodotJSEditorPlugin::~GodotJSEditorPlugin() {
 		tsc_->stop();
 		tsc_.reset();
 	}
+#if JSB_USE_TYPESCRIPT
+	if (signature_tool_) {
+		signature_tool_->stop();
+		signature_tool_.reset();
+	}
+#endif // JSB_USE_TYPESCRIPT
 	JSB_LOG(VeryVerbose, "~GodotJSEditorPlugin");
 }
 
@@ -764,6 +818,12 @@ void GodotJSEditorPlugin::collect_invalid_files(const String &p_path, Vector<Str
 		const String it_path = p_path.path_join(it);
 		if (dir->current_is_dir()) {
 			collect_invalid_files(it_path, r_invalid_files);
+		} else if (it_path.ends_with("." JSB_SIGNATURE_EXT)) {
+			// 函数/信号签名清单与编译产物同名同目录（`<outDir>/<rel>.sig`），扩展名不是
+			// `.js`/`.cjs`/`.mjs` ⇒ 不加这一支会被下面判为陈旧产物而删除。源 `.ts` 还在就保留。
+			if (!FileAccess::file_exists(jsb::internal::PathUtil::convert_signature_path(it_path))) {
+				r_invalid_files.append(it_path);
+			}
 		} else {
 			if (!(it_path.ends_with("." JSB_JAVASCRIPT_EXT) || it_path.ends_with("." JSB_COMMONJS_EXT) || it_path.ends_with("." JSB_MODULE_EXT)) || !FileAccess::file_exists(jsb::internal::PathUtil::convert_javascript_path(it_path))) {
 				// invalid if it's not a source map file, or no corresponding .js file exist
@@ -976,8 +1036,9 @@ void GodotJSEditorPlugin::try_install_project_files(std::function<void(bool)> co
 		if (verify_files(editor_plugin->install_files_, true, &modified)) {
 			on_successfully_installed();
 #if JSB_USE_TYPESCRIPT
-			// 安装完成后生成路径映射
+			// 安装完成后生成路径映射与签名清单
 			_regenerate_paths_mapping();
+			editor_plugin->_regenerate_signatures();
 #endif
 			return;
 		}
@@ -995,8 +1056,9 @@ void GodotJSEditorPlugin::try_install_project_files(std::function<void(bool)> co
 		if (force) {
 			install_project_files(complete, modified);
 #if JSB_USE_TYPESCRIPT
-			// 安装完成后生成路径映射
+			// 安装完成后生成路径映射与签名清单
 			_regenerate_paths_mapping();
+			editor_plugin->_regenerate_signatures();
 #endif
 		} else if (DisplayServer::get_singleton()->get_name() == "headless") {
 			JSB_LOG(Log, "Skipped existing TypeScript project files: %s", modified_file_list);
@@ -1018,7 +1080,10 @@ void GodotJSEditorPlugin::cleanup_invalid_files(std::function<void(bool)> comple
 	collect_invalid_files(invalid_files);
 	for (const String &invalid_file : invalid_files) {
 		deleted_num += delete_file(invalid_file);
-		deleted_num += delete_file(invalid_file + String(".map"));
+		// sidecar 没有 `.map` 伴随文件，跳过以免刷出无意义的删除失败日志。
+		if (!invalid_file.ends_with("." JSB_SIGNATURE_EXT)) {
+			deleted_num += delete_file(invalid_file + String(".map"));
+		}
 	}
 	JSB_LOG(Log, "%d files were deleted", deleted_num);
 
@@ -1297,5 +1362,63 @@ void GodotJSEditorPlugin::_regenerate_paths_mapping() {
 			bridge->refresh_paths_mapping();
 		}
 	}
+}
+
+void GodotJSEditorPlugin::_regenerate_signatures() {
+	// 提取器扫描 res:// 下的 .ts 并写出 sidecar；门控摘要 = (.ts 数量 | 最大 mtime | tsconfig md5)。
+	// tsconfig 的 md5 是输入之一（决定 fileNames 与 outDir），但**不能**只用它：改 .ts 不碰 tsconfig。
+	const String tool_res_path = "res://" + jsb::internal::settings::get_project_data_dir_name().path_join(JSB_SIGNATURE_TOOL_NAME);
+	if (!FileAccess::file_exists(tool_res_path)) {
+		// 项目文件尚未安装。不写摘要，装好后的下一次触发即可补跑。
+		JSB_LOG(Verbose, "signature extractor not installed at '%s', skipped", tool_res_path);
+		return;
+	}
+	// 工具自身的 md5 也必须进摘要：升级 GodotJS-Ext 会换掉提取器（sidecar 格式可能随之变化），
+	// 而此时 `.ts` 与 tsconfig 都没动 ⇒ 不带上它就永远不会重跑，留下旧版 sidecar。
+	int ts_count = 0;
+	uint64_t ts_max_mtime = 0;
+	_accumulate_typescript_stats("res://", ts_count, ts_max_mtime);
+	const String digest = String::num_int64(ts_count) + "|" + String::num_uint64((int64_t)ts_max_mtime) + "|"
+			+ FileAccess::get_md5("res://tsconfig.json") + "|" + FileAccess::get_md5(tool_res_path);
+	if (digest == signature_input_digest_) {
+		return;
+	}
+	// 提取器 `require("typescript")` 按 Node 的解析规则从项目根往上找，故依赖项目内已装 TS。
+	if (!DirAccess::dir_exists_absolute("res://node_modules/typescript")) {
+		JSB_LOG(Warning, "typescript package not found in the project, skipped extracting function/signal signatures");
+		return;
+	}
+
+	// 短命进程：先收尾上一次投递（届时通常已自行退出）。`Process::stop()` 幂等且必然 join
+	// 读取线程，不能只依赖 `is_running()` 判活 —— 子进程自行退出后线程仍持 `this` 裸指针。
+	if (signature_tool_) {
+		signature_tool_->stop();
+		signature_tool_.reset();
+	}
+
+	// 必须是绝对路径：子进程继承引擎 cwd，而引擎启动时会 chdir，相对路径不可靠。
+	// 不保留尾分隔符：`Process` 在参数含空格等特殊字符时会加引号，而带尾反斜杠的值被引号包住后
+	// `\"` 会被命令行走义成字面引号，参数被截断。提取器侧用 `path.resolve` 归一，两种形态都接受。
+	String project_root = ProjectSettings::get_singleton()->globalize_path("res://");
+	// 长度下限 3 保住盘符/根（`D:/`、`/`）不被削成 `D:`。
+	while (project_root.length() > 3 && (project_root.ends_with("/") || project_root.ends_with("\\"))) {
+		project_root = project_root.substr(0, project_root.length() - 1);
+	}
+
+	Vector<String> args;
+	args.push_back(ProjectSettings::get_singleton()->globalize_path(tool_res_path));
+	args.push_back("--project");
+	args.push_back(project_root);
+
+#	ifdef WINDOWS_ENABLED
+	const String exe_path = "node.exe";
+#	else
+	const String exe_path = "node";
+#	endif
+	// 不在这里用 `is_running()` 复核：提取器是短命进程，`CreateProcessW` 返回后它可能已自行退出，
+	// 复核会把"跑完了"误判成"起不来"。启动失败由 `on_start()` 自身报错（ERR_FAIL_COND_V_MSG）。
+	signature_tool_ = jsb::internal::Process::create("signature", exe_path, args);
+	signature_input_digest_ = digest;
+	JSB_LOG(Verbose, "extracting function/signal signatures...");
 }
 #endif // JSB_USE_TYPESCRIPT

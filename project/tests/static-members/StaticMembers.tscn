@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/static-members/test-static-members.ts" id="1_static"]
+
+[node name="StaticMembers" type="Node"]
+script = ExtResource("1_static")

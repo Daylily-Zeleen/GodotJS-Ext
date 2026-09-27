@@ -48,5 +48,5 @@
 #	error unknown javascript runtime
 #endif
 
-#include <internal/jsb_isolate_scope.h>
 #include "../internal/jsb_internal.h"
+#include <internal/jsb_isolate_scope.h>

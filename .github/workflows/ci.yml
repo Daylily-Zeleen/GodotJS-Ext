@@ -67,7 +67,14 @@ on:
   push:
 
 concurrency:
-  group: ${{ github.workflow }}|${{ github.ref_name }}
+  # A push to a PR branch fires BOTH `push` and `pull_request`, so one commit ran the whole
+  # 21-build matrix plus the 5 test legs twice. The two events must land in ONE group for
+  # `cancel-in-progress` to dedupe them, and that needs a key both of them agree on:
+  #   - `ref_name` is the branch for `push`, but the PR number for `pull_request`;
+  #   - `event.pull_request.number` is empty for `push`;
+  #   - `head_ref` is the source branch of the PR - exactly the branch `push` reports.
+  # So `head_ref || ref_name` is the same string for both events of one commit.
+  group: ${{ github.workflow }}|${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -792,8 +799,33 @@ jobs:
         # unit test step below also depends on this data, so a genuinely
         # incomplete generation would fail there.
         run: |
-          "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
-          test -f project/extension_api.json
+          # NOTE: `--dump-extension-api-with-docs` returns straight from
+          # `Main::start` (`main/main.cpp:4276-4282`) and never reaches
+          # EditorNode, while the GDExtension is loaded only through the path
+          # list the editor writes to `project/.godot/extension_list.cfg` on a
+          # regular startup (`editor/editor_node.cpp:4319`, consumed by
+          # `GDExtensionManager::load_extensions`,
+          # `core/extension/gdextension_manager.cpp:329-345`). That file is not
+          # tracked, so a fresh checkout has none. Without it the extension
+          # never initializes, `GodotJSScript` is missing from the dump, and
+          # `--godotjs-api-generate` (one `.capi` per dumped class) writes a
+          # store without `classes/GodotJSScript.capi`. Constructing that class
+          # later aborts in `reflect_bind` (`jsb_object_bindings.cpp:72`).
+          # So let one plain editor pass register the extension before dumping,
+          # and judge the store by that class rather than by `header.capi`,
+          # which is written either way.
+          seed_api_store() {
+            rm -rf project/.godot
+            "$GODOT" --headless --editor --path project --quit || true
+            test -f project/.godot/extension_list.cfg || { echo "the editor did not register the extension"; exit 1; }
+            "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
+            test -f project/extension_api.json
+          }
+          verify_api_store() {
+            test -f project/.godot/.api_dumping/header.capi || return 1
+            test -f project/.godot/.api_dumping/classes/GodotJSScript.capi || return 1
+          }
+          seed_api_store
           # NOTE: the editor may crash during its shutdown phase after the data has
           # been written (Godot 4.7.1 + extension teardown - tracked separately);
           # success is judged by the presence of the generated store below.
@@ -803,21 +835,17 @@ jobs:
           # fail when the store is still missing afterwards.
           ok=0
           for attempt in 1 2 3; do
-            if "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit; then
-              ok=1
-            fi
-            if test -f project/.godot/.api_dumping/header.capi; then
+            "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+            if verify_api_store; then
               ok=1
               break
             fi
             echo "attempt $attempt did not produce the api store, wiping caches and retrying..."
-            rm -rf project/.godot
             # Bootstrap emit only (typings still absent); see the step above.
             rm -f project/.godot/.tsbuildinfo && pnpm -C project exec tsc --noCheck
-            "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
-            test -f project/extension_api.json
+            seed_api_store
           done
-          test -f project/.godot/.api_dumping/header.capi || { echo "api store missing after retries"; exit 1; }
+          verify_api_store || { echo "api store incomplete after retries"; exit 1; }
 
       - name: Generate project typings (type-check enforced)
         shell: bash
@@ -843,9 +871,16 @@ jobs:
           # import caches / runtime install markers from a previous successful
           # generation change the startup+teardown path and mask the crash.
           rm -rf project/.godot
+          # Same seed as the "Generate API data" step: without a regular
+          # startup first, `--dump-extension-api-with-docs` never sees the
+          # extension and the store loses `classes/GodotJSScript.capi`.
+          "$GODOT" --headless --editor --path project --quit || true
+          test -f project/.godot/extension_list.cfg
           "$GODOT" --headless --editor --path project --dump-extension-api-with-docs || true
           test -f project/extension_api.json
           gdb -batch -ex run -ex "bt full" --args "$GODOT" --headless --editor --path project --godotjs-api-generate extension_api.json --quit || true
+          echo "--- api store: $(ls project/.godot/.api_dumping/classes | wc -l) classes, GodotJSScript=$(test -f project/.godot/.api_dumping/classes/GodotJSScript.capi && echo yes || echo no) ---"
+          test -f project/.godot/.api_dumping/classes/GodotJSScript.capi
           # The wipe above also removed the compiled JS output (tsc artifacts
           # live under .godot/godotjs_ext); restore them for the test steps.
           # typings/ is unaffected, so this is an enforcing pass.
