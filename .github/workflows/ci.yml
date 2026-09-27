@@ -865,20 +865,49 @@ jobs:
           cat > /tmp/gdbcmds <<'EOF'
           set pagination off
           set confirm off
-          set print elements 64
+          set print elements 32
           set disable-randomization off
           run
           echo \n===== THREADS =====\n
           info threads
-          echo \n===== BT FULL =====\n
-          bt full
-          echo \n===== FRAME 0 =====\n
+          echo \n===== FRAME0 =====\n
           frame 0
-          info args
-          info locals
+          p loop
+          p inv
+          p uv_version()
+          p/x loop->internal_fields
+          p/x loop->data
+          p/x loop->active_handles
+          p/x loop->nwatchers
+          p/x loop->nfds
+          p/x loop->backend_fd
+          p/x loop->watchers
+          p/x loop->watcher_queue
+          echo \n===== FRAME1 =====\n
+          frame 1
+          p w
+          p/x w->fd
+          p/x w->loop
+          p/x w->pevents
+          p/x w->events
+          echo \n===== FRAME2 =====\n
+          frame 2
+          p handle
+          p/x handle->loop
+          p/x handle->type
+          p/x handle->flags
+          p/x handle->data
+          echo \n===== FRAME9 (our dtor) =====\n
+          frame 9
+          p this
+          p/x this->loop_
+          p/x this->node_env_
+          p/x this->isolate_
+          echo \n===== BT (limit 40) =====\n
+          bt 40
           echo \n===== END DIAG =====\n
           EOF
-          gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -500
+          gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -300
 
       - name: Run C++ unit tests
         shell: bash
