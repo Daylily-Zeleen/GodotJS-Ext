@@ -65,7 +65,10 @@ public:
 		v8::Isolate *isolate = context->isolate_;
 		JSValue payload[] = {
 			/* kFuncPayloadCallback */ JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, (void *)callback),
-			/* kFuncPayloadData*/ isolate->stack_dup(data->stack_pos_),
+			// `JS_NewCFunctionData` `js_dup`s every entry it stores, so this must stay borrowed:
+			// duplicating here would leave an unreleased reference behind on each created function
+			// and pin the payload object until `JS_FreeRuntime` aborts on the leak check.
+			/* kFuncPayloadData*/ isolate->stack_val(data->stack_pos_),
 		};
 
 		static_assert(sizeof(callback) == sizeof(void *));

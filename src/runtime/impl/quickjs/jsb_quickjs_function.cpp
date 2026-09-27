@@ -85,7 +85,8 @@ MaybeLocal<Function> Function::New(Local<Context> context, FunctionCallback call
 	Isolate *isolate = context->isolate_;
 	JSValue payload[] = {
 		/* jsb::impl::FuncPayload::kCallback */ JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, (void *)callback),
-		/* jsb::impl::FuncPayload::kData*/ isolate->stack_dup(data->stack_pos_),
+		// borrowed: `JS_NewCFunctionData` `js_dup`s every entry itself (see `Helper::NewFunction`)
+		/* jsb::impl::FuncPayload::kData*/ isolate->stack_val(data->stack_pos_),
 	};
 
 	static_assert(sizeof(callback) == sizeof(void *));

@@ -416,6 +416,10 @@ TEST_CASE("[runtime] [jsb] script members: own members only") {
 	const Ref<GodotJSScript> derived = ResourceLoader::get_singleton()->load("res://tests/static-members/static-members-derived.ts", jsb_typename(GodotJSScript));
 	REQUIRE(derived.is_valid());
 	{
+		// `_get_members()` reports nothing at all for a script whose module did not attach (`loaded_` false
+		// or the parsed class info invalid), which would make the `tag_count` assertion below report `0 == 1`
+		// for a reason that has nothing to do with member collection. Keep the two apart.
+		CHECK(derived->_is_valid());
 		const TypedArray<StringName> members = derived->_get_members();
 		// the derived script re-declares `tag`, so its own list carries it exactly once
 		int64_t tag_count = 0;
@@ -423,6 +427,15 @@ TEST_CASE("[runtime] [jsb] script members: own members only") {
 			if (members[index] == StringName("tag")) {
 				++tag_count;
 			}
+		}
+		if (tag_count != 1) {
+			// Report what the list actually holds: an empty list means the module did not attach,
+			// a populated one without `tag` means the property collection itself dropped it.
+			String observed;
+			for (int64_t index = 0; index < members.size(); ++index) {
+				observed += (index ? ", " : "") + String(members[index]);
+			}
+			MESSAGE("derived members (" << members.size() << "): " << observed);
 		}
 		CHECK(tag_count == 1);
 		// `baseOnly` is declared by the base alone: the debugger collects it from the base script,
