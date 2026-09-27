@@ -852,33 +852,6 @@ jobs:
           rm -f project/.godot/.tsbuildinfo
           pnpm -C project exec tsc
 
-      # TEMPORARY DIAGNOSTIC (remove once the teardown crash is fixed). The crash
-      # is Linux-only and inside libuv's uv__platform_invalidate_fd, whose
-      # lfields->inv lookup only happens when uv__io_poll processes epoll events;
-      # the io_uring epoll-batching fields (ctl/iou) sit right next to inv in
-      # uv__loop_internal_fields_s. Run the same test with io_uring forced off and
-      # on to see whether that path is what triggers it.
-      - name: Probe host-node teardown crash vs io_uring (temporary)
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e   # the crash aborts the engine; keep going through all modes
-          for mode in "" "0" "1"; do
-            if [ -z "$mode" ]; then label="unset"; else label="$mode"; fi
-            echo "===== UV_USE_IO_URING=$label ====="
-            UV_USE_IO_URING="$mode" timeout 180 "$GODOT" --headless --path project --jsb-run-tests > "/tmp/mode_$label.log" 2>&1
-            rc=$?
-            echo "exit=$rc crash=$(grep -ac handle_crash "/tmp/mode_$label.log")"
-            grep -a "test cases:" "/tmp/mode_$label.log" | tail -1 || true
-            echo "--- crash top frames ($label) ---"
-            grep -aA8 "handle_crash" "/tmp/mode_$label.log" | grep -aE "signal|^\[[0-9]+\]" | head -8 || true
-            # keep the api store: later steps depend on it
-            ( cd project && rm -f .godot/.tsbuildinfo && pnpm exec tsc --noCheck >/dev/null 2>&1 ) || true
-          done
-          echo "===== restore api store ====="
-          test -f project/.godot/.api_dumping/header.capi && echo "store present" || echo "store MISSING"
-
       - name: Run C++ unit tests
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
@@ -895,6 +868,26 @@ jobs:
               perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
             fi
           }
+          # TEMPORARY PROBE (remove once the teardown crash is fixed). The SIGSEGV
+          # is Linux-only, inside libuv's uv__platform_invalidate_fd, reading
+          # lfields->inv - a pointer libuv only publishes while uv__io_poll is
+          # walking epoll events. io_uring epoll batching is the linux-only
+          # machinery adjacent to that field, so run the test once with it forced
+          # off and once with the default, and report crash/exit for each.
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            echo "===== probe: UV_USE_IO_URING=0 ====="
+            set +e
+            UV_USE_IO_URING=0 run_with_timeout 120 "$GODOT" --headless --path project --jsb-run-tests > /tmp/probe_off.log 2>&1
+            echo "exit=$? crash=$(grep -ac handle_crash /tmp/probe_off.log)"
+            grep -a "test cases:" /tmp/probe_off.log | tail -1 || true
+            echo "===== probe: default (io_uring as libuv chooses) ====="
+            run_with_timeout 120 "$GODOT" --headless --path project --jsb-run-tests > /tmp/probe_on.log 2>&1
+            echo "exit=$? crash=$(grep -ac handle_crash /tmp/probe_on.log)"
+            grep -a "test cases:" /tmp/probe_on.log | tail -1 || true
+            grep -aA6 "handle_crash" /tmp/probe_on.log | grep -aE "^\[[0-9]+\]" | head -6 || true
+            echo "===== real test step ====="
+            set -e
+          fi
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
           # and log the directory state for diagnostics. typings/ is unaffected,
