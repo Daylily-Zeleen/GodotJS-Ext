@@ -869,23 +869,34 @@ jobs:
             fi
           }
           # TEMPORARY PROBE (remove once the teardown crash is fixed). The SIGSEGV
-          # is Linux-only, inside libuv's uv__platform_invalidate_fd, reading
-          # lfields->inv - a pointer libuv only publishes while uv__io_poll is
-          # walking epoll events. io_uring epoll batching is the linux-only
-          # machinery adjacent to that field, so run the test once with it forced
-          # off and once with the default, and report crash/exit for each.
+          # is Linux-only, in libuv's uv__platform_invalidate_fd, which reads
+          # lfields->inv (lfields = *(loop+0x28), inv = *(lfields+0x1b8) on linux).
+          # The loop's own fields are fine immediately before FreeEnvironment, so
+          # ask gdb for these exact expressions at the fault, plus stop_flag
+          # (uv_stop is set by node::Stop) to see what state the loop is in.
           if [ "$RUNNER_OS" == "Linux" ]; then
-            echo "===== probe: UV_USE_IO_URING=0 ====="
             set +e
-            UV_USE_IO_URING=0 run_with_timeout 120 "$GODOT" --headless --path project --jsb-run-tests > /tmp/probe_off.log 2>&1
-            echo "exit=$? crash=$(grep -ac handle_crash /tmp/probe_off.log)"
-            grep -a "test cases:" /tmp/probe_off.log | tail -1 || true
-            echo "===== probe: default (io_uring as libuv chooses) ====="
-            run_with_timeout 120 "$GODOT" --headless --path project --jsb-run-tests > /tmp/probe_on.log 2>&1
-            echo "exit=$? crash=$(grep -ac handle_crash /tmp/probe_on.log)"
-            grep -a "test cases:" /tmp/probe_on.log | tail -1 || true
-            grep -aA6 "handle_crash" /tmp/probe_on.log | grep -aE "^\[[0-9]+\]" | head -6 || true
-            echo "===== real test step ====="
+            cat > /tmp/gdbcmds <<'EOF'
+            set pagination off
+            set confirm off
+            set print elements 16
+            set disable-randomization off
+            run
+            echo \n===== FRAME0 =====\n
+            frame 0
+            bt 8
+            p loop
+            p *(void**)((char*)loop+0x28)
+            p *(void**)((char*)*(void**)((char*)loop+0x28)+0x1b8)
+            p/x *(int*)((char*)*(void**)((char*)loop+0x28)+0x1b8)
+            p/x ((uv_loop_t*)loop)->stop_flag
+            p/x ((uv_loop_t*)loop)->backend_fd
+            p/x ((uv_loop_t*)loop)->nfds
+            p/x ((uv_loop_t*)loop)->nwatchers
+            p/x ((uv_loop_t*)loop)->watchers
+            echo \n===== END DIAG =====\n
+            EOF
+            gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -120
             set -e
           fi
           if [ "$RUNNER_OS" == "Windows" ]; then
