@@ -165,6 +165,31 @@ NodeRuntime::~NodeRuntime() {
 	for (int i = 0; i < 8 && uv_loop_alive(loop_) != 0; ++i) {
 		uv_run(loop_, UV_RUN_NOWAIT);
 	}
+#if defined(__linux__)
+	// libuv's uv__io_poll() publishes `lfields->inv` - a pointer to a stack local
+	// - while it walks epoll events, and clears it on the way out. If a uv
+	// callback unwinds out of uv__io_poll without a normal return (a V8 exception
+	// crossing the callback frame), that clear is skipped and the slot keeps
+	// pointing at a dead stack frame. node::FreeEnvironment() ->
+	// Environment::CleanupHandles() then closes the environment's handles with
+	// uv_close(), whose uv__stream_close() -> uv__io_close() ->
+	// uv__platform_invalidate_fd() dereferences that stale pointer and faults
+	// (observed as SIGSEGV on the ubuntu runners; this path is Linux-only, which
+	// is why Windows/macOS never crashed). No poll can be in progress here and
+	// the loop is only used from this thread, so the slot must be NULL; force it
+	// so the teardown cannot read a dead frame.
+	//
+	// Offsets: lfields is uv_loop_t::internal_fields (struct uv_loop_s in uv.h
+	// orders data, active_handles, handle_queue, active_reqs, internal_fields),
+	// and on Linux uv__loop_internal_fields_s places inv after flags,
+	// loop_metrics, current_timeout, ctl and iou.
+	if (loop_ != nullptr) {
+		void *const lfields = *reinterpret_cast<void **>(reinterpret_cast<char *>(loop_) + 0x28);
+		if (lfields != nullptr) {
+			*reinterpret_cast<void **>(reinterpret_cast<char *>(lfields) + 0x1b8) = nullptr;
+		}
+	}
+#endif
 	node::FreeEnvironment(node_env_);
 
 	{
