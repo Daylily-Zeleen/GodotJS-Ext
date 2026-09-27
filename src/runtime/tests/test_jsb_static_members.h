@@ -431,11 +431,25 @@ TEST_CASE("[runtime] [jsb] script members: own members only") {
 		if (tag_count != 1) {
 			// Report what the list actually holds: an empty list means the module did not attach,
 			// a populated one without `tag` means the property collection itself dropped it.
-			String observed;
+			//NOTE rendered as raw code points and UTF-8 bytes: doctest cannot stringify a
+			//     `godot::String`, so passing one would log the useless placeholder `{?}`.
+			String detail = vformat("size=%d has_tag=%d has_baseOnly=%d ", members.size(), (int)members.has(StringName("tag")), (int)members.has(StringName("baseOnly")));
 			for (int64_t index = 0; index < members.size(); ++index) {
-				observed += (index ? ", " : "") + String(members[index]);
+				const StringName entry_sn = members[index];
+				const String entry = entry_sn;
+				detail += vformat("[%d]len=%d cp={", index, entry.length());
+				for (int i = 0; i < entry.length(); ++i) {
+					detail += itos((int64_t)entry[i]) + ",";
+				}
+				const CharString entry_utf8 = entry.utf8();
+				detail += vformat("} utf8={", 0);
+				for (int i = 0; i < entry_utf8.length(); ++i) {
+					detail += itos((int64_t)(uint8_t)entry_utf8[i]) + ",";
+				}
+				detail += "}";
 			}
-			MESSAGE("derived members (" << members.size() << "): " << observed);
+			const CharString detail_utf8 = detail.utf8();
+			MESSAGE("derived members: " << detail_utf8.get_data());
 		}
 		CHECK(tag_count == 1);
 		// `baseOnly` is declared by the base alone: the debugger collects it from the base script,
