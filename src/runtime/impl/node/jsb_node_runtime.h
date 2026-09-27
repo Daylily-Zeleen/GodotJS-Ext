@@ -53,6 +53,14 @@ private:
 	// `struct uv_loop_s` is forward-declared by node.h; the full libuv API is only
 	// needed in jsb_node_runtime.cpp (which includes <uv.h> itself).
 	struct uv_loop_s *loop_ = nullptr;
+	// Set while the teardown below is running. `PumpEventLoop()` is called from
+	// Environment::update() on the engine frame and runs uv_run() on the same
+	// loop; if it lands inside the teardown (re-entrant callbacks) libuv would
+	// run uv__io_poll while the loop is being closed, which leaves the loop's
+	// internal `inv` slot stale and later faults in
+	// uv__platform_invalidate_fd (observed on the ubuntu-22.04 runner). Refuse to
+	// pump once the teardown owns the loop.
+	bool tearing_down_ = false;
 	v8::Isolate *isolate_ = nullptr;
 	// Held for the whole lifetime of the isolate on the creating thread. The
 	// node MultiIsolatePlatform requires a v8::Locker for *every* V8 entry, and

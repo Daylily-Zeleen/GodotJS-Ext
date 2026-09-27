@@ -868,38 +868,6 @@ jobs:
               perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
             fi
           }
-          # TEMPORARY PROBE (remove once the teardown crash is fixed). The SIGSEGV
-          # is Linux-only, in libuv's uv__platform_invalidate_fd, which reads
-          # lfields->inv: lfields = *(loop+0x28), inv = *(lfields+0x1b8) (linux
-          # layout: flags, loop_metrics, current_timeout, ctl, iou, inv). Commands
-          # go through -ex instead of a heredoc, which cannot be written inside a
-          # YAML run block without breaking the terminator.
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            set +e
-            gdb -batch \
-              -ex 'set pagination off' \
-              -ex 'set confirm off' \
-              -ex 'run' \
-              -ex 'echo \n== FRAME0 ==\n' \
-              -ex 'frame 0' \
-              -ex 'bt 7' \
-              -ex 'p loop' \
-              -ex 'p/x fd' \
-              -ex 'p/x *(void**)((char*)loop+0x28)' \
-              -ex 'p/x *(void**)((char*)*(void**)((char*)loop+0x28)+0x1b8)' \
-              -ex 'p/x *(int*)((char*)*(void**)((char*)loop+0x28)+0x1b8)' \
-              -ex 'echo \n== FRAME2 ==\n' \
-              -ex 'frame 2' \
-              -ex 'p/x handle' \
-              -ex 'p/x handle->loop' \
-              -ex 'p/x handle->type' \
-              -ex 'p/x handle->flags' \
-              --args "$GODOT" --headless --path project --jsb-run-tests > /tmp/gdb.log 2>&1
-            echo "gdb exit=$?"
-            echo "---- relevant gdb lines ----"
-            grep -aE '^\$[0-9]+ =|^#[0-9]+|== FRAME|received signal' /tmp/gdb.log | head -40
-            set -e
-          fi
           if [ "$RUNNER_OS" == "Windows" ]; then
           # Editor startup flows may wipe compiled JS output; re-emit defensively
           # and log the directory state for diagnostics. typings/ is unaffected,

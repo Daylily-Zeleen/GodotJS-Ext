@@ -128,6 +128,11 @@ NodeRuntime::NodeRuntime() {
 NodeRuntime::~NodeRuntime() {
 	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
 
+	// From here on this runtime owns the loop exclusively: stop Environment::update()
+	// from pumping it (see PumpEventLoop), so node's own uv_run() calls below are
+	// the only ones running uv__io_poll on it.
+	tearing_down_ = true;
+
 	// Node environment teardown.
 	//
 	// node::Stop() schedules the environment's handles to close, and
@@ -215,6 +220,13 @@ NodeRuntime::~NodeRuntime() {
 
 void NodeRuntime::PumpEventLoop() {
 	if (!node_env_ || node_context_.IsEmpty()) {
+		return;
+	}
+	// The destructor owns the loop from here on: running uv_run() on it now would
+	// let uv__io_poll clobber the loop's internal `inv` slot while the teardown
+	// closes handles, which later faults in uv__platform_invalidate_fd (the
+	// ubuntu-22.04 failure). See ~NodeRuntime().
+	if (tearing_down_) {
 		return;
 	}
 
