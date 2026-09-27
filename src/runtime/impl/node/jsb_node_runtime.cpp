@@ -35,44 +35,7 @@
 #include "jsb_node_helper.h"
 
 namespace jsb::impl {
-
-// TEMPORARY DIAGNOSTIC (remove before finishing): live-instance counter plus the
-// uv loop's identity/liveness, so a double destruction and a dead loop are
-// visible in the CI log (the fault is uv__platform_invalidate_fd reading the
-// loop's internal fields long after the loop was created).
-static int s_nr_live = 0;
-static String diag_ptr(const void *p_ptr) {
-	return String::num_int64((int64_t)(uintptr_t)p_ptr);
-}
-static String diag_state(const char *p_where, const void *p_this, uv_loop_t *p_loop, void *p_env) {
-	// uv_backend_fd()/uv_loop_alive() read the loop's memory: if the loop has
-	// already been freed, this faults (and the backtrace then points HERE, which
-	// is itself the proof that the loop was dead at this point).
-	String s = String("[jsb-diag] ") + p_where
-			+ " this=" + diag_ptr(p_this)
-			+ " loop=" + diag_ptr(p_loop)
-			+ " env=" + diag_ptr(p_env)
-			+ " live=" + String::num_int64(s_nr_live)
-			+ " backend_fd=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_backend_fd(p_loop) : -1)
-			+ " alive=" + String::num_int64(p_loop != nullptr ? (int64_t)uv_loop_alive(p_loop) : -1);
-#if defined(__linux__)
-	// Linux's uv__loop_internal_fields_s has ctl/iou before inv
-	// (flags, loop_metrics, current_timeout, ctl[120], iou[120], inv); the slot
-	// is internal_fields + 0x1e8. Layout is platform-specific, keep it guarded.
-	if (p_loop != nullptr) {
-		void *lfields = *reinterpret_cast<void **>(reinterpret_cast<char *>(p_loop) + 0x28);
-		void *inv = lfields != nullptr
-				? *reinterpret_cast<void **>(reinterpret_cast<char *>(lfields) + 0x1e8)
-				: nullptr;
-		s += " lfields=" + diag_ptr(lfields) + " inv=" + diag_ptr(inv)
-				+ " inv_nfds=" + String::num_int64(inv != nullptr ? (int64_t)*reinterpret_cast<int *>(inv) : -1);
-	}
-#endif
-	return s;
-}
-
 NodeRuntime::NodeRuntime() {
-	++s_nr_live;
 	allocator_ = node::ArrayBufferAllocator::Create();
 	jsb_check(allocator_);
 
@@ -80,14 +43,6 @@ NodeRuntime::NodeRuntime() {
 	jsb_check(loop_);
 	const int err = uv_loop_init(loop_);
 	jsb_checkf(err == 0, "uv_loop_init failed: %d", uv_err_name(err));
-	// TEMPORARY DIAGNOSTIC: compare the library's idea of the loop size with the
-	// compile-time one. If the headers used to build this extension disagree with
-	// the libuv inside libnode.a, the loop struct is written past its allocation
-	// and its private fields (notably lfields->inv) end up garbage.
-	WARN_PRINT(String("[jsb-diag] uv_loop_size=") + String::num_int64((int64_t)uv_loop_size())
-			+ " sizeof(uv_loop_t)=" + String::num_int64((int64_t)sizeof(uv_loop_t))
-			+ " sizeof(uv_handle_t)=" + String::num_int64((int64_t)sizeof(uv_handle_t))
-			+ " uv_handle_size(UV_NAMED_PIPE)=" + String::num_int64((int64_t)uv_handle_size(UV_NAMED_PIPE)));
 
 	node::MultiIsolatePlatform *platform = GlobalInitialize::get_platform();
 	jsb_check(platform);
@@ -168,12 +123,10 @@ NodeRuntime::NodeRuntime() {
 		jsb::bridge_console_hook_ensure(isolate_, get_node_context());
 	}
 #endif
-	WARN_PRINT(diag_state("NodeRuntime:ctor-done", this, loop_, node_env_));
 }
 
 NodeRuntime::~NodeRuntime() {
 	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
-	WARN_PRINT(diag_state("~NodeRuntime:enter", this, loop_, node_env_));
 
 	// Node environment teardown.
 	//
@@ -199,7 +152,6 @@ NodeRuntime::~NodeRuntime() {
 		node::SpinEventLoop(node_env_).ToChecked(); // 如果有未完成任务（如 setInterval） 可能会卡住
 	}
 	node::Stop(node_env_);
-	WARN_PRINT(diag_state("~NodeRuntime:post-Stop", this, loop_, node_env_));
 	// Run the loop so the closes scheduled by Stop() actually complete before
 	// FreeEnvironment() tears the environment down. UV_RUN_NOWAIT-style ticks
 	// are used rather than UV_RUN_DEFAULT: a still-active handle (a stray
@@ -208,9 +160,7 @@ NodeRuntime::~NodeRuntime() {
 	for (int i = 0; i < 8 && uv_loop_alive(loop_) != 0; ++i) {
 		uv_run(loop_, UV_RUN_NOWAIT);
 	}
-	WARN_PRINT(diag_state("~NodeRuntime:pre-FreeEnvironment", this, loop_, node_env_));
 	node::FreeEnvironment(node_env_);
-	WARN_PRINT(diag_state("~NodeRuntime:post-FreeEnvironment", this, loop_, node_env_));
 
 	{
 		v8::Isolate::Scope isolate_scope(isolate_);
@@ -261,9 +211,6 @@ NodeRuntime::~NodeRuntime() {
 	// drop the console hook state owned by this isolate before it goes away
 	// (see jsb_bridge_table.cpp)
 	jsb::bridge_console_hook_on_isolate_releasing(isolate_);
-	--s_nr_live;
-	WARN_PRINT(String("[jsb-diag] ~NodeRuntime:exit this=") + diag_ptr(this)
-			+ " live=" + String::num_int64(s_nr_live));
 }
 
 void NodeRuntime::PumpEventLoop() {
