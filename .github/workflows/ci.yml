@@ -852,6 +852,34 @@ jobs:
           rm -f project/.godot/.tsbuildinfo
           pnpm -C project exec tsc
 
+      # TEMPORARY DIAGNOSTIC (remove once the teardown crash is fixed). The
+      # failure only reproduces on this runner (identical .so passes locally), so
+      # capture the crash under gdb: the faulting frame's locals (loop, lfields,
+      # inv) and the handle/loop relations are what identify why
+      # uv__platform_invalidate_fd reads freed memory.
+      - name: Debug host-node teardown crash (temporary)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          cat > /tmp/gdbcmds <<'EOF'
+          set pagination off
+          set confirm off
+          set print elements 64
+          set disable-randomization off
+          run
+          echo \n===== THREADS =====\n
+          info threads
+          echo \n===== BT FULL =====\n
+          bt full
+          echo \n===== FRAME 0 =====\n
+          frame 0
+          info args
+          info locals
+          echo \n===== END DIAG =====\n
+          EOF
+          gdb -batch -x /tmp/gdbcmds --args "$GODOT" --headless --path project --jsb-run-tests 2>&1 | tail -500
+
       - name: Run C++ unit tests
         shell: bash
         # C++ unit tests run via --jsb-run-tests and exit on their own;
