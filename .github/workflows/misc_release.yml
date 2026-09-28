@@ -56,6 +56,9 @@ on:
         type: string
 
 permissions:
+  # actions: read is required to fetch the source run's build artifacts
+  # (gh run download); contents: write to create the release and attach assets.
+  actions: read
   contents: write
 
 jobs:
@@ -83,14 +86,40 @@ jobs:
           pnpm ci:publish ${{ inputs.versions }}
         working-directory: scripts
 
-  upload-v8:
-    name: Upload V8 Runtime Assets
+  # One job per published JS engine. The legs each package contains - and the
+  # `.gdextension` files inside it - are derived from the build matrix by
+  # misc/release/package.py, the same script the CI gate runs, so what is
+  # shipped and what is gated can never drift apart. Legs are fetched by exact
+  # artifact name (gh run download, not actions/download-artifact with a
+  # pattern): a package's legs do not share a single suffix any more - qjs-ng
+  # and web both ship wasm, and globbing "*-v8" is exactly how the browser
+  # engine used to end up inside the v8 package.
+  upload:
+    name: Upload ${{ matrix.engine }} Assets
     needs: [release]
     if: always() && (inputs.mode == 'upload-only' || needs.release.result == 'success')
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [v8, qjs-ng, jsc, node, web]
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit the packaged run was built from: the leg list comes
+      # from that revision's ci.yml, so a mismatch here would plan against a
+      # different matrix than the artifacts were produced by.
       - name: Checkout repo
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+
+      - name: Ensure PyYAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c "import yaml" 2>/dev/null || python -m pip install --quiet --disable-pip-version-check pyyaml
 
       - name: Lookup release ID
         id: lookup
@@ -107,34 +136,34 @@ jobs:
             });
             return release.data.id;
 
-      - name: Download V8 artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts-v8
-          pattern: "*-v8"
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Package V8 addon
+      - name: Plan and download the ${{ matrix.engine }} legs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          ADDON_DIR="godotjs-ext-v8-windows-linux-macos"
-          mkdir -p "$ADDON_DIR/bin"
+          set -euo pipefail
+          echo "=== ${{ matrix.engine }} package legs (derived from the build matrix) ==="
+          python misc/release/package.py plan --engine ${{ matrix.engine }}
+          python misc/release/package.py fetch \
+            --engine ${{ matrix.engine }} \
+            --run "${{ inputs.run_id }}" \
+            --dir artifacts \
+            --repo "${{ github.repository }}"
 
-          for artifact_dir in artifacts-v8/*/; do
-            if [ -d "$artifact_dir" ] && [ -n "$(ls -A "$artifact_dir")" ]; then
-              cp -r "$artifact_dir"* "$ADDON_DIR/bin/" 2>/dev/null || true
-            fi
-          done
+      - name: Assemble the ${{ matrix.engine }} package
+        id: assemble
+        shell: bash
+        run: |
+          set -euo pipefail
+          python misc/release/package.py assemble \
+            --engine ${{ matrix.engine }} \
+            --artifacts artifacts \
+            --out out | tee assemble.log
+          # The packager is the authority on the asset name: it is derived from
+          # the legs actually merged (engine + platforms), never hardcoded here.
+          grep '^PACKAGE_NAME=' assemble.log | cut -d= -f2- >> "$GITHUB_OUTPUT"
 
-          cp -v project/addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension "$ADDON_DIR/" 2>/dev/null || true
-
-          echo "=== V8 Addon contents ==="
-          find "$ADDON_DIR" -type f
-
-          zip -r "${ADDON_DIR}.zip" "$ADDON_DIR"
-
-      - name: Upload V8 Asset to GitHub Release
+      - name: Upload ${{ matrix.engine }} Asset to GitHub Release
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -143,78 +172,8 @@ jobs:
             const FS = require('node:fs')
             const { repo, owner } = context.repo;
             const releaseId = ${{ steps.lookup.outputs.result }};
-            const zipName = 'godotjs-ext-v8-windows-linux-macos.zip';
-            const zipPath = `${process.env.GITHUB_WORKSPACE}/${zipName}`;
-            return await github.rest.repos.uploadReleaseAsset({
-              owner,
-              repo,
-              release_id: releaseId,
-              name: zipName,
-              data: FS.readFileSync(zipPath)
-            });
-
-  upload-qjs-ng:
-    name: Upload QuickJS-NG Runtime Assets
-    needs: [release]
-    if: always() && (inputs.mode == 'upload-only' || needs.release.result == 'success')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v6
-
-      - name: Lookup release ID
-        id: lookup
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          result-encoding: json
-          script: |
-            const { repo, owner } = context.repo;
-            const release = await github.rest.repos.getReleaseByTag({
-              owner,
-              repo,
-              tag: '${{ inputs.version }}',
-            });
-            return release.data.id;
-
-      - name: Download QJS-NG artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts-qjs-ng
-          pattern: "*-qjs-ng"
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Package QJS-NG addon
-        shell: bash
-        run: |
-          ADDON_DIR="godotjs-ext-qjs-ng-windows-linux-macos"
-          mkdir -p "$ADDON_DIR/bin"
-
-          for artifact_dir in artifacts-qjs-ng/*/; do
-            if [ -d "$artifact_dir" ] && [ -n "$(ls -A "$artifact_dir")" ]; then
-              cp -r "$artifact_dir"* "$ADDON_DIR/bin/" 2>/dev/null || true
-            fi
-          done
-
-          cp -v project/addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension "$ADDON_DIR/" 2>/dev/null || true
-
-          echo "=== QJS-NG Addon contents ==="
-          find "$ADDON_DIR" -type f
-
-          zip -r "${ADDON_DIR}.zip" "$ADDON_DIR"
-
-      - name: Upload QJS-NG Asset to GitHub Release
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          result-encoding: json
-          script: |
-            const FS = require('node:fs')
-            const { repo, owner } = context.repo;
-            const releaseId = ${{ steps.lookup.outputs.result }};
-            const zipName = 'godotjs-ext-qjs-ng-windows-linux-macos.zip';
-            const zipPath = `${process.env.GITHUB_WORKSPACE}/${zipName}`;
+            const zipName = '${{ steps.assemble.outputs.PACKAGE_NAME }}.zip';
+            const zipPath = `${process.env.GITHUB_WORKSPACE}/out/${zipName}`;
             return await github.rest.repos.uploadReleaseAsset({
               owner,
               repo,

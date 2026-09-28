@@ -1,1 +1,5 @@
-{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "流程合规检查"}
+{"file": ".trellis/tasks/09-06-ci-release-packaging/research/evidence.md", "reason": "核对实现是否与实测一致（腿清单、包内容、web 腿引擎身份、现网包结构）"}
+{"file": ".trellis/tasks/09-06-ci-release-packaging/design.md", "reason": "核对 package.py 行为、键派生规则、包名与 workflow 改造是否按契约落地"}
+{"file": ".trellis/tasks/09-06-ci-release-packaging/prd.md", "reason": "逐条核对 AC（5 包各一个、恰好划分 23 腿、键↔文件 1:1、macos/ios/web 键、node.dll 归属、门禁覆盖）"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建规范质量检查单：只用规范命令、临时文件位置、依赖版本对齐"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "校验提交前是否遵守 git/临时文件约束，以及取证是否有预算收敛"}

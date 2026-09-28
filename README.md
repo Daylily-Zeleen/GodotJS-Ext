@@ -179,7 +179,26 @@ After a pull request containing a Changeset is merged into `main`:
 1. The **Changesets** job creates or updates the `changeset-release/main` version pull request.
 2. Merging that version pull request updates `scripts/package.json`, `scripts/CHANGELOG.md`, and `src/jsb_version.h`.
 3. The next `main` CI workflow completes the build and test jobs. A separate `workflow_run` workflow then detects the generated changelog entry and creates the GitHub Release.
-4. After the Release is created, the same workflow downloads artifacts from the successful source CI run and attaches the V8 and QuickJS-NG packages.
+4. After the Release is created, the same workflow packages the artifacts from the successful source CI run **once per JS engine** and attaches all five packages.
+
+### Release Packages
+
+Each GitHub Release carries one archive **per JS engine**, and each archive contains only the platforms that engine is actually built for. The contents (and the `.gdextension` files inside) are derived from the build matrix in `.github/workflows/ci.yml` by `misc/release/package.py` — the same script the `Verify Release Artifact Names` CI gate runs — so the assets and the gate can never drift apart.
+
+| Engine | Asset | Platforms inside |
+|---|---|---|
+| V8 | `godotjs-ext-v8-windows-linux-macos-android-ios.zip` | Windows, Linux (x86_64 + arm64), macOS (arm64), Android (arm64 + x86_64), iOS (arm64) |
+| QuickJS-NG | `godotjs-ext-qjs-ng-windows-linux-macos-android-ios-web.zip` | the same plus Web (wasm32, threaded and not) |
+| JavaScriptCore | `godotjs-ext-jsc-macos-ios.zip` | macOS (arm64), iOS (arm64) |
+| Node.js | `godotjs-ext-node-windows-linux-macos.zip` | Windows, Linux (x86_64), macOS (arm64) |
+| Browser | `godotjs-ext-web.zip` | Web (wasm32, threaded and not) |
+
+The original QuickJS engine is superseded by QuickJS-NG and is not packaged; `use_quickjs=yes` still builds locally.
+
+Every archive is a drop-in `addons/godotjs-ext.daylily-zeleen/` directory: it carries the per-platform binaries under `bin/<platform>/` plus a `.gdextension` file per extension (runtime and editor) whose `[libraries]` entries match exactly the files in the archive. Desktop engines ship the editor target only (edit-in-editor use), matching the previous releases.
+
+> [!NOTE]
+> `godotjs-ext-web.zip` contains the browser engine alone. The editor still needs a desktop engine to load the extension and to run a Web export, so unpack this archive **over** the desktop engine package you use (the directory layout is identical, so it merges cleanly) — or simply use the QuickJS-NG package, which already includes a QuickJS-based web build.
 
 The build and publish stages are intentionally separate. If a matrix build, especially Windows V8 dependency download, needs to be rerun, the successful CI run can finish without relying on downstream jobs that were already skipped in the original run. The upload workflow uses the source run ID directly because Releases created with the Actions `GITHUB_TOKEN` do not trigger another workflow through `release: published`.
 

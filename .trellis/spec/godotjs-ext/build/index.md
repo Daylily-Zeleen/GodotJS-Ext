@@ -9,6 +9,7 @@
 - [ ] 构建产物（dll）部署验证？读 [scons-build.md](./scons-build.md) 的部署节
 - [ ] 动依赖（lws / v8 / libnode）或 `GodotJS-Dependencies/`？读 [dependencies.md](./dependencies.md)（依赖仓库形态、改依赖的正确流程、打补丁约定）
 - [ ] 构建后要跑测试？测试命令与验收标准见 [../test/index.md](../test/index.md)
+- [ ] 动发布（`misc_release.yml` / `verify-release-artifacts` / 构建矩阵的 engine 标签）？读 [release-packaging.md](./release-packaging.md)（唯一派生点、键↔文件 1:1、门禁口径）
 
 ## 质量检查
 
