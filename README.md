@@ -13,7 +13,7 @@
 
 <p align="center">
     <a href="https://github.com/godotjs/GodotJS/actions"><img src="https://github.com/godotjs/GodotJS/actions/workflows/runner.yml/badge.svg?branch=main" alt="Build Status"></a>
-    <a href="https://github.com/godotjs/GodotJS/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-LGPL%203.1-green.svg" alt="LGPL 2.1 License"></a>
+    <a href="https://github.com/Daylily-Zeleen/GodotJS-Ext/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-LGPL%202.1-green.svg" alt="LGPL 2.1 License"></a>
 </p>
 
 ## Documentation
@@ -308,4 +308,7 @@ Where to keep durable rules:
 
 ## License
 
-MIT License - see [LICENSE](GodotJS/LICENSE) for details.
+GNU LGPL 2.1 - see [LICENSE](LICENSE) for details.
+
+Third-party components under `third/` keep their own upstream licenses (for example `third/GodotJS/LICENSE`
+is MIT, copyright the GodotJS authors).

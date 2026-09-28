@@ -136,7 +136,7 @@ pnpm test
 
 - Follow the existing code style in the project
 - Use the `.clang-format` configuration for C++ formatting
-- Use the `.prettierrerrc` configuration for TypeScript formatting
+- Use the `.prettierrc` configuration for TypeScript formatting
 
 ## Pull Request Process
 
@@ -149,4 +149,5 @@ pnpm test
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the GNU LGPL 2.1,
+the license of this repository (see `LICENSE`).
