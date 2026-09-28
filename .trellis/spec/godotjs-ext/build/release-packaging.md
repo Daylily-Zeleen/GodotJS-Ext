@@ -81,6 +81,29 @@ wasm 腿），而 glob 正是历史上把浏览器引擎混进 v8 包的机制�
   `publish` job 都已显式声明；`upload_assets.yml` 早有）。
 - checkout 要 `ref: ${{ inputs.ref }}`：plan 取自**被发布那一版**的 `ci.yml`。
 
+## 发布触发链的坑（2026-09-29 真实发版踩过）
+
+发布链是 `changeset 推 main → changesets 开版本 PR → 合并 → CI → release.yml → misc_release.yml`。
+以下三处都只在**真实发版**时才会暴露，本地/`assemble` 单测覆盖不到：
+
+1. **`node release/get-version.js` 必须打印版本**（`scripts/release/get-version.js`）。
+   工作流用 `version="$(node release/get-version.js)"` 取 tag；该文件既是模块（`publish.js`
+   里 `getVersion()` 是按函数调用）又是可执行文件，必须同时满足。若只 `export` 不打印，
+   取到**空字符串**，而空 tag 在 `gh release view ""` 上返回 `not found`——与「release 尚不
+   存在」不可区分，于是 should-publish 恒 `true`：release 被建出来，随后 5 个 upload job
+   全在找 tag `""` 时报 `HttpError: Not Found`。`getVersion()` 还要兼容 `pnpm pkg get version`
+   历来的两种输出（JSON 字符串 / 裸值），否则 `JSON.parse("1.0.1")` 抛错（v1.0.1 当年即此因）。
+2. **写 `$GITHUB_OUTPUT` 必须是 `key=value`**。`grep '^PACKAGE_NAME=' | cut -d= -f2-` 会把键
+   一起切掉，runner 直接报 `Invalid format '<value>'` 并中止该 job（上传前就死）。原样
+   `grep '^PACKAGE_NAME=' >> "$GITHUB_OUTPUT"` 即可。
+3. **`should-publish=false` 时只跑 `Check release condition`**，release 与 upload 全 skipped；
+   这是正常短路（版本已有 release 时如此），不是失败。要发新版必须先让 Changesets 合并
+   版本 PR 把 `scripts/package.json` 升上去。
+
+诊断入口：失败时先看 `Check release condition` job 日志里的 `ci:should-publish=` / `version=`，
+再看各 `Upload <engine> Assets` job 是死在 lookup（release 不存在/取不到 id）还是
+`$GITHUB_OUTPUT`（Invalid format）。
+
 ## 本地验证发布包（不必真发版）
 
 ```bash
