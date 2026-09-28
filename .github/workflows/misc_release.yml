@@ -161,7 +161,10 @@ jobs:
             --out out | tee assemble.log
           # The packager is the authority on the asset name: it is derived from
           # the legs actually merged (engine + platforms), never hardcoded here.
-          grep '^PACKAGE_NAME=' assemble.log | cut -d= -f2- >> "$GITHUB_OUTPUT"
+          # Emit the line verbatim: `$GITHUB_OUTPUT` wants `key=value`, and
+          # `cut -d= -f2-` alone produced a bare value that the runner rejected
+          # with "Invalid format 'godotjs-ext-...'".
+          grep '^PACKAGE_NAME=' assemble.log >> "$GITHUB_OUTPUT"
 
       - name: Upload ${{ matrix.engine }} Asset to GitHub Release
         uses: actions/github-script@v7
