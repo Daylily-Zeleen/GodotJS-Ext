@@ -107,9 +107,13 @@ Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. 
 - **`@bind.exposed.const()` / `@bind.exposed.shared()`** — expose a `static` member to Godot as a
   read-only constant or as a shared static variable that GDScript can read *and write* with one value
   per process. Upstream's `Script::get_constants()`/`get_members()` overrides are empty stubs.
-- **`godot.shadowRealm`** — a ShadowRealm module (`JSShadowRealm`, `TransferableJSShadowRealm`) built
-  on upstream's shadow-environment plumbing but exposed to scripts as a module, which upstream does not
-  do. It is disabled on the pure-web build.
+- **`godot.shadowRealm` — a JS-facing realm API; upstream has none.** Each realm is its own
+  environment (and isolate), so it can `evaluate(sourceText)`, `importValue` / `importValueSync` a
+  module binding into the host, and `terminate()` — with `addAllowedModuleSearchPath` to widen module
+  resolution. `TransferableJSShadowRealm` additionally `postMessage`s Godot objects **across realms**,
+  with `ShadowRealmParent` on the receiving side. Upstream's `Environment::Type` carries a `Shadow`
+  value marked `[reserved] for future use` and nothing implements it, so this is not a ported feature
+  under another name. Disabled on the pure-web build.
 - **`godot.worker`** — `JSWorker` / `JSWorkerParent` with a single transfer contract: the transferable
   list is an argument of `postMessage`. Upstream's declarations still carry the deprecated
   `worker.ontransfer` / `JSWorkerParent.transfer()` shapes alongside it; this repository exposes only
@@ -118,11 +122,15 @@ Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. 
 
 ### Editor integration
 
-- **Source comments become script documentation.** A resident Node tool process
-  (`scripts/jsb.tools/`) parses `.ts`/`.js` comments and feeds class/member docs to the editor, with
-  `@bind.help()` taking precedence. Upstream fills `get_documentation()` from annotations only.
+- **Source comments become script documentation — upstream does not read your comments at all.** It
+  fills `get_documentation()` only from explicit calls (`@bind.help()` / `deprecated` / `experimental`)
+  plus the engine's own XML docs. Here a resident Node tool process (`scripts/jsb.tools/`) parses the
+  `.ts`/`.js` source and feeds class/member docs to the editor; explicit annotations still win over the
+  comment.
 - **Signature sidecars** — a `.sig` file next to each compiled script carries function/signal
-  signatures, so method and signal info survives without re-reading the source; it is packaged on export.
+  signatures, so method and signal info survives without re-reading the source, and it is packaged on
+  export. Upstream has no on-disk signature cache: its knowledge is regenerated into `.d.ts` each run
+  and runtime overloads stay unobservable from JS.
 - **Config Enabled TS Classes** — a dialog (`Config Enabled Classes Bindings`) to choose which native
   classes get bindings generated, with preset import/export.
 - **Tool menu**: Generate API Data, Install Project Files, Generate Types, Config Enabled TS Classes,
