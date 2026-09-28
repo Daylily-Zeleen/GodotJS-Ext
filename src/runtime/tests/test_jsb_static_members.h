@@ -619,9 +619,16 @@ TEST_CASE("[runtime] [jsb] script method argument count") {
 
 // 源文件注释文档：`ScriptDocStore` 暂存 → 模块加载时写入类信息 → `_get_documentation()` 读出。
 //
-// 这条链路跨越"编辑器推入"与"运行时消费"两侧，而两侧之间只有 `JsbBridgeTable` 一个接触点。
-// 这里直接调暂存层（等价于 bridge 的 `apply_script_docs` 所做的事），再用**真实的脚本类解析**
-// 验证消费端：文档必须落在 `ScriptClassInfo` 的类与成员上。
+// 生产者在编辑器侧（`GodotJSEditorPlugin::_regenerate_script_docs` → `ScriptDocStore::merge`），
+// 消费者在脚本加载路径上；单库架构下两者是同一次普通 C++ 调用。
+// 这里直接调暂存层，再用**真实的脚本类解析**验证消费端：文档必须落在 `ScriptClassInfo`
+// 的类与成员上。
+//
+// `#if JSB_TOOLS`：整条链路（`ScriptDocStore` / `ScriptDocEntry` / `_get_documentation()`）
+// 都门控在 `JSB_TOOLS`（= godot-cpp 的 `TOOLS_ENABLED`）之下，模板腿没有它。`tests=yes` 对
+// 任意 target 都成立（`SConstruct`），所以这里必须自己门控，否则 `target=template_release
+// tests=yes` 编译失败。
+#if JSB_TOOLS
 TEST_CASE("[runtime] [jsb] source docs: store merge, module-load application and member kinds") {
 	GodotJSScriptLanguageIniter initer;
 
@@ -797,5 +804,6 @@ TEST_CASE("[runtime] [jsb] source docs: @bind.help wins over the source comment"
 
 	internal::ScriptDocStore::clear();
 }
+#endif // JSB_TOOLS
 
 } //namespace jsb::tests

@@ -60,16 +60,17 @@ ENGINE_ORDER = ["v8", "qjs-ng", "node", "jsc", "web"]
 PLATFORM_ORDER = ["windows", "linux", "macos", "android", "ios", "web"]
 
 ZIP_STEM = "godotjs-ext"
-RUNTIME_GEXTENSION = "godotjs-ext.gdextension"
-EDITOR_GEXTENSION = "godotjs-ext-editor.gdextension"
+# One library, two products: `target=editor` and `target=template_*` build the
+# same GDExtension target with different macros, so a package carries a single
+# `.gdextension` whose desktop keys point at the editor/product flavor built
+# for that leg (see `.github/workflows/ci.yml` matrix).
+GEXTENSION = "godotjs-ext.gdextension"
 
 # A packaged file is a loadable library when it carries the extension for its
 # platform. Static archives (.a/.lib), import libraries (.exp/.lib) and debug
 # sidecars (.pdb/.ilk) are shipped as-is but never declared.
 LIBRARY_SUFFIXES = (".dll", ".so", ".dylib", ".wasm")
 XCFRAMEWORK_SUFFIX = ".xcframework"
-
-DESKTOP_PLATFORMS = ("windows", "linux", "macos")
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +118,11 @@ def _library_suffix(platform):
     return {"windows": ".dll", "linux": ".so", "macos": ".dylib", "android": ".so", "ios": ".dylib"}.get(platform, "")
 
 
-def leg_runtime_file(leg, bin_dir):
-    """Relative path (inside bin/) of the runtime library a leg produces.
+def leg_library_file(leg, bin_dir):
+    """Relative path (inside bin/) of the library a leg produces.
+
+    One library, two products: every leg builds the same GDExtension target,
+    so a leg yields exactly one packaged library regardless of `target`.
 
     `bin_dir` is the package's merged `bin/` directory, needed because the iOS
     leg publishes an xcframework only for the engines that also build the
@@ -138,16 +142,8 @@ def leg_runtime_file(leg, bin_dir):
     return f"{platform}/{ZIP_STEM}.{platform}.{target}.{arch}{_library_suffix(platform)}"
 
 
-def leg_editor_file(leg):
-    """Relative path (inside bin/) of the editor-extension library, if the leg builds one."""
-    platform, target, arch = leg["platform"], leg["target"], leg["arch"]
-    if platform not in DESKTOP_PLATFORMS:
-        return None  # mobile/web are template-only, no editor extension
-    return f"{platform}/{ZIP_STEM}-editor.{platform}.{target}.{arch}{_library_suffix(platform)}"
-
-
 def leg_library_key(leg):
-    """`.gdextension` `[libraries]` key for a leg's runtime library.
+    """`.gdextension` `[libraries]` key for a leg's library.
 
     Feature tags are emitted as `<platform>.<debug|release>.<editor|threads>.<arch>`;
     Godot requires every tag to be a real feature of the running engine
@@ -265,7 +261,7 @@ def _is_library(path: Path) -> bool:
     return path.name.endswith(LIBRARY_SUFFIXES)
 
 
-def write_gdextension(pkg_dir: Path, source: Path, entries, dependencies, title):
+def write_gdextension(pkg_dir: Path, source: Path, entries, dependencies):
     """Rewrite a `.gdextension`, keeping its `[configuration]` verbatim.
 
     `[configuration]` (entry_symbol, compatibility_minimum, reloadable, ...) is
@@ -315,57 +311,37 @@ def assemble(engine, artifacts_dir: Path, out_dir: Path):
     # Each packaged library key is derived from a leg that really produced it:
     # no "supported platform" is declared without its binary in the box, and -
     # the converse that matters just as much - a leg that produced nothing must
-    # not be swallowed silently. Every leg builds the runtime extension, so its
-    # library is required; the editor half only exists on desktop legs.
-    entries = {"runtime": [], "editor": []}
+    # not be swallowed silently. Every leg builds the one library, so every leg
+    # must yield its file.
+    entries = []
     for leg in legs:
-        runtime_rel = leg_runtime_file(leg, bin_dir)
-        if not (bin_dir / runtime_rel).exists():
+        library_rel = leg_library_file(leg, bin_dir)
+        if not (bin_dir / library_rel).exists():
             raise AssembleError(
-                f"{engine}: leg {artifact_name(leg)} did not produce its runtime library "
-                f"({runtime_rel}); refusing to ship a package that silently drops a platform"
+                f"{engine}: leg {artifact_name(leg)} did not produce its library "
+                f"({library_rel}); refusing to ship a package that silently drops a platform"
             )
-        entries["runtime"].append((leg_library_key(leg), f"bin/{runtime_rel}"))
-
-        editor_rel = leg_editor_file(leg)
-        if editor_rel is None:
-            continue  # mobile/web are template-only: no editor extension to package
-        if not (bin_dir / editor_rel).exists():
-            raise AssembleError(
-                f"{engine}: leg {artifact_name(leg)} is desktop but produced no editor library "
-                f"({editor_rel})"
-            )
-        entries["editor"].append((leg_library_key(leg), f"bin/{editor_rel}"))
+        entries.append((leg_library_key(leg), f"bin/{library_rel}"))
 
     # node.dll is a Node-engine-only sidecar: the Node-API forwarder that native
-    # `.node` addons import (it forwards to the main DLL). Only the runtime
-    # extension consumes it - the editor extension never links libnode - so it
-    # is declared there alone, matching the repo's own
-    # godotjs-ext-editor.gdextension, which carries no [dependencies] at all.
-    dependencies = {title: [] for title in entries}
+    # `.node` addons import (it forwards to the main DLL). Only the Node engine
+    # links libnode, so only a package whose windows leg ships node.dll declares
+    # the dependency; the other engines must not.
+    dependencies = []
     if (bin_dir / "windows" / "node.dll").is_file():
         node_dependency = "bin/windows/node.dll"
-        for key, _ in entries["runtime"]:
+        for key, _ in entries:
             if key.split(".")[0] == "windows":
-                dependencies["runtime"].append((key, node_dependency))
+                dependencies.append((key, node_dependency))
 
-    written = {}
-    for title, source_name in (("runtime", RUNTIME_GEXTENSION), ("editor", EDITOR_GEXTENSION)):
-        source = ADDON_DIR / source_name
-        if not source.is_file():
-            # The editor extension/half is being retired by another task; the
-            # packaging must not hardcode two files.
-            if title == "editor" and not entries[title]:
-                continue
-            if title == "runtime":
-                raise AssembleError(f"missing {source}")
-        if title == "editor" and not entries[title]:
-            continue
-        written[title] = write_gdextension(pkg_dir, source, entries[title], dependencies[title], title)
-        uid = source.with_name(source.name + ".uid")
-        if uid.is_file():
-            shutil.copy2(uid, pkg_dir / uid.name)
-        print(f"  wrote {written[title].name}: {len(entries[title])} library key(s)")
+    source = ADDON_DIR / GEXTENSION
+    if not source.is_file():
+        raise AssembleError(f"missing {source}")
+    written = write_gdextension(pkg_dir, source, entries, dependencies)
+    uid = source.with_name(source.name + ".uid")
+    if uid.is_file():
+        shutil.copy2(uid, pkg_dir / uid.name)
+    print(f"  wrote {written.name}: {len(entries)} library key(s)")
 
     verify_package(pkg_dir, written, entries, dependencies)
     if not (pkg_dir / "LICENSE").is_file():
@@ -385,24 +361,20 @@ def assemble(engine, artifacts_dir: Path, out_dir: Path):
 def _print_plan_summary(name, legs, entries):
     platforms = sorted({leg["platform"] for leg in legs}, key=PLATFORM_ORDER.index)
     print(f"  platforms: {' '.join(platforms)}")
-    for title, items in entries.items():
-        if items:
-            print(f"  {title}: {', '.join(key for key, _ in items)}")
+    print(f"  libraries: {', '.join(key for key, _ in entries)}")
 
 
-def verify_package(pkg_dir: Path, written, entries, dependencies):
-    """Assert declared <-> packaged 1:1 for every generated .gdextension."""
+def verify_package(pkg_dir: Path, written: Path, entries, dependencies):
+    """Assert declared <-> packaged 1:1 for the generated .gdextension."""
     declared = set()
-    for items in entries.values():
-        declared.update(value for _, value in items)
-    for items in dependencies.values():
-        declared.update(value for _, value in items)
+    declared.update(value for _, value in entries)
+    declared.update(value for _, value in dependencies)
 
     missing = sorted(value for value in declared if not (pkg_dir / value).exists())
     if missing:
         raise AssembleError("declared but not packaged:\n  " + "\n  ".join(missing))
 
-    # Every loadable library under bin/ must be referenced by some .gdextension
+    # Every loadable library under bin/ must be referenced by the .gdextension
     # (as a library or a dependency). The rule is deliberately name-agnostic: a
     # hardcoded prefix list is how an unexpected file sneaks into a package
     # unnoticed.
@@ -420,12 +392,9 @@ def verify_package(pkg_dir: Path, written, entries, dependencies):
     if unreferenced:
         raise AssembleError("packaged but not declared by any .gdextension:\n  " + "\n  ".join(unreferenced))
 
-    for title, path in written.items():
-        text = path.read_text(encoding="utf-8")
-        if title == "runtime" and "jsb_gdextension_init" not in text:
-            raise AssembleError(f"{path.name}: runtime entry_symbol missing")
-        if title == "editor" and "jsb_editor_library_init" not in text:
-            raise AssembleError(f"{path.name}: editor entry_symbol missing")
+    text = written.read_text(encoding="utf-8")
+    if "jsb_gdextension_init" not in text:
+        raise AssembleError(f"{written.name}: entry_symbol missing")
 
 
 def zip_package(pkg_dir: Path, zip_path: Path):

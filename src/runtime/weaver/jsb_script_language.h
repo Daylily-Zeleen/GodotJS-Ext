@@ -27,7 +27,6 @@
 
 #pragma once
 
-#include "../internal/jsb_bridge_table.h"
 #include <compat/jsb_compat.h>
 #include <runtime/bridge/jsb_bridge.h>
 #include <godot_cpp/classes/script.hpp>
@@ -119,7 +118,7 @@ private:
 	};
 #endif
 
-	static JSB_RUNTIME_API GodotJSScriptLanguage *singleton_;
+	static GodotJSScriptLanguage *singleton_;
 
 	mutable std::recursive_mutex mutex_;
 	SelfList<GodotJSScript>::List script_list_;
@@ -144,10 +143,6 @@ private:
 	Ref<RegEx> js_class_name_matcher1_;
 
 public:
-	// NOTE: non-inline on purpose. The editor library links against the runtime
-	// DLL and calls this to obtain the singleton. Cross-DLL *function* imports
-	// bind reliably, whereas an inlined read of the exported `singleton_` data
-	// symbol resolves to a null/garbage address in the editor module on Windows.
 	static GodotJSScriptLanguage *get_singleton();
 
 	/** @brief Check if the language has been initialized. */
@@ -165,11 +160,6 @@ public:
 
 	void scan_external_changes();
 
-	/** Neutral bridge-table access for the editor extension (see jsb_bridge_table.h).
-	 *  Returns the address of the runtime-owned JsbBridgeTable as an integer.
-	 *  Intentionally inert from scripts: a raw integer cannot be called. */
-	uint64_t get_bridge() const { return (uint64_t)jsb::get_bridge_table(); }
-
 #if JSB_DEBUG
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
 #endif
@@ -185,6 +175,16 @@ public:
 		const CharString str = p_code.utf8();
 		return environment_->eval_source(str.get_data(), str.length(), "eval", r_err);
 	}
+
+	/**
+	 * @brief Evaluate `p_code` with `p_arg` exposed as the transient global `__jsb_arg`.
+	 *
+	 * @note Main thread only. Returns an invalid JSValueMove and ERR_UNCONFIGURED
+	 *       when the language is not initialized, ERR_UNAVAILABLE off the main
+	 *       thread, ERR_INVALID_PARAMETER when the argument cannot cross into JS
+	 *       and whatever the evaluated source raised otherwise.
+	 */
+	jsb::JSValueMove eval_source_with_arg(const String &p_code, const Variant &p_arg, Error &r_err);
 
 	GodotJSScriptLanguage();
 	virtual ~GodotJSScriptLanguage() override;

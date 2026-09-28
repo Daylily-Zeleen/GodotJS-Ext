@@ -32,9 +32,10 @@
 #endif
 
 #include "../jsb_editor_settings.h"
-#include "jsb_editor_bridge.h"
+#include <runtime/weaver/jsb_script_language.h>
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/thread.hpp>
 #if JSB_WITH_NODE
 #	include <godot_cpp/classes/os.hpp>
 #	include <godot_cpp/classes/project_settings.hpp>
@@ -238,36 +239,32 @@ bool GodotJSExportPlugin::export_compiled_script(const String &p_path, bool p_re
 	}
 
 	// export dependent files.
-	// force module loading. ensure the module hierarchy available.
-	if (const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-			bridge != nullptr && bridge->get_module_source_info != nullptr) {
-		// source + optional package.json of THIS module
-		Variant source_info;
-		const CharString path_utf8 = p_path.utf8();
-		godot::Error qerr = bridge->get_module_source_info(path_utf8.get_data(), path_utf8.length(), source_info._native_ptr());
-		if (qerr == OK && source_info.get_type() == Variant::DICTIONARY) {
-			Dictionary info = source_info;
-			export_raw_file(info.get("source", String()), p_remap);
-			const String package_path = info.get("package", String());
-			if (!package_path.is_empty()) {
-				export_raw_file(package_path, false);
-			}
-		}
+	// force module loading to ensure the module hierarchy is available.
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) {
+		JSB_EXPORTER_LOG(Warning, "the script language is not available for module: %s", p_path);
+		return true;
+	}
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
 
-		// one-level dependencies (recursion happens through this very function)
-		if (bridge->get_module_direct_dependencies != nullptr) {
-			Variant deps_var;
-			qerr = bridge->get_module_direct_dependencies(path_utf8.get_data(), path_utf8.length(), deps_var._native_ptr());
-			if (qerr == OK && deps_var.get_type() == Variant::PACKED_STRING_ARRAY) {
-				for (const String &filename : (PackedStringArray)deps_var) {
-					if (export_compiled_script(filename, false)) {
-						JSB_EXPORTER_LOG(Verbose, "export dependent source: %s", filename);
-					}
-				}
+	// source + optional package.json of THIS module
+	Dictionary source_info;
+	if (env->get_module_source_info(p_path, source_info) == OK) {
+		export_raw_file(source_info.get("source", String()), p_remap);
+		const String package_path = source_info.get("package", String());
+		if (!package_path.is_empty()) {
+			export_raw_file(package_path, false);
+		}
+	}
+
+	// one-level dependencies (recursion happens through this very function)
+	PackedStringArray deps;
+	if (env->get_module_direct_dependencies(p_path, deps) == OK) {
+		for (const String &filename : deps) {
+			if (export_compiled_script(filename, false)) {
+				JSB_EXPORTER_LOG(Verbose, "export dependent source: %s", filename);
 			}
 		}
-	} else {
-		JSB_EXPORTER_LOG(Warning, "runtime bridge is not available for module: %s", p_path);
 	}
 	return true;
 }

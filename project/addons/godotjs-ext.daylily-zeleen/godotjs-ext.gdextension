@@ -28,6 +28,11 @@ linux.release.x86_32 = "bin/linux/godotjs-ext.linux.template_release.x86_32.so"
 linux.debug.x86_64 = "bin/linux/godotjs-ext.linux.template_debug.x86_64.so"
 linux.release.x86_64 = "bin/linux/godotjs-ext.linux.template_release.x86_64.so"
 linux.debug.editor.x86_64 = "bin/linux/godotjs-ext.linux.editor.x86_64.so"
+# Per-arch key for the arm64-only editor legs, mirroring the macos entries above:
+# Godot resolves the arch-specific key first, then falls back to the arch-less
+# one. Without this the linux arm64 editor leg's artifact would be looked up as
+# "linux.debug.editor" (absent) and the extension would not load.
+linux.debug.editor.arm64 = "bin/linux/godotjs-ext.linux.editor.arm64.so"
 linux.debug.arm32 = "bin/linux/godotjs-ext.linux.template_debug.arm32.so"
 linux.release.arm32 = "bin/linux/godotjs-ext.linux.template_release.arm32.so"
 linux.debug.arm64 = "bin/linux/godotjs-ext.linux.template_debug.arm64.so"

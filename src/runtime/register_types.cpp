@@ -38,15 +38,21 @@
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#if JSB_WITH_EDITOR
+#	include "editor/register_editor_types.h"
+#endif
+
 static Ref<ResourceFormatLoaderGodotJSScript> resource_loader_js;
 static Ref<ResourceFormatSaverGodotJSScript> resource_saver_js;
 
 void jsb_initialize_module(ModuleInitializationLevel p_level) {
+#if JSB_WITH_EDITOR
+	// Editor module registration shares this single entry point; the editor
+	// sources exist in this product because target=editor (see SConstruct).
+	_initialize_godotjs_editor_module(p_level);
+#endif
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
-#ifdef JSB_TESTS_ENABLED
-			Engine::get_singleton()->set_meta(jsb::tests::RUNTIME_TEST_FLAG, false);
-#endif
 			// Register runtime-owned project settings before anything reads them.
 			// (SERVERS is the lowest level the engine passes to GDExtensions.)
 			jsb::internal::settings::init_runtime_settings();
@@ -74,6 +80,9 @@ void jsb_initialize_module(ModuleInitializationLevel p_level) {
 }
 
 void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
+#if JSB_WITH_EDITOR
+	_uninitialize_godotjs_editor_module(p_level);
+#endif
 	switch (p_level) {
 		case MODULE_INITIALIZATION_LEVEL_SERVERS: {
 			GodotJSScriptLanguage *script_language_js = GodotJSScriptLanguage::get_singleton();
@@ -102,7 +111,7 @@ void jsb_startup() {
 	}
 
 #ifdef JSB_TESTS_ENABLED
-	jsb::tests::try_run(jsb::tests::RUNTIME_TEST_FLAG);
+	jsb::tests::try_run();
 #endif // JSB_TESTS_ENABLED
 }
 

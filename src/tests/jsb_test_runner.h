@@ -25,10 +25,11 @@
 
 #pragma once
 
-// Header-only test bootstrap shared by both suites (runtime / editor).
-// Both suites keep their own DOCTEST_CONFIG_IMPLEMENT TU, so TEST_CASE
-// registries stay module-local: the runtime suite only collects cases from
-// src/runtime/tests/*.h, the editor suite only from src/editor/tests/*.h.
+// Header-only test bootstrap (single suite).
+//
+// There is one doctest implementation TU (src/runtime/tests/jsb_test_main.cpp),
+// which registers the editor cases too under JSB_WITH_EDITOR, so one run of
+// --jsb-run-tests produces one doctest summary.
 
 #include <cstdlib> // std::exit
 
@@ -49,9 +50,6 @@
 #	include <godot_cpp/variant/utility_functions.hpp>
 
 namespace jsb::tests {
-
-static constexpr char EDITOR_TEST_FLAG[] = "EditorTest";
-static constexpr char RUNTIME_TEST_FLAG[] = "RuntimeTest";
 
 namespace detail {
 
@@ -157,10 +155,12 @@ private:
 } //namespace detail
 
 /**
-Editor 与 Runtime 两个库都分别编译了自己的测试，它们不共用，状态也不直接互通。
-这里使用 godot::Engine 单例来传输两个库的测试状态，确保两者都测试完成再进行退出。
+Entry point wired into the extension's startup callback. Scans the command
+line for `--jsb-run-tests`, runs the doctest registry collected into this
+library, and quits the main loop with the test exit code (or std::exit when no
+SceneTree exists yet).
 */
-inline void try_run(const char *p_test_type_flag) {
+inline void try_run() {
 	using namespace godot;
 	constexpr char CMDLINE_TEST_ARG[] = "--jsb-run-tests";
 	// Check cmdline flag.
@@ -178,29 +178,13 @@ inline void try_run(const char *p_test_type_flag) {
 	// 执行测试。detail::ConsoleReporter 代替 doctest 默认 console 输出：
 	// 后者的整数格式化在 g++/Linux 的 runtime DLL 内静默失败导致输出断流
 	// （见 detail::ConsoleReporter 注释），这里改经 Godot print 落到日志。
-	UtilityFunctions::print("[jsb] running tests via", p_test_type_flag);
+	UtilityFunctions::print("[jsb] running tests");
 	doctest::registerReporter<detail::ConsoleReporter>("direct", 0, true);
 	const char *argv[] = { "jsb", "--reporters=direct", "--no-colors" };
 	doctest::Context context;
 	context.applyCommandLine(2, argv);
-	int exit_code = context.run();
+	const int exit_code = context.run();
 
-	// 更新退出码
-	const StringName TEST_RESULT_KEY = "TestResult";
-	if ((int)Engine::get_singleton()->get_meta(TEST_RESULT_KEY, 0) == 0 && exit_code != 0) {
-		Engine::get_singleton()->set_meta(TEST_RESULT_KEY, exit_code);
-	}
-
-	// 更新完成标志
-	Engine::get_singleton()->set_meta(p_test_type_flag, true);
-
-	for (const auto flag : { EDITOR_TEST_FLAG, RUNTIME_TEST_FLAG }) {
-		if (!Engine::get_singleton()->has_meta(flag)) continue; // 跳过不存在的测试
-		if ((bool)Engine::get_singleton()->get_meta(flag) == false) return; //  等待其他未完成的测试
-	}
-
-	// 所有测试都完成后取出退出码进行退出
-	exit_code = Engine::get_singleton()->get_meta(TEST_RESULT_KEY, 0);
 	UtilityFunctions::print("[jsb] running tests result: ", exit_code);
 	if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
 		scene_tree->quit(exit_code);

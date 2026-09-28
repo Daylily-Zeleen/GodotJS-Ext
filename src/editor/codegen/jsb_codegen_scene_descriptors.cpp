@@ -26,7 +26,6 @@
 #include "jsb_codegen_scene_descriptors.h"
 
 #include "../weaver-editor/jsb_api_tool_session.h"
-#include "../weaver-editor/jsb_editor_bridge.h"
 #include "jsb_editor_settings.h"
 #include <api_tool/api_tool.h>
 #include <internal/jsb_class_visibility.h>
@@ -34,6 +33,7 @@
 #include <internal/jsb_naming_util.h>
 #include <internal/jsb_path_util.h>
 #include <internal/jsb_settings.h>
+#include <runtime/weaver/jsb_script_language.h>
 #include <godot_cpp/classes/script.hpp>
 
 #include <godot_cpp/classes/animation_library.hpp>
@@ -68,20 +68,18 @@ enum class DescriptorType {
 };
 
 bool _request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result) {
-	jsb::JsbBridgeTable bridge_copy;
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge == nullptr || bridge->eval_with_arg == nullptr) {
-		JSB_LOG(Warning, "Codegen failed: runtime bridge is not available.");
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	if (lang == nullptr || !lang->is_initialized()) {
+		JSB_LOG(Warning, "Codegen failed: the script language is not available.");
 		return false;
 	}
-	bridge_copy = *bridge;
 
 	// module_id: the .ts -> compiled .js mapping used by the runtime module cache
 	const String module_id = jsb::internal::PathUtil::convert_typescript_path(p_script_path);
 
 	// The request travels as the transient `__jsb_arg` global (engine objects
 	// included); the user module's `codegen(request)` result comes back as a
-	// Dictionary through the variant out-parameter -- no JSON involved.
+	// Dictionary -- no JSON involved.
 	String source;
 	source += "(function() {\n";
 	source += "  const m = require(\"" + module_id + "\");\n";
@@ -89,22 +87,20 @@ bool _request_codegen(const String &p_script_path, const Dictionary &p_request, 
 	source += "  return m.codegen(__jsb_arg);\n";
 	source += "})()\n";
 
-	Variant result;
-	{
-		const Variant request_variant = p_request; // Variant wrapping the request dictionary
-		const godot::Error err = bridge_copy.eval_with_arg(source.utf8().get_data(),
-				source.utf8().length(),
-				request_variant._native_ptr(),
-				result._native_ptr());
-		if (err != OK) {
-			JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
-			return false;
-		}
-	}
-	if (result.get_type() != Variant::DICTIONARY) {
+	Error err = OK;
+	jsb::JSValueMove result = lang->eval_source_with_arg(source, p_request, err);
+	if (err != OK) {
+		JSB_LOG(Error, "Codegen failed for script '%s' (error %d).", p_script_path, (int)err);
 		return false;
 	}
-	p_result = result;
+	if (!result.is_valid()) {
+		return false;
+	}
+	const Variant value = result.to_variant();
+	if (value.get_type() != Variant::DICTIONARY) {
+		return false;
+	}
+	p_result = value;
 	return true;
 }
 
@@ -153,14 +149,10 @@ Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStr
 		// By default, only scene (and sub-scene) roots are typed with a user defined type. This ensures that classes are
 		// able to use SceneNodes in their type declaration without illegally referencing their own type. Users can use
 		// codegen to override this behavior.
-		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
 		bool generic_global_class = true;
-		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
-			Variant result;
-			const String spath = script->get_path();
-			const CharString spath_utf8 = spath.utf8();
-			const godot::Error qerr = bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr());
-			generic_global_class = (qerr == OK) ? (bool)result : true;
+		if (const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+				lang != nullptr && lang->is_initialized() && script.is_valid()) {
+			generic_global_class = lang->is_global_class_generic(script->get_path());
 		}
 		if (!script.is_valid()
 				|| p_node->get_scene_file_path().is_empty()
@@ -345,15 +337,9 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 	}
 
 	bool generic_global_class = true;
-	{
-		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-		if (bridge != nullptr && bridge->is_global_class_generic != nullptr && script.is_valid()) {
-			Variant result;
-			const String spath = script->get_path();
-			const CharString spath_utf8 = spath.utf8();
-			const godot::Error qerr = bridge->is_global_class_generic(spath_utf8.get_data(), spath_utf8.length(), result._native_ptr());
-			generic_global_class = (qerr == OK) ? (bool)result : true;
-		}
+	if (const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+			lang != nullptr && lang->is_initialized() && script.is_valid()) {
+		generic_global_class = lang->is_global_class_generic(script->get_path());
 	}
 
 	if (!script.is_valid() || generic_global_class) {

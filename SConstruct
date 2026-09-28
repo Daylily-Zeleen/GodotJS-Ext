@@ -425,7 +425,14 @@ jsb_defines = [
     CompileDefines("JSB_WITH_NODE", 1 if node_support is not None else 0),
     CompileDefines("JSB_WITH_WEB", 1 if jsb_platform == "web" and quickjs_support is None else 0),
     CompileDefines("JSB_WITH_JAVASCRIPTCORE", 1 if jsc_support is not None else 0),
-    CompileDefines("JSB_WITH_EDITOR_UTILITY_FUNCS", 1 if jsb_platform != "web" and env["target"] in ["editor", "template_debug"] else 0),
+    # Single library, two products: the editor target compiles the editor
+    # sources in (see editor_globs below), the template targets do not. This
+    # macro is the in-TU counterpart of that source-list split -- shared
+    # translation units (register_types.cpp, the test entry) branch on it.
+    # Keep it distinct from JSB_TOOLS: that one mirrors godot-cpp's
+    # TOOLS_ENABLED ("the engine's editor API exists"), this one is our own
+    # "this product carries editor features".
+    CompileDefines("JSB_WITH_EDITOR", 1 if env["target"] == "editor" else 0),
     CompileDefines("JSB_WITH_LWS", 1 if lws_support is not None else 0),
 ]
 
@@ -832,17 +839,18 @@ if lws_support is not None:
     elif jsb_platform == "macos":
         env.Append(LIBS=[File(f"{third_dir}/lws/{lws_basename}/libwebsockets.a")])
 
-# Add GodotJS source files, split into the runtime and editor extension targets.
-#
-# Ownership rules (project structure: .trellis/spec/godotjs-ext/index.md):
-#   runtime target: src/runtime/** + api_tool core (store/loader/payload/types)
-#   editor target:  src/editor/** + api_tool/editor orchestration
-# Shared sources (src/internal/**, src/compat/**, api_tool core copies) go into BOTH
-# targets with their own env so objects never collide.
+# Add GodotJS source files. Single library, two products:
+#   editor target:        runtime + editor sources (editor features compiled in)
+#   template targets:     runtime sources only (editor features never compiled)
+# Editor sources (src/editor/**, src/api_tool/editor/**) require the
+# TOOLS_ENABLED godot-cpp headers, which template builds do not define, so
+# they are excluded at the source-list level -- not at link time.
 #
 # Source globs (runtime_globs / editor_globs) are collected here and evaluated
-# THROUGH each target's variant env in make_target_env below, so objects land
-# under .build/<runtime|editor>/ instead of next to the sources.
+# THROUGH make_target_env below, so objects land under .build/runtime/ instead
+# of next to the sources. The editor globs share basenames with the runtime
+# globs (api_tool/internal/compat copies), so the final list is built with
+# first-wins dedup.
 
 runtime_globs = [
     os.path.join(runtime_dir, "*.cpp"),
@@ -909,14 +917,15 @@ if env.get("binding_mode", "dynamic") != "dynamic":
     if env.get("binding_mode", "static") == "shared":
         env.Append(CPPDEFINES=["JSB_WITH_SHARED_THUNKS"])
 
+# Editor sources: compiled in only when target=editor (see the source-list
+# selection below). The api_tool/internal/compat entries repeat runtime_globs
+# on purpose -- they are the files the editor side needs, and the final list is
+# deduplicated by basename (first wins) when both lists are combined.
 editor_globs = [
     os.path.join(editor_dir, "*.cpp"),
     os.path.join(editor_dir, "weaver-editor", "*.cpp"),
     os.path.join(src_dir, "api_tool", "*.cpp"),
     os.path.join(src_dir, "api_tool", "editor", "*.cpp"),
-    # Shared sources compiled into BOTH extensions (independent DLLs cannot
-    # resolve each other's symbols): shared internals/compat plus the api_tool
-    # core store/loader copies.
     os.path.join(src_dir, "api_tool", "core", "*.cpp"),
     os.path.join(internal_dir, "*.cpp"),
     os.path.join(compat_dir, "*.cpp"),
@@ -950,7 +959,9 @@ elif is_defined("JSB_WITH_JAVASCRIPTCORE"):
 if env.get("tests", False):
     env.Append(CPPDEFINES=["JSB_TESTS_ENABLED"])
     runtime_globs.append(os.path.join(runtime_dir, "tests", "*.cpp"))
-    editor_globs.append(os.path.join(src_dir, "editor", "tests", "*.cpp"))
+    # src/editor/tests/ holds headers only: the single doctest implementation TU
+    # is src/runtime/tests/jsb_test_main.cpp, which includes the editor cases
+    # under JSB_WITH_EDITOR.
 
 # .dev doesn't inhibit compatibility; .universal/.simulator for macOS/iOS
 if env['platform'] in ['macos', 'ios']:
@@ -977,9 +988,9 @@ if quickjs_support is not None:
 
 def make_target_env(base_env, pdb_name, obj_root, source_globs):
     target_env = base_env.Clone()
-    # Route every object into .build/<obj_root>/ (flat: object basenames are
-    # unique across all globs -- asserted by the build itself via SCons
-    # duplicate-target errors). No .obj is ever written next to its source.
+    # Route every object into .build/<obj_root>/ (flat, so object basenames
+    # must be unique within the target -- see the dedup in collect_sources).
+    # No .obj is ever written next to its source.
     target_env["OBJPREFIX"] = "#/.build/" + obj_root + "/"
     if jsb_platform == "windows" and is_msvc_toolchain:
         # godot-cpp sets LINKFLAGS=/WX; a missing PDB would trip LNK4099 ->
@@ -994,72 +1005,40 @@ def make_target_env(base_env, pdb_name, obj_root, source_globs):
         # found"), so a MinGW Windows build must not inherit them.
         target_env.Append(CCFLAGS=["/Z7", "/Fd" + pdb_name + ".pdb"],
                           LINKFLAGS=["/PDB:" + pdb_name + ".pdb", "/DEBUG:FULL", "/INCREMENTAL:NO", "/IGNORE:4099"])
+    # Collect with first-wins dedup by basename: the editor target passes
+    # runtime_globs + editor_globs, and the two lists share 19 basenames
+    # (api_tool/internal/compat are compiled from the same files into one
+    # product now). Template targets pass runtime_globs only, where basenames
+    # are already unique.
     sources = []
+    seen = set()
     for pattern in source_globs:
-        sources += Glob(pattern)
+        for src in Glob(pattern):
+            name = os.path.basename(str(src))
+            if name in seen:
+                continue
+            seen.add(name)
+            sources.append(src)
     return target_env, sources
 
-target_env, runtime_sources = make_target_env(env, "bin/windows/godotjs-ext", "runtime", runtime_globs)
+# Single library, two products. target=editor compiles the editor sources in;
+# the template targets get the runtime sources only, so editor features are
+# never compiled (not merely left unlinked).
+if env["target"] == "editor":
+    source_globs = runtime_globs + editor_globs
+else:
+    source_globs = runtime_globs
+
+target_env, sources = make_target_env(env, "bin/windows/godotjs-ext", "runtime", source_globs)
 
 library = target_env.SharedLibrary(
     "bin/{}/{}".format(env['platform'], lib_filename),
-    source=runtime_sources + quickjs_obj,
+    source=sources + quickjs_obj,
 )
 
 copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), library)
 
 default_args = [library, copy]
-
-if env["target"] == "editor":
-    # The editor extension requires TOOLS_ENABLED headers; only built for
-    # the editor target. Other targets skip it entirely.
-    # jsb_editor_preset.gen.cpp is already picked up by the weaver-editor
-    # glob above (the file is generated before SConscript parsing), so it
-    # compiles through make_target_env and gets its own /Fd PDB — do not
-    # register a second bare-env SharedObject for the same file (that was
-    # the vc140.pdb C1041 contention).
-    editor_libname = "{}{}-editor{}{}".format(env.subst('$SHLIBPREFIX'), libname, suffix, env.subst('$SHLIBSUFFIX'))
-    # Distinct env for the editor extension: a separate variant tree keeps the
-    # shared sources' objects out of the runtime target's object tree (two
-    # envs writing the same object path -> "Two environments" error), and
-    # make_target_env gives every compile its own /Fd PDB (a bare env falls
-    # back to the default vc140.pdb -> C1041 contention).
-    editor_build_env, editor_sources = make_target_env(env, "bin/windows/godotjs-ext-editor", "editor", editor_globs)
-
-    # The editor extension has no JS engine of its own: nothing under src/editor,
-    # src/api_tool, src/compat or src/editor/codegen references libuv/node/v8 (the
-    # only v8:: mentions in the shared src/internal headers sit inside macros that
-    # expand in src/runtime/bridge, which this target does not compile). libnode
-    # reaches it only because /WHOLEARCHIVE is appended to the base env above and
-    # Clone() inherits it. Pulling the whole archive in costs ~95MB and, worse,
-    # gives this DLL its own libuv copy: uv__console_init queues two
-    # never-returning work items whose pending callbacks pin the module, so the DLL
-    # can never be unloaded and its godot-cpp class names are reported as orphan
-    # StringNames. Drop libnode from the editor target.
-    if node_support is not None:
-        editor_build_env['LIBS'] = [lib for lib in editor_build_env['LIBS']
-                                    if 'libnode' not in str(lib)]
-        # On Windows the archive arrives as a single "/WHOLEARCHIVE:<path>" flag, but
-        # on linux/macos it arrives as three entries: "-Wl,--whole-archive",
-        # "<abs path>/libnode.a", "-Wl,--no-whole-archive". Dropping only the wrapper
-        # flags would leave the bare archive path on the link line, where the linker
-        # treats it as an ordinary archive and pulls libnode into this DLL anyway -
-        # silently reintroducing the orphan StringNames the block above removes.
-        # Match on the archive path itself, so every platform drops the same thing.
-        editor_build_env['LINKFLAGS'] = [
-            flag for flag in editor_build_env['LINKFLAGS']
-            if '/WHOLEARCHIVE' not in str(flag).upper()
-            and '--whole-archive' not in str(flag)
-            and '-force_load' not in str(flag)
-            and 'libnode' not in str(flag)
-        ]
-    editor_library = editor_build_env.SharedLibrary(
-        "bin/{}/{}".format(env['platform'], editor_libname),
-        source=editor_sources,
-    )
-
-    editor_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), editor_library)
-    default_args += [editor_library, editor_copy]
 
 # iOS: generate xcframework from device and simulator builds
 if jsb_platform == "ios" and env.get('ios_simulator', False):

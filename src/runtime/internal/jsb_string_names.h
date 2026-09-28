@@ -45,7 +45,7 @@ class StringNames {
 private:
 	friend class ::GodotJSScriptLanguage;
 
-	static JSB_RUNTIME_API StringNames *singleton_;
+	static StringNames *singleton_;
 
 	static void create();
 	static void free();

@@ -29,25 +29,6 @@
 
 #include "jsb.gen.h"
 
-// Cross-library data import/export.
-//
-// The runtime is a shared library; the editor library links against it. On
-// Windows, runtime *function* symbols are exported wholesale via an
-// auto-generated .def (see SConstruct). But *data* symbols (static member
-// singletons, global tables) CANNOT be reliably exported through a .def — MSVC
-// requires an explicit __declspec(dllexport) on the definition and
-// __declspec(dllimport) on the use, otherwise the importing module reads a
-// wrong/zero address (this is exactly why CMake's WINDOWS_EXPORT_ALL_SYMBOLS
-// documents that it does not handle data symbols). Annotate every runtime data
-// symbol consumed by the editor with JSB_RUNTIME_API. The .def generator skips
-// data symbols, so there is no double-export. On non-Windows, default
-// visibility already exports everything, so this expands to nothing.
-// Note: In single-library architecture, we always export data symbols.
-#ifdef _WIN32
-#	define JSB_RUNTIME_API __declspec(dllexport)
-#else
-#	define JSB_RUNTIME_API
-#endif
 #ifndef JSB_DEBUG
 #	if defined(DEBUG_ENABLED)
 #		define JSB_DEBUG 1

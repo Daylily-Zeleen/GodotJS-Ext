@@ -37,10 +37,14 @@ private:
 	std::shared_ptr<Environment> env_;
 	v8::Global<v8::Value> value_;
 
-	JSValueMove() = default;
 	JSValueMove(const std::shared_ptr<Environment> &p_env, const v8::Local<v8::Value> &p_value);
 
 public:
+	/** An empty move value: `is_valid()` is false and `to_variant()` yields NIL.
+	 *  This is the "no result" state a caller returns after signalling failure
+	 *  through its own out-parameter. */
+	JSValueMove() = default;
+
 	// disable copy to avoid unpredictable behaviours (for now)
 	JSValueMove(const JSValueMove &p_other) = delete;
 	JSValueMove &operator=(const JSValueMove &p_other) = delete;

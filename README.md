@@ -195,7 +195,7 @@ Each GitHub Release carries one archive **per JS engine**, and each archive cont
 
 The original QuickJS engine is superseded by QuickJS-NG and is not packaged; `use_quickjs=yes` still builds locally.
 
-Every archive is a drop-in `addons/godotjs-ext.daylily-zeleen/` directory: it carries the per-platform binaries under `bin/<platform>/` plus a `.gdextension` file per extension (runtime and editor) whose `[libraries]` entries match exactly the files in the archive. Desktop engines ship the editor target only (edit-in-editor use), matching the previous releases.
+Every archive is a drop-in `addons/godotjs-ext.daylily-zeleen/` directory: it carries the per-platform binaries under `bin/<platform>/` plus the single `godotjs-ext.gdextension` whose `[libraries]` entries match exactly the files in the archive. Desktop engines ship the editor target only (edit-in-editor use), matching the previous releases.
 
 > [!NOTE]
 > `godotjs-ext-web.zip` contains the browser engine alone. The editor still needs a desktop engine to load the extension and to run a Web export, so unpack this archive **over** the desktop engine package you use (the directory layout is identical, so it merges cleanly) — or simply use the QuickJS-NG package, which already includes a QuickJS-based web build.
@@ -221,20 +221,21 @@ The repository must allow GitHub Actions to write repository contents and pull r
 ```
 .
 ├── src/                        # C++ source code
-│   ├── runtime/                # Runtime extension: Script/ScriptLanguage, bridge,
-│   │   │                       # module loading, Environment, engine impls (v8/quickjs/node/jsc/web)
+│   ├── runtime/                # Script/ScriptLanguage, module loading, Environment,
+│   │   │                       # engine impls (v8/quickjs/node/jsc/web)
 │   │   ├── bridge/             # godot bridge + module loaders
 │   │   ├── impl/               # Per-engine layers (v8 / quickjs / node / jsc / web)
-│   │   ├── internal/           # Runtime-internal utilities (bridge table, settings, logger)
-│   │   └── tests/              # Runtime doctest suite (--jsb-run-tests)
-│   ├── editor/                 # Editor extension: EditorPlugin, REPL, export plugin,
+│   │   ├── internal/           # Runtime-internal utilities (shared statics, settings, logger)
+│   │   └── tests/              # doctest suite (--jsb-run-tests; editor cases included
+│   │                           #   in target=editor builds)
+│   ├── editor/                 # Editor sources: EditorPlugin, REPL, export plugin,
 │   │   ├── codegen/            #   C++ code generator (api_tool -> gen/ + typings/)
 │   │   ├── weaver-editor/      #   Editor plugin / dock / REPL UI
-│   │   └── tests/              # Editor doctest suite (same --jsb-run-tests flag)
+│   │   └── tests/              #   Editor doctest cases (same registry / flag)
 │   ├── api_tool/               # API data tooling (parse extension_api.json -> binary store)
 │   ├── compat/                 # Compatibility layer
 │   ├── internal/               # Shared internal utilities
-│   └── tests/                  # Test infrastructure shared by both suites
+│   └── tests/                  # Test runner shared by all suites
 ├── scripts/                    # JavaScript/TypeScript toolchain
 │   ├── jsb.runtime/            # Runtime TypeScript package
 │   ├── jsb.editor/             # Editor TypeScript package
@@ -251,22 +252,24 @@ The repository must allow GitHub Actions to write repository contents and pull r
 └── SConstruct                  # SCons build script
 ```
 
-### Dual GDExtension layout
+### One library, two products
 
-The project ships **two independent GDExtensions** (see the two `.gdextension`
-files under `project/addons/godotjs-ext.daylily-zeleen/`):
+The project ships **one GDExtension** (`godotjs-ext.gdextension`) built by a
+single `SConstruct` target, whose product differs per build target:
 
-- **`godotjs-ext.gdextension`** (runtime): the script language, bridge and
-  module loading — required both in the editor and in exported games.
-- **`godotjs-ext-editor.gdextension`** (editor-only): `EditorPlugin`, REPL,
-  export plugin and the C++ code generator. Its library map only registers
-  `*.editor` targets, so it never loads in exported games.
+- **`target=editor`** compiles the runtime sources *and* the editor sources
+  (`src/editor/**`, `src/api_tool/editor/**`) into
+  `godotjs-ext.<platform>.editor.<arch>.<ext>`: the script language, module
+  loading, `EditorPlugin`, REPL, export plugin and the C++ code generator.
+- **`target=template_release` / `template_debug`** compile the runtime sources
+  only into `godotjs-ext.<platform>.template_<flavor>.<arch>.<ext>`. The editor
+  sources are never compiled in (they need the `TOOLS_ENABLED` godot-cpp
+  headers, which template builds do not have), so no editor code exists in an
+  exported game.
 
-The editor extension holds no runtime types: it talks to the runtime through a
-C ABI function-pointer table (`src/runtime/internal/jsb_bridge_table.cpp`)
-whose inert address is resolved via ClassDB at editor startup. Both extensions
-are built by the same `SConstruct` invocation (`target=editor` builds both;
-`target=template_release` builds only the runtime).
+Both products expose the same entry symbol (`jsb_gdextension_init`); the
+`JSB_WITH_EDITOR` macro mirrors the target split inside shared translation
+units.
 
 ## Contributing
 

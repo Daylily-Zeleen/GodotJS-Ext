@@ -33,6 +33,7 @@
 
 #include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
+#include "../bridge/jsb_type_convert.h"
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_internal.h"
 #include "../jsb_runtime_preset.h"
@@ -56,7 +57,7 @@
 #include "jsb_script.h"
 #include "jsb_script_instance.h"
 
-#if JSB_TOOLS
+#if JSB_WITH_EDITOR
 #	include "editor/weaver-editor/templates/templates.gen.h"
 #endif
 
@@ -108,6 +109,34 @@ void GodotJSScriptLanguage::scan_external_changes() {
 		}
 	}
 #endif
+}
+
+jsb::JSValueMove GodotJSScriptLanguage::eval_source_with_arg(const String &p_code, const Variant &p_arg, Error &r_err) {
+	if (!once_initialized_ || !environment_) {
+		r_err = ERR_UNCONFIGURED;
+		return {};
+	}
+	if (!Thread::is_main_thread()) {
+		r_err = ERR_UNAVAILABLE;
+		return {};
+	}
+
+	v8::Isolate *isolate = environment_->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = environment_->get_context();
+	v8::Context::Scope context_scope(context);
+
+	// expose the argument as the transient global `__jsb_arg`
+	v8::Local<v8::Value> arg_value;
+	if (!jsb::TypeConvert::gd_var_to_js(isolate, context, p_arg, arg_value)) {
+		r_err = ERR_INVALID_PARAMETER;
+		return {};
+	}
+	context->Global()->Set(context, jsb::impl::Helper::new_string_ascii(isolate, "__jsb_arg"), arg_value).Check();
+
+	const CharString src_utf8 = p_code.utf8();
+	return environment_->eval_source(src_utf8.get_data(), src_utf8.length(), "eval_source_with_arg", r_err);
 }
 
 #if JSB_DEBUG
@@ -929,5 +958,4 @@ void GodotJSScriptLanguage::populate_string_names_replacements() {
 }
 
 void GodotJSScriptLanguage::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("get_bridge"), &GodotJSScriptLanguage::get_bridge);
 }

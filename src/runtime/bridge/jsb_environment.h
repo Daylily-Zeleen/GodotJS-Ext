@@ -55,6 +55,8 @@
 
 #include <compat/thread.h>
 #include <cstddef>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -430,6 +432,23 @@ public:
 	 * \return OK if compiled and run with no error
 	 */
 	Error load(const String &p_name, JavaScriptModule **r_module = nullptr);
+
+	/**
+	 * Query the source/package filepath of a module (loads it first).
+	 * [env thread only]
+	 * @param r_info filled with `source` and `package` String entries.
+	 * @return OK, or ERR_CANT_OPEN when the module cannot be loaded.
+	 */
+	Error get_module_source_info(const String &p_module_id, Dictionary &r_info);
+
+	/**
+	 * Query the one-level dependencies recorded on a module's `children`
+	 * array (file-backed children only, builtins excluded).
+	 * [env thread only]
+	 * @return OK (possibly with an empty list), or ERR_CANT_OPEN when the
+	 *         module cannot be loaded.
+	 */
+	Error get_module_direct_dependencies(const String &p_module_id, PackedStringArray &r_deps);
 
 	//TODO is there a simple way to compile (validate) the script without any side effect?
 	bool validate_script(const String &p_path);
