@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "C++ 层开发入口：Pre-Development Checklist 与质量检查"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建入口：规范 scons 组合与生成文件约束"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "测试入口：--jsb-run-tests 与全量验收口径"}
+{"file": ".trellis/tasks/09-28-comment-doc-annotation/design.md", "reason": "本任务技术设计：Process 扩展、NDJSON 协议、文档回填与三层刷新、崩溃/超时语义"}
+{"file": ".trellis/tasks/09-28-comment-doc-annotation/implement.md", "reason": "实施顺序：阶段 A-D 与各阶段门禁"}
+{"file": ".trellis/tasks/09-28-comment-doc-annotation/research/comment-parsing-options.md", "reason": "注释解析实测结论：TS Compiler API、.js 覆盖、关联规则"}
