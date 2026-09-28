@@ -509,7 +509,15 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 					continue;
 				}
 				const StringName signal_name = environment->get_string_name_cache().get_string_name(isolate, signal_name_js.As<v8::String>());
-				p_class_info->signals.insert(signal_name, {});
+				ScriptSignalInfo signal_info;
+#if JSB_TOOLS
+				// 信号与其它成员同走 `MemberDocMap`：`@bind.deprecated()` / `@bind.experimental()`
+				// 写在信号上时同样要反映到 `signals[]`（引擎的 `DocData::MethodDoc` 支持这些字段）。
+				if (v8::Local<v8::Value> val; !doc_map.IsEmpty() && doc_map->Get(p_context, signal_name_js).ToLocal(&val) && val->IsObject()) {
+					_parse_script_doc(isolate, p_context, val, signal_info.doc);
+				}
+#endif // JSB_TOOLS
+				p_class_info->signals.insert(signal_name, signal_info);
 
 				// instantiate a fake Signal property
 				//NOTE: we use JS string representation of signal name for info.Data() to avoid persistent StringNameID requirement.
@@ -651,6 +659,14 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 
 					ScriptConstantInfo constant_info;
 					constant_info.name = constant_name_sn;
+#if JSB_TOOLS
+					// 常量与其它成员同走 `MemberDocMap`：`@bind.deprecated()` / `@bind.experimental()`
+					// 写在 `@bind.exposed.const()` 成员上时同样要反映到 `constants[]`。
+					//NOTE map 的键是 JS 侧的属性名（`v8::Value`），不能用 `StringName` 直接查。
+					if (v8::Local<v8::Value> val; !doc_map.IsEmpty() && doc_map->Get(p_context, name_val.As<v8::String>()).ToLocal(&val) && val->IsObject()) {
+						_parse_script_doc(isolate, p_context, val, constant_info.doc);
+					}
+#endif // JSB_TOOLS
 
 					// a TS enum object is recognized first: it is normalized into a freshly built
 					// Dictionary instead of going through `js_to_gd_var` (which cannot convert a plain JS object)

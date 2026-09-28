@@ -77,6 +77,16 @@ export default class StaticMembersTarget extends Node {
   static score = 0;
 
   // A real method, so the derived script can exercise *inherited* method resolution from GDScript.
+  //
+  // It also carries `@bind.help(...)`, which must **win** over the source comment (R6): the doc test
+  // in `src/runtime/tests/test_jsb_static_members.h` asserts the explicit brief is what surfaces.
+  //
+  // `@ts-expect-error` is required, not cosmetic: `ClassBinder` is an intersection of decorator
+  // signatures, and `@bind.help()` stacked under `@bind()` / a member decorator cannot be resolved
+  // against it (measured TS1241). tsc still emits the call (`noEmitOnError: false` is the project
+  // preset), so the runtime path is real - the annotation is suppressed only for the type checker.
+  // @ts-expect-error - stacked modern decorators are not resolvable against the ClassBinder intersection
+  @bind.help("explicit method brief")
   greet(): number {
     return 1;
   }

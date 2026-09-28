@@ -29,6 +29,32 @@ Godot **不会**原地加载构建出的扩展 DLL。对 `.gdextension` 里每�
 - 纯文件操作留在本地；只有真正驻留引擎的操作才走桥
 - 定义桥接口前先枚举真实调用点；"就一个方法"的估计必然偏小
 
+### 跨库方向决定"推/拉"（2026-09-28，常驻编辑器工具进程）
+
+依赖方向只有 **editor → runtime**（`JsbBridgeTable` 单向）。因此当一个能力由 editor 产出、
+而消费点在 runtime 时（实例：源文件注释文档 → `ScriptClassInfo` → `_get_documentation()`）：
+
+- ❌ **不能在 runtime 里"按需向 editor 请求"** —— runtime 无 editor 符号可用。
+- ✅ 正确形态：editor 在已知时机取回 → 经桥推入 → runtime **暂存** → 消费点自取。
+  实例：`bridge_apply_script_docs` 写入 `jsb::internal::ScriptDocStore`（键 = `res://` 源路径），
+  `GodotJSScript::load_module_immediately()` 加载完成后按 `get_path()` 关联。
+- **暂存是必需的**：推入通常发生在"脚本还没被实例化"的时刻（编辑器安装/重扫只处理文件）。
+- 进程级容器若持有 `String`/`StringName`，必须在 `GodotJSScriptLanguage::_finish()` 显式清空
+  （与 `SharedStatics::clear()` 同因，见下节）。
+
+### 常驻子进程是"编辑器工具"的默认形态（2026-09-28）
+
+- 一次性工具（提取器）每次 spawn 都要重付 `require("typescript")`（数十 MB 解析 + JIT）
+  ⇒ 常驻进程 + NDJSON over stdin/stdout 是默认形态；`jsb::internal::Process` 已提供 stdin 写 +
+  逐行/EOF 回调（`set_line_callback` / `set_eof_callback` / `write_stdin`）。
+- **故障不静默**：崩溃要打印原因 + 明确"即将重启"→ 重启 → **重试本次请求**；请求有**硬超时**
+  （默认 `EditorToolClient::kRequestTimeoutMsec = 5000`），超时打印 op/请求/超时值，
+  **不 `stop()` 进程**（它可能只是慢）。
+- **回调线程约束**：`stdout` 回调在裸 OS 线程上运行 ⇒ 只能用 `std::mutex`/`std::condition_variable`
+  （`godot::Mutex` 在非宿主线程不可用），且回调内**不得调用 `stop()`**（会 join 自己）。
+- **stdout 是协议通道**：工具的诊断一律走 stderr，否则会破坏 NDJSON 帧。
+- 子进程输出按 **UTF-8** 解码（Node/tsc 恒 UTF-8）；仅当往返比对失败才退回 ANSI 代码页。
+
 ## 拆分单体扩展的方法
 
 1. 动手移动任何东西之前先盘点跨侧依赖：单例 getter、对引擎/脚本引擎的直接访问、内部 util 命名空间——按依赖 × 文件统计调用点数量

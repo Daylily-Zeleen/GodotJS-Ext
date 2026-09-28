@@ -46,6 +46,10 @@
 template <typename Callable, typename Ret, typename... Args>
 concept Invocable = std::is_invocable_r_v<Ret, Callable, Args...>;
 
+namespace jsb::internal {
+struct ScriptDocEntry;
+}
+
 class ScriptInstance;
 class GodotJSScriptInstance;
 class GodotJSScriptInstanceBase;
@@ -112,6 +116,20 @@ public:
 	bool is_root_script() const { return _get_base_script().is_null(); }
 
 	StringName get_module_id() const { return script_class_info_.module_id; };
+
+#if JSB_TOOLS
+	/**
+	 * 源文件注释文档在**模块加载完成后**写入类信息。
+	 *
+	 * 数据来自 `jsb::internal::ScriptDocStore`（进程级暂存，键是 `get_path()` 的源路径）：
+	 * 文档由**编辑器**（另一个 DLL）在工具进程应答后经 `JsbBridgeTable::apply_script_docs`
+	 * 推入，时刻通常早于脚本被加载，所以"写入"发生在加载路径上而不是被外部调用。
+	 *
+	 * `@bind.help()` **优先**：`brief_description` 已被装饰器写过时**不覆盖**；
+	 * `description`（全文）没有装饰器来源，总是来自源注释。
+	 */
+	void _apply_pending_source_doc();
+#endif // JSB_TOOLS
 
 	// Error attach_source(const String& p_path, bool p_take_over);
 	Error load_source_code(const String &p_path);
@@ -272,6 +290,11 @@ private:
 	// 清单缺失/损坏时保持为空 ⇒ 所有消费点退回既有行为（只有名字 + 函数源文本扫描）。
 	// 编辑器运行时（`is_editor_hint()`）不缓存：作者改完 `.ts` 保存后应立刻看到新签名。
 	void _ensure_signature_manifest() const;
+
+#if JSB_TOOLS
+	/** 把 `ScriptDocStore` 里属于本脚本的文档写进类信息（`load_module_immediately` 调用）。 */
+	void _apply_source_doc_now(const jsb::internal::ScriptDocEntry &p_entry);
+#endif // JSB_TOOLS
 
 	// Declared-parameter count of one of this script's **own** methods (the rest parameter excluded),
 	// with the Godot-side name mapped to the exposed one. `r_is_valid` reports whether the name is

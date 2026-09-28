@@ -35,7 +35,7 @@ namespace jsb::internal {
  * 读取一个函数/信号签名清单（sidecar）。
  *
  * 清单与编译产物同名同目录，只换扩展名（`<outDir>/foo.js` -> `<outDir>/foo.sig`），
- * 由编辑器侧的 Node 提取器写出（`scripts/jsb.editor/src/signature/jsb.signature.extract.cts`）。
+ * 由编辑器侧的 Node 提取器写出（`scripts/jsb.tools/src/jsb.signature.extract.cts`）。
  * 格式、魔数与版本校验见 `.trellis/tasks/09-26-method-signal-signature/design.md` §4。
  *
  * @param p_module_id 编译产物（`.js`）的 `res://` 路径，与 `script_class_info_.module_id` 一致

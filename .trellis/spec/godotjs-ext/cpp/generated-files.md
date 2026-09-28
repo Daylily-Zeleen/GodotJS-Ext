@@ -50,6 +50,20 @@
   实现走的是真实函数**——对象字面量方法**不能**承载重载签名，所以需要重载的注解要在
   `createClassBinder()` 里写成**局部 `function` 重载声明**，再在返回的对象字面量里引用它。
 
+## 编辑器工具产物（Node，非 `.gen.`）
+
+`scripts/out/jsb.editor.tools.cjs` / `jsb.signature.extract.cjs` / `jsb.doc.extract.cjs` 是
+**Node 目标的独立 tsc 产物**，与引擎内嵌的 AMD bundle 分离——后者没有 Node 内建模块，
+而 `typescript.js` 需要 `require("fs"/"path")`。
+
+- 源码在 **`scripts/jsb.tools/`**（与 `jsb.editor` / `jsb.runtime` 同级的独立 pnpm 子项目；
+  它**不**参与任何 bundle，故不需要在别人的 tsconfig 里 `exclude`）。构建 = `pnpm -r build`
+- **三者必须同时安装**：入口 `jsb.editor.tools.cjs` 以 `require("./jsb.signature.extract.cjs")` 相对解析
+- 安装落点是**项目数据目录**（不是 jsb 输出目录）：输出目录的清理规则是"没有对应源即判陈旧"，会把它删掉
+- **不入库**、不进 `collect_invalid_files()` 的陈旧判定（它们不以 `.js` 结尾，走的是 `.sig` 同型的白名单分支）
+- 跨文件 `import` 的说明符必须带**产物扩展名**（`./x.cjs`）：源是 `.cts`，`./x` 会去找永不存在的 `x.js`（实测 TS2307）
+- 单测 `scripts/jsb.tools/test/test-doc-extract.mts`（`pnpm --filter @godot-js/jsb-tools test`）
+
 ## 通用原则
 
 1. 看到文件名含 `.gen.` 立即停止编辑，先查上表或搜索 `SConstruct` / `SCsub` / `misc/build/` 生成脚本

@@ -1,4 +1,4 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://d0yu7i645ct7h"]
 
 [ext_resource type="Script" path="res://tests/static-members/test-static-members.ts" id="1_static"]
 

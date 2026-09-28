@@ -1,3 +1,4 @@
+// uid://drx7x4iel8teu This line is generated, don't modify or remove it.
 import { GArray, GDictionary, Node } from "godot";
 import { createClassBinder } from "godot.annotations";
 

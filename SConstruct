@@ -656,6 +656,11 @@ generate_code([
     # AMDSourceTransformer，也不做零终止），作为普通 preset 文件安装进项目后被编辑器
     # spawn。见 .trellis/tasks/09-26-method-signal-signature/design.md §8。
     PresetDefine("scripts/out/jsb.signature.extract.cjs", "jsb.signature.extract.cjs"),
+    # 常驻编辑器工具进程（签名提取 + 帮助文档提取）及其同目录的两个模块：它是被 spawn 的
+    # 入口，`require("./jsb.signature.extract.cjs")` 按相对路径解析，所以三者必须一起安装。
+    # 见 .trellis/tasks/09-28-comment-doc-annotation/design.md §3。
+    PresetDefine("scripts/out/jsb.editor.tools.cjs", "jsb.editor.tools.cjs"),
+    PresetDefine("scripts/out/jsb.doc.extract.cjs", "jsb.doc.extract.cjs"),
     PresetDefine("scripts/presets/package.json.txt", "package.json"),
     PresetDefine("scripts/presets/tsconfig.json.txt", "tsconfig.json"),
     PresetDefine("scripts/presets/jsconfig.json.txt", "jsconfig.json"),

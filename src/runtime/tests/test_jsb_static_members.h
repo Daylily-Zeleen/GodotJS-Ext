@@ -28,6 +28,7 @@
 #pragma once
 
 #include "../bridge/jsb_class_info.h"
+#include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../weaver/jsb_script.h"
 #include "jsb_test_helpers.h"
@@ -614,6 +615,187 @@ TEST_CASE("[runtime] [jsb] script method argument count") {
 	CHECK(derived->_is_valid());
 	// `add` is declared by the base alone and this hook reports own methods only
 	CHECK(derived->_get_script_method_argument_count(StringName("add")).get_type() != Variant::INT);
+}
+
+// 源文件注释文档：`ScriptDocStore` 暂存 → 模块加载时写入类信息 → `_get_documentation()` 读出。
+//
+// 这条链路跨越"编辑器推入"与"运行时消费"两侧，而两侧之间只有 `JsbBridgeTable` 一个接触点。
+// 这里直接调暂存层（等价于 bridge 的 `apply_script_docs` 所做的事），再用**真实的脚本类解析**
+// 验证消费端：文档必须落在 `ScriptClassInfo` 的类与成员上。
+TEST_CASE("[runtime] [jsb] source docs: store merge, module-load application and member kinds") {
+	GodotJSScriptLanguageIniter initer;
+
+	// 夹具用 `static-members-target.ts`：它的常量（`@bind.exposed.const() N`）与方法（`greet`）
+	// 都已登记，所以下面的断言不会因为"名字未登记"而被过滤成空转。
+	const String kPath = "res://tests/static-members/static-members-target.ts";
+
+	// 基线：没有推入文档时，类文档为空 —— 否则下面的断言可能被既有数据蒙过。
+	{
+		Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(kPath, jsb_typename(GodotJSScript));
+		REQUIRE(script.is_valid());
+		REQUIRE(script->_is_valid());
+		const TypedArray<Dictionary> docs = script->_get_documentation();
+		REQUIRE(docs.size() == 1);
+		CHECK_MESSAGE(((String)Dictionary(docs[0]).get("description", String())).is_empty(),
+				"the fixture must not carry a source comment before the test pushes one");
+	}
+
+	Dictionary members;
+	{
+		// `add` 没有 `@bind.help` ⇒ 注释是唯一的 brief 来源（`greet` 有，见下一个用例）。
+		Dictionary method;
+		method["kind"] = "method";
+		method["name"] = "add";
+		method["brief"] = "method brief";
+		method["description"] = "method description";
+		members["0"] = method;
+
+		Dictionary constant;
+		constant["kind"] = "constant";
+		constant["name"] = "N";
+		constant["brief"] = "constant brief";
+		constant["description"] = "constant description";
+		members["1"] = constant;
+
+		Dictionary signal;
+		signal["kind"] = "signal";
+		signal["name"] = "__not_registered__";
+		signal["brief"] = "must be dropped";
+		signal["description"] = "must be dropped";
+		members["2"] = signal;
+	}
+	Dictionary class_doc;
+	class_doc["brief"] = "class brief";
+	class_doc["description"] = "class description";
+	Dictionary entry;
+	entry["class"] = class_doc;
+	entry["members"] = members.values();
+	Dictionary payload;
+	payload[kPath] = entry;
+
+	internal::ScriptDocStore::merge(payload);
+
+	// 暂存层：命中、未命中，以及"值为 null 表示该文件没有文档"的擦除语义。
+	{
+		internal::ScriptDocEntry cached;
+		REQUIRE(internal::ScriptDocStore::find(kPath, cached));
+		CHECK(cached.class_brief == "class brief");
+		CHECK(cached.class_description == "class description");
+		internal::ScriptDocEntry missing;
+		CHECK(!internal::ScriptDocStore::find("res://__nope__.ts", missing));
+
+		Dictionary erased;
+		erased[kPath] = Variant();
+		internal::ScriptDocStore::merge(erased);
+		internal::ScriptDocEntry after_erase;
+		CHECK_MESSAGE(!internal::ScriptDocStore::find(kPath, after_erase),
+				"a null entry must erase the stored doc (the author deleted the comment)");
+		internal::ScriptDocStore::merge(payload);
+	}
+
+	// 消费端：模块加载时应用暂存文档。
+	{
+		Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(kPath, jsb_typename(GodotJSScript));
+		REQUIRE(script.is_valid());
+		// 强制重算类信息：缓存实例可能已经解析过（本用例上面刚加载过一次）。
+		script->_reload(true);
+
+		const TypedArray<Dictionary> docs = script->_get_documentation();
+		REQUIRE(docs.size() == 1);
+		const Dictionary doc = docs[0];
+		CHECK((String)doc.get("description", String()) == "class description");
+		CHECK((String)doc.get("brief_description", String()) == "class brief");
+
+		const Array methods = doc.get("methods", Array());
+		bool found_method = false;
+		for (int i = 0; i < methods.size(); ++i) {
+			const Dictionary method = methods[i];
+			if (StringName(method.get("name", StringName())) != StringName("add")) {
+				continue;
+			}
+			found_method = true;
+			// 之前 `methods[]` 只有 name（空壳），现在必须带描述。
+			CHECK((String)method.get("description", String()) == "method brief");
+		}
+		CHECK_MESSAGE(found_method, "the 'add' method entry is missing from the documentation");
+
+		const Array constants = doc.get("constants", Array());
+		bool found_constant = false;
+		for (int i = 0; i < constants.size(); ++i) {
+			const Dictionary constant = constants[i];
+			if (StringName(constant.get("name", StringName())) != StringName("N")) {
+				continue;
+			}
+			found_constant = true;
+			CHECK((String)constant.get("description", String()) == "constant brief");
+		}
+		CHECK_MESSAGE(found_constant, "the 'N' constant entry is missing from the documentation");
+
+		// 未登记的成员必须被丢弃：凭空插入会让 `_has_method` / 信号表报出不存在的成员。
+		const Array signals = doc.get("signals", Array());
+		for (int i = 0; i < signals.size(); ++i) {
+			CHECK(StringName(Dictionary(signals[i]).get("name", StringName())) != StringName("__not_registered__"));
+		}
+
+		internal::ScriptDocStore::clear(); // 暂存是进程级的，清掉以免影响其它用例
+	}
+}
+
+// `@bind.help()` **优先**于源文件注释（用户裁决）：装饰器写下的 brief 不被注释覆盖，
+// 而 `description`（注释全文）没有装饰器来源，仍然写入。
+TEST_CASE("[runtime] [jsb] source docs: @bind.help wins over the source comment") {
+	GodotJSScriptLanguageIniter initer;
+
+	// 夹具 `greet` 带 `@bind.help("explicit method brief")`（装饰器来源），
+	// 而注释来源在下面被推成 "from comment"。二者冲突时必须看到装饰器的那一份。
+	const String kPath = "res://tests/static-members/static-members-target.ts";
+
+	Dictionary members;
+	{
+		Dictionary method;
+		method["kind"] = "method";
+		method["name"] = "greet";
+		method["brief"] = "from comment";
+		method["description"] = "from comment full";
+		members["0"] = method;
+	}
+	Dictionary class_doc;
+	class_doc["brief"] = "class comment brief";
+	class_doc["description"] = "class comment full";
+	Dictionary entry;
+	entry["class"] = class_doc;
+	entry["members"] = members.values();
+	Dictionary payload;
+	payload[kPath] = entry;
+	internal::ScriptDocStore::merge(payload);
+
+	Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(kPath, jsb_typename(GodotJSScript));
+	REQUIRE(script.is_valid());
+	script->_reload(true);
+
+	const TypedArray<Dictionary> docs = script->_get_documentation();
+	REQUIRE(docs.size() == 1);
+	const Dictionary doc = docs[0];
+
+	// 类级没有 `@bind.help` ⇒ 注释生效（brief = 注释首行）。
+	CHECK((String)doc.get("brief_description", String()) == "class comment brief");
+	CHECK((String)doc.get("description", String()) == "class comment full");
+
+	// 方法级有 `@bind.help` ⇒ **装饰器胜出**，注释不覆盖它。
+	const Array methods = doc.get("methods", Array());
+	bool found = false;
+	for (int i = 0; i < methods.size(); ++i) {
+		const Dictionary method = methods[i];
+		if (StringName(method.get("name", StringName())) != StringName("greet")) {
+			continue;
+		}
+		found = true;
+		CHECK_MESSAGE((String)method.get("description", String()) == "explicit method brief",
+				"@bind.help() must win over the source comment");
+	}
+	CHECK_MESSAGE(found, "the 'greet' method entry is missing from the documentation");
+
+	internal::ScriptDocStore::clear();
 }
 
 } //namespace jsb::tests

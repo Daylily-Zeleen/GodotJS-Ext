@@ -90,11 +90,30 @@ interface SignatureInfo {
 	params: ParamInfo[];
 }
 
-interface MemberInfo {
+export interface MemberInfo {
 	kind: number;
 	name: string;
 	/** 无重载时长度为 1；有重载时按源码声明顺序存全部签名。 */
 	signatures: SignatureInfo[];
+}
+
+/** `runExtraction` 的入参（与 CLI 参数同形）。 */
+export interface ExtractionArgs {
+	project: string;
+	dump: boolean;
+	verbose: boolean;
+}
+
+/** `runExtraction` 的结果。失败时 `messages` 是给用户看的诊断文本。 */
+export interface ExtractionResult {
+	ok: boolean;
+	messages: string[];
+	scanned: number;
+	written: number;
+	upToDate: number;
+	empty: number;
+	ignored: number;
+	nonGodot: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +375,7 @@ function collectClassMembers(p_class: ts.ClassDeclaration, p_aliases: Map<string
 // 序列化
 // ---------------------------------------------------------------------------
 
-function serialize(p_sourceMd5: string, p_members: readonly MemberInfo[]): Buffer {
+export function serialize(p_sourceMd5: string, p_members: readonly MemberInfo[]): Buffer {
 	const pool = new StringPool();
 
 	// 先把字符串池填满，再写文件（池在头部，必须一次成型）。
@@ -590,31 +609,59 @@ function isGodotScript(p_source: ts.SourceFile): boolean {
 
 function main(): number {
 	const args = parseArgs(process.argv.slice(2));
-	const tsconfigPath = path.join(args.project, "tsconfig.json");
-	const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+	const result = runExtraction(args, process.argv.slice(2).includes("--dump") || args.dump);
+	for (const message of result.messages) {
+		if (result.ok) {
+			console.log(message);
+		} else {
+			console.error(message);
+		}
+	}
+	return result.ok ? 0 : 1;
+}
+
+/**
+ * 全项目签名提取（**纯函数式入口**，同时服务 CLI 与常驻工具进程）。
+ *
+ * 与 CLI 的差别只有一处：不调用 `process.exit`，失败时返回 `ok=false` 与诊断文本，
+ * 由调用方决定怎么报告（常驻进程要把错误回给宿主，而不是自杀）。
+ */
+export function runExtraction(args: ExtractionArgs, pDump: boolean): ExtractionResult {
+	const configPath = resolveConfigPath(args.project);
+	const resolvedConfigPath = configPath.path;
+	if (resolvedConfigPath === undefined) {
+		return { ok: false, messages: [configPath.reason ?? "no typescript config found"], scanned: 0, written: 0, upToDate: 0, empty: 0, ignored: 0, nonGodot: 0 };
+	}
+	const configFile = ts.readConfigFile(resolvedConfigPath, ts.sys.readFile);
 	if (configFile.error) {
-		console.error("[signature] failed to read " + tsconfigPath + ": " + ts.flattenDiagnosticMessageText(configFile.error.messageText, " "));
-		return 1;
+		return {
+			ok: false,
+			messages: ["[signature] failed to read " + resolvedConfigPath + ": " + ts.flattenDiagnosticMessageText(configFile.error.messageText, " ")],
+			scanned: 0, written: 0, upToDate: 0, empty: 0, ignored: 0, nonGodot: 0,
+		};
 	}
 	const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, args.project);
 	if (parsed.errors.length > 0) {
-		for (const error of parsed.errors.slice(0, 8)) {
-			console.error("[signature] tsconfig: " + ts.flattenDiagnosticMessageText(error.messageText, " "));
-		}
-		return 1;
+		return {
+			ok: false,
+			messages: parsed.errors.slice(0, 8).map((error) => "[signature] " + resolvedConfigPath + ": " + ts.flattenDiagnosticMessageText(error.messageText, " ")),
+			scanned: 0, written: 0, upToDate: 0, empty: 0, ignored: 0, nonGodot: 0,
+		};
 	}
 
-	// 编译产物目录来自 tsconfig 的 outDir（与 .paths_mapping / 编译后的 .js 同目录）。
-	const outDir = parsed.options.outDir;
-	if (!outDir) {
-		console.error("[signature] tsconfig has no 'outDir'; nothing to do");
-		return 1;
-	}
+	// 编译产物目录来自配置的 outDir（与 .paths_mapping / 编译后的 .js 同目录）。
+	//
+	// JS 项目（jsconfig.json）不带 outDir：那时脚本**就地运行**（`res://x.js` 就是产物），
+	// 所以把项目根当作产物根，sidecar 落在 `<project>/<rel>.sig` —— 与运行时
+	// `signature_load()` 的推导式（`<module_id 去 .js>` + `.sig`）一致。
+	const outDir = parsed.options.outDir ?? args.project;
 
 	const normalizedRoot = args.project.replace(/\\/g, "/");
 	const normalizedOutDir = outDir.replace(/\\/g, "/");
 	// 目录忽略标记的缓存：同一目录下的每个文件都会查同样的祖先目录，缓存避免重复 stat。
 	const ignoreDirCache = new Map<string, boolean>();
+	const fileNames = enumerateSourceFiles(parsed, args.project, normalizedRoot);
+
 	let scanned = 0;
 	let written = 0;
 	let skipped = 0;
@@ -622,19 +669,19 @@ function main(): number {
 	let ignored = 0;
 	let excluded = 0;
 
-	for (const fileName of parsed.fileNames) {
+	for (const fileName of fileNames) {
 		const normalized = fileName.replace(/\\/g, "/");
-		// 只处理真正的源脚本：跳过 .d.ts 与 node_modules 内的任何东西。
-		if (normalized.endsWith(".d.ts") || !normalized.endsWith(".ts")) {
-			continue;
-		}
 		if (normalized.includes("/node_modules/")) {
 			continue;
 		}
 		if (!normalized.startsWith(normalizedRoot + "/")) {
 			continue;
 		}
-		const relative = normalized.substring(normalizedRoot.length + 1, normalized.length - ".ts".length);
+		const extension = sourceExtension(normalized);
+		if (extension === undefined) {
+			continue;
+		}
+		const relative = normalized.substring(normalizedRoot.length + 1, normalized.length - extension.length);
 		// Godot 编辑器看不到的文件（隐藏目录/文件、`.gdignore`、嵌套项目、编译产物）一律不处理。
 		if (shouldIgnorePath(relative, args.project, normalizedOutDir, ignoreDirCache)) {
 			++ignored;
@@ -652,12 +699,12 @@ function main(): number {
 			continue;
 		}
 
-		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true);
+		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true, scriptKindOf(extension));
 		// 单文件判据：不是 Godot 脚本就不产出清单（并清掉可能存在的旧清单）。
 		if (!isGodotScript(sourceFile)) {
 			++excluded;
-			if (args.dump) {
-				console.log(JSON.stringify({ module: relative + ".ts", md5: sourceMd5, godot: false, members: [] }));
+			if (pDump) {
+				console.log(JSON.stringify({ module: relative + extension, md5: sourceMd5, godot: false, members: [] }));
 			} else {
 				try {
 					fs.unlinkSync(sigPath);
@@ -675,14 +722,14 @@ function main(): number {
 			}
 		}
 
-		if (args.dump) {
-			console.log(JSON.stringify({ module: relative + ".ts", md5: sourceMd5, members }));
+		if (pDump) {
+			console.log(JSON.stringify({ module: relative + extension, md5: sourceMd5, members }));
 		}
 
 		if (members.length === 0) {
 			// 没有类成员的脚本不产出清单：消费端查不到文件即走回退路径。
 			++pruned;
-			if (!args.dump) {
+			if (!pDump) {
 				try {
 					fs.unlinkSync(sigPath);
 				} catch {
@@ -692,7 +739,7 @@ function main(): number {
 			continue;
 		}
 
-		if (args.dump) {
+		if (pDump) {
 			continue;
 		}
 
@@ -704,10 +751,135 @@ function main(): number {
 		}
 	}
 
-	if (!args.dump) {
-		console.log("[signature] scripts=" + scanned + " written=" + written + " up-to-date=" + skipped + " empty=" + pruned + " ignored=" + ignored + " non-godot=" + excluded);
-	}
-	return 0;
+	return {
+		ok: true,
+		messages: [
+			"[signature] scripts=" + scanned + " written=" + written + " up-to-date=" + skipped
+					+ " empty=" + pruned + " ignored=" + ignored + " non-godot=" + excluded,
+		],
+		scanned, written, upToDate: skipped, empty: pruned, ignored, nonGodot: excluded,
+	};
 }
 
-process.exit(main());
+/** 配置来源：TS 项目用 `tsconfig.json`，纯 JS 项目用 `jsconfig.json`。 */
+function resolveConfigPath(p_project: string): { path?: string; reason?: string } {
+	const tsconfig = path.join(p_project, "tsconfig.json");
+	if (fs.existsSync(tsconfig)) {
+		return { path: tsconfig };
+	}
+	const jsconfig = path.join(p_project, "jsconfig.json");
+	if (fs.existsSync(jsconfig)) {
+		return { path: jsconfig };
+	}
+	return { reason: "[signature] neither tsconfig.json nor jsconfig.json found in " + p_project };
+}
+
+/** 源文件后缀（含点）；不是可处理的源文件时返回 undefined。 */
+function sourceExtension(p_normalized_path: string): string | undefined {
+	if (p_normalized_path.endsWith(".d.ts")) {
+		return undefined;
+	}
+	if (p_normalized_path.endsWith(".ts")) {
+		return ".ts";
+	}
+	if (p_normalized_path.endsWith(".js")) {
+		return ".js";
+	}
+	return undefined;
+}
+
+function scriptKindOf(p_extension: string): ts.ScriptKind {
+	return p_extension === ".js" ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+}
+
+/**
+ * 待处理的源文件集合。
+ *
+ * `fileNames` 优先，但 JS 项目可能空手而归：**实测**预设 `jsconfig.json`
+ * （`{"compilerOptions":{"module":"node16","target":"es2022"}}`）下 `allowJs` 未开，
+ * `parseJsonConfigFileContent` 返回 `fileNames: []` —— 光放开后缀过滤是看不到任何 `.js` 的。
+ * 因此这里显式打开 `allowJs`（不改写作者的项目文件，只改内存中的 options），
+ * 并在 `fileNames` 仍为空时用与 `shouldIgnorePath` 同源的规则**兜底枚举**。
+ */
+function enumerateSourceFiles(p_parsed: ts.ParsedCommandLine, p_project: string, p_normalized_root: string): string[] {
+	const collected = new Set<string>();
+	if (p_parsed.options.allowJs !== true) {
+		p_parsed.options.allowJs = true;
+	}
+	for (const fileName of p_parsed.fileNames) {
+		collected.add(fileName);
+	}
+	for (const fileName of ts.sys.readDirectory(p_project, [".ts", ".js"], undefined, undefined)) {
+		const normalized = fileName.replace(/\\/g, "/");
+		if (normalized.startsWith(p_normalized_root + "/")) {
+			collected.add(fileName);
+		}
+	}
+	return Array.from(collected);
+}
+
+/** 一个待处理的 Godot 源脚本。 */
+export interface GodotSourceFile {
+	/** 绝对路径（供工具直接读文件）。 */
+	absolute: string;
+	/** `res://<rel><ext>` —— 与运行时 `ScriptClassInfo::module_id` 的推导同源。 */
+	resPath: string;
+	/** 源文件 md5（刷新判据）。 */
+	sourceMd5: string;
+}
+
+/**
+ * 列出项目里全部 **Godot 脚本**（判据与签名提取完全一致：同一套配置解析、忽略规则、
+ * `isGodotScript`）。
+ *
+ * 帮助文档要按同一集合推送：多一个少一个都会让脚本的文档与签名来自不同的判定，
+ * 所以这里**复用**提取逻辑而不是另写一套枚举。
+ */
+export function listGodotScripts(p_project: string): GodotSourceFile[] {
+	const configPath = resolveConfigPath(p_project);
+	const resolvedConfigPath = configPath.path;
+	if (resolvedConfigPath === undefined) {
+		return [];
+	}
+	const configFile = ts.readConfigFile(resolvedConfigPath, ts.sys.readFile);
+	if (configFile.error) {
+		return [];
+	}
+	const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, p_project);
+	const normalizedRoot = p_project.replace(/\\/g, "/");
+	const outDir = parsed.options.outDir ?? p_project;
+	const normalizedOutDir = outDir.replace(/\\/g, "/");
+	const ignoreDirCache = new Map<string, boolean>();
+	const result: GodotSourceFile[] = [];
+
+	for (const fileName of enumerateSourceFiles(parsed, p_project, normalizedRoot)) {
+		const normalized = fileName.replace(/\\/g, "/");
+		if (normalized.includes("/node_modules/") || !normalized.startsWith(normalizedRoot + "/")) {
+			continue;
+		}
+		const extension = sourceExtension(normalized);
+		if (extension === undefined) {
+			continue;
+		}
+		const relative = normalized.substring(normalizedRoot.length + 1, normalized.length - extension.length);
+		if (shouldIgnorePath(relative, p_project, normalizedOutDir, ignoreDirCache)) {
+			continue;
+		}
+		const source = fs.readFileSync(fileName, "utf8");
+		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true, scriptKindOf(extension));
+		if (!isGodotScript(sourceFile)) {
+			continue;
+		}
+		result.push({
+			absolute: fileName,
+			resPath: "res://" + relative + extension,
+			sourceMd5: crypto.createHash("md5").update(source, "utf8").digest("hex"),
+		});
+	}
+	return result;
+}
+
+/** CLI 入口。`require` 该模块（常驻工具进程）时**不会**触发它。 */
+if (require.main === module) {
+	process.exit(main());
+}

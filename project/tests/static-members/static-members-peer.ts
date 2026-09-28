@@ -1,3 +1,4 @@
+// uid://b8vvst18cmucr This line is generated, don't modify or remove it.
 import { JSWorkerParent } from "godot.worker";
 import StaticMembersTarget from "./static-members-target";
 

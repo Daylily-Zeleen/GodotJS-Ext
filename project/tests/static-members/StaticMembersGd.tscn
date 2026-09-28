@@ -1,4 +1,4 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://c72r4vdamsrrs"]
 
 [ext_resource type="Script" path="res://tests/static-members/static-members-gdcheck.gd" id="1_gdcheck"]
 

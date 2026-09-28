@@ -27,6 +27,7 @@
 #include <cstdio>
 
 #include "../bridge/jsb_environment.h"
+#include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_type_convert.h"
 #include "../weaver/jsb_script_language.h"
 #include <internal/jsb_statistics.h>
@@ -531,6 +532,27 @@ static godot::Error bridge_refresh_paths_mapping() {
 }
 #endif
 
+// 编辑器推入源文件注释文档：只做暂存，等脚本加载时由 `GodotJSScript` 取用（见 jsb_script_doc.h）。
+// 要求主线程：写入的是进程级 HashMap，且在编辑器的安装/重扫路径上被调用。
+static godot::Error bridge_apply_script_docs(GDExtensionConstVariantPtr p_argument_variant) {
+#if JSB_TOOLS
+	if (!Thread::is_main_thread()) {
+		return godot::Error::ERR_UNAVAILABLE;
+	}
+	if (p_argument_variant == nullptr) {
+		return godot::Error::ERR_INVALID_PARAMETER;
+	}
+	const Variant argument = Variant(p_argument_variant);
+	if (argument.get_type() != Variant::DICTIONARY) {
+		return godot::Error::ERR_INVALID_PARAMETER;
+	}
+	jsb::internal::ScriptDocStore::merge(argument);
+	return OK;
+#else
+	return godot::Error::ERR_UNAVAILABLE;
+#endif
+}
+
 static JsbBridgeTable g_bridge_table = {
 	sizeof(JsbBridgeTable),
 	&bridge_eval,
@@ -548,6 +570,7 @@ static JsbBridgeTable g_bridge_table = {
 #else
 	nullptr, // refresh_paths_mapping（TS 未启用）
 #endif
+	&bridge_apply_script_docs,
 };
 
 const JsbBridgeTable *get_bridge_table() {

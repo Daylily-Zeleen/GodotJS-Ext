@@ -78,6 +78,10 @@ using JsbAddConsoleFn = int64_t (*)(void *p_userdata,
 /// Remove a previously registered console sink. Returns OK even if unknown.
 using JsbRemoveConsoleFn = godot::Error (*)(int64_t p_handle);
 
+/// Push a Variant argument into the runtime (the callee reads its OWN copy of the
+/// variant layout, mirroring the "caller owns the storage" rule above).
+using JsbVariantArgFn = godot::Error (*)(GDExtensionConstVariantPtr p_argument_variant);
+
 struct JsbBridgeTable {
 	/// sizeof(JsbBridgeTable) at the time the runtime built it. Reject tables
 	/// whose size differs from the local struct definition.
@@ -112,6 +116,11 @@ struct JsbBridgeTable {
 	// 通知 Runtime 重新加载 .paths_mapping（TS 未启用时 Runtime 侧填 nullptr）
 	// 字段必须无条件存在：两个 DLL 按同一内存布局解释同一张表。
 	JsbVoidFn refresh_paths_mapping = nullptr;
+
+	/// 推入源文件注释文档：arg = `Dictionary{ res://<源路径> -> {class:{brief,description}, members:[...]} }`。
+	/// 编辑器在工具进程应答后调用；运行时把它暂存起来，等脚本加载时按 `get_path()` 关联。
+	/// TS 未启用时 Runtime 侧填 nullptr。
+	JsbVariantArgFn apply_script_docs = nullptr;
 };
 
 } //namespace jsb

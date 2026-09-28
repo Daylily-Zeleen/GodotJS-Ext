@@ -37,3 +37,9 @@
 #include "internal/jsb_process.h"
 #include "internal/jsb_settings.h"
 #include <godot_cpp/variant/callable_method_pointer.hpp>
+
+// 常驻编辑器工具进程的入口产物名（Node 目标）。作为 preset 文件安装到项目数据目录后被 spawn。
+// 落在项目数据目录（而非 jsb 输出目录）是为了避开 `collect_invalid_files` 的陈旧产物清理：
+// 它以 `.cjs` 结尾，而输出目录的规则是"没有对应源即判陈旧"。
+// 名字必须与 `scripts/out/jsb.editor.tools.cjs` 一致（Node 侧 `require` 的入口）。
+#define JSB_EDITOR_TOOL_NAME "jsb.editor.tools.cjs"

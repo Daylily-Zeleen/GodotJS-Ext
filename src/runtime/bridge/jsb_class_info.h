@@ -127,7 +127,11 @@ enum Type {
 
 #if JSB_TOOLS
 struct ScriptBaseDoc {
+	/// Brief one-liner (the source comment's first line). Also the historical `@bind.help()` slot.
 	String brief_description;
+
+	/// Full text (the whole source comment). Mirrors `DocData::*Doc::description`.
+	String description;
 
 	String deprecated_message;
 	String experimental_message;
@@ -139,10 +143,14 @@ struct ScriptBaseDoc {
 struct ScriptClassDoc : ScriptBaseDoc {};
 struct ScriptMethodDoc : ScriptBaseDoc {};
 struct ScriptPropertyDoc : ScriptBaseDoc {};
+struct ScriptSignalDoc : ScriptBaseDoc {};
+struct ScriptConstantDoc : ScriptBaseDoc {};
 #else
 struct ScriptClassDoc {};
 struct ScriptMethodDoc {};
 struct ScriptPropertyDoc {};
+struct ScriptSignalDoc {};
+struct ScriptConstantDoc {};
 #endif
 
 namespace ScriptMethodFlags {
@@ -167,6 +175,10 @@ struct ScriptSignalInfo {
 	// 信号参数表（清单 `kind=1` 的记录）。**无清单时为空**，与改动前"只存名字"的行为一致。
 	// 信号恒为单签名、返回值恒 void ⇒ 不复用 ScriptMethodSignature。
 	LocalVector<PropertyInfo> arguments;
+
+#if JSB_TOOLS
+	ScriptSignalDoc doc;
+#endif
 };
 
 // 一个重载签名（清单里 `kind=method` 的一条记录）。无重载时 `overloads` 只含一项。
@@ -208,6 +220,10 @@ struct ScriptConstantInfo {
 	Variant value;
 
 	ScriptConstantKind::Type kind = ScriptConstantKind::Value;
+
+#if JSB_TOOLS
+	ScriptConstantDoc doc;
+#endif
 };
 
 struct ScriptStaticVariableInfo {
@@ -217,8 +233,9 @@ struct ScriptStaticVariableInfo {
 
 struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
 {
-	// only valid with TOOLS_ENABLED
+#if JSB_TOOLS
 	ScriptMethodDoc doc;
+#endif
 
 	ScriptMethodFlags::Type flags = ScriptMethodFlags::None;
 
@@ -249,7 +266,9 @@ struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
 struct ScriptPropertyInfo {
 	PropertyInfo details;
 
+#if JSB_TOOLS
 	ScriptPropertyDoc doc;
+#endif
 
 	// valid only if _Evaluated flag is set in ScriptClassInfo.flags
 	Variant default_value;
@@ -292,8 +311,9 @@ public:
 	// script icon path for showing in scene hierarchy
 	String icon;
 
-	// only valid with TOOLS_ENABLED
+#if JSB_TOOLS
 	ScriptClassDoc doc;
+#endif
 
 	Dictionary rpc_config;
 

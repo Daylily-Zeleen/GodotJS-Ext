@@ -1,3 +1,4 @@
+// uid://dig1fbacrw1ue This line is generated, don't modify or remove it.
 import { Variant } from "godot";
 import { createClassBinder } from "godot.annotations";
 import StaticMembersTarget from "./static-members-target";

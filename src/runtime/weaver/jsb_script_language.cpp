@@ -31,6 +31,7 @@
 
 #include <string_view>
 
+#include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_internal.h"
@@ -262,6 +263,11 @@ void GodotJSScriptLanguage::_finish() {
 	// Same failure mode for the shared-static store: it is keyed by StringName and has no
 	// destructor of its own, so it must be emptied before `StringName::cleanup()`.
 	jsb::SharedStatics::clear();
+
+#if JSB_TOOLS
+	// 同样的失败模式：源注释文档暂存是进程级容器（键是 String），无析构，必须显式清空。
+	jsb::internal::ScriptDocStore::clear();
+#endif
 
 	JSB_LOG(VeryVerbose, "jsb lang finish");
 }

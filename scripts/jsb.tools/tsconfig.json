@@ -4,7 +4,7 @@
 		"module": "commonjs",
 		"lib": ["es2022"],
 		"types": ["node"],
-		"rootDir": "./src/signature",
+		"rootDir": "./src",
 		"outDir": "../out",
 		"sourceMap": false,
 		"declaration": false,
@@ -15,5 +15,5 @@
 		"skipLibCheck": true,
 		"newLine": "crlf"
 	},
-	"include": ["src/signature/**/*"]
+	"include": ["src/**/*"]
 }

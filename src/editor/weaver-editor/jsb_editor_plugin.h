@@ -35,6 +35,10 @@
 
 #include <functional>
 
+namespace jsb::editor {
+class EditorToolClient;
+}
+
 namespace jsb::weaver {
 enum ECategoryHint : uint16_t {
 	CH_JAVASCRIPT = 1 << 0,
@@ -113,14 +117,27 @@ private:
 #if JSB_USE_TYPESCRIPT
 	// 解析 tsconfig.json 并重新生成 .paths_mapping（MD5 未变化时空操作）
 	static void _regenerate_paths_mapping();
-	// 用 Node 提取器刷新各脚本的函数/信号签名清单（输入摘要未变化时空操作）
+	// 向常驻工具进程请求签名提取（输入摘要未变化时空操作）
 	void _regenerate_signatures();
+	// 向常驻工具进程请求全项目文档，并推入各脚本的类信息（见 design.md §4）
+	void _regenerate_script_docs();
 
-	// 上一次投递提取器时的输入摘要（.ts 数量 | 最大 mtime | tsconfig md5）。
-	// 不能用 tsconfig 的 md5 单独当门控：改 .ts 不会碰 tsconfig。
+	// 项目根的绝对路径（子进程继承引擎 cwd，相对路径不可靠）
+	static String _project_root_absolute();
+	// 惰性创建并启动常驻工具客户端；工具产物未安装/启动失败时为 false（原因已打印）
+	bool _ensure_tool_client();
+	// 把一份文档应答推入脚本类信息；返回成功推入的脚本数
+	int _apply_script_docs(const Dictionary &p_docs);
+	// 源文件配置的 res 路径：TS 用 tsconfig.json，纯 JS 项目用 jsconfig.json。
+	static String _typescript_config_res_path();
+
+	// 上一次投递提取器时的输入摘要（源文件数 | 最大 mtime | 配置 md5 | 工具 md5）。
+	// 不能用配置的 md5 单独当门控：改源文件不会碰配置。
 	String signature_input_digest_;
-	// 提取器进程句柄：下一次触发时先收尾（短命进程，届时通常已自行退出）
-	std::shared_ptr<jsb::internal::Process> signature_tool_;
+	// 上一次成功推入文档时的输入摘要（与签名各自独立：门控粒度不同）
+	String doc_input_digest_;
+	// 常驻工具进程（签名提取 + 帮助文档提取）。崩溃/超时由其内部策略重启并重试。
+	std::shared_ptr<jsb::editor::EditorToolClient> tool_client_;
 #endif
 
 protected:

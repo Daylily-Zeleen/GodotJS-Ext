@@ -26,6 +26,7 @@
 /************************************************************************/
 
 #include "jsb_script.h"
+#include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_signature.h"
 #include "../internal/jsb_path_util.h"
@@ -293,6 +294,7 @@ TypedArray<Dictionary> GodotJSScript::_get_documentation() const {
 	class_doc["inherits"] = base_type.is_empty() ? Variant("Object") : Variant(base_type);
 	class_doc["is_script_doc"] = true;
 	class_doc["brief_description"] = script_class_info_.doc.brief_description;
+	class_doc["description"] = script_class_info_.doc.description;
 	class_doc["is_deprecated"] = script_class_info_.doc.is_deprecated;
 	class_doc["is_experimental"] = script_class_info_.doc.is_experimental;
 	class_doc["deprecated_message"] = script_class_info_.doc.deprecated_message;
@@ -303,7 +305,9 @@ TypedArray<Dictionary> GodotJSScript::_get_documentation() const {
 	for (const auto &item : script_class_info_.properties) {
 		Dictionary prop_doc;
 		prop_doc["name"] = item.key;
-		prop_doc["description"] = item.value.doc.brief_description;
+		// `DocData::PropertyDoc::description`：brief 优先（`@help` 或注释首行），
+		// 没有 brief 时退回全文，避免出现"有描述却对 inspector 不可见"的空档。
+		prop_doc["description"] = item.value.doc.brief_description.is_empty() ? item.value.doc.description : item.value.doc.brief_description;
 		prop_doc["is_deprecated"] = item.value.doc.is_deprecated;
 		prop_doc["is_experimental"] = item.value.doc.is_experimental;
 		prop_doc["deprecated_message"] = item.value.doc.deprecated_message;
@@ -316,10 +320,46 @@ TypedArray<Dictionary> GodotJSScript::_get_documentation() const {
 	for (const auto &item : script_class_info_.methods) {
 		Dictionary method_doc;
 		method_doc["name"] = item.key;
-		// TODO: 填充完整函数文档
+		method_doc["description"] = item.value.doc.brief_description.is_empty() ? item.value.doc.description : item.value.doc.brief_description;
+		method_doc["is_deprecated"] = item.value.doc.is_deprecated;
+		method_doc["is_experimental"] = item.value.doc.is_experimental;
+		method_doc["deprecated_message"] = item.value.doc.deprecated_message;
+		method_doc["experimental_message"] = item.value.doc.experimental_message;
 		methods.push_back(method_doc);
 	}
 	class_doc["methods"] = methods;
+
+	TypedArray<Dictionary> signals;
+	for (const auto &item : script_class_info_.signals) {
+		Dictionary signal_doc;
+		signal_doc["name"] = item.key;
+		signal_doc["description"] = item.value.doc.brief_description.is_empty() ? item.value.doc.description : item.value.doc.brief_description;
+		// 与 method/property 同一套字段面（`DocData::MethodDoc::from_dict` 支持 deprecated/experimental）。
+		//NOTE 当前**只能由纯 JS 项目**触发：TS 侧 `@bind.deprecated()` 叠在 `@bind.signal()` /
+		//     `@bind.exposed.const()` 上会被类型检查拒绝（实测 TS1240，`ClassBinder` 的联合签名
+		//     无法兼容），所以 TS 作者拿不到"给信号/常量标 deprecated"的写法。这里填是为了
+		//     (a) 形态一致（引擎能收就填），(b) 纯 JS 项目与未来的注解形态立即可用。
+		signal_doc["is_deprecated"] = item.value.doc.is_deprecated;
+		signal_doc["is_experimental"] = item.value.doc.is_experimental;
+		signal_doc["deprecated_message"] = item.value.doc.deprecated_message;
+		signal_doc["experimental_message"] = item.value.doc.experimental_message;
+		signals.push_back(signal_doc);
+	}
+	class_doc["signals"] = signals;
+
+	TypedArray<Dictionary> constants;
+	for (const auto &item : script_class_info_.constants) {
+		Dictionary constant_doc;
+		constant_doc["name"] = item.key;
+		constant_doc["description"] = item.value.doc.brief_description.is_empty() ? item.value.doc.description : item.value.doc.brief_description;
+		// 同上：与 method/property 字段面一致；TS 侧暂无可达写法（见 signal 处的 NOTE）。
+		constant_doc["is_deprecated"] = item.value.doc.is_deprecated;
+		constant_doc["is_experimental"] = item.value.doc.is_experimental;
+		constant_doc["deprecated_message"] = item.value.doc.deprecated_message;
+		constant_doc["experimental_message"] = item.value.doc.experimental_message;
+		constants.push_back(constant_doc);
+	}
+	class_doc["constants"] = constants;
 
 	TypedArray<Dictionary> docs;
 	docs.push_back(class_doc);
@@ -739,6 +779,67 @@ int GodotJSScript::_resolve_method_argument_count(const StringName &p_exposed_na
 	info->argument_count = count;
 	return count;
 }
+#if JSB_TOOLS
+void GodotJSScript::_apply_pending_source_doc() {
+	jsb::internal::ScriptDocEntry entry;
+	if (!jsb::internal::ScriptDocStore::find(get_path(), entry)) {
+		return;
+	}
+	_apply_source_doc_now(entry);
+}
+
+void GodotJSScript::_apply_source_doc_now(const jsb::internal::ScriptDocEntry &p_entry) {
+	// `@bind.help()` 优先：它已在解析期写进 `brief_description`
+	// （`jsb_class_info.cpp` 的 `_parse_script_doc` 调用点）。非空即视为作者的**显式**声明，
+	// 不被源文件注释覆盖；`description` 没有装饰器来源，总是来自源注释。
+	if (script_class_info_.doc.brief_description.is_empty()) {
+		script_class_info_.doc.brief_description = p_entry.class_brief;
+	}
+	script_class_info_.doc.description = p_entry.class_description;
+
+	for (int i = 0; i < p_entry.members.size(); ++i) {
+		if (p_entry.members[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary member = p_entry.members[i].operator Dictionary();
+		const String kind = member.get("kind", String());
+		const StringName name = member.get("name", String());
+		const String brief = member.get("brief", String());
+		const String description = member.get("description", String());
+		if (name.is_empty()) {
+			continue;
+		}
+
+		// 只填**已登记**的成员：暂存里可能含运行期看不到的成员（`_` 前缀映射、被注解过滤掉的
+		// 声明），凭空插入会让 `_has_method` / `get_script_signal_list` 报出不存在的成员。
+		jsb::ScriptBaseDoc *doc = nullptr;
+		if (kind == "method") {
+			if (jsb::ScriptMethodInfo *info = script_class_info_.methods.getptr(name)) {
+				doc = &info->doc;
+			}
+		} else if (kind == "property") {
+			if (jsb::ScriptPropertyInfo *info = script_class_info_.properties.getptr(name)) {
+				doc = &info->doc;
+			}
+		} else if (kind == "signal") {
+			if (jsb::ScriptSignalInfo *info = script_class_info_.signals.getptr(name)) {
+				doc = &info->doc;
+			}
+		} else if (kind == "constant") {
+			if (jsb::ScriptConstantInfo *info = script_class_info_.constants.getptr(name)) {
+				doc = &info->doc;
+			}
+		}
+		if (doc == nullptr) {
+			continue;
+		}
+		if (doc->brief_description.is_empty()) {
+			doc->brief_description = brief;
+		}
+		doc->description = description;
+	}
+}
+#endif // JSB_TOOLS
 
 Variant GodotJSScript::_get_rpc_config() const {
 	ensure_module_loaded();
@@ -787,6 +888,11 @@ void GodotJSScript::load_module_immediately() {
 		const jsb::ScriptClassInfoPtr class_info_ptr = env->find_script_class(module->script_class_id);
 		script_class_info_ = class_info_ptr ? (jsb::StatelessScriptClassInfo)*class_info_ptr : jsb::StatelessScriptClassInfo();
 	}
+#if JSB_TOOLS
+	// 源注释文档可能早于模块加载被推入（编辑器安装/重扫只处理文件，不实例化脚本）。
+	// 此刻类信息刚由上面一行从解析结果拷出，把属于本脚本的文档补上。
+	_apply_pending_source_doc();
+#endif
 	if (is_valid_internal()) {
 		JSB_LOG(VeryVerbose, "GodotJSScript module loaded %s", path);
 		{

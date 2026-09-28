@@ -1,3 +1,4 @@
+// uid://d1ibyj2hxid5q This line is generated, don't modify or remove it.
 // Indexed-property accessor coverage, both binding legs (static / dynamic).
 //
 // Indexed properties (`prop.index >= 0` in the api json) resolve to a dedicated

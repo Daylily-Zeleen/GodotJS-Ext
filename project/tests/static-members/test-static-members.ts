@@ -1,3 +1,4 @@
+// uid://78713tcagvwq This line is generated, don't modify or remove it.
 import { GArray, GDictionary, Node, ResourceLoader, Script } from "godot";
 import { JSWorker } from "godot.worker";
 import { beginAsyncTest, endAsyncTest, reportTestFailure } from "../test-status";

@@ -39,6 +39,7 @@
 #include "tests/test_jsb_bridge_table.h"
 #include "tests/test_jsb_int64_conv.h"
 #include "tests/test_jsb_path_util.h"
+#include "tests/test_jsb_process.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_USE_TYPESCRIPT
 #	include "tests/test_jsb_paths_mapping.h"

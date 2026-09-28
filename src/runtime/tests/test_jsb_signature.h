@@ -40,7 +40,7 @@ namespace jsb::tests {
 
 // 签名清单（sidecar）读取器与类型映射。
 //
-// 清单本身是**编辑器侧构建产物**（`scripts/jsb.editor/src/signature/jsb.signature.extract.cts`），
+// 清单本身是**编辑器侧构建产物**（`scripts/jsb.tools/src/jsb.signature.extract.cts`），
 // 直接依赖它会把这些用例绑到"编辑器跑过一次"这个前置上。这里改为**在测试里自造一份清单字节**：
 // 覆盖读取器的全部分支（字符串池 / 多签名 / 可选与剩余参数 / 信号 / 版本与魔数拒绝），
 // 以及类型映射的三个关键点（引擎别名、`get_original_name` 反查、void 与不可映射的区分）。
