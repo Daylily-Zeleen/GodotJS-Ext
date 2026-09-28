@@ -98,6 +98,8 @@ jobs:
     needs: should-publish
     if: needs.should-publish.outputs.publish == 'true'
     permissions:
+      # actions: read lets the packaging jobs fetch this run's build artifacts.
+      actions: read
       contents: write
     uses: ./.github/workflows/misc_release.yml
     with:

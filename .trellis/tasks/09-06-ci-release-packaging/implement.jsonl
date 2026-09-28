@@ -1,2 +1,6 @@
-{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git 操作与任务流程硬约束"}
-{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "构建参数与 CI 约束（api json 源、无 api-dump job）"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建/产物规范入口：本任务改 CI 打包与产物形态，需先掌握构建检查单与产物部署口径"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "强制编译命令、引擎标志（use_quickjs_ng/use_node/use_jsc）与 SConstruct/CI 的依赖约定，改矩阵引擎标签前必读"}
+{"file": ".trellis/spec/godotjs-ext/build/dependencies.md", "reason": "v8/libnode/lws 依赖来源与 release tag 约定，涉及引擎可支持平台与 prebuilt 边界（如 v8 无 iOS Simulator、无 universal）"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/调用预算硬约束：本任务要改 workflow 与新增脚本，且需大量取证，按此收敛"}
+{"file": ".trellis/tasks/09-06-ci-release-packaging/research/evidence.md", "reason": "本任务全部实测依据：23 条腿清单、引擎↔腿映射、web 腿实为纯 web 的探针结论、各 artifact 内容与现网 v1.0.1 包结构"}
+{"file": ".trellis/tasks/09-06-ci-release-packaging/design.md", "reason": "实现契约：package.py 四子命令、[libraries] 键←文件派生表、包名规则、workflow 改造形态"}

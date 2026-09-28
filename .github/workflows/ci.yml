@@ -498,12 +498,19 @@ jobs:
             arch: x86_64
             target: template_release
             engine: qjs-ng
-          # Web platform (wasm32) - with threads
+          # Web platform (wasm32) - with threads.
+          # `engine: web` = the browser host JS engine (JSB_WITH_WEB). It is NOT
+          # v8: no v8 prebuilt exists for web (v8_prebuilt_libs has no web
+          # entry), so SConstruct leaves v8_support=None and sets
+          # JSB_WITH_WEB=1. The label must say so, otherwise the `*-v8` release
+          # glob swallows the browser wasm into a v8 package (verified on run
+          # 36291137069: impl/web/ x83, impl/v8/ x0 in that wasm; see the task
+          # research/evidence.md). swiftshader etc. are unaffected.
           - platform: web
             os: ubuntu-22.04
             arch: wasm32
             target: template_release
-            engine: v8
+            engine: web
             threads: true
           - platform: web
             os: ubuntu-22.04
@@ -516,7 +523,7 @@ jobs:
             os: ubuntu-22.04
             arch: wasm32
             target: template_release
-            engine: v8
+            engine: web
             threads: false
           - platform: web
             os: ubuntu-22.04
@@ -699,52 +706,41 @@ jobs:
           path: artifact/
           retention-days: 1
 
-  # Guard against PARTIAL release zips: misc_release.yml globs '*-v8' /
-  # '*-qjs-ng' over this run's artifacts and merges whatever matches. A total
-  # mismatch fails loudly at release time, but a partial match (a matrix leg
-  # renamed or dropped) would silently ship a zip missing platforms.
+  # Guard against PARTIAL release packages: misc_release.yml asks
+  # misc/release/package.py for the legs of each published engine and merges
+  # exactly those artifacts. A total mismatch fails loudly at release time, but
+  # a partial match (a matrix leg renamed or dropped) would silently ship a
+  # package missing a platform - or drop a whole engine, which is exactly how
+  # jsc/node were invisible before.
   #
-  # Expected names are DERIVED from the build matrix above (single source of
-  # truth - no second list to maintain). Extra artifacts matching the globs
-  # are by-design auto-included into releases and are NOT flagged.
+  # Expected names, and the engine list itself, are DERIVED from the build
+  # matrix above (single source of truth - no second list to maintain). The
+  # derivation lives in misc/release/package.py, which the release workflow
+  # consumes too, so the gate cannot disagree with what is shipped.
   verify-release-artifacts:
     name: Verify Release Artifact Names
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # The packager parses the build matrix with PyYAML. The runner image may
+      # already ship it; install only when it is genuinely missing, so a
+      # PEP 668 "externally managed environment" runner cannot fail the gate
+      # over a dependency that was present all along.
+      - name: Ensure PyYAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet --disable-pip-version-check pyyaml
       - name: Diff expected (derived from build matrix) vs actual artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY' > expected.txt
-          import yaml
-          wf = yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))
-          legs = wf['jobs']['build']['strategy']['matrix']['include']
-          out = []
-          for leg in legs:
-              eng = leg.get('engine')
-              if eng not in ('v8', 'qjs-ng'):
-                  continue  # jsc/node are not part of the release merge flow yet
-              suffix = '-nothreads' if (leg['platform'] == 'web' and leg.get('threads') is False) else ''
-              out.append(f"{leg['platform']}-{leg['target']}-{leg['arch']}-{eng}{suffix}")
-          print('\n'.join(sorted(out)))
-          PY
-          gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            -q '.artifacts[].name' | sort > actual.txt
           echo "=== expected (derived from build matrix) ==="
-          cat expected.txt
-          echo "=== actual artifacts of this run ==="
-          cat actual.txt
-          if ! missing=$(comm -23 expected.txt actual.txt); then exit $?; fi
-          if [ -n "$missing" ]; then
-            echo "::error::Release merge would silently skip these legs:"
-            echo "$missing"
-            exit 1
-          fi
-          echo "All release-matched legs are present."
+          python3 misc/release/package.py plan --all
+          python3 misc/release/package.py verify --run "${{ github.run_id }}" --repo "${{ github.repository }}"
 
   test:
     name: Test (${{ matrix.runtime }}, ${{ matrix.os }})
