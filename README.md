@@ -56,7 +56,11 @@ Godot, while this is a **GDExtension** you drop into an existing editor.
 | Form | Godot engine module (`SCsub`/`config.py` inside a Godot source tree) | GDExtension (`SConstruct`, `jsb_gdextension_init`) |
 | Engine version | Follows the engine source you build against | **Godot 4.7+**; the godot-cpp bindings are generated against `API_VERSION = "4.7"` and the manifest declares `compatibility_minimum = 4.7` |
 | What you download | A Godot editor build with GodotJS baked in | A per-engine `addons/` archive unpacked into your project; **no engine binaries are published** |
-| Products | Separate runtime and editor libraries | **One library, two products**: `target=editor` compiles the runtime *and* the editor sources into `godotjs-ext.<platform>.editor.<arch>`; `target=template_*` compiles the runtime only. Both share one entry symbol. |
+| Products | One engine module; `weaver-editor/**` is added to it only when the engine is built with the editor (`SCsub`, `if env.editor_build`) | **One GDExtension library, two products**: `target=editor` compiles the runtime *and* the editor sources into `godotjs-ext.<platform>.editor.<arch>`; `target=template_*` compiles the runtime only. Both share one entry symbol. |
+
+> This repository previously shipped two GDExtensions talking over a C-ABI bridge; that was merged
+> into one library (and the bridge deleted) because the editor's dependency on the runtime could not
+> be removed in the first place. Upstream never had two.
 
 ### JS engines
 
@@ -86,9 +90,14 @@ Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. 
 
 ### Numeric and 64-bit handling
 
-- **64-bit integers survive the round trip.** Values beyond 2^53-1 are returned to JS as `BigInt`
-  (`JSB_BIGINT_FOR_64BIT`, output-only, exposed as `BIGINT_FOR_64BIT`), `uint64` has an unsigned exit
-  path, and `bigint` is accepted as an argument, a constructor operand and an operator operand.
+- **64-bit integers survive the round trip.** Upstream already emits `BigInt` above 2^53-1; this
+  repository's `JSB_WITH_BIGINT` governs both directions and adds the rest of the contract: a
+  separate **unsigned exit path** for `uint64` (upstream converts `uint32` explicitly and has no
+  `uint64` type at all), `bigint` accepted as an argument, a constructor operand and an operator
+  operand, and a two-sided magnitude test (`v > MAX || v < -MAX`) — upstream's per-engine helpers used
+  a one-sided test, which silently rounded every *negative* value beyond the safe range through
+  `(double)` and broke `ObjectID` round-tripping. The active position is readable at runtime as
+  `BIGINT_FOR_64BIT` from `godot-jsb`.
 - **Narrow integer slots truncate like the engine does** instead of rejecting, so the static and
   dynamic legs agree (the engine's `binder_common.h` never checks width; the static leg previously did).
   Out-of-range values only warn in debug builds — zero cost in release.
@@ -119,8 +128,11 @@ Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. 
 - **Tool menu**: Generate API Data, Install Project Files, Generate Types, Config Enabled TS Classes,
   Generate All Scene Nodes Types, Generate All Resource Types, Cleanup Invalid Files. The bottom dock
   is `GodotJS-Ext` (REPL + Statistics).
-- **Per-source codegen** into `gen/godot/**` plus `typings/`, including `ResourceLoader.load()` return
-  types and scene-node typing.
+- **Per-source codegen** — typed surfaces for the project's own content in addition to the class API:
+  every scene yields a `<Scene>.nodes.gen.ts` (node path → type) and a `<Scene>.tscn.gen.ts`
+  (`PackedScene<T>` / `ResourceLoader.load()` return type), and a script resource yields a
+  `<res>.gen.ts` (`ResourceTypes` entry). Upstream has the class/documentation codegen only. This is
+  additive to, not a replacement for, the generator above.
 
 ### Release, testing and CI
 
@@ -130,10 +142,10 @@ Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. 
 - **`[information]`** — a project-private metadata block (name/version/author/support link) whose
   `version` is rewritten from the release tag.
 - **doctest C++ suite** driven by one `--jsb-run-tests` flag (editor cases compile into the same
-  registry on `target=editor`), an integration matrix with 16 scenario groups
-  (`project/tests/`: resource, singleton, extend, papaparse, os-executor, cross-environment,
-  default-args, indexed-props, int64, numeric, operators, static-members, codegen, path mapping and a
-  CJK-path case), a codegen baseline verifier (`misc/verify_codegen.py`), and a **static-vs-dynamic
+  registry on `target=editor`), an integration matrix with 16 scenario groups under `project/tests/`
+  (benchmark, cross-environment, default-args, extend, gen_dts_test, indexed-props, int64, numeric,
+  operators, os-executor, papaparse, paths_test, resource, singleton, static-members and a CJK-path
+  case), a codegen baseline verifier (`misc/verify_codegen.py`), and a **static-vs-dynamic
   benchmark** with a cross-leg consistency gate (`misc/bench_matrix.py`).
 - **Changesets release chain**: version PR → CI → `release.yml` → `misc_release.yml`, with the
   packaging plan shared between the release and the gate.
@@ -221,7 +233,11 @@ npx tsc              # no --noCheck: the test project must type-check cleanly
 & godot --audio-driver Dummy --headless --path . --verbose --debug
 ```
 
-The test suite includes 6 test scenes: Resource, Singleton, Extend, Papaparse, OSExecutor, and Worker. Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` / `GODOTJS_TEST_PROJECT_FAILED:`).
+The test suite runs 14 scenes in a fixed order (Resource, Singleton, Extend, Papaparse, OSExecutor,
+CrossEnvironment, SourceMap, DefaultArgs, Operators, StaticMembers, StaticMembersGd, Numeric, Int64,
+IndexedProps); the count is derived from the list, so adding a scene cannot desync the diagnostic.
+Tests report completion via console output sentinels (`GODOTJS_TEST_PROJECT_COMPLETED` /
+`GODOTJS_TEST_PROJECT_FAILED:`).
 
 ### Generating the API Tool Data (Command Line)
 
