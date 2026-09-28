@@ -443,10 +443,7 @@ bool DefaultModuleResolver::try_resolve_id(const String &p_module_id, ModuleSour
 		if (check_absolute_file_path(p_module_id, r_source_info)) {
 			return true;
 		}
-#if JSB_WITH_NODE
-		if (!p_module_id.begins_with("res://node_modules")) return false;
-#endif
-		JSB_LOG(Warning, "failed to check out module (absolute) %s", p_module_id);
+		JSB_LOG(Verbose, "failed to check out module (absolute) %s", p_module_id);
 		r_source_info = {};
 		return false;
 	}
