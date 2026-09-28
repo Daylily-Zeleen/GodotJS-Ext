@@ -102,4 +102,22 @@ spike 证据在 `.agent_tmp/docs-spike/`（安装 126 包 / 构建 1.96s / 自�
 
 ## 提交
 
-见收尾汇报（本次按用户授权提交并推送两个仓库）。
+- `godotjs-ext.github.io`：`d377385`（站点）、`ed855ee`（搜索链接 base 修复）→ 均已推送到 `main`。
+- `GodotJS-Ext`：`e8ffa20`（README 文档链接）、`b0d87d4`（许可表述修正）→ 均已推送到 `main`。
+
+## 部署（已实际启用并验证）
+
+- GitHub Pages 已通过 API 启用（`build_type=workflow`）：`has_pages=true`。
+  UI 路径：仓库 **Settings → Pages → Source = GitHub Actions**。
+- `Deploy Docs #36486298678`（workflow_dispatch）与 `#36487107541`（`ed855ee` push）
+  两次运行 **build + deploy 全绿**。
+- 线上实测：`https://daylily-zeleen.github.io/godotjs-ext.github.io/` 与 `/en/` 均 `200`；
+  浏览器逐页（zh/en 各 9 页）`rail=10 / active=1 / outline 5–12 / <html lang>` 全部正确；
+  搜索返回 20 条且首条锚点跳转成功；语言切换保留当前页语义。
+
+### 线上部署暴露并修复的缺陷
+
+**搜索结果的链接前缀被加了两遍**：local-search provider 自己就用
+`path.join(site.base, relativePath)` 生成文档 id，我又套了一次 `withBase`，
+得到 `/godotjs-ext.github.io/godotjs-ext.github.io/...`（404）。
+修复：`hit.id` 原样使用。提交 `ed855ee`。
