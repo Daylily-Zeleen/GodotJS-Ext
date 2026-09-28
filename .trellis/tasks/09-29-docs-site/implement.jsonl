@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/godotjs-ext/build/release-packaging.md", "reason": "引擎清单/出包规则/[information] 与 [icons]/1:1 校验 —— 安装页与差异总表的事实来源"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "强制 scons 命令、单库两产物、产物部署位置 —— 构建相关内容的事实来源"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建层检查单与相关规范入口"}
+{"file": ".trellis/spec/godotjs-ext/index.md", "reason": "仓库结构速览与 spec 层索引 —— 页面导航与内容边界依据"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "单库合并、共享库约束 —— runtime/architecture 与 differences 页的事实来源"}
+{"file": ".trellis/tasks/09-29-docs-site/design.md", "reason": "技术选型（VitePress 实测）+ 目录布局 + 主题规格 + 页面映射表"}
+{"file": ".trellis/tasks/09-29-docs-site/implement.md", "reason": "分阶段执行清单与验证命令"}

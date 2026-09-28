@@ -18,7 +18,7 @@
 
 ## Documentation
 
-For full documentation, visit [godotjs.github.io](https://godotjs.github.io/documentation/getting-started/).
+For full documentation, visit [daylily-zeleen.github.io/godotjs-ext.github.io](https://daylily-zeleen.github.io/godotjs-ext.github.io/).
 
 ---
 
@@ -39,7 +39,7 @@ See [Breaking Changes](https://godotjs.github.io/misc/breaking-changes/) if upgr
 - [x] REPL in Editor
 - [x] Hot-reloading
 - [x] Support for multiple javascript engines ([v8](https://github.com/v8/v8), [quickjs](https://github.com/bellard/quickjs), [quickjs-ng](https://github.com/quickjs-ng/quickjs), [JavaScriptCore](https://developer.apple.com/documentation/javascriptcore), the host Browser JS)
-- [x] [Worker threads](https://godotjs.github.io/documentation/experimental/worker/) (limited support) (**experimental**)
+- [x] [Worker threads](https://daylily-zeleen.github.io/godotjs-ext.github.io/en/runtime/engines) (limited support) (**experimental**)
 - [x] Asynchronously loaded modules (limited support) (_temporarily only available in v8.impl, quickjs.impl_)
 
 ## Examples

@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/09-29-docs-site/prd.md", "reason": "验收标准 AC1–AC8 与范围（核心集 9 页 × 2 语言）——核对用"}
+{"file": ".trellis/spec/godotjs-ext/build/release-packaging.md", "reason": "核对安装页/引擎矩阵页的引擎与平台事实是否与 CI 矩阵、打包规则一致"}
+{"file": ".trellis/spec/godotjs-ext/build/scons-build.md", "reason": "核对构建相关页面的命令与产物路径是否与规范一致"}
+{"file": ".trellis/spec/godotjs-ext/index.md", "reason": "核对项目结构描述与 spec 层事实"}
