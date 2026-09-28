@@ -29,7 +29,6 @@
 #if JSB_USE_TYPESCRIPT
 #	include "jsb_editor_tool.h"
 #	include <internal/jsb_paths_mapping.h>
-#	include "../weaver/jsb_script.h"
 #endif
 
 #include "../jsb_editor_settings.h"
