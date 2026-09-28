@@ -42,6 +42,110 @@ See [Breaking Changes](https://godotjs.github.io/misc/breaking-changes/) if upgr
 - [x] [Worker threads](https://daylily-zeleen.github.io/godotjs-ext.github.io/en/runtime/engines) (limited support) (**experimental**)
 - [x] Asynchronously loaded modules (limited support) (_temporarily only available in v8.impl, quickjs.impl_)
 
+## Difference from upstream GodotJS
+
+GodotJS-Ext started from [godotjs/GodotJS](https://github.com/godotjs/GodotJS) and keeps its runtime
+model, module system and annotation surface. Everything below is what this repository adds or
+replaces on top of that; the short version is that upstream is an **engine module** you compile into
+Godot, while this is a **GDExtension** you drop into an existing editor.
+
+### Distribution and build
+
+| | Upstream GodotJS | GodotJS-Ext |
+|---|---|---|
+| Form | Godot engine module (`SCsub`/`config.py` inside a Godot source tree) | GDExtension (`SConstruct`, `jsb_gdextension_init`) |
+| Engine version | Follows the engine source you build against | **Godot 4.7+**; the godot-cpp bindings are generated against `API_VERSION = "4.7"` and the manifest declares `compatibility_minimum = 4.7` |
+| What you download | A Godot editor build with GodotJS baked in | A per-engine `addons/` archive unpacked into your project; **no engine binaries are published** |
+| Products | Separate runtime and editor libraries | **One library, two products**: `target=editor` compiles the runtime *and* the editor sources into `godotjs-ext.<platform>.editor.<arch>`; `target=template_*` compiles the runtime only. Both share one entry symbol. |
+
+### JS engines
+
+Both support V8, QuickJS, QuickJS-NG, JavaScriptCore and the browser's host JS. This repository adds:
+
+- **Node.js** (`use_node=yes`, libnode-embedded V8) as a first-class engine, on all three desktop legs.
+- **Web as its own release axis**: `platform=web` with no engine flag builds the *browser host JS*
+  (`JSB_WITH_WEB`), and threaded / non-threaded variants are distinguished.
+- **Engine selection is a CI-matrix decision.** The build matrix in `.github/workflows/ci.yml` is the
+  single derivation point; `misc/release/package.py` and the `verify-release-artifacts` gate both read
+  it, so a release can no longer ship a platform the gate never saw.
+
+### Bindings and codegen
+
+- **Selectable binding mode** (`binding_mode=static|shared|dynamic`, default `shared`) — upstream's
+  `JSB_WITH_STATIC_BINDINGS` is hardcoded to `0`. `static` emits per-method thunks, `shared` emits
+  shared thunks plus per-method callback data, `dynamic` goes through runtime reflection. The active
+  mode is readable at runtime as `BINDING_MODE` from `godot-jsb`.
+- **Static-binding dispatch tables** generated at build time by `misc/build/static_binding_codegen.py`
+  (`src/static_binding/gen/*`), plus a self-contained runtime side (`src/static_binding/dispatch.h`,
+  `thunks/**`).
+- **`api_tool`: a lazy binary store of engine class information** (`src/api_tool/`), where upstream has
+  no such component. Method records are split into a hot layer read by every ptrcall (48–72 B, with a
+  2-byte argument descriptor) and a cold `ApiMethodDetail` layer the editor's codegen loads on first
+  access — the class-method table shrank from 3,475,812 B to 1,110,366 B, and layouts are pinned by
+  `static_assert` so they cannot drift back.
+
+### Numeric and 64-bit handling
+
+- **64-bit integers survive the round trip.** Values beyond 2^53-1 are returned to JS as `BigInt`
+  (`JSB_BIGINT_FOR_64BIT`, output-only, exposed as `BIGINT_FOR_64BIT`), `uint64` has an unsigned exit
+  path, and `bigint` is accepted as an argument, a constructor operand and an operator operand.
+- **Narrow integer slots truncate like the engine does** instead of rejecting, so the static and
+  dynamic legs agree (the engine's `binder_common.h` never checks width; the static leg previously did).
+  Out-of-range values only warn in debug builds — zero cost in release.
+
+### JS / TypeScript API
+
+- **`@bind.exposed.const()` / `@bind.exposed.shared()`** — expose a `static` member to Godot as a
+  read-only constant or as a shared static variable that GDScript can read *and write* with one value
+  per process. Upstream's `Script::get_constants()`/`get_members()` overrides are empty stubs.
+- **`godot.shadowRealm`** — a ShadowRealm module (`JSShadowRealm`, `TransferableJSShadowRealm`) built
+  on upstream's shadow-environment plumbing but exposed to scripts as a module, which upstream does not
+  do. It is disabled on the pure-web build.
+- **`godot.worker`** — `JSWorker` / `JSWorkerParent` with a single transfer contract: the transferable
+  list is an argument of `postMessage`. Upstream's declarations still carry the deprecated
+  `worker.ontransfer` / `JSWorkerParent.transfer()` shapes alongside it; this repository exposes only
+  the parameter form, which the editor autocompletes and the type checker enforces.
+- **Newer engine introspection**: `BIGINT_FOR_64BIT` and `BINDING_MODE` are exported from `godot-jsb`.
+
+### Editor integration
+
+- **Source comments become script documentation.** A resident Node tool process
+  (`scripts/jsb.tools/`) parses `.ts`/`.js` comments and feeds class/member docs to the editor, with
+  `@bind.help()` taking precedence. Upstream fills `get_documentation()` from annotations only.
+- **Signature sidecars** — a `.sig` file next to each compiled script carries function/signal
+  signatures, so method and signal info survives without re-reading the source; it is packaged on export.
+- **Config Enabled TS Classes** — a dialog (`Config Enabled Classes Bindings`) to choose which native
+  classes get bindings generated, with preset import/export.
+- **Tool menu**: Generate API Data, Install Project Files, Generate Types, Config Enabled TS Classes,
+  Generate All Scene Nodes Types, Generate All Resource Types, Cleanup Invalid Files. The bottom dock
+  is `GodotJS-Ext` (REPL + Statistics).
+- **Per-source codegen** into `gen/godot/**` plus `typings/`, including `ResourceLoader.load()` return
+  types and scene-node typing.
+
+### Release, testing and CI
+
+- **Per-engine release archives** with a `.gdextension` generated for exactly the files each archive
+  contains, a 1:1 self-check in `assemble`, and `[icons]` packaged alongside the binaries. Upstream
+  uploads one asset per OS/target/engine combination with a fixed layout.
+- **`[information]`** — a project-private metadata block (name/version/author/support link) whose
+  `version` is rewritten from the release tag.
+- **doctest C++ suite** driven by one `--jsb-run-tests` flag (editor cases compile into the same
+  registry on `target=editor`), an integration matrix with 16 scenario groups
+  (`project/tests/`: resource, singleton, extend, papaparse, os-executor, cross-environment,
+  default-args, indexed-props, int64, numeric, operators, static-members, codegen, path mapping and a
+  CJK-path case), a codegen baseline verifier (`misc/verify_codegen.py`), and a **static-vs-dynamic
+  benchmark** with a cross-leg consistency gate (`misc/bench_matrix.py`).
+- **Changesets release chain**: version PR → CI → `release.yml` → `misc_release.yml`, with the
+  packaging plan shared between the release and the gate.
+
+### Not a capability difference
+
+- Path/hash helpers on the `String` prototype are **not a difference**: upstream has no such extension,
+  and this repository's own copy of it has been removed. Scripts that used those helpers need their own
+  implementation.
+- Legacy `@Export` / `@ExportSignal` decorators still work but are deprecated in favour of
+  `createClassBinder()` — same as upstream.
+
 ## Examples
 
 For more information on how to use `GodotJS` in a project, check out [GodotJSExample](https://github.com/ialex32x/GodotJSExample.git) for examples written in typescript.  

@@ -417,7 +417,7 @@ Error ApiStoreReader::read_native_structures(const String &p_path, LocalVector<A
 
 	r.read(r_data, [](PayloadReader &r, ApiNativeStructure &ns) {
 		r.read(ns.name);
-		r.read(ns.format); // TODO: 解析后调整反序列化
+		r.read(ns.format);
 	});
 	return OK;
 }

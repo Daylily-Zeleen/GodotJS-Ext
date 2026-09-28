@@ -47,7 +47,6 @@
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
-// TODO: 低优先级，优化搜索框的模糊搜索。
 using namespace godot;
 
 namespace {

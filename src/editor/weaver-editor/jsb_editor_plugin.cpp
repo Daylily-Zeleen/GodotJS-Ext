@@ -1286,7 +1286,6 @@ void GodotJSEditorPlugin::start_tsc_watch() {
 #ifdef WINDOWS_ENABLED
 	const String exe_path = "node.exe";
 #else
-	//TODO not tested
 	const String exe_path = "node";
 #endif
 	//TODO no console output in this way, implement pipes here

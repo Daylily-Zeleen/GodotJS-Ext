@@ -148,7 +148,7 @@
 // [EXPERIMENTAL] use optimized wrapper function calls if possible
 #define JSB_FAST_REFLECTION 1
 
-// [TODO] 隐式数组转换的影响范围说明：
+// 隐式数组转换的影响范围说明：
 // 该开关仅作用于「带类型提示」的转换路径（TypeConvert::js_to_gd_var 带
 // Variant::Type 参数的重载，即方法签名/属性类型/构造参数等已声明目标类型
 // 的场景），且只覆盖 Packed 系数组与 godot::Array 两类目标。

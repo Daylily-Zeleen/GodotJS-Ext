@@ -79,7 +79,7 @@ public:
 };
 } //namespace jsb
 
-using ScriptInstancePropertyState = List<Pair<StringName, Variant>>; // TODO: 或者 LocalVector<Pair<StringName, Variant>>，看注重时间还是空间
+using ScriptInstancePropertyState = List<Pair<StringName, Variant>>;
 
 class GodotJSScriptLanguage : public ScriptLanguageExtension {
 	GDCLASS(GodotJSScriptLanguage, ScriptLanguageExtension)
