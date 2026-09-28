@@ -77,7 +77,7 @@ Development / Misc）。本站映射：
 |---|---|---|
 | `index.md` 首页 | `index.md` | 重写：GDExtension、平台表、引擎表 |
 | `guide/installation.md` | `documentation/getting-started.md` | **重写**：下载 addons 压缩包并解压进工程——上游是"下载自制 Godot 编辑器"，本仓不发布引擎 |
-| `guide/project-setup.md` | 同上 | 重写：Install Preset Files、`pnpm i`、`tsc`、编辑器命令 |
+| `guide/project-setup.md` | 同上 | 重写：Install Project Files、`pnpm i`、`tsc`、编辑器命令 |
 | `guide/first-script.md` | `documentation/godot-js-scripts/intro.md` | 重写：`default export`、构造器 `identifier?`、async/await |
 | `scripting/modules.md` | `godot-js-scripts/bindings.md` | 重写：`godot` / `godot-jsb` / `godot.worker` 模块面；GArray/GDictionary/proxy；PackedArray/ArrayBuffer；StringName；值语义陷阱 |
 | `scripting/annotations.md` | `godot-js-scripts/decorators.md` | **重写**：新式 `createClassBinder()` 与旧式装饰器并存；真实导出名 |

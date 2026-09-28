@@ -63,10 +63,6 @@
 
 #include "jsb_primitive_bindings.h"
 
-#if JSB_USE_JS_TYPE_EXTENSION
-#	include "js_type_extension/string_ext.h"
-#endif // SET_EXTENSION_FUNCTION
-
 namespace jsb {
 #if JSB_V8_CPPGC
 // for cppgc wrapper descriptor
@@ -378,9 +374,6 @@ Environment::Environment(const CreateParams &p_params)
 #endif // JSB_SHADOW_REALM_ENABLED
 			Worker::register_(context, global);
 			Essentials::register_(context, global);
-#if JSB_USE_JS_TYPE_EXTENSION
-			jsb::type_extension::string_ext::register_string_extension(context, global);
-#endif // JSB_USE_JS_TYPE_EXTENSION
 			register_primitive_bindings(this);
 		}
 

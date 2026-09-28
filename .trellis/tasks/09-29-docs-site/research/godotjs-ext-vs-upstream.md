@@ -22,7 +22,7 @@
 | `weaver/` | `ScriptLanguage` / `Script` / `ScriptInstance` / ResourceFormat loader+saver |
 | `bridge/` | `Environment`、模块加载器与解析器、类型转换、worker、shadow realm、debugger、`ScriptDocStore` |
 | `impl/{v8,quickjs,node,jsc,web}/` | 各引擎实现 |
-| `internal/`、`js_type_extension/` | 共享工具与 JS 类型扩展 |
+| `internal/` | 共享工具 |
 
 - `src/runtime/register_types.cpp`：唯一入口 + 启动回调、语言/loader/saver 注册、
   `JSB_WITH_EDITOR` 分支、api_tool init/shutdown。
@@ -32,8 +32,7 @@
   `BINDING_MODE` / `BIGINT_FOR_64BIT` / `DEV_ENABLED` / `TOOLS_ENABLED` /
   `CAMEL_CASE_BINDINGS_ENABLED` / `version` / `impl` / `_new_callable` /
   `set_async_module_loader` / `$import`，以及 `jsb.internal.*`。
-- 编译期功能矩阵见 `src/jsb.config.h`（`JSB_WITH_BIGINT` 141、`JSB_SHADOW_REALM_ENABLED` 234、
-  `JSB_USE_JS_TYPE_EXTENSION` 249 等）。
+- 编译期功能矩阵见 `src/jsb.config.h`（`JSB_WITH_BIGINT`、`JSB_SHADOW_REALM_ENABLED` 等）。
 
 ## 3. 构建与产物
 
@@ -69,17 +68,19 @@
 
 ## 5. 编辑器（`src/editor/weaver-editor/`）
 
-- dock：`TabContainer`，tab0 = REPL（`jsb_repl.h`：历史、补全、clear/gc/generate-types/
-  install-files/tsc 按钮），tab1 = Statistics（`jsb_statistics_viewer.h`）。
-- 菜单（`jsb_editor_plugin.cpp` 440–455 / 337–360）：
-  `MENU_ID_INSTALL_PROJECT_FILES`、`MENU_ID_GENERATE_TYPES`、`MENU_ID_GENERATE_API_DATA`、
-  `MENU_ID_CONFIG_ENABLED_TS_CLASSES`、`MENU_ID_GENERATE_ALL_SCENE_NODES_TYPES`、
-  `MENU_ID_GENERATE_ALL_RESOURCE_TYPES`、`MENU_ID_CLEANUP_INVALID_FILES`。
+- dock 名 `GodotJS-Ext`（`jsb_docked_panel.cpp:42`）：`TabContainer`，tab0 = REPL（`jsb_repl.h`：
+  历史、补全、clear/gc/generate-types/install-files/tsc 按钮），tab1 = Statistics
+  （`jsb_statistics_viewer.h`）。
+- 工具子菜单名 `GodotJS-Ext`（`jsb_editor_plugin.cpp:439`），条目（:440-455）：
+  `Generate API Data`、`Install Project Files`、`Generate Types`、`Config Enabled TS Classes`
+  （对话框标题 `Config Enabled Classes Bindings`，`jsb_config_classes_dialog.cpp:143`）、
+  `Generate All Scene Nodes Types`、`Generate All Resource Types`、`Cleanup Invalid Files`。
 - 命令行：`--generate-types`、`--godotjs-api-generate <extension_api.json>`（230–246, 322–341）。
-- 安装文件清单（`add_install_file(...)`，474–503）：`tsconfig.json`、`jsconfig.json`、`package.json`、
+- 安装文件清单（`add_install_file(...)`，471–499）：`tsconfig.json`、`jsconfig.json`、`package.json`、
   三处 `.gdignore`、`godot.minimal.d.ts`、`godot.mix.d.ts`、`godot.shadowRealm.d.ts`、
-  `type.extension.d.ts`、`godot.worker.d.ts`、`jsb.editor.bundle.d.ts`、`jsb.runtime.bundle.d.ts`、
-  `jsb.bundle.d.ts`（obsolete），以及 `jsb.editor.tools.cjs` / `jsb.signature.extract.cjs` /
+  `godot.worker.d.ts`、`jsb.editor.bundle.d.ts`、`jsb.runtime.bundle.d.ts`、
+  `jsb.bundle.d.ts`（obsolete）与 `type.extension.d.ts`（obsolete——JS 类型扩展已移除，
+  该条目只用于在安装时删除旧项目里的残留），以及 `jsb.editor.tools.cjs` / `jsb.signature.extract.cjs` /
   `jsb.doc.extract.cjs`（落项目数据目录，`jsb_editor_pch.h:45` 定义入口名）。
 - 项目数据目录：`internal::settings::get_project_data_dir_name()`（`.godot` 或 `godot`）；
   TS 输出目录 `get_jsb_out_dir_name()` = `<数据目录>/godotjs_ext`（`jsb_settings.cpp:37-44`）。

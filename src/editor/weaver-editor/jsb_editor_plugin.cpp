@@ -437,7 +437,7 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 
 	// jsb::internal::Settings::on_editor_init();
 	PopupMenu *menu = memnew(PopupMenu);
-	add_tool_submenu_item(TTR("GodotJS"), menu);
+	add_tool_submenu_item(TTR("GodotJS-Ext"), menu);
 	menu->add_item(TTR("Generate API Data"), MENU_ID_GENERATE_API_DATA);
 	menu->add_separator();
 	menu->add_item(TTR("Install Project Files"), MENU_ID_INSTALL_PROJECT_FILES);
@@ -482,9 +482,6 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 #if JSB_SHADOW_REALM_ENABLED
 	add_install_file({ "godot.shadowRealm.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 #endif // JSB_SHADOW_REALM_ENABLED
-#if JSB_USE_JS_TYPE_EXTENSION
-	add_install_file({ "type.extension.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
-#endif // JSB_USE_JS_TYPE_EXTENSION
 #if !JSB_WITH_WEB
 	add_install_file({ "godot.worker.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS });
 #endif
@@ -493,6 +490,10 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 
 	// obsolete files (for upgrading from old versions)
 	add_install_file({ "jsb.bundle.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS | jsb::weaver::CH_OBSOLETE });
+	// The JS type extension is gone (`src/runtime/js_type_extension/` removed). Projects
+	// initialised by an older build still carry this declaration file, which would keep
+	// advertising `String` methods that no longer exist, so it is deleted on install.
+	add_install_file({ "type.extension.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS | jsb::weaver::CH_OBSOLETE });
 
 #if JSB_USE_TYPESCRIPT
 	// 常驻编辑器工具进程及其两个同目录模块（源码在 `scripts/jsb.tools/`）：入口

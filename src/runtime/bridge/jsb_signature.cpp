@@ -143,7 +143,7 @@ const HashMap<StringName, Variant::Type> &_get_variant_type_names() {
 	return table;
 }
 
-// 引擎别名集（`scripts/typings/godot.generated.d.ts` + `type.extension.d.ts`）。它们在 AST 上
+// 引擎别名集（`scripts/typings/godot.generated.d.ts`）。它们在 AST 上
 // **保留原文**，在 type checker 上会退化成 `number`/`string` ⇒ 只能按原文识别。
 const HashMap<String, Variant::Type> &_get_engine_aliases() {
 	static const HashMap<String, Variant::Type> aliases = []() {

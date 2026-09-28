@@ -39,7 +39,7 @@ static constexpr int kTabViewer = 1;
 } //namespace
 
 GodotJSDockedPanel::GodotJSDockedPanel() {
-	set_name(TTR("GodotJS"));
+	set_name(TTR("GodotJS-Ext"));
 	set_default_slot(EditorDock::DOCK_SLOT_BOTTOM);
 
 	MarginContainer *margin = memnew(MarginContainer);

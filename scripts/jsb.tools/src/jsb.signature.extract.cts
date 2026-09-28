@@ -53,7 +53,7 @@ const VERSION = 1;
 const SIG_EXT = ".sig";
 
 /**
- * 引擎别名集（`scripts/typings/godot.generated.d.ts:115-121` + `type.extension.d.ts:26`）。
+ * 引擎别名集（`scripts/typings/godot.generated.d.ts:115-121`）。
  *
  * 这些别名在 AST 上**保留原文**，在 checker 上会退化成 `number` / `string` ⇒ 只能在语法侧识别。
  * 命中即直接作为类型名输出，不再沿别名链继续走（它们的底层是 JS 原语，没有更多信息）。

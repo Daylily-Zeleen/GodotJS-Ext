@@ -654,7 +654,6 @@ generate_code([
     PresetDefine("scripts/typings/godot.mix.d.ts", ""),
     PresetDefine("scripts/typings/godot.worker.d.ts", ""),
     PresetDefine("scripts/typings/godot.shadowRealm.d.ts", ""),
-    PresetDefine("scripts/typings/type.extension.d.ts", ""),
     PresetDefine("scripts/out/jsb.runtime.bundle.d.ts", ""),
     PresetDefine("scripts/out/jsb.runtime.bundle.js.map", ""),
     PresetDefine("scripts/out/jsb.editor.bundle.d.ts", ""),
@@ -771,7 +770,6 @@ env.Append(CPPPATH=[
     os.path.join(root_dir, runtime_dir, "internal"),
     os.path.join(root_dir, runtime_dir, "weaver"),
     os.path.join(root_dir, runtime_dir, "bridge"),
-    os.path.join(root_dir, runtime_dir, "js_type_extension"),
     os.path.join(root_dir, third_dir),
 ])
 
@@ -856,7 +854,6 @@ runtime_globs = [
     os.path.join(runtime_dir, "*.cpp"),
     os.path.join(runtime_dir, "bridge", "*.cpp"),
     os.path.join(runtime_dir, "weaver", "*.cpp"),
-    os.path.join(runtime_dir, "js_type_extension", "*.cpp"),
     os.path.join(runtime_dir, "internal", "*.cpp"),
     os.path.join(internal_dir, "*.cpp"),
     os.path.join(compat_dir, "*.cpp"),

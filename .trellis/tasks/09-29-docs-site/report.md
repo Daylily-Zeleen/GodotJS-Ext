@@ -27,7 +27,7 @@ spike 证据在 `.agent_tmp/docs-spike/`（安装 126 包 / 构建 1.96s / 自�
 |---|---|
 | `index.md` | 重写：GDExtension 身份、Godot 4.7+、引擎/平台表 |
 | `guide/installation.md` | **重写**：下载按引擎分包的 addons → 解压进工程（上游是"下载自制 Godot 编辑器"） |
-| `guide/project-setup.md` | 重写：Install Preset Files 产物清单、pnpm/tsc、API 数据引导两段命令 |
+| `guide/project-setup.md` | 重写：Install Project Files 产物清单、pnpm/tsc、API 数据引导两段命令 |
 | `guide/first-script.md` | 重写：`default export`、构造器 `identifier?`、async/await |
 | `scripting/modules.md` | 重写：`godot` / `godot-jsb` / `godot.worker`、GArray/GDictionary、PackedArray↔ArrayBuffer、**BigInt/int64**、值语义陷阱 |
 | `scripting/annotations.md` | **重写**：`createClassBinder()` 新式 + 旧式装饰器并存，`@bind.exposed.const/shared` |

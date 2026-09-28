@@ -40,7 +40,7 @@
       `addons/godotjs-ext.daylily-zeleen/` → 引擎加载 `res://addons/.../godotjs-ext.gdextension`
       → 重启编辑器。**不写"下载自制编辑器"**（本仓不发布引擎）；引擎包选择（v8/qjs-ng/jsc/node/web）
       与平台对应关系来自 `misc/release/package.py` 与 release-packaging 规范。
-- [ ] 2.3 `guide/project-setup.md`：Install Preset Files（`scripts/presets/*.txt` 落 `tsconfig.json`/
+- [ ] 2.3 `guide/project-setup.md`：Install Project Files（`scripts/presets/*.txt` 落 `tsconfig.json`/
       `jsconfig.json`/`package.json`/`.gdignore`）、`pnpm install`、`npx tsc`、底部 dock 的
       TSC watch / Generate Types 按钮。
 - [ ] 2.4 `guide/first-script.md`：`export default class X extends Node`、必须 `default export`、

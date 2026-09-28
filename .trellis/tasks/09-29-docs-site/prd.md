@@ -44,10 +44,11 @@
 
 ### 编辑器功能（`src/editor/weaver-editor/`）
 
-- 底部 dock `GodotJS`：REPL（`jsb_repl.cpp:57-135`）+ Statistics（`jsb_statistics_viewer.cpp:37-72`）。
-- 命令：Install Preset Files、Generate Types（`--generate-types`）、Generate API Data
-  （`--godotjs-api-generate <extension_api.json>`，`jsb_editor_plugin.cpp:230-247,322-341`）、
-  `Config Enabled Classes Bindings` 对话框（`jsb_config_classes_dialog.cpp:142-199`）。
+- 底部 dock `GodotJS-Ext`：REPL（`jsb_repl.cpp:57-135`）+ Statistics（`jsb_statistics_viewer.cpp:37-72`）。
+- 命令（`jsb_editor_plugin.cpp:438-455`）：Generate API Data、Install Project Files、Generate Types
+  （`--generate-types`）、Config Enabled TS Classes（对话框标题 `Config Enabled Classes Bindings`，
+  `jsb_config_classes_dialog.cpp:143`）、Generate All Scene Nodes Types、Generate All Resource Types、
+  Cleanup Invalid Files；命令行 `--godotjs-api-generate <extension_api.json>` 见 :230-247,322-341。
 - TSC watch（`jsb_editor_plugin.h:168-169`）、ExportPlugin（`jsb_export_plugin.cpp`）。
 - 源码注释 → 编辑器脚本文档（常驻 Node 工具进程）：
   `.trellis/tasks/archive/2026-09/09-28-comment-doc-annotation/report.md`。
@@ -62,8 +63,8 @@
   `scripts/typings/godot.worker.d.ts:24-56`）。
 - 代码生成：`project/gen/godot/**` 的 `.gen.ts`；`scripts/typings/` 的 `godot.generated.d.ts`、
   `godot.minimal.d.ts`、`godot.mix.d.ts`、`godot.shadowRealm.d.ts`。
-- 工程预设：`scripts/presets/{tsconfig.json,jsconfig.json,package.json,gdignore}.txt`，经编辑器
-  "Install Preset Files" 安装。
+- 工程预设：`scripts/presets/{tsconfig.json,jsconfig.json,package.json,gdignore}.txt`，经编辑器菜单
+  **项目 → 工具 → GodotJS-Ext → Install Project Files** 安装。
 
 ### 测试与 CI
 
@@ -116,7 +117,7 @@
   |---|---|
   | `index.md` 首页 | `index.md`（重写：GDExtension、平台表、引擎表） |
   | `guide/installation.md` | `documentation/getting-started.md`（重写：下载 addons + 解压进工程） |
-  | `guide/project-setup.md` | 同上（Install Preset Files、`pnpm i`、`tsc`） |
+  | `guide/project-setup.md` | 同上（Install Project Files、`pnpm i`、`tsc`） |
   | `guide/first-script.md` | `documentation/godot-js-scripts/intro.md` |
   | `scripting/modules.md` | `godot-js-scripts/bindings.md` |
   | `scripting/annotations.md` | `godot-js-scripts/decorators.md`（重写：新/旧装饰器并存） |
