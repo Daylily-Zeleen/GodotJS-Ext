@@ -21,7 +21,7 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 - **不要回退旧引擎**：旧二进制（如 7-28 的 editor.dev）加载不了新构建扩展（godot-cpp ABI 不匹配，插件实例化即崩）；官方 4.8.dev 宿主会挂死。
 - **C++ 测试宿主（CI 同款）用官方稳定版**（`godot`）；**不要用** `bin/windows/` 下自己构建的 godotjs-ext 可执行文件（headless 必崩，与改动无关）。
 - `--godotjs-api-generate` 会【消费删除】`project/extension_api.json`；需要资源声明 gen（`extension_api.json.gen.ts`）时，先把官方引擎自带的 `extension_api.json`（随引擎分发，在其安装目录下）复制回 `project/` 再重跑 `--generate-types`。
-- `project/.godot` 删除后的重建三件套：①手工写 `project/.godot/extension_list.cfg`（两行：runtime 与 editor 的 .gdextension 路径）；②重新编译 TS；③重新生成 api 数据。
+- `project/.godot` 删除后的重建三件套：①手工写 `project/.godot/extension_list.cfg`（**一行**：`res://addons/godotjs-ext.daylily-zeleen/godotjs-ext.gdextension`）；②重新编译 TS；③重新生成 api 数据。
 - **测试项目重置**（需要完整初始环境时，先删除）：`./project/.godot`、`./project/gen`、`./project/typings`（如果有）；`./project/tsconfig.json` **只有**要执行 `GodotJSEditorPlugin::try_install_project_files()` 的测试才删除（git 跟踪的预设文件）。
 
 - `binding_mode=static|shared`（默认 `shared`，2026-09-20 起）时每次构建自动跑 codegen 单态发射（`misc/build/static_binding_codegen.py --binding-mode <mode>`），产出 `src/static_binding/gen/dispatch_*.gen.cpp`（glob 编译）；`binding_mode=dynamic` 不跑 codegen。切分支后 gen 目录残留 obj 会被覆盖，无需手动清理
@@ -31,7 +31,14 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 
 ## dll 部署与验证（动态/静态两份）
 
-- addons 有两个 gdextension：`godotjs-ext.gdextension`（主，v8）与 `godotjs-ext-editor.gdextension`（editor），各自指向 `bin/windows/` 下不同 dll——**替换验证时两份都要换**，只换主 dll 会被 editor dll 的旧行为干扰
+- addons 只有**一份** gdextension（`godotjs-ext.gdextension`，见 [single-library](#单一库两产物2026-09-28)）；`target=editor` 与 `target=template_*` 的产物名不同（`godotjs-ext.<plat>.editor.<arch>` / `.template_<flavor>.`），替换验证时换**当前 target 那一份**
+
+### 单一库两产物（2026-09-28）
+
+- 同一 `SharedLibrary` 目标按 `env["target"]` 选源集合：`target=editor` 编 `runtime_globs + editor_globs`，模板腿只编 `runtime_globs`（editor 源需要 `TOOLS_ENABLED` godot-cpp 头，模板腿没有）
+- 两侧 glob 有 19 个同名文件（api_tool / internal / compat 各若干），合并时**按 basename 保序去重**（`SConstruct` 的 `make_target_env`）；obj 落 `.build/runtime/`
+- 宏 `JSB_WITH_EDITOR`（`SConstruct` 的 `jsb_defines` → `src/jsb.gen.h`）取值 `target == "editor"`，用于共享 TU 内的分支（`register_types.cpp` 的 editor 模块转调、测试入口、`jsb_script_language.cpp` 的 templates include）。它与 `JSB_TOOLS`（镜像 godot-cpp 的 `TOOLS_ENABLED`）并存不合并
+- 唯一入口符号 `jsb_gdextension_init`（原 `jsb_editor_library_init` 已删）
 - **进程残留锁 dll**：编译成功但 cp 报 "Device or resource busy" = 有 godot 进程未退出（含 SEGV 残留）。先 `taskkill /F /IM godot*` 再 cp；cp 后用 md5sum 确认两处一致
 - 引擎加载的是 `project/addons/godotjs-ext.daylily-zeleen/bin/` 下的产物——改代码后必须 scons 再验证
 - **dll 身份只认 md5 + 构建命令**：采数/验证前 `md5sum` 两处部署位；`staticBinding` 字段不可信，`det==0 flood` 只对 dynamic 有效。跨腿采数后切回另一腿必须重新 `scons`（两腿产物字节不同），并重新核对 md5——凭记忆判断当前部署的是哪条腿必然出错
@@ -41,7 +48,7 @@ scons target=editor compiledb=yes debug_symbols=yes dev_build=yes verbose=yes -j
 
 本地测试命令速查（详细判据与陷阱见 [../test/index.md](../test/index.md) 与 [../test/doctest.md](../test/doctest.md)）：
 
-- C++ 测试（需 `tests=yes` 构建）：`godot --path ./project --jsb-run-tests`（editor 构建同时跑 runtime + editor 两套件）
+- C++ 测试（需 `tests=yes` 构建）：`godot --path ./project --jsb-run-tests`（单套件；editor 用例在 `target=editor` 构建时并入同一注册表）
 - TS 编译：`cd project && pnpm gen:types && node_modules/.bin/tsc`（`gen:types` 需要 `GODOT` 环境变量指向引擎；`tsconfig.json` 的 `typeRoots` 指向 `./typings`，缺 typings 必须先 `gen:types`。**不要用 `--noCheck`**——那会跳过类型检查，本项目要求测试项目真实过检）
 - TS 集成测试：先生成 api 数据并编译 TS，再 `godot --path ./project --verbose`
 - Benchmark：`godot --audio-driver Dummy --headless --path ./project -- --bench [--gc] [--only=<组>]`——**所有开关都是 user args**（`--` 之后）：`--bench`（`start.ts` 用 `OS.get_cmdline_user_args()` 判断，选中只跑 benchmark 场景）、`--gc`、`--only`（`benchmark.ts` 同源解析）。把 `--bench` 写在 `--` 之前引擎会试图解析它而测试项目收不到（判别：`START-DIAG benchOnly=false` 即未生效）；详细纪律见 [../test/index.md](../test/index.md) Benchmark 专项

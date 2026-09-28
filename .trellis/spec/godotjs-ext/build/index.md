@@ -14,6 +14,6 @@
 ## 质量检查
 
 - [ ] 只用规范命令编译，未自行编造参数、未 `scons --clean`
-- [ ] dll 替换验证：两份 gdextension 的 dll 都换，md5sum 确认一致
+- [ ] dll 替换验证：换当前 target 那一份产物（单库两产物），md5sum 确认两处部署位一致
 - [ ] 临时日志/脚本在 `.agent_tmp/`，未污染项目
 - [ ] 动过依赖：`SConstruct` 的 release tag / 版本常量与依赖仓库 release 的资产名逐字对齐（见 [dependencies.md](./dependencies.md)）

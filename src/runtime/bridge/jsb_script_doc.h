@@ -42,10 +42,10 @@ struct ScriptDocEntry {
  * 源文件注释文档的进程级暂存：**键是脚本的 `res://` 源路径**（`GodotJSScript::get_path()`）。
  *
  * 为什么经由全局暂存而不是直接写进某个 `GodotJSScript`：
- *  - 文档由**编辑器**（另一个 DLL）在工具进程应答后推入，而 `GodotJSScript` 对象在运行时侧
- *    （跨 DLL 无 C++ 符号可调用，只能经 `JsbBridgeTable`）；
  *  - 推入的时刻通常**早于**脚本被加载（编辑器安装/重扫时只处理文件，不实例化脚本），
- *    所以必须有一个"先存着、等脚本加载时再取"的地方。
+ *    所以必须有一个"先存着、等脚本加载时再取"的地方；
+ *  - 生产者在 editor 侧（`GodotJSEditorPlugin::_regenerate_script_docs`），消费者在
+ *    脚本加载路径上，两者经本暂存解耦。
  *
  * 消费点是 `GodotJSScript::load_module_immediately()`：类信息就绪后按 `get_path()` 取一次。
  */

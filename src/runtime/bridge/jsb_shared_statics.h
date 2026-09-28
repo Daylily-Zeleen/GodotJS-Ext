@@ -54,8 +54,8 @@ namespace jsb {
  *            state that vanishes on a reference-count drop is much worse than state that lives a
  *            little too long, and it is unobservable to the author.
  *         2. Class parsing happens with NO `GodotJSScript` in existence - a worker isolate
- *            (`jsb_worker.cpp`, `env->load(impl->path_)`), the editor bridge
- *            (`jsb_bridge_table.cpp`) and a plain JS `import` all parse the class through
+ *            (`jsb_worker.cpp`, `env->load(impl->path_)`) and a plain JS `import`
+ *            all parse the class through
  *            `Environment::load`, where only the module id is known. A slot that had to hang off
  *            a script object would have nowhere to live in exactly those cases.
  *       Cross-environment consistency does NOT depend on the store being process-wide: it depends

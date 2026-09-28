@@ -26,12 +26,14 @@
 /************************************************************************/
 
 #include "jsb_statistics_viewer.h"
-#include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include <internal/jsb_statistics.h>
+#include <runtime/bridge/jsb_environment.h>
+#include <runtime/weaver/jsb_script_language.h>
 
 #include <compat/editor_settings.h>
 #include <compat/misc.h>
+#include <godot_cpp/classes/thread.hpp>
 GodotJSStatisticsViewer::GodotJSStatisticsViewer() {
 	tree = memnew(Tree);
 	tree->set_v_size_flags(SIZE_EXPAND_FILL);
@@ -67,11 +69,12 @@ void GodotJSStatisticsViewer::activate(bool p_active) {
 }
 
 void GodotJSStatisticsViewer::on_timer() {
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge == nullptr || bridge->fill_statistics == nullptr) return;
+	const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	if (lang == nullptr || !lang->is_initialized() || !Thread::is_main_thread()) return;
 
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
 	jsb::Statistics stats;
-	if (bridge->fill_statistics(&stats) != OK) return;
+	env->get_statistics(stats);
 
 	int index = 0;
 	for (const jsb::impl::CustomField &field : stats.custom_fields) {

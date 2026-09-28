@@ -25,10 +25,8 @@
 
 #include "register_editor_types.h"
 
-#include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
-#include "../tests/jsb_test_runner.h"
 #include "api_tool/api_tool.h"
 #include "internal/jsb_class_visibility.h"
 #include "internal/jsb_settings.h"
@@ -37,12 +35,6 @@
 using namespace godot;
 
 void _initialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
-#ifdef JSB_TESTS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
-		Engine::get_singleton()->set_meta(jsb::tests::EDITOR_TEST_FLAG, false);
-	}
-#endif
-
 	if (p_level != MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		return;
 	}
@@ -60,27 +52,4 @@ void _uninitialize_godotjs_editor_module(ModuleInitializationLevel p_level) {
 	}
 
 	EditorPlugins::remove_by_type<GodotJSEditorPlugin>();
-}
-
-#ifdef JSB_TESTS_ENABLED
-void _editor_tests_startup() {
-	jsb::tests::try_run(jsb::tests::EDITOR_TEST_FLAG);
-}
-#endif // JSB_TESTS_ENABLED
-
-extern "C" {
-GDExtensionBool GDE_EXPORT jsb_editor_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
-	GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
-
-#ifdef JSB_TESTS_ENABLED
-	// Editor doctest suite entry (see _editor_tests_startup above).
-	init_obj.register_startup_callback(_editor_tests_startup);
-#endif
-
-	init_obj.register_initializer(_initialize_godotjs_editor_module);
-	init_obj.register_terminator(_uninitialize_godotjs_editor_module);
-	init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SERVERS);
-
-	return init_obj.init();
-}
 }

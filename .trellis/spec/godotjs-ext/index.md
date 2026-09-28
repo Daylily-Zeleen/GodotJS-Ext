@@ -16,7 +16,7 @@
 | cpp | [godot-cpp-usage.md](./cpp/godot-cpp-usage.md) | godot-cpp API 适配（`_` 前缀虚函数、`godot::` 类型）、子模块只读边界 |
 | build | [index.md](./build/index.md) | 构建接线检查单（编译命令、dll 部署） |
 | build | [scons-build.md](./build/scons-build.md) | 强制编译命令、静态绑定 codegen 接线、dll 部署验证 |
-| test | [doctest.md](./test/doctest.md) | C++ doctest 双套件机制与验收标准 |
+| test | [doctest.md](./test/doctest.md) | C++ doctest 单套件机制与验收标准 |
 | test | [codegen-baseline.md](./test/codegen-baseline.md) | headless 触发链、基线校验方法论、TS 缓存陷阱 |
 
 ## 项目结构速览

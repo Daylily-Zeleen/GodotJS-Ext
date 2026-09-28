@@ -41,7 +41,8 @@ platform=web 且不带引擎标志时，产物**必然是** `JSB_WITH_WEB`（浏
 
 ## 包内 `.gdextension` 必须与包内文件 1:1
 
-每个包内含**两份** `.gdextension`（runtime + editor；web 包只有 runtime，因为 web 无 editor 腿），
+每个包内含**一份** `.gdextension`（`godotjs-ext.gdextension`；单库后不再有 runtime/editor 两份，
+见 [../cpp/architecture-constraints.md](../cpp/architecture-constraints.md) 的「已合并为单库」节），
 其 `[libraries]` / `[dependencies]` **只声明包内实际存在的文件**：
 
 - `[configuration]` 段从仓库的 superset 文件**原样复制**（`compatibility_minimum` 等不能丢）。
@@ -55,8 +56,8 @@ platform=web 且不带引擎标志时，产物**必然是** `JSB_WITH_WEB`（浏
   （无 simulator 预编译），指向 device dylib。**分支由「文件是否存在」决定，不靠引擎名硬编码**。
 - web：`web.release.threads.wasm32` ↔ `...wasm32.wasm`；`web.release.wasm32` ↔
   `...wasm32.nothreads.wasm`。
-- `[dependencies]` 的 `bin/windows/node.dll` **只出现在 node 包的 runtime** `.gdextension`
-  （editor 扩展不链 libnode，不带该依赖）。
+- `[dependencies]` 的 `bin/windows/node.dll` **只出现在 node 包**（且只挂在 windows 的
+  `[libraries]` 键上）：单库只有 node 引擎那条腿链 libnode，其余引擎的包不带该依赖。
 
 ### 自校验是硬门（两向都要）
 

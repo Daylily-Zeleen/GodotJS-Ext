@@ -104,9 +104,9 @@ private:
 		jsb_unused(logger);
 	}
 
-	static JSB_RUNTIME_API _print_line_callback _print_line;
-	static JSB_RUNTIME_API _print_line_callback _print_verbose;
-	static JSB_RUNTIME_API _print_error_callback _print_error;
+	static _print_line_callback _print_line;
+	static _print_line_callback _print_verbose;
+	static _print_error_callback _print_error;
 
 	static void _default_print_verbose(const String &p_str) {
 		//TODO cache messages from background threads to avoid messing up the output

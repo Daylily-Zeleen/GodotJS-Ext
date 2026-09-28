@@ -27,7 +27,6 @@
 
 #include "jsb_repl.h"
 #include "compat/jsb_compat.h"
-#include "jsb_editor_bridge.h"
 #include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
 
@@ -43,24 +42,24 @@
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/texture_rect.hpp>
 #include <godot_cpp/classes/theme.hpp>
+#include <godot_cpp/classes/thread.hpp>
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
 #include <compat/editor_settings.h>
 #include <compat/misc.h>
+#include <runtime/bridge/jsb_environment.h>
+#include <runtime/weaver/jsb_script_language.h>
+
 void GodotJSREPL::_bind_methods() {
 }
 
 GodotJSREPL::GodotJSREPL() {
 	//TODO list all created realm instances in REPL, interact with the currently selected one.
 
-	// Register this REPL as a console output sink through the runtime bridge.
-	{
-		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-		if (bridge != nullptr && bridge->add_console_output != nullptr) {
-			console_handle_ = bridge->add_console_output(this, &console_write_trampoline);
-		}
-	}
+	// This REPL is an jsb::internal::IConsoleOutput: the base constructor already
+	// registered it as a console sink (arming the node console hook in node
+	// builds), so no explicit registration is needed here.
 
 	input_submitting_ = false;
 	VBoxContainer *vbox = memnew(VBoxContainer);
@@ -167,13 +166,8 @@ GodotJSREPL::GodotJSREPL() {
 }
 
 GodotJSREPL::~GodotJSREPL() {
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge != nullptr && bridge->remove_console_output != nullptr && console_handle_ >= 0) {
-		bridge->remove_console_output(console_handle_);
-		console_handle_ = -1;
-	}
-
 	// ensure self removed before any member destruction to avoid deadlock
+	remove_from_output_list();
 
 	// avoid warning due to unhandled strings
 	output_backlog_.swap().clear();
@@ -239,14 +233,12 @@ void GodotJSREPL::check_install() {
 }
 
 void GodotJSREPL::_gc_pressed() {
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge == nullptr || bridge->request_gc == nullptr) {
-		JSB_LOG(Error, "runtime bridge is not available.");
+	if (!Thread::is_main_thread()) {
+		JSB_LOG(Error, "explicit GC must be requested from the main thread.");
 		return;
 	}
-	if (bridge->request_gc() == OK) {
-		add_line("Explicit GC requested");
-	}
+	jsb::Environment::gc();
+	add_line("Explicit GC requested");
 }
 
 void GodotJSREPL::_clear_pressed() {
@@ -353,18 +345,17 @@ void GodotJSREPL::_input_submitted(const String &p_text) {
 }
 
 Variant GodotJSREPL::eval_source(const String &p_code) {
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge == nullptr || bridge->eval == nullptr) {
-		JSB_LOG(Error, "runtime bridge is not available.");
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	if (lang == nullptr || !lang->is_initialized()) {
+		JSB_LOG(Error, "the script language is not available.");
 		return {};
 	}
-	const CharString code_utf8 = p_code.utf8();
-	Variant result;
-	const godot::Error err = bridge->eval(code_utf8.get_data(), code_utf8.length(), result._native_ptr());
+	Error err = OK;
+	const jsb::JSValueMove result = lang->eval_source(p_code, err);
 	if (err != OK) {
 		return {};
 	}
-	return result;
+	return result.to_variant();
 }
 
 void GodotJSREPL::add_line(const String &p_line) {
@@ -388,13 +379,10 @@ void GodotJSREPL::_backlog_flush() {
 	backlog.clear();
 }
 
-void GodotJSREPL::on_console_write(int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
-	output_backlog_.add(String::utf8(p_text_utf8, (int)p_length));
+void GodotJSREPL::write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) {
+	jsb_unused(p_severity);
+	output_backlog_.add(p_text);
 	callable_mp(this, &GodotJSREPL::_backlog_flush).call_deferred();
-}
-
-void GodotJSREPL::console_write_trampoline(void *p_userdata, int32_t p_severity, const char *p_text_utf8, int64_t p_length) {
-	static_cast<GodotJSREPL *>(p_userdata)->on_console_write(p_severity, p_text_utf8, p_length);
 }
 
 void GodotJSREPL::add_history(const String &p_text) {

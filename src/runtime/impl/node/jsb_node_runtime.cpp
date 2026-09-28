@@ -29,8 +29,8 @@
 // SEVERITY_* macro pollution, see jsb_node_pch.h).
 #include <uv.h>
 
-#include "internal/jsb_bridge_table.h"
 #include "jsb_node_bridge.h"
+#include "jsb_node_console_hook.h"
 #include "jsb_node_global_init.h"
 #include "jsb_node_helper.h"
 
@@ -112,15 +112,14 @@ NodeRuntime::NodeRuntime() {
 	uv_run(loop_, UV_RUN_ONCE);
 
 #if JSB_WITH_NODE
-	// if the editor bridge console capability was already activated in this
-	// process, wrap the freshly bootstrapped node console right away (see
-	// jsb_bridge_table.cpp for the hook implementation). `get_node_context()`
-	// creates a Local handle, so the isolate scope + HandleScope must be held
-	// here before evaluating it.
+	// if a console sink already exists in this process, wrap the freshly
+	// bootstrapped node console right away (see jsb_node_console_hook.cpp for
+	// the hook implementation). `get_node_context()` creates a Local handle,
+	// so the isolate scope + HandleScope must be held here before evaluating it.
 	{
 		JSB_ISOLATE_SCOPE(isolate_);
 		v8::HandleScope hook_handle_scope(isolate_);
-		jsb::bridge_console_hook_ensure(isolate_, get_node_context());
+		jsb::impl::console_hook_ensure(isolate_, get_node_context());
 	}
 #endif
 }
@@ -239,8 +238,8 @@ NodeRuntime::~NodeRuntime() {
 	allocator_.reset();
 
 	// drop the console hook state owned by this isolate before it goes away
-	// (see jsb_bridge_table.cpp)
-	jsb::bridge_console_hook_on_isolate_releasing(isolate_);
+	// (see jsb_node_console_hook.cpp)
+	jsb::impl::console_hook_drop_isolate(isolate_);
 }
 
 void NodeRuntime::PumpEventLoop() {

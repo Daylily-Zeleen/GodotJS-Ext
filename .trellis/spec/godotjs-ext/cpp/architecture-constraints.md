@@ -22,23 +22,29 @@ Godot **不会**原地加载构建出的扩展 DLL。对 `.gdextension` 里每�
 - **非 GDExtension 库内的 godot-cpp 默认没有接口表**（godot-cpp `src/godot.cpp`：接口表由 `GDExtensionBinding::init()` 填充）。扩展 entry 拿得到 `get_proc_address`，转发即可；动手前先 spike 验证。兜底：共享层完全去 godot-cpp 化（纯 C ABI），引擎 API 调用推回扩展侧
 - **MSVC 数据符号**：导出全局变量/数据必须显式 `__declspec(dllexport)` 式宏；`.def` 文件无法可靠导出数据符号
 
-## editor ↔ runtime 桥接
+## editor ↔ runtime：已合并为单库（2026-09-28）
 
-- editor 不链接 runtime 而要触达 runtime 状态：runtime 在 ClassDB 注册内部桥接类，editor 经引擎中转调用；尽早 spike 跨扩展 ClassDB 可见性（`GDREGISTER_INTERNAL_CLASS` 注册的类能否被另一扩展调用并无保证）
-- 桥接面保持最小、结果类型化（`Dictionary{ok, error}`），让 JS/C++ 异常浮出而不是消失
-- 纯文件操作留在本地；只有真正驻留引擎的操作才走桥
-- 定义桥接口前先枚举真实调用点；"就一个方法"的估计必然偏小
+**结论先行：本仓库不再有 editor/runtime 两个扩展，桥接机制已整体删除。**
 
-### 跨库方向决定"推/拉"（2026-09-28，常驻编辑器工具进程）
+背景：拆分后 editor 对 runtime 的直接依赖（`GodotJSScriptLanguage::get_singleton()` 等）无法消除，只能靠 `JsbBridgeTable`（C ABI 函数指针表 + ClassDB `get_bridge` 取地址 + `struct_size` 版本校验）跨 DLL 通信，带来 ABI 校验、空表兜底、跨库 Variant 所有权一整套复杂度。判定"既然依赖无法消除，就不再分离"，改回**单库 + 按 target 条件编译**：`target=editor` 编入 editor 源，模板腿不编（见 [../build/scons-build.md](../build/scons-build.md) 的"单一库两产物"）。原桥文件（`jsb_bridge_abi.h` / `jsb_bridge_table.*` / `jsb_editor_bridge.h`）与全部 `EditorBridge::get_bridge()` 调用点已删除/改为直接成员调用。
 
-依赖方向只有 **editor → runtime**（`JsbBridgeTable` 单向）。因此当一个能力由 editor 产出、
-而消费点在 runtime 时（实例：源文件注释文档 → `ScriptClassInfo` → `_get_documentation()`）：
+**仍然成立**的下述通用陷阱不受影响（它们讲的是"若再拆分会怎样"，不是当前结构）：
 
-- ❌ **不能在 runtime 里"按需向 editor 请求"** —— runtime 无 editor 符号可用。
-- ✅ 正确形态：editor 在已知时机取回 → 经桥推入 → runtime **暂存** → 消费点自取。
-  实例：`bridge_apply_script_docs` 写入 `jsb::internal::ScriptDocStore`（键 = `res://` 源路径），
+- 桥接面若存在，保持最小、结果类型化（`Dictionary{ok, error}`），让 JS/C++ 异常浮出而不是消失
+- 纯文件操作留在本地；只有真正驻留引擎的操作才该跨边界
+- 定义跨边界接口前先枚举真实调用点；"就一个方法"的估计必然偏小
+
+### 生产者/消费者方向决定"推/拉"（2026-09-28，常驻编辑器工具进程）
+
+单库后不再有"跨库方向"，但**能力产出点与消费点仍在不同 TU**（产出：编辑器插件；
+消费：脚本加载路径）。当能力由编辑器侧产出而消费点在脚本侧时（实例：源文件注释文档 →
+`ScriptClassInfo` → `_get_documentation()`）：
+
+- 正确形态：编辑器在已知时机取回 → **直接调用**同库的暂存写入 → 消费点自取。
+  实例：`_apply_script_docs` 调 `jsb::internal::ScriptDocStore::merge()`（键 = `res://` 源路径），
   `GodotJSScript::load_module_immediately()` 加载完成后按 `get_path()` 关联。
-- **暂存是必需的**：推入通常发生在"脚本还没被实例化"的时刻（编辑器安装/重扫只处理文件）。
+- ❌ 不要退回"消费点按需向产出点请求"：脚本加载路径拿不到编辑器插件实例，且**暂存是必需的**
+  —— 推入通常发生在"脚本还没被实例化"的时刻（编辑器安装/重扫只处理文件）。
 - 进程级容器若持有 `String`/`StringName`，必须在 `GodotJSScriptLanguage::_finish()` 显式清空
   （与 `SharedStatics::clear()` 同因，见下节）。
 
@@ -146,7 +152,7 @@ api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL �
 - **静态变量的 `PropertyInfo` usage 对齐 GDScript：只留 `PROPERTY_USAGE_SCRIPT_VARIABLE`（4096），不带 `STORAGE`/`EDITOR`**（2026-09-25，Q7 实测）：GDScript 侧 `DataType::to_property_info` 起始 `PROPERTY_USAGE_NONE`（`gdscript_parser.cpp:5418`）+ 编译器补 `SCRIPT_VARIABLE`（`gdscript_compiler.cpp:2902`）；引擎内探针实测 GDScript `static var sv` 报 **4096**，我方原用 `PROPERTY_USAGE_DEFAULT | SCRIPT_VARIABLE` 报 **4102**。`STORAGE`/`EDITOR` 对一个存在共享 store 里的值都不准确。
   **注意**：该位**不**影响 `.tscn` 持久化 —— `packed_scene.cpp:938-939` 读的是 `p_node->get_property_list()`（实例属性表，来自 `script_instance->get_property_list` + Node 自身），**脚本资源的 `_get_property_list` 从不参与**。实测：GDScript `static var sv` 改 77 后存盘、`.tscn` 无 `sv` 行；我方 `score` 改 1234 后存盘同样无 `score` 行。故这是"报告出来的 usage 数值偏差"，不是持久化缺陷。
 - **空 `StringName` 上的 `operator[]` 越界崩溃（`0xC0000005`）**（2026-09-25）：`String::operator[]` 不判空，`p_module_id[0]` 在空 id 上越界读 ⇒ 进程崩溃。触发条件是"存在无路径的 `GodotJSScript`"——编辑器流程里确实有（`--generate-types` / `--dump-extension-api-with-docs` 下实测 4 个），任何新增的 `Script` 虚函数 override 都可能让这条路径**首次可达**（本例是 `_get` → `ensure_module_loaded` → `load_module_immediately` → `Environment::load` → `check_search_path`）。**修法：在 `load_module_immediately()` 入口对空路径提前返回**，与同文件既有 `load_module_if_missing()` 守卫同型；不要在下游 `check_search_path` 打补丁
-- **`@bind.exposed.shared()` 静态变量的值生命周期刻意独立于 `GodotJSScript` 对象（2026-09-26 拍板）**：`jsb::SharedStatics` 的槽位按 `module_id`（路径）键控、活到 `GodotJSScriptLanguage::_finish()`，**不**随 `~GodotJSScript` 释放。曾评估"绑到脚本对象以对齐 GDScript"，**否决**，两条理由：① `GodotJSScript` 是普通 Resource，最后一个引用释放即析构（`jsb_script.cpp:47-56`）⇒ 卸载场景会让 `static var` 静默归零，而 `static var` 语义上是**类级别**状态，对作者不可观测；② **类解析可以在没有 `GodotJSScript` 时发生**（worker `jsb_worker.cpp:449`、编辑器桥 `jsb_bridge_table.cpp:137`/`:163`、纯 JS `import`），那一刻只有 module_id ⇒ 绑对象则这些场景**无处可写**。
+- **`@bind.exposed.shared()` 静态变量的值生命周期刻意独立于 `GodotJSScript` 对象（2026-09-26 拍板）**：`jsb::SharedStatics` 的槽位按 `module_id`（路径）键控、活到 `GodotJSScriptLanguage::_finish()`，**不**随 `~GodotJSScript` 释放。曾评估"绑到脚本对象以对齐 GDScript"，**否决**，两条理由：① `GodotJSScript` 是普通 Resource，最后一个引用释放即析构（`jsb_script.cpp:47-56`）⇒ 卸载场景会让 `static var` 静默归零，而 `static var` 语义上是**类级别**状态，对作者不可观测；② **类解析可以在没有 `GodotJSScript` 时发生**（worker `jsb_worker.cpp:449`、脚本加载路径 `jsb_script.cpp`、纯 JS `import`），那一刻只有 module_id ⇒ 绑对象则这些场景**无处可写**。
   **勿把"跨环境一致性"当成"必须进程级"的理由**：一致性只要求"所有环境 + GDScript 读同一个持有者"，而 `GodotJSScript` 本身就是进程级共享 Resource（REUSE 直接返回缓存对象，`jsb_resource_loader.cpp:117-122`）⇒ 真正的约束只是**持有者必须能仅凭 module_id 寻址**。
   已知偏离（接受）：GDScript 的值随 `~GDScript()` → `clear()`（`gdscript.cpp:1534`/`:1461-1462`）释放，我方不释放；实测可观测性极低（`CACHE_MODE_IGNORE`/`IGNORE_DEEP` 被 `jsb_resource_loader.cpp:110-116` 降级为 REUSE ⇒ 每路径实际只有一个脚本对象）。
   进程级静态容器持有 `StringName` 必须有显式释放点（本节缺陷 A / `test/index.md`），`SharedStatics::clear()` 在 `_finish()` 里就是这一条。

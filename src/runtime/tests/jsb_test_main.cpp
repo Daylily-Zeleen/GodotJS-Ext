@@ -32,14 +32,15 @@
 
 // Include all test headers to register TEST_CASE macros.
 //
-// The editor extension has its own doctest implementation TU
-// (src/editor/tests/jsb_editor_test_main.cpp).
+// This is the ONLY DOCTEST_CONFIG_IMPLEMENT translation unit: the editor cases
+// (src/editor/tests/*.h) join this same registry under JSB_WITH_EDITOR, so a
+// single `--jsb-run-tests` run reports one summary.
 #include "tests/jsb_test_helpers.h"
 #include "tests/test_jsb_any_runtime.h"
-#include "tests/test_jsb_bridge_table.h"
 #include "tests/test_jsb_int64_conv.h"
 #include "tests/test_jsb_path_util.h"
 #include "tests/test_jsb_process.h"
+#include "tests/test_jsb_runtime_api.h"
 #include "tests/test_jsb_sarray.h"
 #if JSB_USE_TYPESCRIPT
 #	include "tests/test_jsb_paths_mapping.h"
@@ -52,6 +53,10 @@
 #include "tests/test_jsb_static_members.h"
 #if JSB_WITH_QUICKJS
 #	include "tests/test_jsb_quickjs_runtime.h"
+#endif
+#if JSB_WITH_EDITOR
+#	include "editor/tests/test_jsb_editor_cleanup.h"
+#	include "editor/tests/test_jsb_editor_tool.h"
 #endif
 
 // doctest will automatically collect all TEST_CASE and run them in main()

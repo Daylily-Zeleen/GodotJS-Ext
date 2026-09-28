@@ -185,8 +185,9 @@ jobs:
     name: Benchmark (static vs dynamic)
     if: github.event_name == 'workflow_dispatch'
     # `build` is required, not just convenient: this job generates the project
-    # runtime state with the editor extension, and that library only exists once
-    # linux-editor-x86_64-v8 has been built and uploaded.
+    # runtime state with the editor build of the single library, and that
+    # artifact only exists once linux-editor-x86_64-v8 has been built and
+    # uploaded.
     needs: [environment, benchmark-build, build]
     runs-on: ubuntu-22.04
     # Bounds a hang. A JS runtime that never starts leaves the engine idling for
@@ -214,34 +215,32 @@ jobs:
           path: /tmp/bench
           pattern: benchmark-*
 
-      # The editor extension, used only by "Generate project runtime state"
-      # below. `benchmark-build` stages just the runtime `.so`, and the runtime
-      # alone cannot generate what this job needs: both `.godot/extension_list.cfg`
-      # and `.godot/godotjs_ext/.paths_mapping` are written by the editor plugin
-      # (`_regenerate_paths_mapping` -> PathsMapping::generate_from_tsconfig).
-      - name: Download editor extension (linux)
+      # The single library's editor build, used only by "Generate project
+      # runtime state" below. `benchmark-build` stages just the runtime `.so`,
+      # and the runtime alone cannot generate what this job needs: both
+      # `.godot/extension_list.cfg` and `.godot/godotjs_ext/.paths_mapping` are
+      # written by the editor plugin (`_regenerate_paths_mapping` ->
+      # PathsMapping::generate_from_tsconfig).
+      - name: Download editor build (linux)
         uses: actions/download-artifact@v8
         with:
           name: linux-editor-x86_64-v8
           path: /tmp/editor-ext
 
-      - name: Stage extension libraries
+      - name: Stage extension library
         shell: bash
         run: |
           ADDONS=project/addons/godotjs-ext.daylily-zeleen/bin/linux
           mkdir -p "$ADDONS"
-          # Runtime library: `--bench` never loads this one, but keeping it here
-          # means the project resolves the rest of the extension surface the
-          # same way the `test` job does.
-          cp /tmp/bench/benchmark-static/godotjs-ext.so \
+          # One library, two products: the editor artifact IS the extension the
+          # project loads (`linux.debug.editor.x86_64` -> this exact name), so
+          # it supplies both the runtime and the editor plugin that generates
+          # `.godot/extension_list.cfg` / `.godot/godotjs_ext/.paths_mapping`
+          # below. The artifact's root is the build's `bin/` directory (see the
+          # `test` job, which copies it into the addon's `bin/`), hence the
+          # `linux/` prefix.
+          cp /tmp/editor-ext/linux/godotjs-ext.linux.editor.x86_64.so \
              "$ADDONS/godotjs-ext.linux.editor.x86_64.so"
-          # Editor library: `godotjs-ext-editor.gdextension` points at this exact
-          # name; without it the editor plugin never loads and nothing below
-          # gets generated. The artifact's root is the build's `bin/` directory
-          # (see the `test` job, which copies it into the addon's `bin/`), hence
-          # the `linux/` prefix.
-          cp /tmp/editor-ext/linux/godotjs-ext-editor.linux.editor.x86_64.so \
-             "$ADDONS/godotjs-ext-editor.linux.editor.x86_64.so"
           ls -la "$ADDONS"
 
       # Bootstrap emit only: this job never builds the api store, so

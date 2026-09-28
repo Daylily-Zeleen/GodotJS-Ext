@@ -39,13 +39,14 @@
 #include "jsb_api_tool_session.h"
 #include "jsb_config_classes_dialog.h"
 #include "jsb_docked_panel.h"
-#include "jsb_editor_bridge.h"
 #include "jsb_editor_preset.h"
 #include "jsb_editor_progress.h"
 #include "jsb_export_plugin.h"
 #include "jsb_resource_loader.h"
 #include <codegen/jsb_codegen_generator.h>
 #include <internal/jsb_naming_util.h>
+#include <runtime/bridge/jsb_script_doc.h>
+#include <runtime/weaver/jsb_script_language.h>
 #include <cstdio>
 
 #include <godot_cpp/classes/config_file.hpp>
@@ -63,6 +64,7 @@
 #include <godot_cpp/classes/reg_ex_match.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/thread.hpp>
 #include <godot_cpp/classes/timer.hpp>
 
 #include <compat/misc.h>
@@ -192,10 +194,9 @@ jsb::internal::PresetSource GodotJSEditorPlugin::get_preset_source(const String 
 void GodotJSEditorPlugin::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_APPLICATION_FOCUS_IN:
-			if (const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge()) {
-				if (bridge->scan_external_changes != nullptr) {
-					bridge->scan_external_changes();
-				}
+			if (GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+					lang != nullptr && lang->is_initialized()) {
+				lang->scan_external_changes();
 			}
 #if JSB_USE_TYPESCRIPT
 			// 窗口获得焦点时检查路径映射与签名清单是否需要更新
@@ -1236,16 +1237,16 @@ void GodotJSEditorPlugin::generate_all_resource_types() {
 }
 
 void GodotJSEditorPlugin::load_editor_entry_module() {
-	// Load (or fetch) the editor entry module through the runtime bridge:
-	// `require` is a global, so evaluating it both loads the module and keeps
-	// it cached in the main environment's module registry.
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	ERR_FAIL_NULL_MSG(bridge, "runtime bridge is not available");
-	ERR_FAIL_NULL_MSG(bridge->eval, "runtime bridge eval is not available");
+	// Load (or fetch) the editor entry module by evaluating `require` on the
+	// main environment: it both loads the module and keeps it cached in the
+	// main environment's module registry.
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	ERR_FAIL_NULL_MSG(lang, "the script language is not available");
+	ERR_FAIL_COND_MSG(!lang->is_initialized(), "the script language is not initialized");
 
-	String source = "require('jsb.editor.main')\n";
-	Variant result;
-	const godot::Error err = bridge->eval(source.utf8().get_data(), source.utf8().length(), result._native_ptr());
+	Error err = OK;
+	jsb::JSValueMove result = lang->eval_source(String("require('jsb.editor.main')\n"), err);
+	result.ignore();
 	ERR_FAIL_COND_MSG(err != OK, "failed to evaluate jsb.editor.main");
 }
 
@@ -1310,13 +1311,13 @@ GodotJSEditorPlugin *GodotJSEditorPlugin::get_singleton() {
 }
 
 void GodotJSEditorPlugin::ensure_tsc_installed() {
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	ERR_FAIL_NULL_MSG(bridge, "runtime bridge is not available");
-	ERR_FAIL_NULL_MSG(bridge->eval, "runtime bridge eval is not available");
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	ERR_FAIL_NULL_MSG(lang, "the script language is not available");
+	ERR_FAIL_COND_MSG(!lang->is_initialized(), "the script language is not initialized");
 
-	String source = "require('jsb.editor.main').run_npm_install()\n";
-	const CharString code_utf8 = source.utf8();
-	const godot::Error err = bridge->eval(code_utf8.get_data(), code_utf8.length(), nullptr);
+	Error err = OK;
+	jsb::JSValueMove result = lang->eval_source(String("require('jsb.editor.main').run_npm_install()\n"), err);
+	result.ignore();
 	if (err != OK) {
 		JSB_LOG(Warning, "run_npm_install failed (%d)", (int)err);
 	}
@@ -1361,11 +1362,8 @@ void GodotJSEditorPlugin::_regenerate_paths_mapping() {
 
 	if (jsb::PathsMapping::generate_from_tsconfig(jsonc)) {
 		cached_md5 = current_md5;
-		// 通知 Runtime 重新加载（通过 BridgeTable）
-		const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-		if (bridge && bridge->refresh_paths_mapping != nullptr) {
-			bridge->refresh_paths_mapping();
-		}
+		// 通知 Runtime 重新加载静态缓存
+		jsb::PathsMapping::refresh();
 	}
 }
 
@@ -1469,20 +1467,10 @@ void GodotJSEditorPlugin::_regenerate_script_docs() {
 }
 
 int GodotJSEditorPlugin::_apply_script_docs(const Dictionary &p_docs) {
-	// 经 `JsbBridgeTable` 推给运行时：两个扩展是独立 DLL，跨库无 C++ 符号可调用
-	// （运行时的 `GodotJSScript` 在本库内不可见）。运行时把文档**暂存**起来，
-	// 等脚本加载时按 `get_path()` 关联（见 `src/runtime/bridge/jsb_script_doc.h`）。
-	const jsb::JsbBridgeTable *bridge = jsb::editor::EditorBridge::get_bridge();
-	if (bridge == nullptr || bridge->apply_script_docs == nullptr) {
-		// 运行时未初始化（或版本不匹配）：文档这次推不进去。**不写摘要**，下次触发重试。
-		JSB_LOG(Verbose, "runtime bridge is not ready, script docs were not pushed");
-		return 0;
-	}
-	const Variant payload = p_docs;
-	if (bridge->apply_script_docs(payload._native_ptr()) != OK) {
-		ERR_PRINT("failed to push script docs into the runtime");
-		return 0;
-	}
+	// 单库架构：editor 与 runtime 在同一个库内，直接用 C++ 调用暂存层。
+	// 运行时把文档**暂存**起来，等脚本加载时按 `get_path()` 关联
+	// （见 `src/runtime/bridge/jsb_script_doc.h`）。
+	jsb::internal::ScriptDocStore::merge(p_docs);
 	return p_docs.size();
 }
 #endif // JSB_USE_TYPESCRIPT

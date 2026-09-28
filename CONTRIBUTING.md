@@ -91,14 +91,14 @@ This outputs to `scripts/out/` and is automatically embedded into the GDExtensio
 ### C++ Unit Tests
 
 C++ unit tests use [doctest](https://github.com/doctest/doctest). A single
-`--jsb-run-tests` flag runs **both suites** (runtime + editor); the two
-extensions synchronize through engine metadata and quit with a shared exit code:
+`--jsb-run-tests` flag runs the one suite collected into the library (the
+editor cases are compiled in under `target=editor`):
 
 ```bash
-# Build with tests enabled (both extensions)
+# Build with tests enabled
 scons platform=windows target=editor dev_build=yes tests=yes -j10
 
-# Run both C++ test suites (requires a Godot editor binary)
+# Run the C++ test suite (requires a Godot editor binary)
 godot --headless --path project --jsb-run-tests
 ```
 

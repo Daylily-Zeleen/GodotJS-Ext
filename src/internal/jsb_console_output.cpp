@@ -30,6 +30,10 @@
 #include <compat/rw_lock.h>
 #include <godot_cpp/templates/vector.hpp>
 
+#if JSB_WITH_NODE
+#	include "runtime/impl/node/jsb_node_console_hook.h"
+#endif
+
 namespace jsb::internal {
 namespace {
 RWLock lock_;
@@ -37,6 +41,13 @@ Vector<IConsoleOutput *> outputs_; // TODO: LocalVector?
 } //namespace
 
 IConsoleOutput::IConsoleOutput() {
+#if JSB_WITH_NODE
+	// The node bootstrap installs its own `console`, whose output never reaches
+	// these sinks. Arm the mirroring hook on the first sink of the process (see
+	// jsb_node_console_hook.h); in a product without editor features no sink is
+	// ever constructed, so the hook stays off there.
+	jsb::impl::console_hook_arm();
+#endif
 	RWLockWrite lock(lock_);
 	outputs_.append(this);
 }

@@ -1481,6 +1481,49 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	return OK;
 }
 
+Error Environment::get_module_source_info(const String &p_module_id, Dictionary &r_info) {
+	JavaScriptModule *module = nullptr;
+	if (load(p_module_id, &module) != OK || module == nullptr) {
+		return ERR_CANT_OPEN;
+	}
+	r_info["source"] = module->source_info.source_filepath;
+	r_info["package"] = module->source_info.package_filepath;
+	return OK;
+}
+
+Error Environment::get_module_direct_dependencies(const String &p_module_id, PackedStringArray &r_deps) {
+	JavaScriptModule *module = nullptr;
+	if (load(p_module_id, &module) != OK || module == nullptr) {
+		return ERR_CANT_OPEN;
+	}
+	if (module->module.IsEmpty()) {
+		return OK;
+	}
+
+	v8::Isolate *isolate = get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
+
+	v8::Local<v8::Value> temp;
+	if (module->module.Get(isolate).As<v8::Object>()->Get(context, jsb_name(this, children)).ToLocal(&temp)
+			&& temp->IsArray()) {
+		const v8::Local<v8::Array> children = temp.As<v8::Array>();
+		const int32_t len = children->Length();
+		for (int32_t i = 0; i < len; i++) {
+			if (children->Get(context, i).ToLocal(&temp) && temp->IsObject()) {
+				if (temp.As<v8::Object>()->Get(context, jsb_name(this, filename)).ToLocal(&temp)) {
+					const String filename = impl::Helper::to_string(isolate, temp);
+					if (!filename.is_empty()) {
+						r_deps.push_back(filename);
+					}
+				}
+			}
+		}
+	}
+	return OK;
+}
+
 NativeClassInfoPtr Environment::expose_class(const StringName &p_type_name, NativeClassID *r_class_id) {
 	DeferredClassRegister *class_register = class_register_map_.getptr(p_type_name);
 	if (jsb_unlikely(!class_register)) {

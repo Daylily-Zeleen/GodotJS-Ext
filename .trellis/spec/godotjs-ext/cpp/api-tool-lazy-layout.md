@@ -90,7 +90,7 @@ movl   (%rcx,%rax,4), %eax   ; 对照：Variant::Type 直读，同为 1 条
 | `core/api_tool_detail_storage.h` | 类声明（唯一）：runtime 接口 + `push_injected` 等两侧共用项 | 两侧都 include |
 | `core/api_tool_detail_storage.cpp` | runtime 路径：`configure_lazy` / `push_injected` / `ensure_details` / `ensure_defaults` / `get_detail` / `get_defaults` | **runtime + editor**（`core/*.cpp` 在两侧 glob） |
 | `editor/api_tool_detail_storage_editor.h` | editor 访问器 `ApiMethodColdAccess` 声明（单 friend struct，`ApiMethodDetailStorage&` 作入参） | **仅 editor** |
-| `editor/api_tool_detail_storage_editor.cpp` | editor 路径定义：`push_cold` / `seal_cold` | **仅 editor**（`editor/*.cpp` 只在 `editor_globs`） |
+| `editor/api_tool_detail_storage_editor.cpp` | editor 路径定义：`push_cold` / `seal_cold` | **仅 editor**（`editor/*.cpp` 只在 `editor_globs`，即 `target=editor` 的源集合） |
 
 `api_tool_types.h` 里只留 `class ApiMethodDetailStorage;` 前向声明（热层成员是 `storage_` 裸指针）。
 
@@ -98,9 +98,9 @@ movl   (%rcx,%rax,4), %eax   ; 对照：Variant::Type 直读，同为 1 条
 
 - **`cold_*` 三个必须保持类内 `_FORCE_INLINE_`**（现位于 `ApiMethodColdAccess` 头内）：writer 在 `for (i < p_method_count)` 循环里逐方法调用，量级 16k+；移成外部函数会变成每方法一次调用。
 - **`seal_cold()` 的 `details_loaded_.store(true)` / `defaults_loaded_.store(true)` 不是 editor 状态**：那是 runtime 的「已就绪，别再读文件」短路位（见 `ensure_details` / `ensure_defaults`）。editor 路径靠「已用内存填好」达到同一状态。抽离时不可删。
-- 验证 runtime 侧隔离：`ls .build/runtime/ | grep detail_storage_editor` 应为 **0**；`.build/runtime/api_tool*.obj` 中 `ApiMethodColdAccess` 符号数应为 **0**。
+- 验证模板腿隔离（`target=template_*`）：`ls .build/runtime/ | grep detail_storage_editor` 应为 **0**；`.build/runtime/api_tool*.obj` 中 `ApiMethodColdAccess` 符号数应为 **0**。editor 腿同一 obj 树里**应当**有这些符号（editor 源已并入）。
 
-> **为什么 editor 路径必须单独成 TU**：`push_cold`/`seal_cold` 是 JSON 解析期的填充路径，运行时不存在——放在 `core/` 会让 runtime 扩展也链进这份代码。SConstruct 的 glob 是唯一接线点（`runtime_globs` 不含 `api_tool/editor/*.cpp`）。
+> **为什么 editor 路径必须单独成 TU**：`push_cold`/`seal_cold` 是 JSON 解析期的填充路径，运行时不存在——放在 `core/` 会让 runtime 扩展也链进这份代码。SConstruct 的 glob 是唯一接线点（`runtime_globs` 不含 `api_tool/editor/*.cpp`，只有 `target=editor` 会把 `editor_globs` 并入同一库的源集合）。
 
 ## 2. `METHOD_FLAG_NO_RETURN`：内部编码的写入与屏蔽
 

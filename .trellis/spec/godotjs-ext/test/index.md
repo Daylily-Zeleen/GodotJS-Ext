@@ -5,7 +5,7 @@
 
 ## 开发前检查单
 
-- [ ] 改 C++ 测试？读 [doctest.md](./doctest.md)（双套件机制、注册表规则、过滤语义）
+- [ ] 改 C++ 测试？读 [doctest.md](./doctest.md)（单套件注册表规则、过滤语义）
 - [ ] 改 TS / 编辑器生成代码 / 基线？读 [codegen-baseline.md](./codegen-baseline.md)（headless 触发链、校验方法论、TS 缓存陷阱）
 
 ## Benchmark 专项注意

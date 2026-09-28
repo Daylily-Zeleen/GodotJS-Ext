@@ -23,16 +23,17 @@
 /*  see <https://www.gnu.org/licenses/>.                                */
 /************************************************************************/
 
+#pragma once
+
+// Editor module registration entry points. Compiled into the editor product
+// only (src/editor/** is part of the source set for target=editor); the single
+// library entry point jsb_gdextension_init (src/runtime/register_types.cpp)
+// forwards to these under JSB_WITH_EDITOR.
+//
+// The old editor-library entry symbol is gone: one library, one entry.
+
 #include <jsb.config.h>
 #include <godot_cpp/godot.hpp>
 
 void _initialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
 void _uninitialize_godotjs_editor_module(godot::ModuleInitializationLevel p_level);
-#if defined(JSB_TESTS_ENABLED) && JSB_TOOLS
-// Editor doctest entry (--jsb-run-tests). Declared here so the single
-// real startup callback (runtime jsb_startup) can forward to it while the
-// build is still one extension library: jsb_editor_library_init is only used
-// post P4, and godot-cpp's register_startup_callback is a single slot anyway
-// (startup_func assignment overwrites, no chaining).
-void _editor_tests_startup();
-#endif

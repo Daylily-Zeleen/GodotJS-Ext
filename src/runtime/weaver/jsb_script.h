@@ -122,8 +122,8 @@ public:
 	 * 源文件注释文档在**模块加载完成后**写入类信息。
 	 *
 	 * 数据来自 `jsb::internal::ScriptDocStore`（进程级暂存，键是 `get_path()` 的源路径）：
-	 * 文档由**编辑器**（另一个 DLL）在工具进程应答后经 `JsbBridgeTable::apply_script_docs`
-	 * 推入，时刻通常早于脚本被加载，所以"写入"发生在加载路径上而不是被外部调用。
+	 * 文档由编辑器侧（`GodotJSEditorPlugin::_regenerate_script_docs`）在工具进程应答后写入，
+	 * 时刻通常早于脚本被加载，所以"写入"发生在加载路径上而不是被外部调用。
 	 *
 	 * `@bind.help()` **优先**：`brief_description` 已被装饰器写过时**不覆盖**；
 	 * `description`（全文）没有装饰器来源，总是来自源注释。
