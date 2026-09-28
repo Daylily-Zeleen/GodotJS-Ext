@@ -261,18 +261,115 @@ def _is_library(path: Path) -> bool:
     return path.name.endswith(LIBRARY_SUFFIXES)
 
 
-def write_gdextension(pkg_dir: Path, source: Path, entries, dependencies):
-    """Rewrite a `.gdextension`, keeping its `[configuration]` verbatim.
+def _section_lines(text, name):
+    """Yield the raw lines inside `[name]`, excluding the header itself."""
+    header = f"[{name}]"
+    inside = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            inside = stripped == header
+            continue
+        if inside:
+            yield line
+
+
+def read_icons(source: Path):
+    """Icon paths declared in the source's `[icons]`, in file order.
+
+    `[icons]` is read by the engine: `gdextension_library_loader.cpp` maps each
+    key to `class_icon_paths`, so `GodotJSScript = "icons/GodotJSScript.svg"`
+    is what gives the script class its icon. The paths are relative to the
+    `.gdextension` itself, which is why the packager has to carry the files
+    along - an entry pointing at a file the archive never shipped is exactly
+    the kind of "declared but absent" defect the library keys are checked for.
+    """
+    icons = []
+    for line in _section_lines(source.read_text(encoding="utf-8"), "icons"):
+        stripped = line.split(";", 1)[0].split("#", 1)[0].strip()
+        if not stripped or "=" not in stripped:
+            continue
+        value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+        if value:
+            icons.append(value)
+    return icons
+
+
+def copy_icons(pkg_dir: Path, source: Path, icons):
+    """Stage the packaged copies of the `[icons]` files, preserving rel paths."""
+    for rel in icons:
+        if Path(rel).is_absolute() or rel.startswith("res://"):
+            raise AssembleError(
+                f"{source.name}: icon {rel!r} is not a path inside the addon; "
+                "the packaged copy cannot be resolved"
+            )
+        origin = source.parent / rel
+        if not origin.is_file():
+            raise AssembleError(f"{source.name}: declared icon {rel!r} does not exist at {origin}")
+        destination = pkg_dir / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, destination)
+    return icons
+
+
+def set_information_version(text: str, version: str):
+    """Rewrite `version` inside `[information]`, leaving every other section alone.
+
+    `[information]` is this project's own metadata, not part of the engine's
+    format (the engine reads `[configuration]`, `[libraries]`, `[dependencies]`
+    and `[icons]`). It is not parsed, so it must not be rebuilt by a generic
+    INI writer - the original lines are kept, and only the `version` value is
+    swapped, so typos and extra keys survive untouched.
+    """
+    header = "[information]"
+    if header not in text:
+        return text
+    lines = text.splitlines()
+    output = []
+    inside = False
+    replaced = False
+    insert_at = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if inside and not replaced:
+                # section ended without a version key: add one before the next header
+                output.append(f'version = "{version}"')
+                replaced = True
+            inside = stripped == header
+            output.append(line)
+            if inside:
+                insert_at = len(output)
+            continue
+        if inside and not replaced:
+            key = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
+            if key == "version":
+                indent = line[: len(line) - len(line.lstrip())]
+                output.append(f'{indent}version = "{version}"')
+                replaced = True
+                continue
+        output.append(line)
+    if inside and not replaced:
+        output.append(f'version = "{version}"')
+    return "\n".join(output) + "\n"
+
+
+def write_gdextension(pkg_dir: Path, source: Path, entries, dependencies, version=None):
+    """Rewrite a `.gdextension`, keeping everything above `[libraries]` verbatim.
 
     `[configuration]` (entry_symbol, compatibility_minimum, reloadable, ...) is
     the source file's business, not the packager's; copying it byte for byte
     keeps the packaged file in sync with the repo's superset file and cannot
-    silently drop a key such as compatibility_minimum.
+    silently drop a key such as compatibility_minimum. `[information]` and
+    `[icons]` ride along in that same prefix; only the `[information]` version
+    is refreshed, because it has to track the release being built.
     """
     source_text = source.read_text(encoding="utf-8")
     head = source_text.split("[libraries]", 1)[0].rstrip() + "\n"
     if "[configuration]" not in head:
         raise AssembleError(f"{source.name}: no [configuration] section to preserve")
+    if version is not None:
+        head = set_information_version(head, version)
 
     lines = [head.rstrip("\n"), "", "[libraries]"]
     for key, value in entries:
@@ -289,7 +386,7 @@ def write_gdextension(pkg_dir: Path, source: Path, entries, dependencies):
     return out
 
 
-def assemble(engine, artifacts_dir: Path, out_dir: Path):
+def assemble(engine, artifacts_dir: Path, out_dir: Path, version=None):
     legs = legs_of(engine)
     if not legs:
         raise AssembleError(f"engine {engine!r} has no build legs in {CI_WORKFLOW}")
@@ -337,13 +434,16 @@ def assemble(engine, artifacts_dir: Path, out_dir: Path):
     source = ADDON_DIR / GEXTENSION
     if not source.is_file():
         raise AssembleError(f"missing {source}")
-    written = write_gdextension(pkg_dir, source, entries, dependencies)
+    # `[icons]` entries point at files relative to the `.gdextension`; ship them
+    # in the same shape, otherwise the engine resolves a path that is not there.
+    icons = copy_icons(pkg_dir, source, read_icons(source))
+    written = write_gdextension(pkg_dir, source, entries, dependencies, version=version)
     uid = source.with_name(source.name + ".uid")
     if uid.is_file():
         shutil.copy2(uid, pkg_dir / uid.name)
     print(f"  wrote {written.name}: {len(entries)} library key(s)")
 
-    verify_package(pkg_dir, written, entries, dependencies)
+    verify_package(pkg_dir, written, entries, dependencies, icons)
     if not (pkg_dir / "LICENSE").is_file():
         raise AssembleError(f"{name}: LICENSE was not staged by any leg")
 
@@ -364,11 +464,12 @@ def _print_plan_summary(name, legs, entries):
     print(f"  libraries: {', '.join(key for key, _ in entries)}")
 
 
-def verify_package(pkg_dir: Path, written: Path, entries, dependencies):
+def verify_package(pkg_dir: Path, written: Path, entries, dependencies, icons=()):
     """Assert declared <-> packaged 1:1 for the generated .gdextension."""
     declared = set()
     declared.update(value for _, value in entries)
     declared.update(value for _, value in dependencies)
+    declared.update(icons)
 
     missing = sorted(value for value in declared if not (pkg_dir / value).exists())
     if missing:
@@ -393,8 +494,9 @@ def verify_package(pkg_dir: Path, written: Path, entries, dependencies):
         raise AssembleError("packaged but not declared by any .gdextension:\n  " + "\n  ".join(unreferenced))
 
     text = written.read_text(encoding="utf-8")
-    if "jsb_gdextension_init" not in text:
-        raise AssembleError(f"{written.name}: entry_symbol missing")
+    match = re.search(r'^\s*entry_symbol\s*=\s*"([^"]+)"', text, re.M)
+    if match is None:
+        raise AssembleError(f"{written.name}: entry_symbol missing from [configuration]")
 
 
 def zip_package(pkg_dir: Path, zip_path: Path):
@@ -519,6 +621,9 @@ def main(argv=None):
     p.add_argument("--engine", required=True, choices=ENGINE_ORDER)
     p.add_argument("--artifacts", required=True)
     p.add_argument("--out", required=True)
+    # `[information] version` tracks the release; pass it so a packaged copy
+    # cannot advertise a version other than the tag it is attached to.
+    p.add_argument("--version", help="value for [information] version (e.g. the release tag)")
 
     p = sub.add_parser("verify", help="release gate over every published engine")
     p.add_argument("--all", action="store_true")
@@ -543,7 +648,7 @@ def main(argv=None):
         if args.command == "assemble":
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
-            assemble(args.engine, Path(args.artifacts), out)
+            assemble(args.engine, Path(args.artifacts), out, version=args.version)
             return 0
         if args.command == "verify":
             return verify(args.run, args.repo, args.artifacts_json)

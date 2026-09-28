@@ -59,6 +59,32 @@ platform=web 且不带引擎标志时，产物**必然是** `JSB_WITH_WEB`（浏
 - `[dependencies]` 的 `bin/windows/node.dll` **只出现在 node 包**（且只挂在 windows 的
   `[libraries]` 键上）：单库只有 node 引擎那条腿链 libnode，其余引擎的包不带该依赖。
 
+### `[information]` 与 `[icons]` 段（2026-09-29 加入）
+
+Godot 的 `.gdextension` 格式**只认 4 个段**：`[configuration]`（`gdextension_library_loader.cpp:
+317-409`）、`[libraries]`、`[dependencies]`（:42-105）、`[icons]`（:419-429，写入
+`class_icon_paths`，是脚本类图标的来源）。**没有 `[information]`** —— 那段是本项目自己的
+元数据（name / version / author / support_link / repo / others），引擎不解析，仅供人看。
+
+打包器对这两段的处理：
+
+- **两段都随 `.gdextension` 一起进包**（它们位于 `[libraries]` 之前，被原样保留），
+  `[information]` 的其它键（含 `decription` 这个笔误）**不做规范化** —— 不解析、不重建，
+  只替换 `version` 的值，避免通用 INI 重写吃掉键。
+- **`version` 必须随发布调整**：`assemble --version <tag>` 把 `[information] version` 改写为
+  该 tag（发布 workflow 传 `${{ inputs.version }}`）。不传则保留源文件的 `v0.0.0`——
+  "没传"与"已改成 v0.0.0"无法区分，所以**发布 workflow 必须显式传**，否则包内会带着
+  占位版本发出去。这也是 CI 里 `--version` 参数的唯一用途。
+- **`[icons]` 引用的文件必须一起打包**：图标路径相对 `.gdextension` 解析，而 `bin/` 之外的
+  文件不会被 artifact 携带，所以 `copy_icons()` 按原相对路径复制到包内。**图标也纳入 1:1 校验**：
+  `[icons]` 里声明了但包内没有 → `assemble` 失败（实测：删掉 `icons/GodotJSScript.svg` 后
+  报 `declared icon ... does not exist`）；包内少了图标 → `verify_package` 报 `declared but
+  not packaged`。
+
+图标文件本身的约束见 [editor-icons.md](./editor-icons.md)：**必须纯路径**——Godot 用 ThorVG
+光栅化 SVG，`<text>` 元素**不渲染**（实测：带 `<text>` 的图标渲染出来只剩外框）。颜色用
+Godot 约定色 `#e0e0e0`（`editor_color_map.cpp` 会把它映射成浅色主题的 `#5a5a5a`）。
+
 ### 自校验是硬门（两向都要）
 
 `assemble` 在写完后断言：

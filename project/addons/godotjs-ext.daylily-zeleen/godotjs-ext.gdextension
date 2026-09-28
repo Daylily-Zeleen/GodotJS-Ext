@@ -1,3 +1,17 @@
+[information]
+name = "GodotJS-Ext"
+version = "v0.0.0"
+decription = "A TypeScript/JavaScript binding for Godot."
+author = "忘忧の (Daylily Zeleen)"
+email = "daylily-zeleen@foxmail.com"
+support_link = "https://afdian.com/a/Daylily-Zeleen"
+repo = "https://github.com/Daylily-Zeleen/GodotJS-Ext"
+others = "诚接Godot游戏开发，欢迎邮件联系。/ Receive game development outsourcing, welcome to contact by email."
+
+[icons]
+
+GodotJSScript = "icons/GodotJSScript.svg"
+
 [configuration]
 
 entry_symbol = "jsb_gdextension_init"

@@ -158,7 +158,8 @@ jobs:
           python misc/release/package.py assemble \
             --engine ${{ matrix.engine }} \
             --artifacts artifacts \
-            --out out | tee assemble.log
+            --out out \
+            --version "${{ inputs.version }}" | tee assemble.log
           # The packager is the authority on the asset name: it is derived from
           # the legs actually merged (engine + platforms), never hardcoded here.
           # Emit the line verbatim: `$GITHUB_OUTPUT` wants `key=value`, and

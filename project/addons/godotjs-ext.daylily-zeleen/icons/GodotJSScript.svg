@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--  GodotJSScript icon.
+      Pure paths only: Godot rasterises SVG with ThorVG, which does not render text elements.
+      #e0e0e0 is Godot's "common icon colour" (editor_color_map.cpp), remapped
+      to #5a5a5a on light themes, so the icon follows the editor theme.
+      Letters are integer-aligned 4x7 pixel glyphs for crispness at 16px.  -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>GodotJSScript</title>
+  <path fill="none" stroke="#e0e0e0" stroke-width="1.15" stroke-linejoin="round" d="M3.4 1h9.2a2.4 2.4 0 0 1 2.4 2.4v9.2a2.4 2.4 0 0 1 -2.4 2.4h-9.2a2.4 2.4 0 0 1 -2.4 -2.4v-9.2a2.4 2.4 0 0 1 2.4 -2.4z"/>
+  <path fill="#e0e0e0" stroke="#e0e0e0" stroke-width="0.25" d="M3.5 4.5h1v1h-1zM4.5 4.5h1v1h-1zM5.5 4.5h1v1h-1zM6.5 4.5h1v1h-1zM5.5 5.5h1v1h-1zM5.5 6.5h1v1h-1zM5.5 7.5h1v1h-1zM5.5 8.5h1v1h-1zM2.5 9.5h1v1h-1zM5.5 9.5h1v1h-1zM3.5 10.5h1v1h-1zM4.5 10.5h1v1h-1zM9.5 4.5h1v1h-1zM10.5 4.5h1v1h-1zM11.5 4.5h1v1h-1zM12.5 4.5h1v1h-1zM8.5 5.5h1v1h-1zM8.5 6.5h1v1h-1zM9.5 7.5h1v1h-1zM10.5 7.5h1v1h-1zM11.5 7.5h1v1h-1zM12.5 8.5h1v1h-1zM12.5 9.5h1v1h-1zM8.5 10.5h1v1h-1zM9.5 10.5h1v1h-1zM10.5 10.5h1v1h-1zM11.5 10.5h1v1h-1z"/>
+</svg>
