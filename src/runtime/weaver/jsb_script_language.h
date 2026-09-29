@@ -142,12 +142,15 @@ private:
 	// [JS] export & declare in a single line, matches 'exports.default = class ClassName extends BaseName'
 	Ref<RegEx> js_class_name_matcher1_;
 
-	// 源码里按标识符定位声明：`find_function` 与 `get_member_line` 共用。
-	// 只认「非标识符字符 + 标识符 + 声明后继」，其中声明后继取自 JS/TS 里真实的成员声明形态
+#if JSB_TOOLS
+	// 源码里按标识符定位声明：`_find_function`（语言层）与 `GodotJSScript::_get_member_line`
+	// （脚本层）共用，两处结论因而一致。
+	// 只认「行首 + 可选修饰符 + 标识符 + 声明后继」，声明后继取自 JS/TS 里真实的成员声明形态
 	// （`name(`、`name =`、`name:`、`name;`）。这样不会匹配到注释里的同名文字
 	// （「// bar mentioned」后面是空格+字母），也不会匹配到长名的前缀（找 `bar` 不命中 `barbaz`）。
 	// 代价：泛型方法 `foo<T>()` 匹配不到（引入 `<` 会把 `a < b` 之类的比较式误判成声明）。
 	Ref<RegEx> js_declaration_matcher_;
+#endif // JSB_TOOLS
 
 public:
 	static GodotJSScriptLanguage *get_singleton();
@@ -167,13 +170,15 @@ public:
 
 	void scan_external_changes();
 
+#if JSB_TOOLS
 	/**
 	 * 在源码里定位 `p_identifier` 的声明行（1 基），找不到返回 -1。
-	 * 供 `GodotJSScript::_get_member_line` 与其他需要「按名字找行」的调用方复用，
-	 * 这样两处用的是同一套匹配规则（见 `js_declaration_matcher_`）。
+	 * 供 `GodotJSScript::_get_member_line` 复用，保证与 `_find_function` 用同一套匹配规则
+	 * （见 `js_declaration_matcher_`）。
 	 * @note 纯源码文本扫描，不加载模块，可在 EditorFileSystem 的后台扫描路径上调用。
 	 */
 	int find_identifier_line(const String &p_identifier, const String &p_source) const;
+#endif // JSB_TOOLS
 
 #if JSB_DEBUG
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
@@ -236,9 +241,12 @@ public:
 	// `EditorLanguage::format_code`）。要支持自动缩进需实现 `EditorLanguage` 侧，而不是这里。
 	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override { return p_code; }
 
-	// 以下三个不适用：唯一调用方是 autoload（`main.cpp` 启动两遍、`editor_autoload_settings.cpp` 增删），
-	// 语义是「让脚本里的**裸标识符**解析到该值」。TS/JS 没有裸标识符解析（strict 下未声明即
-	// ReferenceError），本仓也没有任何 autoload 集成；上游 C# 对同名钩子同样为空实现或不覆写。
+	// 以下两个不适用：唯一调用方是 autoload（`editor/settings/editor_autoload_settings.cpp` 的
+	// 增/删/占名，与 `main/main.cpp:4490/4538` 游戏启动的两遍）。语义是「让脚本里的**裸标识符**
+	// 解析到该值」——TS/JS 没有裸标识符解析（strict 下未声明即 ReferenceError），本仓也没有
+	// 任何 autoload 集成；上游 C# 对 `add_named` / `remove_named` 二者不覆写（基类空实现）。
+	// 第三个同类钩子 `_add_global_constant` 因不属于 `#if JSB_TOOLS` 区段，声明在下方
+	// `_get_recognized_extensions` 之后，那里有对应说明。
 	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {}
 	virtual void _remove_named_global_constant(const StringName &p_name) override {}
 

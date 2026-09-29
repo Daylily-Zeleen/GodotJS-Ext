@@ -549,15 +549,15 @@ public:
 		Environment *guest_env = Environment::wrap(guest_isolate);
 
 		// 栈分配而非 `LocalVector`：参数个数与调用同栈，`jsb_stackalloc` 免掉一次堆分配
-		// （本仓其它参数转发路径同样用它，如 `jsb_environment.cpp:1654-1655`、`jsb_timer_action.cpp:48-49`）。
+		// （本仓其它参数转发路径同样用它，如 `jsb_environment.cpp:1657-1668`、`jsb_timer_action.cpp:48-51`）。
 		// `alloca` 的作用域是**本函数**，`args` 在函数返回前一直存活。
 		using LocalValue = v8::Local<v8::Value>;
 		LocalValue *args = jsb_stackalloc(LocalValue, info.Length() > 0 ? info.Length() : 1);
 		for (int i = 0; i < info.Length(); i++) {
-			// placement new / 显式析构：`v8::Local` 有非平凡构造与析构（HandleScope 记账）。
-			new (args + i) LocalValue();
-			const v8::Local<v8::Value> arg = info[i];
-			new (args + i) LocalValue(wrap_cross_env_value(guest_env, host_isolate, arg)); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
+			// 一次 `memnew_placement` 直接以跨环境包装结果构造，不要先默认构造再赋值：
+			// `v8::Local` 的赋值会走 `operator=`（HandleScope 记账 + 析构旧值），多一次无谓操作；
+			// 本仓其它同形代码（`jsb_environment.cpp:1661`、`jsb_amd_module_loader.cpp:51`）也是这么写的。
+			memnew_placement(&args[i], LocalValue(wrap_cross_env_value(guest_env, host_isolate, info[i]))); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
 		}
 
 		const v8::Local<v8::Function> function = wrapper->get_function();

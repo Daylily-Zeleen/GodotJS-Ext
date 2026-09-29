@@ -81,7 +81,7 @@ private:
 // SceneTSDCodeGen: emits <scene>.nodes.gen.ts next to autogen path
 class SceneTSDGenerator {
 public:
-	SceneTSDGenerator(const String &p_out_dir, const PackedStringArray &p_scene_paths);
+	SceneTSDGenerator(const String &p_out_dir, const Vector<String> &p_scene_paths);
 
 	bool emit();
 
@@ -90,14 +90,14 @@ private:
 	bool emit_scene_node_types(const String &p_scene_path);
 
 	String out_dir_;
-	PackedStringArray scene_paths_;
+	Vector<String> scene_paths_;
 	TypeDB types_;
 };
 
 // ResourceTSDCodeGen: emits <resource>.gen.ts
 class ResourceTSDGenerator {
 public:
-	ResourceTSDGenerator(const String &p_out_dir, const PackedStringArray &p_resource_paths);
+	ResourceTSDGenerator(const String &p_out_dir, const Vector<String> &p_resource_paths);
 
 	bool emit();
 
@@ -112,14 +112,14 @@ private:
 	ScriptRpcInfo get_script_rpc_info(const String &p_resource_path) const;
 
 	String out_dir_;
-	PackedStringArray resource_paths_;
+	Vector<String> resource_paths_;
 	PackedStringArray script_extensions_;
 	TypeDB types_;
 };
 
 // convenience: full generation chain used by --generate-types
 // (static types install stays in the plugin; this covers godot d.ts + scenes + resources)
-bool generate_all_types(const String &p_out_dir, bool p_use_project_settings, const PackedStringArray &p_scene_paths, const PackedStringArray &p_resource_paths);
+bool generate_all_types(const String &p_out_dir, bool p_use_project_settings, const Vector<String> &p_scene_paths, const Vector<String> &p_resource_paths);
 
 } // namespace codegen
 } // namespace jsb

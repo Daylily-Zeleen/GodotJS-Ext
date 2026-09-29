@@ -205,11 +205,15 @@ void GodotJSScriptLanguage::_init() {
 	js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
 	js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
 	ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
+#if JSB_TOOLS
 	js_declaration_matcher_ = RegEx::create_from_string(R"(^\s*(?:(?:static|async|public|private|protected|readonly|abstract|declare|override|get|set)\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[(=:;]))");
+#endif // JSB_TOOLS
 	jsb_check(js_class_name_matcher1_.is_valid());
 	jsb_check(js_class_name_matcher2_.is_valid());
 	jsb_check(ts_class_name_matcher_.is_valid());
+#if JSB_TOOLS
 	jsb_check(js_declaration_matcher_.is_valid());
+#endif // JSB_TOOLS
 
 	JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, init);
 	once_initialized_ = true;
@@ -257,7 +261,9 @@ void GodotJSScriptLanguage::_finish() {
 	js_class_name_matcher1_.unref();
 	js_class_name_matcher2_.unref();
 	ts_class_name_matcher_.unref();
+#if JSB_TOOLS
 	js_declaration_matcher_.unref();
+#endif // JSB_TOOLS
 
 #if JSB_DEBUG
 	GodotJSMonitor::unregister_monitors();
@@ -497,6 +503,7 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String &p_path) c
 
 #endif // JSB_TOOLS
 
+#if JSB_TOOLS
 // 按标识符定位**声明所在行**（1 基），找不到返回 -1。`_find_function`（语言层）与
 // `GodotJSScript::_get_member_line`（脚本层）共用，两处结论因而一致。
 //
@@ -532,7 +539,6 @@ static int locate_identifier_line(const Ref<RegEx> &p_matcher, const String &p_i
 	return -1;
 }
 
-#if JSB_TOOLS
 int32_t GodotJSScriptLanguage::_find_function(const String &p_function, const String &p_code) const {
 	// 调用方：`editor/scene/connections_dialog.cpp:1016/1024`（信号连接对话框判断方法是否存在于脚本，
 	// 含基类链）与 `editor/script/script_text_editor.cpp:428`。返回 -1 会让前者认为方法不在本脚本里，
@@ -556,11 +562,11 @@ String GodotJSScriptLanguage::_validate_path(const String &p_path) const {
 	}
 	return "";
 }
-#endif // JSB_TOOLS
 
 int GodotJSScriptLanguage::find_identifier_line(const String &p_identifier, const String &p_source) const {
 	return locate_identifier_line(js_declaration_matcher_, p_identifier, p_source);
 }
+#endif // JSB_TOOLS
 
 void GodotJSScriptLanguage::_thread_enter() {
 	jsb::Worker::on_thread_enter();

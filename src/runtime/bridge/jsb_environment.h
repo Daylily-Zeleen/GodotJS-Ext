@@ -176,12 +176,11 @@ private:
 	friend struct ClassRegister;
 	friend struct EnvironmentStore;
 
-	// 保留这个 friend：`ScriptClassInfo` 仍需访问 `Environment::flags_`
-	// （`jsb_class_info.cpp:830` 的 `p_env->flags_ & Environment::EnvironmentFlags::EF_Shadow`
-	// ——`EnvironmentFlags` 是私有枚举，`flags_` 本身无公开访问器；等价的公开谓词
-	// `is_shadow()`（`:516`）语义是「本环境即影子环境」，与这里要表达的
-	// 「以影子模式创建这个实例」不是同一件事，直接换用会改变语义）。
-	// 收紧它需要先定义后者的接口，属 API 面改动，本轮不动。
+	//TODO 收紧这个 friend：`ScriptClassInfo` 目前直接读 `Environment::flags_` 与私有枚举
+	//     `EnvironmentFlags::EF_Shadow`（`jsb_class_info.cpp:830`，用于
+	//     `instance_and_native_object_create` 的 shadow 模式参数）。可行的收口是给
+	//     `Environment` 加一个语义明确的公开谓词（现有 `is_shadow()` 表「本环境即影子环境」，
+	//     与「以影子模式创建实例」不是同一件事），然后删掉这个 friend。
 	friend struct ScriptClassInfo;
 
 	// symbol for class_id on FunctionTemplate of native class

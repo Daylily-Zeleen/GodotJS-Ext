@@ -55,12 +55,11 @@ void GodotJSREPL::_bind_methods() {
 }
 
 GodotJSREPL::GodotJSREPL() {
-	// 多 Realm 选择是**待设计的功能**，不是待补的接线：REPL 当前恒定在**主环境**上求值
-	// （`eval_source` → `GodotJSScriptLanguage::eval_source*`，`:231-236`），而 worker 与
-	// ShadowRealm 各自有独立 `Environment`。要做「列出所有 realm 并交互」需要
-	// (a) 一个 realm 枚举入口（`EnvironmentStore::get_list()` 已有，但只给内部用）、
-	// (b) 一个选择控件与持久选择状态、(c) 跨 realm 求值的调用通道——而跨 realm 调用本身
-	// 在 `_input_changed` 的注释里也标着未实现。属独立功能项，先记在这里。
+	//TODO 列出所有 realm 实例并与之交互：REPL 当前恒定在**主环境**上求值
+	//     （`eval_source` → `GodotJSScriptLanguage::eval_source*`，`:231-236`），而 worker 与
+	//     ShadowRealm 各自有独立 `Environment`。要做需要 (a) realm 枚举入口（`EnvironmentStore::get_list()`
+	//     已有，但只给内部用）、(b) 选择控件与持久选择状态、(c) 跨 realm 求值的调用通道——(c) 本身
+	//     也未实现（见 `_input_changed` 的同类 TODO）。
 
 	// This REPL is an jsb::internal::IConsoleOutput: the base constructor already
 	// registered it as a console sink (arming the node console hook in node

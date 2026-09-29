@@ -627,7 +627,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		switch (self->InternalFieldCount()) {
 			case IF_VariantFieldCount: {
 #if JSB_WITH_NODE
-				/** Node 的 Promise 会带一个内嵌字段，因而 `InternalFieldCount()` 会等于
+				/** HACK: Node 的 Promise 会带一个内嵌字段，因而 `InternalFieldCount()` 会等于
 				 *  `IF_VariantFieldCount`，落进本分支。直接读 `IF_Pointer` 会把字段解释成
 				 *  `Variant*`——所以先按 `IsPromise()` 拦掉。
 				 *  没有"更优雅"的替代：`v8::Promise` 的内嵌字段布局是 V8 的实现细节，

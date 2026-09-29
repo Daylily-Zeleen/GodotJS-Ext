@@ -106,11 +106,18 @@ private:
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
 
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
-	static PackedStringArray _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const PackedStringArray &p_paths);
+	// 这批路径列表**刻意保持** `Vector<String>`，不改成 `PackedStringArray`（原 TODO 建议改）：
+	// GDExtension 下 `PackedStringArray` 的 `push_back`/`operator[]`/`size` 每个元素都是一次
+	// gdextension 函数指针调用（`third/godot-cpp/gen/src/variant/packed_string_array.cpp` 全是
+	// `_call_builtin_method_ptr_*`），只有 `ptr()/ptrw()` 是一次调用取整块；而 `Vector<String>`
+	// 是纯 C++ CowData、零调用。这些函数是「遍历文件系统逐个 push、再逐个过滤/取 md5」的形态，
+	// 改成 PackedStringArray 反而更慢。信号回调那边（`_generate_imported_resource_dts` 收到
+	// 引擎给的 `PackedStringArray`）本来就要拷一份进 `Vector<String>`，现在只拷一次、无额外开销。
+	static Vector<String> _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths);
 
 	Ref<ConfigFile> _get_file_md5_cache();
 	bool _is_file_changed(const String &p_file);
-	void _cache_files_md5(const PackedStringArray &p_files);
+	void _cache_files_md5(const Vector<String> &p_files);
 	void _on_clean_timer_timeout();
 	void _save_md5_cache();
 
@@ -156,10 +163,10 @@ protected:
 	static bool install_files(const Vector<jsb::weaver::InstallFileInfo> &p_files);
 	static Vector<jsb::weaver::InstallFileInfo> filter_files(const Vector<jsb::weaver::InstallFileInfo> &p_files, int p_hint);
 	static bool delete_file(const String &p_file);
-	static void get_all_scenes(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list);
-	static void get_all_resources(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list);
-	static void generate_scene_nodes_types(std::function<void(bool)> complete, const PackedStringArray &p_paths);
-	static void generate_resource_types(std::function<void(bool)> complete, const PackedStringArray &p_paths);
+	static void get_all_scenes(EditorFileSystemDirectory *p_dir, Vector<String> &r_list);
+	static void get_all_resources(EditorFileSystemDirectory *p_dir, Vector<String> &r_list);
+	static void generate_scene_nodes_types(std::function<void(bool)> complete, const Vector<String> &p_paths);
+	static void generate_resource_types(std::function<void(bool)> complete, const Vector<String> &p_paths);
 
 public:
 	GodotJSEditorPlugin();
