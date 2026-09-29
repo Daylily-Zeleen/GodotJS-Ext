@@ -42,6 +42,9 @@
 #if JSB_WITH_NODE
 #	include <runtime/impl/node/jsb_node_console_hook.h>
 #endif
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <string>
@@ -216,6 +219,220 @@ TEST_CASE("[runtime] [api] node console hook mirrors JS console output into sink
 			"sink received a write without the JS payload; got '",
 			sink.last_text.c_str(),
 			"'");
+}
+
+// --- node leg: the native-probe helper plumbing ------------------------------------
+//
+// Gode tests its node leg with dedicated node smoke tests (a forked helper plus an
+// npm native module). We had none: the C++ suite only had the console-hook case and
+// the TS suite had nothing node-specific at all. These cover the two pieces this
+// leg alone owns:
+//
+//  1. the 'godot' linked binding exposes `native_probe_executable()`, which must
+//     resolve to the bundled fork helper; without it `child_process.fork` would
+//     re-spawn Godot itself (see the redirect in jsb_node_runtime.cpp).
+//  2. `child_process.fork` is redirected: a forked child answers over IPC with an
+//     execPath, and that execPath must not be the host executable.
+//
+// Both are driven from JS so they exercise the real bootstrap wiring.
+//
+// NOTE: node builtins cannot be loaded with the global `require` here -- that is the
+// GodotJS bridge require (Builtins::_require -> Environment::_load_module), which only
+// resolves GodotJS modules and crashes on unknown ids. The bootstrap exposes node's
+// own loader as globalThis.__godotjs_node_require (jsb_node_runtime.cpp).
+//
+// NOTE: the child path is resolved by the engine and passed in, because the fork
+// redirect maps res:// through process.cwd(), which is not the project root here.
+static constexpr char k_node_probe_helper_source[] = R"jsb_src(
+(function () {
+    const binding = (typeof process !== "undefined") ? process._linkedBinding("godot") : null;
+    const out = { hasBinding: false, hasFn: false, value: "" };
+    out.hasBinding = !!(binding && typeof binding === "object");
+    out.hasFn = !!(binding && typeof binding.native_probe_executable === "function");
+    if (out.hasFn) {
+        const p = binding.native_probe_executable();
+        out.value = (typeof p === "string") ? p : "";
+    }
+    globalThis.__probe = out;
+    return 1;
+})();
+)jsb_src";
+
+TEST_CASE("[runtime] [api] [node] native_probe_executable resolves the bundled fork helper") {
+	GodotJSScriptLanguageIniter initer;
+	const std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+		const v8::Local<v8::Context> context = env->get_context();
+
+		Error err = OK;
+		env->eval_source(k_node_probe_helper_source, (int)sizeof(k_node_probe_helper_source) - 1, "testcase_node_probe_helper.js", err);
+		REQUIRE(err == OK);
+
+		v8::Local<v8::Value> probe_val;
+		REQUIRE(context->Global()->Get(context, impl::Helper::new_string(isolate, "__probe")).ToLocal(&probe_val));
+		REQUIRE(probe_val->IsObject());
+		const v8::Local<v8::Object> probe = probe_val.As<v8::Object>();
+
+		auto get_bool = [&](const char *p_key) {
+			v8::Local<v8::Value> v;
+			REQUIRE(probe->Get(context, impl::Helper::new_string(isolate, p_key)).ToLocal(&v));
+			return v->BooleanValue(isolate);
+		};
+
+		CHECK_MESSAGE(get_bool("hasBinding"), "process._linkedBinding('godot') did not return the linked binding");
+		CHECK_MESSAGE(get_bool("hasFn"), "godot.native_probe_executable is not registered on the linked binding");
+
+		// Path validation happens here: require("path")/require("fs") are the bridge
+		// require in this context, not node's loader.
+		v8::Local<v8::Value> value_val;
+		REQUIRE(probe->Get(context, impl::Helper::new_string(isolate, "value")).ToLocal(&value_val));
+		const v8::String::Utf8Value value_utf8(isolate, value_val);
+		const String helper_path = value_utf8.length() > 0 && *value_utf8 ? String::utf8(*value_utf8) : String();
+
+		// android/ios ship no helper -> empty is a valid answer there; on desktop the
+		// helper must be an existing absolute path, otherwise fork() cannot work.
+		if (helper_path.is_empty()) {
+			WARN_MESSAGE(true, "native_probe_executable() is empty: this platform ships no fork helper");
+			return;
+		}
+		CHECK_MESSAGE(helper_path.is_absolute_path(), "native_probe_executable() is not an absolute path: ", helper_path.utf8().get_data());
+		CHECK_MESSAGE(FileAccess::file_exists(helper_path), "native_probe_executable() points at a missing file: ", helper_path.utf8().get_data());
+	}
+}
+
+static constexpr char k_node_fork_source[] = R"jsb_src(
+(function () {
+    const result = { ok: false, error: null, execPath: null, usesBundledHelper: false };
+    globalThis.__forkResult = result;
+    const nodeRequire = globalThis.__godotjs_node_require;
+    if (typeof nodeRequire !== "function") {
+        result.error = "the node require bridge (__godotjs_node_require) is missing";
+        return 1;
+    }
+    try {
+        const cp = nodeRequire("child_process");
+        const childPath = String(globalThis.__jsb_child_path__ || "");
+        const child = cp.fork(childPath, [], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
+        let stderrText = "";
+        if (child.stderr) {
+            child.stderr.on("data", function (chunk) { stderrText += String(chunk); });
+        }
+        child.on("message", function (msg) {
+            if (msg && msg.type === "node-fork-probe") {
+                const execPath = String(msg.execPath || "");
+                result.ok = true;
+                result.execPath = execPath;
+                result.usesBundledHelper = /godotjs-ext(\.exe)?$/i.test(execPath.replace(/\\/g, "/"));
+                // Do NOT send anything back: the probe child exits right after
+                // process.send(), so a reply writes into a closed IPC channel and
+                // raises EPIPE on the parent. Gode's probe works the same way.
+            }
+        });
+        child.on("error", function (e) { result.error = String((e && e.message) || e); });
+        child.on("exit", function (code) {
+            if (!result.ok && result.error === null) {
+                result.error = "child exited with code " + String(code) + (stderrText ? "; stderr: " + stderrText : "");
+            }
+        });
+    } catch (e) {
+        result.error = String((e && e.stack) || e);
+    }
+    return 1;
+})();
+)jsb_src";
+
+TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of the host") {
+	GodotJSScriptLanguageIniter initer;
+	const std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+		const v8::Local<v8::Context> context = env->get_context();
+
+		// Resolve res:// -> OS path through the engine: the fork redirect maps res://
+		// via process.cwd(), which is not the project root under the test host.
+		const String child_os_path = ProjectSettings::get_singleton()->globalize_path("res://tests/node-runtime/fork-probe-child.cjs");
+		REQUIRE_MESSAGE(FileAccess::file_exists(child_os_path), "the fork probe child is missing: ", child_os_path.utf8().get_data());
+		const CharString child_os_path_utf8 = child_os_path.utf8();
+		context->Global()->Set(context,
+								 impl::Helper::new_string(isolate, "__jsb_child_path__"),
+								 impl::Helper::new_string(isolate, child_os_path_utf8.get_data()))
+				.Check();
+
+		Error err = OK;
+		env->eval_source(k_node_fork_source, (int)sizeof(k_node_fork_source) - 1, "testcase_node_fork.js", err);
+		REQUIRE(err == OK);
+
+		// The child answers on later event-loop turns. An in-JS `await` cannot make
+		// progress here: nothing pumps node's loop during eval_source, so the timer
+		// would never fire. Drive Environment::update() (which calls
+		// NodeRuntime::PumpEventLoop -> uv_run(UV_RUN_NOWAIT)) until the child
+		// reports, with a bounded number of turns.
+		{
+			const int max_turns = 200;
+			int turns = 0;
+			while (turns < max_turns) {
+				env->update(16);
+				++turns;
+				v8::Local<v8::Value> ok_now;
+				if (context->Global()->Get(context, impl::Helper::new_string(isolate, "__forkResult")).ToLocal(&ok_now)
+						&& ok_now->IsObject()) {
+					v8::Local<v8::Value> ok_flag;
+					if (ok_now.As<v8::Object>()->Get(context, impl::Helper::new_string(isolate, "ok")).ToLocal(&ok_flag)
+							&& ok_flag->BooleanValue(isolate)) {
+						break;
+					}
+				}
+				OS::get_singleton()->delay_msec(20);
+			}
+			CHECK_MESSAGE(turns < max_turns, "the forked child did not report within ", turns, " loop turns");
+		}
+
+		v8::Local<v8::Value> result_val;
+		REQUIRE(context->Global()->Get(context, impl::Helper::new_string(isolate, "__forkResult")).ToLocal(&result_val));
+		REQUIRE(result_val->IsObject());
+		const v8::Local<v8::Object> result = result_val.As<v8::Object>();
+
+		auto get_bool = [&](const char *p_key) {
+			v8::Local<v8::Value> v;
+			REQUIRE(result->Get(context, impl::Helper::new_string(isolate, p_key)).ToLocal(&v));
+			return v->BooleanValue(isolate);
+		};
+
+		v8::Local<v8::Value> error_val;
+		REQUIRE(result->Get(context, impl::Helper::new_string(isolate, "error")).ToLocal(&error_val));
+		if (!error_val->IsNull() && !error_val->IsUndefined()) {
+			// CHECK_MESSAGE (not MESSAGE/FAIL_CHECK) so the payload lands in the log
+			// as an ERROR line: doctest's MESSAGE stream prints a raw const char* as
+			// a pointer here.
+			const String err_text = impl::Helper::to_string(isolate, error_val);
+			CHECK_MESSAGE(false, "forking the probe child failed: ", err_text.utf8().get_data());
+		}
+
+		// Gode's npm-native smoke asserts the child's execPath IS the bundled helper
+		// (`/gode_node(\.exe)?$/`); ours is `godotjs-ext[.exe]`. "Not the host" is not
+		// enough -- a fork that silently fell back to some other node would pass it.
+		CHECK_MESSAGE(get_bool("ok"), "the forked child never reported an execPath over IPC");
+		CHECK_MESSAGE(get_bool("usesBundledHelper"), "fork did not use the bundled godotjs-ext helper");
+
+		v8::Local<v8::Value> exec_val;
+		REQUIRE(result->Get(context, impl::Helper::new_string(isolate, "execPath")).ToLocal(&exec_val));
+		// impl::Helper::to_string is the cross-engine way to read a JS value as a
+		// godot String; a raw v8::String::Utf8Value on a non-string prints pointer
+		// bits, which is what happened before.
+		// impl::Helper::to_string is engine-specific; JS-visible text is read most
+		// reliably by asking v8 for the string directly (this leg is v8-backed).
+		v8::Local<v8::String> exec_str;
+		const String exec_path = exec_val->ToString(context).ToLocal(&exec_str)
+				? String::utf8(v8::String::Utf8Value(isolate, exec_str).length() > 0 ? *v8::String::Utf8Value(isolate, exec_str) : "")
+				: String("(not a string)");
+		// NOTE: doctest's MESSAGE stream prints a raw `const char*` as the pointer
+		// value, so wrap in std::string (that is why this printed "000002..." before).
+		const std::string exec_message = std::string("fork execPath: ") + exec_path.utf8().get_data();
+		MESSAGE(exec_message.c_str());
+	}
 }
 #endif // JSB_WITH_NODE
 

@@ -277,6 +277,13 @@ void RegisterGodotBinding(v8::Local<v8::Object> exports, v8::Local<v8::Value> mo
 } //namespace
 
 void NodeBridge::PrepareNativeAddonHost() {
+// IMPORTANT: this runs in the STANDALONE helper process (godotjs-ext.exe), where
+// the GDExtension interface table has never been initialized -- there is no
+// Godot host. Every godot-cpp allocation (String, CharWideString, PackedByteArray)
+// routes through that table, so touching one here writes through a NULL function
+// pointer: the helper died with "access violation writing 0x0000000000000000"
+// before running any script, which made child_process.fork() unusable.
+// Hence: Win32/POSIX calls only, no godot-cpp types on this path.
 #ifdef WINDOWS_ENABLED
 	// locate this host module (godotjs-ext DLL) and preload the node.dll shim
 	// next to it: dynamically loaded .node addons import napi_* symbols which
@@ -285,15 +292,25 @@ void NodeBridge::PrepareNativeAddonHost() {
 	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(reinterpret_cast<void *>(&NodeBridge::PrepareNativeAddonHost)), &current_module)) {
 		return;
 	}
-	const String module_path = get_module_file_name(current_module);
-	if (module_path.is_empty()) {
+	std::vector<wchar_t> path(MAX_PATH);
+	for (;;) {
+		const DWORD length = GetModuleFileNameW(current_module, path.data(), static_cast<DWORD>(path.size()));
+		if (length == 0) {
+			return;
+		}
+		if (length < static_cast<DWORD>(path.size())) {
+			break;
+		}
+		path.resize(path.size() * 2);
+	}
+	// strip the file name, then append the shim name
+	const std::wstring module_path(path.data());
+	const size_t slash = module_path.find_last_of(L"\\/");
+	if (slash == std::wstring::npos) {
 		return;
 	}
-	const String dir = module_path.get_base_dir();
-	if (dir.is_empty()) {
-		return;
-	}
-	LoadLibraryW(dir.path_join("node.dll").wide_string().get_data());
+	const std::wstring shim = module_path.substr(0, slash + 1) + L"node.dll";
+	LoadLibraryW(shim.c_str());
 #elif defined(LINUX_ENABLED) || defined(MACOS_ENABLED) || defined(ANDROID_ENABLED)
 	// promote the N-API symbols of the host module (which statically links
 	// libnode) to global visibility so that .node addons can resolve them.
