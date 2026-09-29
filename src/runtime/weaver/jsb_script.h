@@ -212,7 +212,7 @@ public:
 	virtual Variant _get_script_method_argument_count(const StringName &p_method) const override;
 
 #if JSB_TOOLS
-	virtual int32_t _get_member_line(const StringName &p_member) const override { return -1; } // TODO
+	virtual int32_t _get_member_line(const StringName &p_member) const override;
 #endif // JSB_TOOLS
 
 	virtual Dictionary _get_constants() const override;

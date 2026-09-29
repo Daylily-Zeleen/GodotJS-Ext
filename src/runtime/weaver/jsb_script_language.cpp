@@ -205,9 +205,11 @@ void GodotJSScriptLanguage::_init() {
 	js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
 	js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
 	ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
+	js_declaration_matcher_ = RegEx::create_from_string(R"(^\s*(?:(?:static|async|public|private|protected|readonly|abstract|declare|override|get|set)\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[(=:;]))");
 	jsb_check(js_class_name_matcher1_.is_valid());
 	jsb_check(js_class_name_matcher2_.is_valid());
 	jsb_check(ts_class_name_matcher_.is_valid());
+	jsb_check(js_declaration_matcher_.is_valid());
 
 	JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, init);
 	once_initialized_ = true;
@@ -255,6 +257,7 @@ void GodotJSScriptLanguage::_finish() {
 	js_class_name_matcher1_.unref();
 	js_class_name_matcher2_.unref();
 	ts_class_name_matcher_.unref();
+	js_declaration_matcher_.unref();
 
 #if JSB_DEBUG
 	GodotJSMonitor::unregister_monitors();
@@ -493,6 +496,71 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String &p_path) c
 }
 
 #endif // JSB_TOOLS
+
+// 按标识符定位**声明所在行**（1 基），找不到返回 -1。`_find_function`（语言层）与
+// `GodotJSScript::_get_member_line`（脚本层）共用，两处结论因而一致。
+//
+// 为什么逐行匹配而不是「全源码 search_all + 算偏移」：`RegExMatch` 不暴露匹配位置
+// （godot-cpp 的 `reg_ex_match.hpp` 只有 `get_string()` / `get_subject()`），拿不到偏移就只能
+// 猜——同一标识符在注释里先出现时会把行号算错（实测过）。
+// 逐行则行号就是循环下标，且声明符（`name(`、`name =`、`name:`、`name;`）与名字必然同行。
+//
+// 代价（有意接受）：把声明拆到两行的写法（`foo\n() {}`）匹配不到；
+// 行首到名字之间只容忍空白与修饰符（`static`/`async`/`get`/`set`/`*`）。
+static int locate_identifier_line(const Ref<RegEx> &p_matcher, const String &p_identifier, const String &p_source) {
+	if (!p_matcher.is_valid() || p_identifier.is_empty() || p_source.is_empty()) {
+		return -1;
+	}
+
+	int line = 0;
+	int begin = 0;
+	while (begin <= p_source.length()) {
+		const int end = p_source.find("\n", begin);
+		const String row = end < 0 ? p_source.substr(begin) : p_source.substr(begin, end - begin);
+		++line;
+
+		const Ref<RegExMatch> match = p_matcher->search(row);
+		if (match.is_valid() && match->get_group_count() > 0 && match->get_string(1) == p_identifier) {
+			return line;
+		}
+
+		if (end < 0) {
+			break;
+		}
+		begin = end + 1;
+	}
+	return -1;
+}
+
+#if JSB_TOOLS
+int32_t GodotJSScriptLanguage::_find_function(const String &p_function, const String &p_code) const {
+	// 调用方：`editor/scene/connections_dialog.cpp:1016/1024`（信号连接对话框判断方法是否存在于脚本，
+	// 含基类链）与 `editor/script/script_text_editor.cpp:428`。返回 -1 会让前者认为方法不在本脚本里，
+	// 于是主动把该函数补写进脚本（`:1017-1034` 的 `add_script_function_request`）。
+	return locate_identifier_line(js_declaration_matcher_, p_function, p_code);
+}
+
+String GodotJSScriptLanguage::_validate_path(const String &p_path) const {
+	// 调用方：`editor/script/script_create_dialog.cpp:301`（「新建脚本」对话框）。
+	// 通用检查（空路径、非法文件名、目录冲突、扩展名匹配）已在调用方完成，这里只补语言层的。
+	// 语义对齐 C#（`csharp_script.cpp:393`）：脚本文件名基名会用作类名，必须是合法标识符。
+	const String class_name = p_path.get_file().get_basename();
+	if (class_name.is_empty()) {
+		return "";
+	}
+	if (!class_name.is_valid_identifier()) {
+		return TTR("Class name must be a valid identifier.");
+	}
+	if (_get_reserved_words().has(class_name)) {
+		return TTR("Class name can't be a reserved keyword.");
+	}
+	return "";
+}
+#endif // JSB_TOOLS
+
+int GodotJSScriptLanguage::find_identifier_line(const String &p_identifier, const String &p_source) const {
+	return locate_identifier_line(js_declaration_matcher_, p_identifier, p_source);
+}
 
 void GodotJSScriptLanguage::_thread_enter() {
 	jsb::Worker::on_thread_enter();

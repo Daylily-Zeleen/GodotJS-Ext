@@ -142,6 +142,13 @@ private:
 	// [JS] export & declare in a single line, matches 'exports.default = class ClassName extends BaseName'
 	Ref<RegEx> js_class_name_matcher1_;
 
+	// 源码里按标识符定位声明：`find_function` 与 `get_member_line` 共用。
+	// 只认「非标识符字符 + 标识符 + 声明后继」，其中声明后继取自 JS/TS 里真实的成员声明形态
+	// （`name(`、`name =`、`name:`、`name;`）。这样不会匹配到注释里的同名文字
+	// （「// bar mentioned」后面是空格+字母），也不会匹配到长名的前缀（找 `bar` 不命中 `barbaz`）。
+	// 代价：泛型方法 `foo<T>()` 匹配不到（引入 `<` 会把 `a < b` 之类的比较式误判成声明）。
+	Ref<RegEx> js_declaration_matcher_;
+
 public:
 	static GodotJSScriptLanguage *get_singleton();
 
@@ -159,6 +166,14 @@ public:
 	}
 
 	void scan_external_changes();
+
+	/**
+	 * 在源码里定位 `p_identifier` 的声明行（1 基），找不到返回 -1。
+	 * 供 `GodotJSScript::_get_member_line` 与其他需要「按名字找行」的调用方复用，
+	 * 这样两处用的是同一套匹配规则（见 `js_declaration_matcher_`）。
+	 * @note 纯源码文本扫描，不加载模块，可在 EditorFileSystem 的后台扫描路径上调用。
+	 */
+	int find_identifier_line(const String &p_identifier, const String &p_source) const;
 
 #if JSB_DEBUG
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
@@ -210,19 +225,29 @@ public:
 	virtual bool _is_using_templates() override { return true; }
 	virtual bool _supports_builtin_mode() const override { return false; }
 
-	virtual int32_t _find_function(const String &p_function, const String &p_code) const override { return -1; } // TODO
+	virtual int32_t _find_function(const String &p_function, const String &p_code) const override;
 
 	// Godot 的函数添加只能在文件末尾，不符合类的定义范围有前后标记的语言，该功能不实现。
 	virtual bool _can_make_function() const override { return false; }
 	virtual String _make_function(const String &p_class_name, const String &p_function_name, const PackedStringArray &p_function_args) const override { return ""; }
 
-	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override { return p_code; } // TODO
-	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
-	virtual void _remove_named_global_constant(const StringName &p_name) override {} // TODO
+	// 不适用：`ScriptLanguageExtension::auto_indent_code` 是**静态成员**，`EditorAdapter::format_code`
+	// 直接值调用它，不经过虚分派 ⇒ 本覆写在 extension 路径下永远不会被调用（「自动缩进」走
+	// `EditorLanguage::format_code`）。要支持自动缩进需实现 `EditorLanguage` 侧，而不是这里。
+	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override { return p_code; }
 
-	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // TODO: Vector<StackInfo>
-	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // TODO: Vector<StackInfo>
-	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
+	// 以下三个不适用：唯一调用方是 autoload（`main.cpp` 启动两遍、`editor_autoload_settings.cpp` 增删），
+	// 语义是「让脚本里的**裸标识符**解析到该值」。TS/JS 没有裸标识符解析（strict 下未声明即
+	// ReferenceError），本仓也没有任何 autoload 集成；上游 C# 对同名钩子同样为空实现或不覆写。
+	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {}
+	virtual void _remove_named_global_constant(const StringName &p_name) override {}
+
+	// 以下三个不适用：唯一消费者是 `editor/doc/doc_tools.cpp`，为语言生成 `@<语言名>` 文档页。
+	// 要做需要新增并维护一份 C++ 侧的语言内建清单；本仓的 `@bind` 注解在运行时 bundle 里，
+	// 不满足该同步接口。上游 C# 同样为空实现。
+	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; }
+	virtual Dictionary _get_public_constants() const override { return Dictionary(); }
+	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; }
 
 	virtual bool _handles_global_class_type(const String &p_type) const override;
 	virtual Dictionary _get_global_class_name(const String &p_path) const override;
@@ -233,7 +258,7 @@ public:
 
 	//
 	virtual bool _can_inherit_from_file() const override { return false; } // js 类不能直接继承文件路径
-	virtual String _validate_path(const String &p_path) const override { return ""; } // TODO: 返回指定路径文件的错误信息（脚本创建对话框处使用）
+	virtual String _validate_path(const String &p_path) const override;
 
 	// 暂无计划实现编辑器内编写 TS/JS 脚本
 	virtual Dictionary _complete_code(const String &p_code, const String &p_path, Object *p_owner) const override { return {}; }
@@ -262,7 +287,10 @@ public:
 
 	virtual PackedStringArray _get_recognized_extensions() const override;
 
-	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
+	// 不适用：唯一调用方是 autoload（`main.cpp:4490/4538` 启动两遍）。GDScript 借此把核心常量
+	// 灌进 `globals` 数组**供解析器做常量折叠**，JS 没有这个阶段；本仓亦无 autoload 集成。
+	// 上游 C# 对同名钩子为空实现。
+	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {}
 
 	virtual PackedStringArray _get_reserved_words() const override;
 

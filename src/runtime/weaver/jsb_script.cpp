@@ -664,6 +664,19 @@ void GodotJSScript::_update_exports() {
 	if (!_is_valid()) return;
 	_update_exports_internal(nullptr);
 }
+
+int32_t GodotJSScript::_get_member_line(const StringName &p_member) const {
+	// 调用链：`ScriptEditor::script_goto_method`（`script_editor_plugin.cpp:3899`）←
+	// 信号连接后跳转（`connections_dialog.cpp:1294`）、脚本编辑器的 "go_to_method"、
+	// 动画方法轨双击（`animation_track_editor.cpp:3475`）。
+	// 返回 1 基行号（同 GDScript 的 `member_lines`），-1 表示找不到。
+	// 与 `_find_function` 共用同一套匹配规则，避免两处结论不一致。
+	const String source = _get_source_code();
+	if (source.is_empty()) {
+		return -1;
+	}
+	return GodotJSScriptLanguage::get_singleton()->find_identifier_line(p_member, source);
+}
 #endif // JSB_TOOLS
 
 int GodotJSScript::_get_own_method_argument_count(const StringName &p_method, bool *r_is_valid) const {

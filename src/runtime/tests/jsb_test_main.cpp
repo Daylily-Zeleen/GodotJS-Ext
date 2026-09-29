@@ -42,6 +42,7 @@
 #include "tests/test_jsb_process.h"
 #include "tests/test_jsb_runtime_api.h"
 #include "tests/test_jsb_sarray.h"
+#include "tests/test_jsb_script_language_queries.h"
 #if JSB_USE_TYPESCRIPT
 #	include "tests/test_jsb_paths_mapping.h"
 #endif // JSB_USE_TYPESCRIPT
