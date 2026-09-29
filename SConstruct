@@ -1028,6 +1028,13 @@ else:
 
 target_env, sources = make_target_env(env, "bin/windows/godotjs-ext", "runtime", source_globs)
 
+if jsb_platform == "macos":
+    # The node helper links this dylib and resolves it through @loader_path, so
+    # the recorded install name must be "@rpath/<file>" instead of a relative
+    # path. Set it before the library is created -- appending LINKFLAGS after
+    # SharedLibrary() has no effect.
+    target_env.Append(LINKFLAGS=["-Wl,-install_name,@rpath/" + lib_filename])
+
 library = target_env.SharedLibrary(
     "bin/{}/{}".format(env['platform'], lib_filename),
     source=sources + quickjs_obj,
@@ -1182,6 +1189,10 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
             "-Wl,-rpath,$$ORIGIN",
         ])
     else:
+        # macOS: keep linking by path, but the dependency recorded is the main
+        # dylib's install name. That is set to "@rpath/<name>" below, so the
+        # helper resolves it through @loader_path instead of a relative path
+        # (which is what made the child die with execPath null on macOS).
         helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
         if jsb_platform == "macos":
             helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
