@@ -750,7 +750,6 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed) {
 	// since `NOTIFICATION_READY` is not reversed, `notification` will be posted after `callp`.
 	// so, we can't `call_prelude` here with `NOTIFICATION_READY`
 
-	//TODO find the method named `_notification`, cal it with `p_notification` as `argv`
 	//TODO call it at all type levels? @seealso `GDScriptInstance::notification`
 	Variant value = p_notification;
 	const Variant *argv[] = { &value };

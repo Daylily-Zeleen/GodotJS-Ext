@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "验收调研结论是否符合项目既有 C++ 规范"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "复核「需较大改动」「不可实现」两类的架构判定是否有据"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "复核「Godot/godot-cpp 未暴露接口」类结论的证据是否成立"}
+{"file": ".trellis/tasks/09-29-todo-audit/prd.md", "reason": "逐条核对验收标准（188/188 覆盖、每条含类别与理由、统计齐全）"}

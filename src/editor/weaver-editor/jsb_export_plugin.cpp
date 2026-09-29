@@ -307,7 +307,12 @@ String GodotJSExportPlugin::_get_name() const {
 }
 
 bool GodotJSExportPlugin::_supports_platform(const Ref<EditorExportPlatform> &p_export_platform) const {
-	//TODO
+	//TODO 检查当前构建能否导出到指定平台：把平台名（`get_os_name()` 小写）与其架构
+	//     映射到 `res://addons/godotjs-ext.daylily-zeleen/bin/<platform>/` 下的实际产物，
+	//     目录/文件不存在则返回 false，让编辑器在导出面板直接禁用该平台，而不是导出一个
+	//     缺少扩展库的包。架构可参考 `godotjs-ext.gdextension` 的 `[libraries]` 键与
+	//     `misc/release/package.py` 的 `leg_library_key()`（平台+target+arch → 文件名，
+	//     macOS `universal`、iOS xcframework 无 arch 标签）。
 	JSB_EXPORTER_LOG(VeryVerbose, "GodotJSExportPlugin::_supports_platform( %s )", p_export_platform.is_valid() ? p_export_platform->get_class() : String("null"));
 	return true;
 }

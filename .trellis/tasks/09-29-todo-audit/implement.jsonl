@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "C++ 层入口：判定「可简单实现」与「需较大改动」时，必须遵守已定的分层与架构约束"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "架构约束（bridge 隔离、runtime/editor 分层），直接决定社区 TODO 中「打破隔离」「需要重构」两条的判定"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "判定「受上游限制/不可实现」类前，需先确认该接口在 godot-cpp 中确实未暴露及其既有绕行惯例"}
+{"file": ".trellis/spec/godotjs-ext/cpp/generated-files.md", "reason": "涉及 *.gen.* 的 TODO（如需构建期生成的硬编码表）必须走生成逻辑，不能直接改生成文件"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "构建层入口：判定构建期相关 TODO（preset 数据、codegen）的成本与边界"}
+{"file": ".trellis/tasks/09-29-todo-audit/prd.md", "reason": "本任务的范围、清点口径与 A/B/C/D/E 分类定义"}
+{"file": ".trellis/tasks/09-29-todo-audit/implement.md", "reason": "分批调研的切片划分、验证方式与报告结构"}

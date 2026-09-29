@@ -94,9 +94,6 @@ bool IModuleResolver::load_from_evaluator(Environment *p_env, JavaScriptModule &
 	module_obj->Set(context, jsb_name(p_env, filename), argv[kIndexFileName]).Check();
 	module_obj->Set(context, jsb_name(p_env, path), argv[kIndexPath]).Check();
 
-	//TODO set `require.cache`
-	// ...
-
 	if (const v8::MaybeLocal<v8::Value> result = p_elevator->Call(context, v8::Undefined(isolate), ::std::size(argv), argv);
 			result.IsEmpty()) {
 		// failed, usually means error thrown

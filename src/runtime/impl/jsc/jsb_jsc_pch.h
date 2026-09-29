@@ -34,7 +34,9 @@
 
 #include "compat/ring_buffer.h"
 
-//TODO WARNING: ONLY FOR DEV, NOT SUPPORTED TO BUILD. REMOVE IT AFTER jsc.impl IS READY.
+// Portability shim for non-Apple hosts: `API_AVAILABLE` is an Apple macro, so on
+// a host whose headers do not define it the attributes have to be erased before
+// JavaScriptCore's headers are parsed.
 #if !defined(API_AVAILABLE) && !defined(MACOS_ENABLED) && !defined(IOS_ENABLED)
 #	define API_AVAILABLE(...)
 #endif

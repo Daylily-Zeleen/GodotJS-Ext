@@ -444,7 +444,6 @@ class jsbb_Engine {
         this._stack.SetValue(jsbb_StackPos.Error, value);
     }
 
-    //TODO
     private _throw_trivial(value: any) {
         //TODO not sure, temporarily throw all trivial errors
         this._throw(value);

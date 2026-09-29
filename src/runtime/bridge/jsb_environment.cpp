@@ -50,10 +50,9 @@
 #include "../internal/jsb_settings.h"
 #include "../internal/jsb_variant_util.h"
 #include "../jsb_runtime_preset.h"
+#include "../weaver/jsb_script.h"
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
-//TODO remove this
-#include "../weaver/jsb_script.h"
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
@@ -1445,7 +1444,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 		do {
 			debugger_.update(); // process incoming debugger connections
 
-			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration); // TODO
+			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration);
 
 			if (status == std::future_status::ready) {
 				break;
