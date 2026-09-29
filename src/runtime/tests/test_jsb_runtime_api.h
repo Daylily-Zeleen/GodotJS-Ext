@@ -316,20 +316,15 @@ static constexpr char k_node_fork_source[] = R"jsb_src(
         const childPath = String(globalThis.__jsb_child_path__ || "");
         const binding = process._linkedBinding("godot");
         const helper = (binding && typeof binding.native_probe_executable === "function") ? binding.native_probe_executable() : null;
-        // executable bit is the posix-vs-windows difference that matters: on
-        // linux/macos the helper is `godotjs-ext` with no extension, and fork
-        // silently fails to spawn it if the exec bit was lost when the artifact
-        // was unpacked.
-        let execOk = "n/a";
+        let execOk = "?";
         try {
             const fsMod = nodeRequire("node:fs");
-            execOk = String(fsMod.accessSync(String(helper), fsMod.constants ? fsMod.constants.X_OK : 1) === undefined);
-            execOk = "true";
+            fsMod.accessSync(String(helper), fsMod.constants ? fsMod.constants.X_OK : 1);
+            execOk = "1";
         } catch (e) {
-            execOk = "false:" + String((e && e.code) || e);
+            execOk = "0:" + String((e && e.code) || "?");
         }
-        result.diag = "childPath=[" + childPath + "] helper=[" + String(helper) + "] execOk=" + execOk
-            + " execPath=[" + String(process.execPath) + "] cwd=[" + String(process.cwd()) + "] platform=" + String(process.platform);
+        result.diag = "x=" + execOk + " p=" + String(process.platform);
         const child = cp.fork(childPath, [], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
         let stderrText = "";
         if (child.stderr) {
@@ -417,10 +412,10 @@ TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of 
 					}
 				}
 			}
-			const std::string turn_msg = std::string("fork child did not report in ")
-					+ std::to_string(turns) + " turns; child=[" + child_os_path.utf8().get_data()
-					+ "] diag=" + diag_text.utf8().get_data();
-			CHECK_MESSAGE(turns < max_turns, turn_msg.c_str());
+			// Keep this SHORT: doctest truncates long payloads in the CI log, which
+			// is why the full diag never showed up. Just the decisive bits.
+			const std::string short_msg = std::string("nf|") + diag_text.utf8().get_data();
+			CHECK_MESSAGE(turns < max_turns, short_msg.c_str());
 		}
 
 		v8::Local<v8::Value> result_val;
