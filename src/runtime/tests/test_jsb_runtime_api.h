@@ -316,8 +316,20 @@ static constexpr char k_node_fork_source[] = R"jsb_src(
         const childPath = String(globalThis.__jsb_child_path__ || "");
         const binding = process._linkedBinding("godot");
         const helper = (binding && typeof binding.native_probe_executable === "function") ? binding.native_probe_executable() : null;
-        result.diag = "childPath=[" + childPath + "] helper=[" + String(helper)
-            + "] execPath=[" + String(process.execPath) + "] cwd=[" + String(process.cwd()) + "]";
+        // executable bit is the posix-vs-windows difference that matters: on
+        // linux/macos the helper is `godotjs-ext` with no extension, and fork
+        // silently fails to spawn it if the exec bit was lost when the artifact
+        // was unpacked.
+        let execOk = "n/a";
+        try {
+            const fsMod = nodeRequire("node:fs");
+            execOk = String(fsMod.accessSync(String(helper), fsMod.constants ? fsMod.constants.X_OK : 1) === undefined);
+            execOk = "true";
+        } catch (e) {
+            execOk = "false:" + String((e && e.code) || e);
+        }
+        result.diag = "childPath=[" + childPath + "] helper=[" + String(helper) + "] execOk=" + execOk
+            + " execPath=[" + String(process.execPath) + "] cwd=[" + String(process.cwd()) + "] platform=" + String(process.platform);
         const child = cp.fork(childPath, [], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
         let stderrText = "";
         if (child.stderr) {
@@ -391,23 +403,24 @@ TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of 
 				}
 				OS::get_singleton()->delay_msec(20);
 			}
-			const std::string turn_msg = std::string("fork child did not report in ")
-					+ std::to_string(turns) + " turns; child=[" + child_os_path.utf8().get_data() + "]";
-			CHECK_MESSAGE(turns < max_turns, turn_msg.c_str());
-		}
-
-		// Surface the in-JS diagnostics (resolved child path, helper path, cwd) so a
-		// CI-only failure is diagnosable from the log.
-		{
-			v8::Local<v8::Value> probe_val;
-			if (context->Global()->Get(context, impl::Helper::new_string(isolate, "__forkResult")).ToLocal(&probe_val)
-					&& probe_val->IsObject()) {
-				v8::Local<v8::Value> diag_val;
-				if (probe_val.As<v8::Object>()->Get(context, impl::Helper::new_string(isolate, "diag")).ToLocal(&diag_val)) {
-					const String diag_text = impl::Helper::to_string(isolate, diag_val);
-					MESSAGE(diag_text.utf8().get_data());
+			// Diagnostics go through CHECK_MESSAGE's first argument as a std::string:
+			// doctest's MESSAGE stream prints a raw const char* as a pointer, which
+			// is why earlier CI logs only ever showed "0x...".
+			String diag_text;
+			{
+				v8::Local<v8::Value> probe_val;
+				if (context->Global()->Get(context, impl::Helper::new_string(isolate, "__forkResult")).ToLocal(&probe_val)
+						&& probe_val->IsObject()) {
+					v8::Local<v8::Value> diag_val;
+					if (probe_val.As<v8::Object>()->Get(context, impl::Helper::new_string(isolate, "diag")).ToLocal(&diag_val)) {
+						diag_text = impl::Helper::to_string(isolate, diag_val);
+					}
 				}
 			}
+			const std::string turn_msg = std::string("fork child did not report in ")
+					+ std::to_string(turns) + " turns; child=[" + child_os_path.utf8().get_data()
+					+ "] diag=" + diag_text.utf8().get_data();
+			CHECK_MESSAGE(turns < max_turns, turn_msg.c_str());
 		}
 
 		v8::Local<v8::Value> result_val;
@@ -453,8 +466,7 @@ TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of 
 				: String("(not a string)");
 		// NOTE: doctest's MESSAGE stream prints a raw `const char*` as the pointer
 		// value, so wrap in std::string (that is why this printed "000002..." before).
-		const std::string exec_message = std::string("fork execPath: ") + exec_path.utf8().get_data();
-		MESSAGE(exec_message.c_str());
+
 	}
 }
 #endif // JSB_WITH_NODE
