@@ -83,10 +83,21 @@ void ScriptableAsyncModuleLoader::import(Environment &p_env, const StringName &p
 		/* resolve */ v8::Function::New(context, js_on_finish<true>, data, 1).ToLocalChecked(),
 		/* reject  */ v8::Function::New(context, js_on_finish<false>, data, 1).ToLocalChecked(),
 	};
-	//TODO JS try catch
-	v8::MaybeLocal<v8::Value> ret = func->Call(context, v8::Undefined(isolate), std::size(args), args).ToLocalChecked();
-	jsb_unused(ret);
-	jsb_check(!ret.IsEmpty() && ret.ToLocalChecked()->IsUndefined());
+	// 用 TryCatch 包住调用：回调是用户 JS，抛错时 `ToLocalChecked()` 会以 CHECK 失败而不是把异常
+	// 交给宿主（同 `AMDModuleLoader::load_source` 的处理，`jsb_amd_module_loader.cpp:80-88`）。
+	impl::TryCatch try_catch(isolate);
+	const v8::MaybeLocal<v8::Value> ret = func->Call(context, v8::Undefined(isolate), std::size(args), args);
+	if (try_catch.has_caught()) {
+		JSB_LOG(Error, "failed to invoke the async module loader: %s", BridgeHelper::get_exception(try_catch));
+		return;
+	}
+	// 约定：loader 返回 undefined（它通过 resolve/reject 句柄回传结果）。
+	if (v8::Local<v8::Value> result; ret.ToLocal(&result)) {
+		jsb_check(result->IsUndefined());
+	} else {
+		// 异常已被上面的 TryCatch 处理；`ToLocal` 失败只可能来自该异常。
+		jsb_check(try_catch.has_caught());
+	}
 }
 
 } //namespace jsb

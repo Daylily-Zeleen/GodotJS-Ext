@@ -329,7 +329,12 @@ public:
 
 	::templates::BitField<ScriptClassFlags::Type> flags{ ScriptClassFlags::None };
 
-	//TODO whether the internal class object alive or not
+	// 不做「class object 是否存活」的检查：`ScriptClassInfo` 由 `SArray` 持有，槽位回收靠
+	// revision（`jsb_sarray.h` 的 `Pointer::is_valid()` 比 revision），**指针有效性已由
+	// 调用方持有的 `ScriptClassInfoPtr` 负责**；类对象本身（`js_class`）是 `v8::Global`，
+	// 需要在 isolate/context 里才能判空，而本结构刻意可以脱离环境使用
+	// （见类顶部注释与 `StatelessScriptClassInfo` 的定位）。所以这里恒 true 是设计，
+	// 不是未实现——原 TODO 的前提（本处能判断存活）不成立。
 	_FORCE_INLINE_ bool is_valid() const { return true; }
 
 	_FORCE_INLINE_ bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }

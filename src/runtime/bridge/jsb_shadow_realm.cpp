@@ -527,7 +527,9 @@ public:
 
 		const TStrongRef<v8::Name> &symbol = get_flag_symbol(isolate);
 		wrapper.As<v8::Object>()->Set(context, symbol.object_.Get(isolate), data).Check();
-		// TODO: Freeze 或 proxy, 防止被篡改
+		// 不 Freeze/Proxy：这个 wrapper 是**跨环境调用时临时产出**并立即交回宿主侧使用的，
+		// 双方都可能给它挂属性（`add_cache` 之后还会被复用），冻结会打断其中一侧。
+		// 防止篡改的需求要单独设计（例如只读的 proxy 转发），不是这里加一行 `Freeze` 的事。
 
 		add_cache(p_guest_isolate, p_function, isolate, wrapper);
 		return wrapper;
@@ -546,20 +548,27 @@ public:
 		JSB_ISOLATE_SCOPE(guest_isolate);
 		Environment *guest_env = Environment::wrap(guest_isolate);
 
-		// TODO: jsb_stackalloc
-		LocalVector<v8::Local<v8::Value>> args;
-		args.reserve(info.Length());
+		// 栈分配而非 `LocalVector`：参数个数与调用同栈，`jsb_stackalloc` 免掉一次堆分配
+		// （本仓其它参数转发路径同样用它，如 `jsb_environment.cpp:1654-1655`、`jsb_timer_action.cpp:48-49`）。
+		// `alloca` 的作用域是**本函数**，`args` 在函数返回前一直存活。
+		using LocalValue = v8::Local<v8::Value>;
+		LocalValue *args = jsb_stackalloc(LocalValue, info.Length() > 0 ? info.Length() : 1);
 		for (int i = 0; i < info.Length(); i++) {
+			// placement new / 显式析构：`v8::Local` 有非平凡构造与析构（HandleScope 记账）。
+			new (args + i) LocalValue();
 			const v8::Local<v8::Value> arg = info[i];
-			v8::Local<v8::Value> warpped_arg = wrap_cross_env_value(guest_env, host_isolate, arg); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
-			args.push_back(warpped_arg);
+			new (args + i) LocalValue(wrap_cross_env_value(guest_env, host_isolate, arg)); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
 		}
 
 		const v8::Local<v8::Function> function = wrapper->get_function();
 		const v8::Local<v8::Context> guest_context = guest_env->get_context();
 		const v8::Context::Scope context_scope(guest_context);
 
-		v8::Local<v8::Value> result = function->Call(guest_context, v8::Undefined(guest_isolate), args.size(), args.ptr()).ToLocalChecked();
+		v8::Local<v8::Value> result = function->Call(guest_context, v8::Undefined(guest_isolate), info.Length(), args).ToLocalChecked();
+
+		for (int i = 0; i < info.Length(); i++) {
+			args[i].~LocalValue();
+		}
 		const v8::Local<v8::Value> wrapped_result = wrap_cross_env_value(host_env, guest_isolate, result); /** NOTE: 将在 host_env(host_isolate) 中创建对象 */
 		info.GetReturnValue().Set(wrapped_result);
 	}

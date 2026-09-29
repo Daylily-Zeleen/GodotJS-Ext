@@ -51,21 +51,42 @@ inline void verify_narrow_int_slot(GDExtensionClassMethodArgumentMetadata p_meta
 	int64_t lo = 0, hi = 0;
 	switch (p_meta) {
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT8:
-			bits = 8; lo = INT8_MIN; hi = INT8_MAX; break;
+			bits = 8;
+			lo = INT8_MIN;
+			hi = INT8_MAX;
+			break;
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT8:
-			bits = 8; lo = 0; hi = UINT8_MAX; break;
+			bits = 8;
+			lo = 0;
+			hi = UINT8_MAX;
+			break;
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT16:
-			bits = 16; lo = INT16_MIN; hi = INT16_MAX; break;
+			bits = 16;
+			lo = INT16_MIN;
+			hi = INT16_MAX;
+			break;
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT16:
-			bits = 16; lo = 0; hi = UINT16_MAX; break;
+			bits = 16;
+			lo = 0;
+			hi = UINT16_MAX;
+			break;
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_INT32:
-			bits = 32; lo = INT32_MIN; hi = INT32_MAX; break;
+			bits = 32;
+			lo = INT32_MIN;
+			hi = INT32_MAX;
+			break;
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_UINT32:
-			bits = 32; lo = 0; hi = UINT32_MAX; break;
+			bits = 32;
+			lo = 0;
+			hi = UINT32_MAX;
+			break;
 		// char32_t is a 32-bit code unit; the engine takes the whole uint32
 		// range and never checks the Unicode bound.
 		case GDEXTENSION_METHOD_ARGUMENT_METADATA_INT_IS_CHAR32:
-			bits = 32; lo = 0; hi = UINT32_MAX; break;
+			bits = 32;
+			lo = 0;
+			hi = UINT32_MAX;
+			break;
 		default:
 			return;
 	}
@@ -606,8 +627,11 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		switch (self->InternalFieldCount()) {
 			case IF_VariantFieldCount: {
 #if JSB_WITH_NODE
-				/** HACK: Node 的 Promise 会有一个内嵌字段。*/
-				/** TODO: 用更优雅的方式处理 */
+				/** Node 的 Promise 会带一个内嵌字段，因而 `InternalFieldCount()` 会等于
+				 *  `IF_VariantFieldCount`，落进本分支。直接读 `IF_Pointer` 会把字段解释成
+				 *  `Variant*`——所以先按 `IsPromise()` 拦掉。
+				 *  没有"更优雅"的替代：`v8::Promise` 的内嵌字段布局是 V8 的实现细节，
+				 *  官方 API 只给 `IsPromise()`；靠类型判断已是最稳的一条。 */
 				if (self->IsPromise()) {
 					JSB_LOG(Error, "js_to_gd_var: unhandled type: Promise");
 					return false;
@@ -652,7 +676,9 @@ bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::C
 		}
 		case Variant::FLOAT: // return p_val->IsNumber();
 		case Variant::INT: {
-			//TODO find a better way to check integer type?
+			// `IsNumber()` 已覆盖 int32/uint32/float64 三种 V8 表示，不再区分：这里问的是
+			// 「能不能当数字用」，而具体是 int 还是 double 由下面 `js_to_fixed_width_int`
+			// 之类的转换点按目标类型再判。加窄类型判断只会把「大整数精度」类问题提前变成类型拒绝。
 			return p_val->IsNumber()
 #if JSB_WITH_BIGINT
 					|| p_val->IsBigInt()

@@ -29,7 +29,12 @@
 
 namespace jsb {
 bool InternalModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
-	//TODO evaluate source from presets with file_name_
+	// 这个 loader 目前**没有任何注册点**（全仓只有本文件与它的头文件引用它，
+	// `git grep -n InternalModuleLoader -- src`），所以「从 preset 里按 file_name_ 求值源码」
+	// 没有消费者：`file_name_` 只在构造函数里被存下，从没被读过。
+	// 真要做需要先决定它服务于谁（历史上对应「把内置 bundle 当模块加载」，而那条路径现在
+	// 由 `AMDModuleLoader` + `GodotJSRuntimePreset` 承担，见 `jsb_script_language.cpp` 的
+	// `AMDModuleLoader::load_source` 调用）。在此之前保留空实现，不再挂 TODO。
 	return true;
 }
 
