@@ -24,3 +24,24 @@ godot-cpp 的接口与 Godot 源码提供的接口**大不相同**，切勿直�
 - 构建经顶层 `SConstruct` 的 `SConscript("third/godot-cpp/SConstruct", ...)` 接入；`API_VERSION = "4.7"` 由顶层传入，是唯一硬编码点
 - codegen 源数据 = 子模块内置 `gdextension/extension_api-4-7.json`（我方静态绑定 codegen 与 godot-cpp 自己的 `binding_generator` 用同一文件）
 - `third/godot-cpp/gen/**` 由 `binding_generator.py` 生成，勿手改（见 [generated-files.md](./generated-files.md)）
+
+## 未暴露接口的规避：取 Dictionary/Array 的 `id()`
+
+`VariantReferentialHasher`（`src/internal/jsb_variant_util.h`）需要 Dictionary/Array 的**身份**
+（同一容器内容变化后仍是同一个键）。godot-cpp 未暴露 `Dictionary::id()` / `Array::id()`，
+故经 `godot::VariantInternal` 取容器对象地址再解一层指针：
+
+```cpp
+const void *id = *reinterpret_cast<const void *const *>(godot::VariantInternal::get_dictionary(&p_variant));
+```
+
+依赖的前提（**升级 godot-cpp 时必须复核**）：
+
+- `Dictionary` / `Array` 只有 `_p` 一个成员（偏移 0）；`get_dictionary()` / `get_array()` 返回
+  Variant **载荷内**该容器的地址，解一层即 `DictionaryPrivate*` / `ArrayPrivate*`，与 `id()` 同值。
+- 容器在 Variant 内按值存放，故必须先取载荷内地址，不能对 `Variant` 本身解引用。
+
+**失效征兆**：`ReferentialVariantMap` 本应命中却未命中，或同一容器两次哈希不同。
+排查先确认 `sizeof(Dictionary) == sizeof(void *)` 且成员布局未变。
+
+若将来 godot-cpp 暴露 `id()`，改回公开接口并删除本节。

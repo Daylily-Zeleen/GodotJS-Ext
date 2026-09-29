@@ -32,6 +32,7 @@
 
 #include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/variant_internal.hpp>
 
 namespace jsb::internal {
 template <typename T>
@@ -71,12 +72,17 @@ struct VariantReferentialHasher {
 				return HashMapHasherDefault::hash(object);
 			}
 			case Variant::Type::DICTIONARY: {
-				const Dictionary &d = p_variant;
-				return HashMapHasherDefault::hash(d.hash()); // TODO: Godot 没有暴露 Dictionary::id()
+				/** HACK: Godot 未暴露 Dictionary::id()
+					目前 Dictionary 对象只有 _p 一个成员（偏移 0），我们假定以后也不会有变化。
+					get_dictionary 返回 Variant 载荷内的 Dictionary 地址，解一层即 DictionaryPrivate*（== id()）
+				*/
+				const void *id = *reinterpret_cast<const void *const *>(godot::VariantInternal::get_dictionary(&p_variant));
+				return HashMapHasherDefault::hash(id);
 			}
 			case Variant::Type::ARRAY: {
-				const Array &a = p_variant;
-				return HashMapHasherDefault::hash(a.hash()); // TODO: Godot 没有暴露 Array::id()
+				/** HACK: 与 Dictionary 同理*/
+				const void *id = *reinterpret_cast<const void *const *>(godot::VariantInternal::get_array(&p_variant));
+				return HashMapHasherDefault::hash(id);
 			}
 			case Variant::Type::STRING: {
 				const String &s = p_variant;

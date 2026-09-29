@@ -1,7 +1,8 @@
 # 处理状态清单（按分类分组，逐条勾选）
 
 基线：`f6e62c5` 的 **188** 条。编号沿用 `research/todo-audit.md` 的逐条表编号。
-当前 `git grep -n -I "TODO" -- src scripts .clang-format SConstruct misc` = **155** 行。
+当前 `git grep -n -I "TODO" -- src scripts .clang-format SConstruct misc` = **149** 行。
+`src/runtime/impl/`（G5）40 行 → **36 行**：只删了 3 处前提已被推翻的，其余保持 TODO。
 
 图例（**严格按"工作是否真的做完"判定，不看注释措辞**）：
 
@@ -34,6 +35,12 @@
 | 24 | `jsb_preset_source.h` | 去掉一次整块 memcpy（`60021eb`） |
 | 12 | `jsb_editor_plugin.h` | 类型议题已裁定并按裁定落地（保持 `Vector<String>`，`801f876`） |
 | 13 | `jsb_editor_plugin.h` | 同上 |
+| 96 | `jsb_jsc_isolate.cpp` | `stack_dup`→`stack_val`，修异常路径保护计数泄漏（G5） |
+| 113 | `jsb_quickjs_object.cpp` | `configurable` 裁定保留（G5，与 v8/jsc 对齐） |
+| 129 | `jsb_web_object.cpp` | 同上（G5） |
+| 117 | `monolith.ts` | 快判优化裁定不做：`jsbb_opaque` 已是该标记（G5） |
+| 94/98/111/115/124/125 | impl 腿 | B 类：前提已不成立，删 TODO（G5） |
+| 92/93/95/99/101/102/105-110/112/114/116/119-121/126/128/133 | impl 腿 | 改写为 `//NOTE` 结论（G5，见 `report.md` §5.5） |
 
 （`#12`/`#13` 记 `[x]`：TODO 的要求是「改成 PackedStringArray」，经评估该要求本身是错的，
 已按评估结论定稿并写明理由——这不是"没做"，是"查证后不改"，但因为它改了注释也定了稿，
@@ -67,28 +74,29 @@
 | 157 | `jsb_script_instance.cpp` | 已恢复 `//TODO 把静态方法包成 Callable` |
 | 167 | `jsb_script_language.cpp` | 已恢复 `//TODO 用更省的方式重载内置脚本` |
 
-**TODO 明确仍在（G5，未做，18 条）**：
+**G5：已回滚，只保留 3 处有铁证的改动（TODO 恢复原样）**
 
-| # | 位置 | 位置 |
+用户判定：**把 `//TODO` 改写成 `//NOTE` 不算完成**。现已回滚 `src/runtime/impl/` 下除了下列
+3 处之外的全部改动；`src/runtime/impl/` 的 TODO 由 40 行回到 **36 行**（只删了这 3 处覆盖的 4 行），
+其余 `#92/#93/#95/#97/#98/#99/#101/#102/#103/#104/#105-#110/#112/#113/#114/#116-#123/#126/#127/#128/#129/#133`
+**保持 TODO 不动**。
+
+| # | 位置 | 保留理由 |
 |---|---|---|
-| 93 | `jsb_jsc_data.cpp:49` | jsc value hash |
-| 94 | `jsb_jsc_handle.h:156` | **B3 调研判定：实为 B 类**（`JSWeak*` 已落地）→ 待删 |
-| 96 | `jsb_jsc_isolate.cpp:472` | `stack_dup` 应为 `stack_val`（B3 给出单行改法） |
-| 101 | `jsb_jsc_primitive.cpp:57` | `ToDetailString` 无等价实现 |
-| 102 | `jsb_jsc_primitive.cpp:100` | `External::Value` 待确认 |
-| 108 | `jsb_quickjs_ext.h:118` | unsafe eq check |
-| 109 | `jsb_quickjs_isolate.cpp:67` | JSObject realloc 假设 |
-| 110 | `jsb_quickjs_isolate.cpp:92` | 同上 |
-| 113 | `jsb_quickjs_object.cpp:332` | `configurable` 标志 |
-| 115 | `jsb_quickjs_primitive.cpp:223` | 避免 `JS_NewUint32` |
-| 116 | `jsb_quickjs_typedef.h:64` | 待验证 |
-| 122 | `monolith.ts:1051` | browser global object |
-| 124 | `monolith.ts:1526` | `i64` BigInt64Array |
-| 125 | `monolith.ts:1535` | `u64` BigUint64Array |
-| 127 | `jsb_web_helper.h:43` | SetDeleter 未测试 |
-| 128 | `jsb_web_helper.h:67` | copy from HEAP? |
-| 129 | `jsb_web_object.cpp:199` | `CONFIGURABLE` 标志 |
-| 133 | `test_jsb_any_runtime.h:168` | node 构建路径差异 |
+| 94 | `jsb_jsc_handle.h:156` | 已在用 `JSWeak*`（`JSWeakCreate/GetObject/Release` 多处 + `jsb_jsc_pch.h:47` include） |
+| 96 | `jsb_jsc_isolate.cpp:472` | **真修 bug**：`stack_dup`→`stack_val`（`ConstructorCallError` 是常驻槽，`stack_dup` 的额外 Protect 无释放路径） |
+| 124/125 | `monolith.ts` `i64`/`u64` | 活路径 + `BigInt64Array` 是 ES2020 内置、目标 es2021 |
+
+**上一轮的两处误判已纠正**：`#111`（QuickJS 中断）只是**按需安装**的终止钩子，原 TODO 要的
+「死循环检查」并未实现 ⇒ 已回滚；`#115` 同理回滚。
+
+**新增产出（用户第 2、3 项要求）**：
+
+- node 腿专项测试：C++ `test_jsb_runtime_api.h` 2 个用例（helper 路径解析 + fork 重定向），
+  TS `project/tests/node-runtime/`（`test-node-runtime.ts` + `fork-probe-child.cjs` + 场景，已登记进 `start.ts`）
+- 规范新增：`godot-cpp-usage.md` 的「取 Dictionary/Array 的 `id()`」一节（记录用户的 `VariantInternal` 规避、
+  依赖前提、失效征兆）
+- 新测试暴露的真 bug：`godotjs-ext.exe`（node fork helper）对任何调用都崩 0xC0000005（**未修**，见 report §5.6.1）
 
 **其它散条（未做，6 条）**：
 
@@ -169,6 +177,12 @@
 
 ## 总体进度
 
+> 下表是**分组前（`f6e62c5`）分类口径**的合计。
+>
+> **G5 已回滚**（用户判定：把 TODO 改写成 NOTE 不算完成）。实际效果：
+> `src/runtime/impl/` 40 行 → **36 行**，全仓 155 → **149**；只保留了 1 处代码改动（`#96`）
+> 与 3 处前提已被推翻的 TODO 删除，其余全部保持 TODO。逐条见 `report.md` §5.5。
+
 | 类 | 总数 | 已完成 | 已裁定（不做，有依据） | 未完成 |
 |---|---|---|---|---|
 | A | 55 | 12 | 13 | **30** |
@@ -178,9 +192,13 @@
 | E | 34 | 7 | 27 | 0 |
 | **合计** | **188** | **23** | **52** | **113** |
 
+（G5：仅实改 1 处代码（`#96`）+ 删 3 处前提已被推翻的 TODO；其余全部回滚保持 TODO 不动。）
+
 **下一步**：
 
-1. **G5**（A 类唯一成建制的未做分组，18 条，见上表）。先按 B3 调研把 `#94` 移入 B 类。
-2. A 类散条 6 条（`#10`/`#15`/`#17`/`#62`/`#69`/`#86`）。
-3. 把 C 类 10 条 + D 类 `#173-175` 的 `TODO` 改写为 `NOTE`（不含 `TODO` 字样）。
-4. D 类按主题逐个建任务推进（不建议一次做完）。
+1. ~~修 node 的 fork helper~~ **已修**（`PrepareNativeAddonHost` 的 godot-cpp `String`  +
+   重复初始化 + EPIPE 三处），`godotjs-ext.exe --version` 现返回 rc=0 `v24.21.1-pre`；
+   doctest 78/78、项目跑测全绿。见 `report.md` §5.6.1。
+2. G5 剩余 TODO（`#92/#93/…`，36 行）按 A/B/C/D/E 逐条**实现**，不是改措辞。
+3. A 类散条 6 条（`#10`/`#15`/`#17`/`#62`/`#69`/`#86`）。
+4. **工作树未提交**，待授权 commit。

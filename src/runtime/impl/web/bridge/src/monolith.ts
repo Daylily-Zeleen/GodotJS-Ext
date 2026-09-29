@@ -1522,7 +1522,8 @@ class _jsbb_ {
         return HEAP32;
     }
 
-    //TODO may not be supported?
+    //NOTE `BigInt64Array` is an ES2020 builtin and the bridge targets es2021
+    // (bridge/tsconfig.json), so this is supported.
     static get i64(): BigInt64Array {
         if (wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();
@@ -1531,7 +1532,6 @@ class _jsbb_ {
         return this._i64;
     }
 
-    //TODO may not be supported?
     static get u64(): BigUint64Array {
         if (wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();
