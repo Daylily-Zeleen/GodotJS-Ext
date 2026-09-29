@@ -1154,14 +1154,7 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
     # then dies with 127 "error while loading shared libraries". With -L the
     # DT_NEEDED entry is only the file name, and RUNPATH=$ORIGIN (or
     # @loader_path) finds it next to the helper in every install layout.
-    if jsb_platform == "linux":
-        # `-l:<file>` takes the exact file name, so DT_NEEDED is just the name
-        # (not "bin/linux/<name>") and RUNPATH=$ORIGIN resolves it. A plain -l
-        # would look for "lib<name>", which this library does not have.
-        helper_env['LIBS'] = ["-Wl,-l:" + helper_link_target]
-        helper_env.Append(LIBPATH=[helper_dir])
-    else:
-        helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
+    # (the link-line setup follows the LINKFLAGS filter below)
     helper_env['LINKFLAGS'] = [
         flag for flag in helper_env['LINKFLAGS']
         if '/WHOLEARCHIVE' not in str(flag).upper()
@@ -1171,11 +1164,27 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
         and '-Wl,-force_load' not in str(flag)
     ]
     if jsb_platform == "linux":
-        # $ORIGIN must be escaped for scons ($ -> $$). --no-as-needed keeps the
-        # dependency recorded even though the helper only calls one symbol.
-        helper_env.Append(LINKFLAGS=["-Wl,-rpath,$$ORIGIN", "-Wl,--no-as-needed"])
-    elif jsb_platform == "macos":
-        helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
+        # Keep LIBS empty: scons wraps every entry in -l<entry>, which would
+        # mangle the exact-name form into -l-Wl,-l:<name> (the linker then
+        # reports "cannot find -l-Wl,-l:...").
+        #
+        # --no-as-needed must precede the library, and -l:<file> names the file
+        # exactly: the main library has no SONAME, so linking it by path makes
+        # the linker store that whole relative path in DT_NEEDED
+        # ("bin/linux/<name>"), which $ORIGIN cannot resolve. With the exact
+        # name the entry is the bare file name and $ORIGIN finds it beside the
+        # helper. A plain -l would ask for "lib<name>", which this is not.
+        helper_env['LIBS'] = []
+        helper_env.Append(LINKFLAGS=[
+            "-Wl,--no-as-needed",
+            "-L" + helper_dir,
+            "-Wl,-l:" + helper_link_target,
+            "-Wl,-rpath,$$ORIGIN",
+        ])
+    else:
+        helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
+        if jsb_platform == "macos":
+            helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
     helper = helper_env.Program(os.path.join(helper_dir, helper_name), [helper_main])
     helper_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), helper)
     if jsb_platform in ("linux", "macos"):
