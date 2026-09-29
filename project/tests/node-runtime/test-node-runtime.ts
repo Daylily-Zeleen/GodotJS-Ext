@@ -182,14 +182,6 @@ export default class NodeRuntimeTest extends Node {
 	}
 
 	// Gode's first probe: the child must be the bundled helper, not Godot.
-	//
-	// KNOWN LIMITATION (linux/macos): the forked child exits 127 on ubuntu and
-	// null on macos in CI -- the bundled helper cannot be spawned there. Windows
-	// works (verified: the child reports godotjs-ext.exe). The helper path itself
-	// resolves correctly on every platform, so this is the child process failing
-	// to start, not the fork redirect picking the wrong executable. It cannot be
-	// reproduced on the windows dev host, so the scene reports and skips there
-	// rather than failing the whole project run.
 	private async _testForkHelper(): Promise<void> {
 		const cp = asChildProcess(nodeRequire()("child_process"));
 		if (!cp) {
@@ -198,15 +190,11 @@ export default class NodeRuntimeTest extends Node {
 		}
 		// Fork an OS absolute path, not a res:// one: the redirect translates
 		// res:// through process.cwd(), and under CI the cwd is the repository root
-		// while res:// is the project directory. globalize_path is exact.
+		// while res:// is the project directory -- the translation then points at a
+		// file that does not exist and fork exits 127. globalize_path is exact.
 		const probePath = ProjectSettings.globalize_path("res://tests/node-runtime/fork-probe-child.cjs");
-		try {
-			const execPath = await forkExecPath(cp, probePath);
-			console.log("[node-runtime] fork helper OK: " + execPath);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			console.log("[node-runtime] fork helper unavailable on this host (" + message + "); skipping the fork assertion");
-		}
+		const execPath = await forkExecPath(cp, probePath);
+		console.log("[node-runtime] fork helper OK: " + execPath);
 	}
 
 	// Gode's second probe: a fork target resolved out of node_modules must work too
