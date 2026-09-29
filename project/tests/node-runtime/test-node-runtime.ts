@@ -128,11 +128,10 @@ function forkExecPath(cp: ChildProcessModule, modulePath: string, extraEnv?: Rec
 				finish(() => reject(new Error("fork did not use the bundled godotjs-ext helper: " + execPath)));
 				return;
 			}
-			try {
-				child.send({ type: "exit" });
-			} catch (e) {
-				/* the child may already be gone; the execPath is what matters */
-			}
+			// Do NOT reply: the probe child exits right after process.send(), so
+			// writing back hits a closed IPC channel. On Linux that raises EPIPE,
+			// which by default terminates the whole process with SIGPIPE (exit 13)
+			// -- the run died before this assertion could even be reported.
 			finish(() => resolve(execPath));
 		});
 		child.on("error", (error) => finish(() => reject(error)));
