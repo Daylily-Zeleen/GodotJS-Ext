@@ -1148,7 +1148,20 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
     # flags: it would statically link the whole libnode (via /WHOLEARCHIVE) and
     # produce a ~116MB exe instead of a tiny dynamic forwarder. Reset LIBS to
     # only the main DLL's import library, and strip whole-archive/force_load.
-    helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
+    # Link by NAME plus an explicit -L, not by path. Passing a path makes the
+    # linker record the whole relative path in DT_NEEDED
+    # ("bin/linux/godotjs-ext...so"), which $ORIGIN cannot resolve: the helper
+    # then dies with 127 "error while loading shared libraries". With -L the
+    # DT_NEEDED entry is only the file name, and RUNPATH=$ORIGIN (or
+    # @loader_path) finds it next to the helper in every install layout.
+    if jsb_platform == "linux":
+        # `-l:<file>` takes the exact file name, so DT_NEEDED is just the name
+        # (not "bin/linux/<name>") and RUNPATH=$ORIGIN resolves it. A plain -l
+        # would look for "lib<name>", which this library does not have.
+        helper_env['LIBS'] = ["-Wl,-l:" + helper_link_target]
+        helper_env.Append(LIBPATH=[helper_dir])
+    else:
+        helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
     helper_env['LINKFLAGS'] = [
         flag for flag in helper_env['LINKFLAGS']
         if '/WHOLEARCHIVE' not in str(flag).upper()
