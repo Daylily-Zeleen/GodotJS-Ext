@@ -177,9 +177,9 @@ void _set_timer(const v8::FunctionCallbackInfo<v8::Value> &info) {
 				rate > 0 ? rate : 0,
 				loop);
 	}
-	// 这个 cast 仍然需要：V8 的 `v8::Integer::New` 只有在 V8 > 12.6.221 才有 int64 重载，
-	// 而本仓 pin 的是 `12.4.254.21`（`SConstruct:100` 的 `deps_v8_version`）。
-	// 升 V8 后可去掉这个 cast（`_clear_timer` 在 `:198` 反向转换回来，两处要一起改）。
+	//TODO 去掉这个 cast：V8 的 `v8::Integer::New` 要 > 12.6.221 才有 int64 重载，而本仓 pin 的是
+	//     `12.4.254.21`（`SConstruct:100` 的 `deps_v8_version`）。升 V8 后一处改两行
+	//     （`_clear_timer` 在 `:198` 反向转换回来）。
 	info.GetReturnValue().Set((double)(int64_t)handle);
 }
 

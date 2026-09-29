@@ -117,8 +117,35 @@ StringName _get_exposed_node_class_name(const StringName &class_name) {
 	return jsb::internal::NamingUtil::get_class_name(exposed_class_name);
 }
 
-Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStrategic> p_strategic, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
-	jsb_check(p_strategic != 0);
+// 一次生成期间**读一次**的设置，随递归下传。
+//
+// 为什么要有这个结构：`_build_node_type_descriptor` 逐节点递归（下文自递归），
+// 原先在它内部直接读 `settings::project::get_scene_dts_*_wildcards()`，于是一棵 N 节点的
+// 场景会把同样的两项设置读 2N 次（每次还含一次 `GLOBAL_GET` 的 Variant 取回与一次
+// Variant→`PackedStringArray` 转换），而结果完全相同。提到递归入口读一次即可。
+//
+// 不在进程级缓存（`static`）：这些 getter 每次都会重新读 ProjectSettings，
+// 所以生成前改设置会立刻生效、不需要重启引擎；加缓存反而要引入失效点。
+struct SceneDTSContext {
+	godot::BitField<SceneDTSGenerateStrategic> strategic{ 0 };
+	PackedStringArray include_path_wildcards;
+	PackedStringArray exclude_path_wildcards;
+};
+
+SceneDTSContext _make_scene_dts_context() {
+	SceneDTSContext context;
+	context.strategic = jsb::internal::settings::project::get_scene_dts_generate_strategic();
+	if (context.strategic == 0) {
+		context.strategic = SceneDTSGenerateStrategic::ORIGIN_NAME_NODE;
+		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
+	}
+	context.include_path_wildcards = jsb::internal::settings::project::get_scene_dts_include_path_wildcards();
+	context.exclude_path_wildcards = jsb::internal::settings::project::get_scene_dts_exclude_path_wildcards();
+	return context;
+}
+
+Dictionary _build_node_type_descriptor(const SceneDTSContext &p_context, Node *p_node, const Node *p_root_node, Dictionary &r_unique_name_nodes) {
+	jsb_check(p_context.strategic != 0);
 
 	Dictionary descriptor;
 	Dictionary children;
@@ -128,7 +155,7 @@ Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStr
 	if (p_node == p_root_node || p_node->get_scene_file_path().is_empty() || p_root_node->is_editable_instance(p_node)) {
 		for (int i = 0; i < child_count; i++) {
 			Node *child = p_node->get_child(i, true);
-			children[child->get_name()] = _build_node_type_descriptor(p_strategic, child, p_root_node, r_unique_name_nodes);
+			children[child->get_name()] = _build_node_type_descriptor(p_context, child, p_root_node, r_unique_name_nodes);
 		}
 	}
 
@@ -164,10 +191,8 @@ Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStr
 			// Optionally replace children literal with SceneNodes["path/to/scene.tscn"]
 			if (const String scene_file_path = p_node->get_scene_file_path();
 					!scene_file_path.is_empty()) {
-				PackedStringArray exclude_wildcards = jsb::internal::settings::project::get_scene_dts_exclude_path_wildcards();
-				PackedStringArray include_wildcards = jsb::internal::settings::project::get_scene_dts_include_path_wildcards();
-				if (is_path_matchn(include_wildcards, scene_file_path)
-						&& !is_path_matchn(exclude_wildcards, scene_file_path)) {
+				if (is_path_matchn(p_context.include_path_wildcards, scene_file_path)
+						&& !is_path_matchn(p_context.exclude_path_wildcards, scene_file_path)) {
 					Dictionary scene_nodes;
 					scene_nodes["type"] = (int32_t)DescriptorType::Godot;
 					scene_nodes["name"] = "SceneNodes";
@@ -246,7 +271,7 @@ Dictionary _build_node_type_descriptor(const godot::BitField<SceneDTSGenerateStr
 		}
 	}
 
-	if (p_strategic.has_flag(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
+	if (p_context.strategic.has_flag(SceneDTSGenerateStrategic::UNIQUE_NAME_NODE)) {
 		if (p_node->is_unique_name_in_owner()) {
 			r_unique_name_nodes["%" + p_node->get_name()] = descriptor;
 		}
@@ -307,15 +332,9 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 			return descriptor;
 		}
 
-		godot::BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::settings::project::get_scene_dts_generate_strategic();
-		if (strategic == 0) {
-			strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
-			JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
-		}
-
 		Array generic_arguments;
 		Dictionary unique_name_nodes;
-		generic_arguments.push_back(_build_node_type_descriptor(strategic, instantiated_scene, instantiated_scene, unique_name_nodes));
+		generic_arguments.push_back(_build_node_type_descriptor(_make_scene_dts_context(), instantiated_scene, instantiated_scene, unique_name_nodes));
 
 		descriptor["type"] = (int32_t)DescriptorType::Godot;
 		descriptor["name"] = "PackedScene";
@@ -384,19 +403,15 @@ Dictionary get_scene_nodes(const String &p_path) {
 	Dictionary unique_name_nodes;
 	int child_count = instantiated_scene->get_child_count(true);
 
-	godot::BitField<SceneDTSGenerateStrategic> strategic = jsb::internal::settings::project::get_scene_dts_generate_strategic();
-	if (strategic == 0) {
-		strategic.set_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE);
-		JSB_LOG(Warning, "Scene DTS generate strategic is undefine, use ORIGIN_NAME_NODE (please configure it through project setting).");
-	}
+	const SceneDTSContext context = _make_scene_dts_context();
 	for (int i = 0; i < child_count; i++) {
 		Node *child = instantiated_scene->get_child(i, true);
-		nodes[child->get_name()] = _build_node_type_descriptor(strategic, child, instantiated_scene, unique_name_nodes);
+		nodes[child->get_name()] = _build_node_type_descriptor(context, child, instantiated_scene, unique_name_nodes);
 	}
 
 	instantiated_scene->queue_free();
 
-	if (!strategic.has_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
+	if (!context.strategic.has_flag(SceneDTSGenerateStrategic::ORIGIN_NAME_NODE)) {
 		nodes.clear();
 	}
 	nodes.merge(unique_name_nodes);

@@ -572,10 +572,10 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 					r_ret = Callable(owner_, p_name);
 					return true;
 				} else {
-					// 静态方法不包成 Callable：`Callable(owner_, name)` 绑定的是**实例**上的方法，
-					// 而静态方法在 JS 里挂在类构造函数上，没有实例可绑。GDScript 同样只在
-					// `callp`（`gdscript.cpp:937`）里拒绝静态方法、不在这里产出 Callable。
-					// 要支持得先有「绑定类而非实例」的 Callable 载体，属另一件事。
+					//TODO 把静态方法包成 Callable。`Callable(owner_, name)` 绑定的是**实例**上的方法，
+					//     而静态方法在 JS 里挂在类构造函数上，没有实例可绑，所以需要先有「绑定类而非
+					//     实例」的 Callable 载体。GDScript 同样只在 `callp`（`gdscript.cpp:937`）里拒绝
+					//     静态方法，不在这里产出 Callable。
 				}
 			}
 		}
