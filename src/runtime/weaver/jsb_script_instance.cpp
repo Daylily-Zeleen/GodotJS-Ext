@@ -399,11 +399,33 @@ void GodotJSScriptInstanceBase::get_property_state(ScriptInstancePropertyState &
 }
 
 String GodotJSScriptInstanceBase::to_string(bool *r_valid) {
+	// 调用点：`Object::to_string()`（`object.cpp:1033`，`print(obj)` / 调试器 / `str()` 走这里）。
+	// C++ 侧有 `Object::to_string()` 的默认实现，但脚本实例一旦覆写就以本函数为准，
+	// 之前恒返回空串（并把 `r_valid` 置 false）。
+	// 这里对齐 `GDScriptInstance::to_string`（`gdscript.cpp:2004-2025`）的契约：优先调用脚本自己
+	// 声明的 `_to_string()`，它返回 String 才算有效；没有该方法（或返回非 String）则置
+	// `r_valid = false`，让 `Object::to_string()` 回退到默认表现。
+	if (const Ref<GodotJSScript> script = get_script(); script.is_valid()) {
+		const StringName method = jsb_string_name(_to_string);
+		if (script->_has_method(method)) {
+			GDExtensionCallError error{};
+			const Variant ret = callp(method, nullptr, 0, error);
+			if (error.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::STRING) {
+				if (r_valid) {
+					*r_valid = true;
+				}
+				return ret.operator String();
+			}
+			if (error.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
+				ERR_PRINT(vformat("Wrong type for %s, must be a String.", method));
+			}
+		}
+	}
+
 	if (r_valid) {
 		*r_valid = false;
 	}
-	// TODO:
-	return {}; //"<" + get_script()->_get_global_name() + "#" + itos(get_owner()->get_instance_id()) + ">";
+	return String();
 }
 
 int GodotJSScriptInstanceBase::get_method_argument_count(const StringName &p_method, bool *r_is_valid) const {
@@ -550,7 +572,10 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 					r_ret = Callable(owner_, p_name);
 					return true;
 				} else {
-					// TODO: Warp static method to Callable
+					// 静态方法不包成 Callable：`Callable(owner_, name)` 绑定的是**实例**上的方法，
+					// 而静态方法在 JS 里挂在类构造函数上，没有实例可绑。GDScript 同样只在
+					// `callp`（`gdscript.cpp:937`）里拒绝静态方法、不在这里产出 Callable。
+					// 要支持得先有「绑定类而非实例」的 Callable 载体，属另一件事。
 				}
 			}
 		}

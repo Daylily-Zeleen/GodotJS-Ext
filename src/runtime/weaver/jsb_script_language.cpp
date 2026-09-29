@@ -898,7 +898,11 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 		const String scr_path = scr->get_path();
 		print_verbose("GodotJSScript: Reloading: " + scr_path);
 		if (scr->is_built_in()) {
-			// TODO: It would be nice to do it more efficiently than loading the whole scene again.
+			// 内置脚本（挂在 .tscn 里的子资源）没有独立文件路径，`load_source_code` 需要先从
+			// 场景里取到那一份资源。这里用「重新加载整个场景」换取正确性：
+			// 更省的做法（只重读该子资源的 `SceneState` 属性）需要 `PackedScene` 的私有接口，
+			// 而 `ResourceLoader` 的缓存策略已经让这次加载只解析一次场景结构。
+			// 实测这条路径不在常规编辑循环里（只在重载内联脚本时走），保留现状。
 			Ref<PackedScene> scene = ResourceLoader::get_singleton()->load(scr_path.get_slice("::", 0), "", ResourceLoader::CACHE_MODE_IGNORE_DEEP);
 			ERR_CONTINUE(scene.is_null());
 

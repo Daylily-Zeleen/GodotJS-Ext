@@ -118,6 +118,7 @@ DEF(GodotJSScript)
 
 // Godot Object virtual methods
 DEF(_ready)
+DEF(_to_string)
 DEF(_set)
 DEF(_get)
 DEF(_get_property_list)

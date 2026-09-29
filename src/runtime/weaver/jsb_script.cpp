@@ -189,12 +189,24 @@ StringName GodotJSScript::_get_global_name() const {
 	return _is_valid() ? script_class_info_.js_class_name : StringName();
 }
 bool GodotJSScript::_inherits_script(const Ref<Script> &p_script) const {
-	jsb_check(loaded_);
+	// 调用点：`container_type_validate.h:141/185`（类型化容器/属性的脚本类型校验）、
+	// `scene_tree_dock.cpp:3838`（把一个节点拖进类型化槽位）。返回 false 会让「派生脚本的对象
+	// 装进基类脚本的槽位」被判为不兼容。
+	// 与 `GDScript::inherits_script`（`gdscript.cpp:1213-1229`）同样的做法：沿 `base` 链比较
+	// 脚本对象身份，不做名字比较（`get_base_script()` 拿到的就是脚本对象）。
+	// `base` 只在模块加载时填充，所以先确保本脚本已加载（与 `_get_base_script` 一致）。
+	ensure_module_loaded();
 
-	// check if the current script inherits from `p_script`
-	//TODO `inherits_script` seems to be called only by Array::assign, it's enough for now without an implementation.
-	//TODO iterate the prototype chain, check if the current script inherits from `p_script`
+	const Ref<GodotJSScript> target = p_script;
+	if (target.is_null()) {
+		return false;
+	}
 
+	for (const GodotJSScript *s = this; s; s = s->base.ptr()) {
+		if (s == target.ptr()) {
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -243,8 +255,17 @@ void GodotJSScript::_set_source_code(const String &p_code) {
 }
 
 Error GodotJSScript::_reload(bool p_keep_state) {
-	if (!loaded_) return OK; // TODO: 这里堵死了怎么 reload ?
-	if (!is_valid_internal()) return ERR_UNAVAILABLE;
+	// 调用方：`ResourceFormatSaverGodotJSScript::_save`（保存后重载，`jsb_resource_saver.cpp:128/188`）、
+	// `reload_scripts_internal`（`jsb_script_language.cpp:928` 的 `scr->reload(true)`）。
+	// 未加载时**先加载再重载**：`loaded_ == false` 表示这个脚本还没进过模块缓存
+	// （编辑器刚创建、或上一次加载失败），此时直接 `return OK` 会让"保存后重载"静默无效。
+	// `GDScript::reload` 没有这条早退，它总是重新解析（`gdscript.cpp:740` 起）。
+	if (!loaded_) {
+		load_module_immediately();
+	}
+	if (!is_valid_internal()) {
+		return ERR_UNAVAILABLE;
+	}
 
 	if (!p_keep_state) {
 		std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
@@ -277,10 +298,14 @@ Error GodotJSScript::_reload(bool p_keep_state) {
 
 #if JSB_TOOLS
 StringName GodotJSScript::_get_doc_class_name() const {
-	//TODO not verified
-	TypedArray<Dictionary> docs = _get_documentation();
-	if (!docs.is_empty()) return docs[0].operator Dictionary()["name"];
-	return {};
+	// 调用点：`editor_inspector.cpp:4590`（检查器标题栏显示类名，取不到则回退到脚本路径）。
+	// 原实现取 `_get_documentation()[0]["name"]`，而 `_get_documentation()` 自己填的
+	// `class_doc["name"]` 正是 `_get_global_class_name()` 解析出的**用户类名**
+	// （`jsb_script.cpp:317`），所以两条路径等价——但原实现绕了一圈还依赖"docs 非空"，
+	// 脚本没有文档时也会拿到空名字。这里直接取同一来源，语义对齐
+	// `GDScript::get_doc_class_name`（`gdscript.h:287` 直接返回解析期记下的类名）。
+	const Dictionary class_basic_info = GodotJSScriptLanguage::get_singleton()->_get_global_class_name(get_path());
+	return class_basic_info.get("class", StringName());
 }
 TypedArray<Dictionary> GodotJSScript::_get_documentation() const {
 	ensure_module_loaded();
@@ -857,7 +882,12 @@ Variant GodotJSScript::_get_rpc_config() const {
 	ensure_module_loaded();
 	jsb_check(loaded_);
 
-	return script_class_info_.rpc_config; // TODO: 是否需要包含父类？
+	// 不并入父类配置：对齐 `GDScript::get_rpc_config`（`gdscript.cpp:927-929`）与
+	// `CSharpScript::get_rpc_config`（`csharp_script.cpp:2754-2756`），二者都只返回**自己的**
+	// `rpc_config`。消费者（`ScriptInstance::get_rpc_config` → `Script::get_rpc_config` →
+	// `script_language.h:141` 的 `duplicate(true)`）拿到的是配置字典本身，
+	// 再按方法名查询，合并父类的条目会让「本脚本未声明的 RPC 方法」在这里看起来存在。
+	return script_class_info_.rpc_config;
 }
 
 void GodotJSScript::load_module_immediately() {
