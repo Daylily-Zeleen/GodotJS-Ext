@@ -1,10 +1,9 @@
-import { Node } from "godot";
+import { Node, ProjectSettings } from "godot";
 import { reportTestFailure } from "../test-status";
 
 // Node-leg integration test — modelled on Gode's `test/fixtures/npm_native_llama`
 // (see .agent_tmp/gode): it forks a probe child and asserts the child's
-// process.execPath IS the bundled helper executable, then forks a second probe
-// from inside node_modules to prove npm-resolved paths work too.
+// process.execPath IS the bundled helper executable.
 //
 // Why this leg needs its own test: an embedded libnode reports the *Godot*
 // executable as process.execPath, so a naive fork() re-spawns Godot itself.
@@ -189,7 +188,12 @@ export default class NodeRuntimeTest extends Node {
 			fail("child_process.fork is not available");
 			return;
 		}
-		const execPath = await forkExecPath(cp, "res://tests/node-runtime/fork-probe-child.cjs");
+		// Fork an OS absolute path, not a res:// one: the redirect translates
+		// res:// through process.cwd(), and under CI the cwd is the repository root
+		// while res:// is the project directory -- the translation then points at a
+		// file that does not exist and fork exits 127. globalize_path is exact.
+		const probePath = ProjectSettings.globalize_path("res://tests/node-runtime/fork-probe-child.cjs");
+		const execPath = await forkExecPath(cp, probePath);
 		console.log("[node-runtime] fork helper OK: " + execPath);
 	}
 
