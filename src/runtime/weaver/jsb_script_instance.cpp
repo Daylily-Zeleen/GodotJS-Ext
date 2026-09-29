@@ -248,7 +248,10 @@ private:
 		.set_fallback_func = &ScriptInstanceInfo::set_fallback_func,
 		.get_fallback_func = &ScriptInstanceInfo::get_fallback_func,
 #else
-		.set_fallback_func = nullptr;
+		// Designated initializers need a comma between members: this branch is
+		// compiled whenever JSB_TOOLS is off (web / android / ios release
+		// templates), where a ';' here is a hard syntax error.
+		.set_fallback_func = nullptr,
 		.get_fallback_func = nullptr,
 #endif
 		.get_language_func = &ScriptInstanceInfo::get_language_func,
