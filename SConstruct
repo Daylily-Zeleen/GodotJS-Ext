@@ -1186,6 +1186,10 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
         if jsb_platform == "macos":
             helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
     helper = helper_env.Program(os.path.join(helper_dir, helper_name), [helper_main])
+    # The helper links the main shared library by name from helper_dir, so that
+    # library must exist in helper_dir before the link runs. Without this the
+    # link happens first and fails with "cannot find -l:<name>".
+    helper_env.Depends(helper, library)
     helper_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), helper)
     if jsb_platform in ("linux", "macos"):
         def _make_helper_executable(target, source, env):
