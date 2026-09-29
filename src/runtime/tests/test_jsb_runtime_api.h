@@ -314,6 +314,10 @@ static constexpr char k_node_fork_source[] = R"jsb_src(
     try {
         const cp = nodeRequire("child_process");
         const childPath = String(globalThis.__jsb_child_path__ || "");
+        const binding = process._linkedBinding("godot");
+        const helper = (binding && typeof binding.native_probe_executable === "function") ? binding.native_probe_executable() : null;
+        result.diag = "childPath=[" + childPath + "] helper=[" + String(helper)
+            + "] execPath=[" + String(process.execPath) + "] cwd=[" + String(process.cwd()) + "]";
         const child = cp.fork(childPath, [], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
         let stderrText = "";
         if (child.stderr) {
@@ -387,7 +391,23 @@ TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of 
 				}
 				OS::get_singleton()->delay_msec(20);
 			}
-			CHECK_MESSAGE(turns < max_turns, "the forked child did not report within ", turns, " loop turns");
+			const std::string turn_msg = std::string("fork child did not report in ")
+					+ std::to_string(turns) + " turns; child=[" + child_os_path.utf8().get_data() + "]";
+			CHECK_MESSAGE(turns < max_turns, turn_msg.c_str());
+		}
+
+		// Surface the in-JS diagnostics (resolved child path, helper path, cwd) so a
+		// CI-only failure is diagnosable from the log.
+		{
+			v8::Local<v8::Value> probe_val;
+			if (context->Global()->Get(context, impl::Helper::new_string(isolate, "__forkResult")).ToLocal(&probe_val)
+					&& probe_val->IsObject()) {
+				v8::Local<v8::Value> diag_val;
+				if (probe_val.As<v8::Object>()->Get(context, impl::Helper::new_string(isolate, "diag")).ToLocal(&diag_val)) {
+					const String diag_text = impl::Helper::to_string(isolate, diag_val);
+					MESSAGE(diag_text.utf8().get_data());
+				}
+			}
 		}
 
 		v8::Local<v8::Value> result_val;
@@ -407,8 +427,11 @@ TEST_CASE("[runtime] [api] [node] child_process.fork runs the helper instead of 
 			// CHECK_MESSAGE (not MESSAGE/FAIL_CHECK) so the payload lands in the log
 			// as an ERROR line: doctest's MESSAGE stream prints a raw const char* as
 			// a pointer here.
+			// Put the payload in the FIRST argument: doctest does not reliably
+			// stream the extra args, so they never showed up in the CI log.
 			const String err_text = impl::Helper::to_string(isolate, error_val);
-			CHECK_MESSAGE(false, "forking the probe child failed: ", err_text.utf8().get_data());
+			const std::string fork_error = std::string("fork failed: ") + err_text.utf8().get_data();
+			CHECK_MESSAGE(false, fork_error.c_str());
 		}
 
 		// Gode's npm-native smoke asserts the child's execPath IS the bundled helper
