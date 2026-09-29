@@ -329,15 +329,6 @@ public:
 
 	::templates::BitField<ScriptClassFlags::Type> flags{ ScriptClassFlags::None };
 
-	// 脚本类是否**仍然可用**。判据取 `module_id` 非空：该字段由
-	// `ScriptClassInfo::_parse_script_class` 在解析成功时写入（`jsb_class_info.cpp:884`），
-	// 而模块加载失败/被清空时调用方会把整个 `script_class_info_` 重置为 `{}`
-	// （`jsb_script.cpp:913`），此时 `module_id` 为空——即「这个类所对应的模块已经不可用」。
-	// 与 `GodotJSScript::is_valid_internal()` 用同一条判据（`jsb_script.h:292` 走
-	// `VariantUtil::is_valid_name`，实现就是 `!p_name.is_empty()`，`jsb_variant_util.h:189`），
-	// 避免脚本侧说「有效」而类信息侧说「无效」。
-	_FORCE_INLINE_ bool is_valid() const { return !module_id.is_empty(); }
-
 	_FORCE_INLINE_ bool is_tool() const { return flags.has_flag(ScriptClassFlags::Tool); }
 	_FORCE_INLINE_ bool is_abstract() const { return flags.has_flag(ScriptClassFlags::Abstract); }
 };
