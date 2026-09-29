@@ -571,7 +571,7 @@ void GodotTSDGenerator::emit_runtime_gen() {
 // ---------------------------------------------------------------------------
 // SceneTSDGenerator
 // ---------------------------------------------------------------------------
-SceneTSDGenerator::SceneTSDGenerator(const String &p_out_dir, const Vector<String> &p_scene_paths)
+SceneTSDGenerator::SceneTSDGenerator(const String &p_out_dir, const PackedStringArray &p_scene_paths)
 		: out_dir_(p_out_dir), scene_paths_(p_scene_paths) {}
 
 String SceneTSDGenerator::make_scene_path(const String &p_scene_path, bool p_include_filename) const {
@@ -665,7 +665,7 @@ bool SceneTSDGenerator::emit_scene_node_types(const String &p_scene_path) {
 // ---------------------------------------------------------------------------
 // ResourceTSDGenerator
 // ---------------------------------------------------------------------------
-ResourceTSDGenerator::ResourceTSDGenerator(const String &p_out_dir, const Vector<String> &p_resource_paths)
+ResourceTSDGenerator::ResourceTSDGenerator(const String &p_out_dir, const PackedStringArray &p_resource_paths)
 		: out_dir_(p_out_dir), resource_paths_(p_resource_paths) {
 	script_extensions_ = ResourceLoader::get_singleton()->get_recognized_extensions_for_type("Script");
 }
@@ -812,7 +812,7 @@ bool ResourceTSDGenerator::emit_resource_type(const String &p_resource_path) {
 // ---------------------------------------------------------------------------
 // convenience chain
 // ---------------------------------------------------------------------------
-bool generate_all_types(const String &p_out_dir, bool p_use_project_settings, const Vector<String> &p_scene_paths, const Vector<String> &p_resource_paths) {
+bool generate_all_types(const String &p_out_dir, bool p_use_project_settings, const PackedStringArray &p_scene_paths, const PackedStringArray &p_resource_paths) {
 	GodotTSDGenerator godot_gen(p_out_dir, p_use_project_settings);
 	if (!godot_gen.emit(true)) {
 		return false;

@@ -288,18 +288,18 @@ void GodotJSExportPlugin::_export_file(const String &p_path, const String &p_typ
 
 		// always skip the typescript source from packing
 		JSB_EXPORTER_LOG(Verbose, "export source: %s => %s", p_path, compiled_script_path);
-	} else {
-		if (get_ignored_paths().has(p_path)) {
-			skip();
-			JSB_EXPORTER_LOG(Verbose, "ignored: %s", p_path);
-		}
-
-		//TODO handle module deps if it's a .js file ?
-		// if (p_path.ends_with("." JSB_JAVASCRIPT_EXT))
-		// {
-		//     export_compiled_script(p_path);
-		// }
+	} else if (get_ignored_paths().has(p_path)) {
+		skip();
+		JSB_EXPORTER_LOG(Verbose, "ignored: %s", p_path);
 	}
+
+	// 注意：纯 JS 项目（`.js`/`.cjs`/`.mjs`）的模块依赖**没有被导出器遍历**。
+	// `.ts` 分支走 `export_compiled_script` 时会载入模块、带出 source/package.json 并递归一层依赖；
+	// 裸 `.js` 只作为普通文件被 Godot 打包，运行时才 `require` 到的模块（不被任何场景引用）
+	// 不会进包。要补上就得对 `.js` 也调用 `export_compiled_script`，但那条路径本机无法验证：
+	// 导出需要 export template 与导出预设，而 `.ts` 分支自己的「skip the typescript source from
+	// packing」注释也尚未落实（`:289-290` 只打日志、没有 `skip()`），在未经导出验证的前提下
+	// 叠加改动有把同一个文件按两种身份打进包的风险。留待可跑导出验证时一并处理。
 }
 
 String GodotJSExportPlugin::_get_name() const {

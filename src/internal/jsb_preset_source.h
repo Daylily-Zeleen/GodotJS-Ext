@@ -44,7 +44,10 @@ private:
 	size_t uncompressed_size_;
 
 	// uncompressed source (if raw source is not static)
-	Vector<uint8_t> uncompressed_data_;
+	// `PackedByteArray` 而非 `Vector<uint8_t>`：`decompress()` 的返回值就是它，直接持有可以省掉
+	// 一次整块 memcpy（预设是 JS bundle，动辄数百 KB）。生成端仍产出 `const char*` 静态数据
+	// （那部分是只读、无需拷贝的），所以「生成 PackedByteArray」那半个 TODO 不再有价值。
+	PackedByteArray uncompressed_data_;
 
 	// raw source (raw source is static, do not free it)
 	size_t data_size_;
@@ -127,15 +130,17 @@ private:
 		jsb_check((size_t)(int)uncompressed_size_ == uncompressed_size_);
 		jsb_check((size_t)(int)data_size_ == data_size_);
 
-		// TODO: 调整生成的数据，考虑直接生成 PackedByteArray，避免内存拷贝
-		PackedByteArray data;
-		data.resize((int)data_size_);
-		memcpy(data.ptrw(), (const uint8_t *)data_, (int)data_size_);
+		// 只做一次拷贝：把静态数据搬进 PackedByteArray（decompress 的输入必须是它），
+		// 然后**持有**解压结果本身，不再 memcpy 到第二个缓冲区（见 `uncompressed_data_` 的注释）。
+		PackedByteArray compressed;
+		if (compressed.resize((int)data_size_) != OK) {
+			JSB_LOG(Error, "failed to allocate %d bytes for the compressed preset data", (int)data_size_);
+			return;
+		}
+		memcpy(compressed.ptrw(), (const uint8_t *)data_, (int)data_size_);
 
-		const PackedByteArray &decompressed = data.decompress(uncompressed_size_, FileAccess::COMPRESSION_DEFLATE);
-
-		uncompressed_data_.resize(decompressed.size());
-		memcpy(uncompressed_data_.ptrw(), (const uint8_t *)decompressed.ptr(), decompressed.size());
+		uncompressed_data_ = compressed.decompress(uncompressed_size_, FileAccess::COMPRESSION_DEFLATE);
+		jsb_check((size_t)uncompressed_data_.size() == uncompressed_size_);
 	}
 };
 } //namespace jsb::internal

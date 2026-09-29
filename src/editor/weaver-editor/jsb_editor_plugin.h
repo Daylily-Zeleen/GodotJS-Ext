@@ -106,11 +106,11 @@ private:
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
 
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
-	static Vector<String> _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths);
+	static PackedStringArray _filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const PackedStringArray &p_paths);
 
 	Ref<ConfigFile> _get_file_md5_cache();
 	bool _is_file_changed(const String &p_file);
-	void _cache_files_md5(const Vector<String> &p_files);
+	void _cache_files_md5(const PackedStringArray &p_files);
 	void _on_clean_timer_timeout();
 	void _save_md5_cache();
 
@@ -156,10 +156,10 @@ protected:
 	static bool install_files(const Vector<jsb::weaver::InstallFileInfo> &p_files);
 	static Vector<jsb::weaver::InstallFileInfo> filter_files(const Vector<jsb::weaver::InstallFileInfo> &p_files, int p_hint);
 	static bool delete_file(const String &p_file);
-	static void get_all_scenes(EditorFileSystemDirectory *p_dir, Vector<String> &r_list);
-	static void get_all_resources(EditorFileSystemDirectory *p_dir, Vector<String> &r_list);
-	static void generate_scene_nodes_types(std::function<void(bool)> complete, const Vector<String> &p_paths); // TODO: Vector<String> 改为 PackedStringArray
-	static void generate_resource_types(std::function<void(bool)> complete, const Vector<String> &p_paths); // TODO: Vector<String> 改为 PackedStringArray
+	static void get_all_scenes(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list);
+	static void get_all_resources(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list);
+	static void generate_scene_nodes_types(std::function<void(bool)> complete, const PackedStringArray &p_paths);
+	static void generate_resource_types(std::function<void(bool)> complete, const PackedStringArray &p_paths);
 
 public:
 	GodotJSEditorPlugin();

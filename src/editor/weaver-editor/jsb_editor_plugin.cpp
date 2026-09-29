@@ -382,7 +382,7 @@ bool GodotJSEditorPlugin::_is_file_changed(const String &p_file) {
 	return md5_cache_file->get_value("", p_file) != FileAccess::get_md5(p_file);
 }
 
-void GodotJSEditorPlugin::_cache_files_md5(const Vector<String> &p_files) {
+void GodotJSEditorPlugin::_cache_files_md5(const PackedStringArray &p_files) {
 	if (p_files.is_empty()) return;
 
 	Ref<ConfigFile> md5_cache_file = _get_file_md5_cache();
@@ -713,8 +713,12 @@ void GodotJSEditorPlugin::remove_obsolete_files() {
 }
 
 bool GodotJSEditorPlugin::verify_file(const jsb::weaver::InstallFileInfo &p_file, bool p_verify_content) {
-	//TODO skip all d.ts files during the INSTALL phase (do it in the GENERATE phase)
-	// if ((p_file.hint & jsb::weaver::CH_D_TS) != 0) return true;
+	// d.ts 文件与其它 preset **走同一条安装路径**（`apply_file` / `verify_file` 都对
+	// `CH_D_TS && *.d.ts` 调 `mutate_types`，见 `:690/:737`），并不存在"INSTALL 阶段不装、
+	// 留到 GENERATE 阶段再产出"的分工：`install_static_types`（`:1004`）本身就是 GENERATE 阶段
+	// （`generate_types` → `install_static_types`）里调用的。
+	// 因此**不能**在这里对 CH_D_TS 无条件 `return true`：那会让 preset 里的 d.ts 永不更新，
+	// 改了 typings 也不生效。保留内容比对。
 	if ((p_file.hint & jsb::weaver::CH_OBSOLETE) != 0) {
 		// return false if obsolete file exists
 		const String target_name = jsb::internal::PathUtil::combine(p_file.target_dir, p_file.source_name);
@@ -842,7 +846,7 @@ void GodotJSEditorPlugin::collect_invalid_files(const String &p_path, Vector<Str
 }
 
 void GodotJSEditorPlugin::_on_scene_saved(const String &p_path) {
-	Vector<String> paths = { p_path };
+	PackedStringArray paths = { p_path };
 
 	BitField<AutoGenSettingFlags> gen_scene_settings = jsb::internal::settings::editor::get_autogen_scene_dts_settings();
 	if (gen_scene_settings.has_flag(AutoGenSettingFlags::ENABLED) && gen_scene_settings.has_flag(AutoGenSettingFlags::GEN_ON_SAVE)) {
@@ -865,7 +869,7 @@ void GodotJSEditorPlugin::_on_scene_saved(const String &p_path) {
 void GodotJSEditorPlugin::_on_resource_saved(const Ref<Resource> &p_resource) {
 	BitField<AutoGenSettingFlags> gen_resource_settings = jsb::internal::settings::editor::get_autogen_resource_dts_settings();
 	if (gen_resource_settings.has_flag(AutoGenSettingFlags::ENABLED) && gen_resource_settings.has_flag(AutoGenSettingFlags::GEN_ON_SAVE)) {
-		Vector<String> paths = { p_resource->get_path() };
+		PackedStringArray paths = { p_resource->get_path() };
 		if (!gen_resource_settings.has_flag(AutoGenSettingFlags::CHANGED_FILE_ONLY) || _is_file_changed(paths[0])) {
 			generate_resource_types({}, paths);
 		}
@@ -875,7 +879,7 @@ void GodotJSEditorPlugin::_on_resource_saved(const Ref<Resource> &p_resource) {
 void GodotJSEditorPlugin::_generate_imported_resource_dts(const PackedStringArray &p_resources) {
 	BitField<AutoGenSettingFlags> gen_resource_settings = jsb::internal::settings::editor::get_autogen_resource_dts_settings();
 	if (gen_resource_settings.has_flag(AutoGenSettingFlags::ENABLED) && gen_resource_settings.has_flag(AutoGenSettingFlags::GEN_ON_SAVE)) {
-		Vector<String> paths;
+		PackedStringArray paths;
 		if (gen_resource_settings.has_flag(AutoGenSettingFlags::CHANGED_FILE_ONLY)) {
 			for (const String &path : p_resources) {
 				if (_is_file_changed(path)) paths.push_back(path);
@@ -914,8 +918,8 @@ bool GodotJSEditorPlugin::_is_path_matchn(const PackedStringArray &p_wildcards, 
 	return false;
 }
 
-Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const Vector<String> &p_paths) {
-	Vector<String> filtered_paths;
+PackedStringArray GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArray &p_exclude_wildcards, const PackedStringArray &p_include_wildcards, const PackedStringArray &p_paths) {
+	PackedStringArray filtered_paths;
 	if (!p_include_wildcards.is_empty()) {
 		for (const String &path : p_paths) {
 			if (!p_exclude_wildcards.is_empty() && _is_path_matchn(p_exclude_wildcards, path)) {
@@ -986,14 +990,14 @@ void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, boo
 				return;
 			}
 
-			Vector<String> resource_paths;
+			PackedStringArray resource_paths;
 			if (EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem()) {
 				GodotJSEditorPlugin::get_all_resources(efs->get_filesystem(), resource_paths);
 			}
 			GodotJSEditorPlugin::generate_resource_types(complete, resource_paths);
 		};
 
-		Vector<String> scene_paths;
+		PackedStringArray scene_paths;
 		if (EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem()) {
 			GodotJSEditorPlugin::get_all_scenes(efs->get_filesystem(), scene_paths);
 		}
@@ -1099,7 +1103,7 @@ void GodotJSEditorPlugin::cleanup_invalid_files(std::function<void(bool)> comple
 	}
 }
 
-void GodotJSEditorPlugin::get_all_scenes(EditorFileSystemDirectory *p_dir, Vector<String> &r_list) {
+void GodotJSEditorPlugin::get_all_scenes(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list) {
 	for (int i = 0; i < p_dir->get_file_count(); i++) {
 		if (p_dir->get_file_type(i) == SNAME("PackedScene")) {
 			r_list.push_back(p_dir->get_file_path(i));
@@ -1111,7 +1115,7 @@ void GodotJSEditorPlugin::get_all_scenes(EditorFileSystemDirectory *p_dir, Vecto
 	}
 }
 
-void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory *p_dir, Vector<String> &r_list) {
+void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory *p_dir, PackedStringArray &r_list) {
 	for (int i = 0; i < p_dir->get_file_count(); i++) {
 		String path = p_dir->get_file_path(i);
 		if (path.begins_with("res://install/") || path.begins_with("res://node_modules/")) {
@@ -1128,7 +1132,7 @@ void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory *p_dir, Ve
 	}
 }
 
-void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> complete, const Vector<String> &p_paths) {
+void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> complete, const PackedStringArray &p_paths) {
 	BitField<AutoGenSettingFlags> gen_settings = jsb::internal::settings::editor::get_autogen_scene_dts_settings();
 	if (!gen_settings.has_flag(AutoGenSettingFlags::ENABLED)) {
 		if (complete) {
@@ -1147,7 +1151,7 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 
 	PackedStringArray exclude_wildcards = jsb::internal::settings::project::get_scene_dts_exclude_path_wildcards();
 	PackedStringArray include_wildcards = jsb::internal::settings::project::get_scene_dts_include_path_wildcards();
-	Vector<String> filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
+	PackedStringArray filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
 	if (filtered_paths.is_empty()) {
 		if (complete) {
 			complete(true);
@@ -1175,7 +1179,7 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 	}
 }
 
-void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> complete, const Vector<String> &p_paths) {
+void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> complete, const PackedStringArray &p_paths) {
 	BitField<AutoGenSettingFlags> gen_settings = jsb::internal::settings::editor::get_autogen_resource_dts_settings();
 	if (!gen_settings.has_flag(AutoGenSettingFlags::ENABLED)) {
 		if (complete) {
@@ -1194,7 +1198,7 @@ void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> comp
 
 	PackedStringArray exclude_wildcards = jsb::internal::settings::project::get_resource_dts_exclude_path_wildcards();
 	PackedStringArray include_wildcards = jsb::internal::settings::project::get_resource_dts_include_path_wildcards();
-	Vector<String> filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
+	PackedStringArray filtered_paths = _filter_resource_paths(exclude_wildcards, include_wildcards, p_paths);
 	if (filtered_paths.is_empty()) {
 		if (complete) {
 			complete(true);
@@ -1222,7 +1226,7 @@ void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> comp
 	}
 }
 void GodotJSEditorPlugin::generate_all_scene_nodes_types() {
-	Vector<String> paths;
+	PackedStringArray paths;
 	if (EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem()) {
 		get_all_scenes(efs->get_filesystem(), paths);
 	}
@@ -1230,7 +1234,7 @@ void GodotJSEditorPlugin::generate_all_scene_nodes_types() {
 }
 
 void GodotJSEditorPlugin::generate_all_resource_types() {
-	Vector<String> paths;
+	PackedStringArray paths;
 	if (EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem()) {
 		get_all_resources(efs->get_filesystem(), paths);
 	}
@@ -1288,7 +1292,10 @@ void GodotJSEditorPlugin::start_tsc_watch() {
 #else
 	const String exe_path = "node";
 #endif
-	//TODO no console output in this way, implement pipes here
+	// 子进程输出已经被接收：`jsb::internal::Process` 用后台读取线程排空 stdout（stderr 也重定向到
+	// 同一句柄），逐行经 `JSB_PROCESS_LOG(Log, "[%s] %s", ...)` 打进日志并交给 line callback
+	// （`jsb_process.cpp:131/134` 与 POSIX 侧 `:433/435`）。所以 `tsc -w` 的类型检查错误
+	// 会出现在编辑器输出里，不需要在这里额外接线。
 	tsc_ = jsb::internal::Process::create("tsc", exe_path, args);
 	if (!tsc_ || !tsc_->is_running()) {
 		kill_tsc();
