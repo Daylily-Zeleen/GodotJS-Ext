@@ -196,6 +196,21 @@ private:
 		ScriptInstance *script_instance = (ScriptInstance *)p_instance;
 		return script_instance->is_placeholder();
 	}
+
+#if JSB_TOOLS
+	static GDExtensionBool set_fallback_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
+		ScriptInstance *script_instance = (ScriptInstance *)p_instance;
+		const StringName &name = *reinterpret_cast<const StringName *>(p_name);
+		const Variant &value = *reinterpret_cast<const Variant *>(p_value);
+		return (GDExtensionBool)script_instance->property_set_fallback(name, value);
+	}
+	static GDExtensionBool get_fallback_func(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionVariantPtr r_ret) {
+		ScriptInstance *script_instance = (ScriptInstance *)p_instance;
+		const StringName &name = *reinterpret_cast<const StringName *>(p_name);
+		Variant &value = *reinterpret_cast<Variant *>(r_ret);
+		return (GDExtensionBool)script_instance->property_get_fallback(name, value);
+	}
+#endif
 	static GDExtensionScriptLanguagePtr get_language_func(GDExtensionScriptInstanceDataPtr p_instance) {
 		GodotJSScriptInstanceBase *script_instance = (GodotJSScriptInstanceBase *)p_instance;
 		return (GDExtensionScriptLanguagePtr)GodotJSScriptLanguage::get_singleton();
@@ -206,7 +221,7 @@ private:
 	}
 
 private:
-	GDExtensionScriptInstanceInfo3 script_instance_info_{
+	GDExtensionScriptInstanceInfo3 script_instance_info_ {
 		.set_func = &ScriptInstanceInfo::set_func,
 		.get_func = &ScriptInstanceInfo::get_func,
 		.get_property_list_func = &ScriptInstanceInfo::get_property_list_func,
@@ -215,7 +230,7 @@ private:
 		.property_can_revert_func = &ScriptInstanceInfo::property_can_revert_func,
 		.property_get_revert_func = &ScriptInstanceInfo::property_get_revert_func,
 		.get_owner_func = &ScriptInstanceInfo::get_owner_func,
-		.get_property_state_func = nullptr, // 直接使用 godot 的 ScriptInstance::get_property_state 即可。
+		.get_property_state_func = nullptr, // 直接使用 godot 的 ScriptInstance::get_property_state
 		.get_method_list_func = &ScriptInstanceInfo::get_method_list_func,
 		.free_method_list_func = &ScriptInstanceInfo::free_method_list_func,
 		.get_property_type_func = &ScriptInstanceInfo::get_property_type_func,
@@ -229,8 +244,13 @@ private:
 		.refcount_decremented_func = &ScriptInstanceInfo::refcount_decremented_func,
 		.get_script_func = &ScriptInstanceInfo::get_script_func,
 		.is_placeholder_func = &ScriptInstanceInfo::is_placeholder_func,
-		.set_fallback_func = nullptr,
+#if JSB_TOOLS
+		.set_fallback_func = &ScriptInstanceInfo::set_fallback_func,
+		.get_fallback_func = &ScriptInstanceInfo::get_fallback_func,
+#else
+		.set_fallback_func = nullptr;
 		.get_fallback_func = nullptr,
+#endif
 		.get_language_func = &ScriptInstanceInfo::get_language_func,
 		.free_func = &ScriptInstanceInfo::free_func,
 	};
@@ -272,7 +292,33 @@ PlaceholderScriptInstance::~PlaceholderScriptInstance() {
 }
 
 void PlaceholderScriptInstance::update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values) {
+	fallback_properties.clear();
 	::godot::gdextension_interface::placeholder_script_instance_update(extension_instance_ptr, &p_properties, &p_values);
+}
+
+bool PlaceholderScriptInstance::property_set_fallback(const StringName &p_name, const Variant &p_value) {
+	if (script_->_is_placeholder_fallback_enabled()) {
+		if (p_value.get_type() == Variant::NIL) {
+			fallback_properties.erase(p_name);
+		} else {
+			fallback_properties[p_name] = p_value;
+		}
+	}
+	return false;
+}
+
+bool PlaceholderScriptInstance::property_get_fallback(const StringName &p_name, Variant &r_value) const {
+	if (script_->_is_placeholder_fallback_enabled()) {
+		if (auto ptr = fallback_properties.getptr(p_name)) {
+			r_value = *ptr;
+			return true;
+		}
+		if (auto ptr = script_->get_constants().getptr(p_name)) {
+			r_value = ptr->value;
+			return r_value.get_type() != Variant::NIL;
+		}
+	}
+	return false;
 }
 #endif // JSB_TOOLS
 

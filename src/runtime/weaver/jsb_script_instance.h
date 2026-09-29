@@ -61,6 +61,11 @@ public:
 	Ref<GodotJSScript> get_script() const { return script_; }
 	ScriptLanguage *get_language() const { return script_.is_valid() ? GodotJSScriptLanguage::get_singleton() : nullptr; }
 
+#if JSB_TOOLS
+	virtual bool property_set_fallback(const StringName &p_name, const Variant &p_value) { return false; }
+	virtual bool property_get_fallback(const StringName &p_name, Variant &r_value) const { return false; }
+#endif // JSB_TOOLS
+
 public:
 	virtual void get_property_state(ScriptInstancePropertyState &r_state) const {}
 
@@ -94,6 +99,8 @@ public:
 class PlaceholderScriptInstance : public ScriptInstance {
 	static HashMap<Object *, PlaceholderScriptInstance *> placeholders_;
 
+	HashMap<StringName, Variant> fallback_properties;
+
 public:
 	PlaceholderScriptInstance(const Ref<GodotJSScript> &p_script, Object *p_owner);
 	virtual ~PlaceholderScriptInstance() override;
@@ -104,6 +111,9 @@ public:
 	}
 	virtual bool is_placeholder() const override { return true; }
 	void update(const TypedArray<Dictionary> &p_properties, const Dictionary &p_values);
+
+	virtual bool property_set_fallback(const StringName &p_name, const Variant &p_value) override;
+	virtual bool property_get_fallback(const StringName &p_name, Variant &r_value) const override;
 };
 #endif // JSB_TOOLS
 

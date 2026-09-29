@@ -134,6 +134,8 @@ public:
 	 * `description`（全文）没有装饰器来源，总是来自源注释。
 	 */
 	void _apply_pending_source_doc();
+
+	_FORCE_INLINE_ virtual const HashMap<StringName, jsb::ScriptConstantInfo> &get_constants() const { return script_class_info_.constants; }
 #endif // JSB_TOOLS
 
 	// Error attach_source(const String& p_path, bool p_take_over);
