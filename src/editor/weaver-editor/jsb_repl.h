@@ -30,11 +30,14 @@
 #include <internal/jsb_console_output.h>
 #include <internal/jsb_double_buffered.h>
 
+#include <runtime/bridge/jsb_environment.h>
+
 #include <godot_cpp/classes/button.hpp>
 #include <godot_cpp/classes/h_box_container.hpp>
 #include <godot_cpp/classes/item_list.hpp>
 #include <godot_cpp/classes/label.hpp>
 #include <godot_cpp/classes/line_edit.hpp>
+#include <godot_cpp/classes/option_button.hpp>
 #include <godot_cpp/classes/rich_text_label.hpp>
 
 class GodotJSREPL : public HBoxContainer, public jsb::internal::IConsoleOutput {
@@ -55,6 +58,9 @@ private:
 	Button *start_tsc_button_ = nullptr;
 
 	ItemList *candidate_list_;
+
+	OptionButton *realm_selector_ = nullptr;
+	jsb::Environment *selected_realm_ = nullptr;
 
 	Vector<OutputLine> lines_;
 
@@ -85,6 +91,8 @@ protected:
 	void _install_project_files_pressed();
 	void _start_tsc_pressed();
 	void _show_candidates(const PackedStringArray &p_items);
+	void _refresh_realms();
+	void _realm_selected(int p_idx);
 	void _backlog_flush();
 
 	void add_string(const String &p_str);

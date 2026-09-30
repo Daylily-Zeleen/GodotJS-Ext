@@ -37,7 +37,9 @@
 #include <godot_cpp/classes/item_list.hpp>
 #include <godot_cpp/classes/label.hpp>
 #include <godot_cpp/classes/line_edit.hpp>
+#include <godot_cpp/classes/option_button.hpp>
 #include <godot_cpp/classes/panel.hpp>
+#include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/rich_text_label.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/texture_rect.hpp>
@@ -55,12 +57,6 @@ void GodotJSREPL::_bind_methods() {
 }
 
 GodotJSREPL::GodotJSREPL() {
-	//TODO 列出所有 realm 实例并与之交互：REPL 当前恒定在**主环境**上求值
-	//     （`eval_source` → `GodotJSScriptLanguage::eval_source*`，`:231-236`），而 worker 与
-	//     ShadowRealm 各自有独立 `Environment`。要做需要 (a) realm 枚举入口（`EnvironmentStore::get_list()`
-	//     已有，但只给内部用）、(b) 选择控件与持久选择状态、(c) 跨 realm 求值的调用通道——(c) 本身
-	//     也未实现（见 `_input_changed` 的同类 TODO）。
-
 	// This REPL is an jsb::internal::IConsoleOutput: the base constructor already
 	// registered it as a console sink (arming the node console hook in node
 	// builds), so no explicit registration is needed here.
@@ -110,6 +106,15 @@ GodotJSREPL::GodotJSREPL() {
 		install_project_files_hint_label_ = memnew(Label);
 		tool_bar_box->add_child(install_project_files_hint_label_);
 		install_project_files_hint_label_->set_text(TTR("Suggest re-installing GodotJS project files."));
+	}
+	{
+		realm_selector_ = memnew(OptionButton);
+		tool_bar_box->add_child(realm_selector_);
+		realm_selector_->set_theme_type_variation("FlatButton");
+		realm_selector_->set_focus_mode(FOCUS_NONE);
+		realm_selector_->set_tooltip_text(TTR("Realm to evaluate in"));
+		realm_selector_->connect("item_selected", callable_mp(this, &GodotJSREPL::_realm_selected));
+		realm_selector_->get_popup()->connect("about_to_popup", callable_mp(this, &GodotJSREPL::_refresh_realms));
 	}
 #if JSB_USE_TYPESCRIPT
 	{
@@ -167,9 +172,18 @@ GodotJSREPL::GodotJSREPL() {
 	connect("ready", callable_mp(this, &GodotJSREPL::_on_ready));
 	connect("tree_entered", callable_mp(this, &GodotJSREPL::_on_tree_entered));
 	connect("theme_changed", callable_mp(this, &GodotJSREPL::_on_theme_changed));
+
+	jsb::Environment::add_disposed_callback(this, [this](jsb::Environment *p_env) {
+		if (p_env == selected_realm_) {
+			selected_realm_ = nullptr;
+			add_line(TTR("-- Selected realm is disposed. --"));
+		}
+	});
 }
 
 GodotJSREPL::~GodotJSREPL() {
+	jsb::Environment::remove_disposed_callback(this);
+
 	// ensure self removed before any member destruction to avoid deadlock
 	remove_from_output_list();
 
@@ -197,6 +211,77 @@ void GodotJSREPL::_on_ready() {
 	if (Node *root = get_tree()->get_root()) {
 		root->connect("focus_entered", callable_mp(this, &GodotJSREPL::_on_window_focus_entered));
 	}
+
+	_refresh_realms();
+}
+
+void GodotJSREPL::_refresh_realms() {
+	if (!realm_selector_) return;
+
+	const LocalVector<jsb::Environment *> realms = []() {
+		LocalVector<jsb::Environment *> ret;
+		for (std::shared_ptr<jsb::Environment> env : jsb::Environment::get_all_environments()) {
+			if (!env->is_disposing()) {
+				ret.push_back(env.get());
+			}
+		}
+		return ret;
+	}();
+
+	int selected_idx = -1;
+	int main_idx = -1;
+	realm_selector_->clear();
+	for (size_t i = 0; i < realms.size(); ++i) {
+		const jsb::Environment *realm = realms[i];
+		const jsb::Environment::Type type = realm->get_realm_type();
+		String label;
+		switch (type) {
+			case jsb::Environment::Type::Worker:
+				label = jsb_format("worker #%d", (int)i);
+				break;
+			case jsb::Environment::Type::Shadow:
+				label = jsb_format("shadow #%d", (int)i);
+				break;
+			case jsb::Environment::Type::ShadowRealm:
+				label = jsb_format("shadow realm #%d", (int)i);
+				break;
+			case jsb::Environment::Type::Default:
+			default:
+				label = i == 0 ? TTR("main") : jsb_format("main #%d", (int)i);
+				main_idx = i;
+				break;
+		}
+		realm_selector_->add_item(label);
+		realm_selector_->set_item_metadata(i, (uint64_t)realm);
+		if (realm == selected_realm_) selected_idx = i;
+	}
+
+	if (realms.is_empty()) {
+		// The language is not initialized yet (or the store is empty): nothing to
+		// evaluate in. The selector is not disabled -- a realm can appear later and
+		// _on_realm_poll re-enables it -- but eval_source reports the state.
+		selected_realm_ = nullptr;
+		realm_selector_->set_disabled(true);
+		return;
+	}
+	realm_selector_->set_disabled(false);
+
+	if (selected_idx >= 0) {
+		realm_selector_->select(selected_idx);
+	} else if (main_idx >= 0) {
+		realm_selector_->select(main_idx);
+	}
+}
+
+void GodotJSREPL::_realm_selected(int p_idx) {
+	jsb::Environment *selected = (jsb::Environment *)((uint64_t)realm_selector_->get_item_metadata(p_idx));
+	std::shared_ptr<jsb::Environment> selected_env = jsb::Environment::_access(selected);
+	if (selected_env.get() == nullptr || selected_env->is_disposing()) {
+		add_line(jsb_format("[color=yellow]-- %s %s --[/color]", realm_selector_->get_item_text(p_idx), TTR("is invalid.")));
+		return;
+	}
+	selected_realm_ = selected;
+	add_line(jsb_format("[color=dim_gray]-- %s %s --[/color]", TTR("Select realm:"), realm_selector_->get_item_text(p_idx)));
 }
 
 Ref<Texture2D> GodotJSREPL::get_editor_theme_icon(const StringName &p_name) const {
@@ -351,11 +436,22 @@ void GodotJSREPL::_input_submitted(const String &p_text) {
 Variant GodotJSREPL::eval_source(const String &p_code) {
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
-		JSB_LOG(Error, "the script language is not available.");
+		add_line(TTR("Cannot evaluate: the JavaScript language is not initialized."));
 		return {};
 	}
+
+	if (!selected_realm_) {
+		add_line(TTR("Cannot evaluate: no realm is selected (the JavaScript language is not ready yet)."));
+		return {};
+	}
+	if (selected_realm_->is_disposing()) {
+		add_line(TTR("Cannot evaluate: the selected realm has been destroyed."));
+		return {};
+	}
+
 	Error err = OK;
-	const jsb::JSValueMove result = lang->eval_source(p_code, err);
+	const CharString str = p_code.utf8();
+	const jsb::JSValueMove result = selected_realm_->eval_source(str.get_data(), str.length(), "eval", err);
 	if (err != OK) {
 		return {};
 	}
