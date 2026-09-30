@@ -176,7 +176,6 @@ public:
 	virtual String _get_class_icon_path() const override;
 #endif // JSB_TOOLS
 
-	// TODO: In the next compat breakage rename to `*_script_*` to disambiguate from `Object::has_method()`.
 	virtual bool _has_method(const StringName &p_method) const override;
 	virtual bool _has_static_method(const StringName &p_method) const override;
 
