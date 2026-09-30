@@ -33,6 +33,7 @@
 #include "jsb_jsc_pch.h"
 #include "jsb_jsc_primitive.h"
 
+#include "../../internal/jsb_debug_stack.h"
 #include "../jsb_primitive_conv.h"
 
 namespace jsb::impl {
@@ -220,7 +221,7 @@ public:
 	// JSC (see the note in jsb_jsc_object.cpp: `Compile` only stashes the text
 	// and defers syntax errors to `Run`), so the engine's own non-evaluating
 	// check is used instead.
-	template<typename _Placeholder = void>
+	template <typename _Placeholder = void>
 	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
 		jsb_unused(context); // JSC keys everything off the JSGlobalContextRef.
 		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
@@ -245,6 +246,36 @@ public:
 		jsb_unused(r_column);
 		return false;
 	}
+
+#if JSB_DEBUG
+	// 取当前 JavaScript 调用栈的快照。
+	//
+	// JSC 的 C API 完全没有栈内省，所以运行时唯一能说清的栈，是**待处理异常**已经带着的
+	// 那个：它的 `Error.stack`。没有待处理异常时，答案就是「没有帧」——
+	// 这是如实作答，而不是编一帧出来。
+	// 该文本是引擎自己的格式，按单条目返回；刻意不去把它拆成逐帧记录，
+	// 因为这个格式不属于任何契约。
+	static void snapshot_stack(v8::Isolate *isolate, DebugStackFrameList &r_frames, int p_limit) {
+		if (!isolate->_HasError()) {
+			return;
+		}
+		jsb_unused(p_limit);
+
+		const JSContextRef ctx = isolate->ctx();
+		const JSValueRef error = isolate->_GetError();
+		if (!error || !JSValueIsObject(ctx, error)) {
+			return;
+		}
+		// `_GetProperty` hands back the engine's value; it is only valid while the
+		// error is alive, which it is for the duration of this call.
+		const JSValueRef stack = isolate->_GetProperty(JavaScriptCore::AsObject(ctx, error), JS_ATOM_stack);
+		DebugStackFrame frame;
+		frame.function = JavaScriptCore::GetString(ctx, stack);
+		if (!frame.function.is_empty()) {
+			r_frames.push_back(frame);
+		}
+	}
+#endif // JSB_DEBUG
 
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		//NOTE not a good practice, just for the simplicity of Buffer (to move/free by Buffer)

@@ -33,6 +33,7 @@
 #include "jsb_web_pch.h"
 #include "jsb_web_primitive.h"
 
+#include "../../internal/jsb_debug_stack.h"
 #include "../jsb_primitive_conv.h"
 
 namespace jsb::impl {
@@ -230,7 +231,7 @@ public:
 	// function *expression*: parsing the body happens then, but the body does not
 	// run -- only the loader's later call does. So compiling is the syntax check,
 	// and no extra bridge op is needed.
-	template<typename _Placeholder = void>
+	template <typename _Placeholder = void>
 	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
 		jsb_unused(r_line); // the browser reports the message only.
 		jsb_unused(r_column);
@@ -248,6 +249,27 @@ public:
 		}
 		return false;
 	}
+
+#if JSB_DEBUG
+	// 取当前 JavaScript 调用栈的快照。
+	//
+	// 浏览器桥不提供任何栈内省：唯一能说清的栈，是**待处理异常**带着的那个
+	// （`Error.stack`）。没有待处理异常时，如实答「没有帧」。
+	// 该文本是宿主引擎自己的格式，按单条目返回；刻意不拆成逐帧记录。
+	static void snapshot_stack(v8::Isolate *isolate, DebugStackFrameList &r_frames, int p_limit) {
+		jsb_unused(p_limit);
+		const JSRuntime rt = isolate->rt();
+		if (!jsbi_HasError(rt)) {
+			return;
+		}
+		const StackPosition stack_sp = jsbi_GetPropertyAtomID(rt, StackBase::Error, JS_ATOM_stack);
+		DebugStackFrame frame;
+		frame.function = BrowserJS::GetString(rt, stack_sp);
+		if (!frame.function.is_empty()) {
+			r_frames.push_back(frame);
+		}
+	}
+#endif // JSB_DEBUG
 
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		::free(data);

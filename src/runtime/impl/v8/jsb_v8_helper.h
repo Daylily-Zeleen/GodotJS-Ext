@@ -31,6 +31,7 @@
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_v8_pch.h"
 
+#include "../../internal/jsb_debug_stack.h"
 #include "../jsb_primitive_conv.h"
 
 #define V8_VERSION_NEWER_THAN(major, minor, patch) VERSION_COMPARE(V8_MAJOR_VERSION, major, VERSION_COMPARE(V8_MINOR_VERSION, minor, VERSION_COMPARE(V8_BUILD_VERSION, patch, false)))
@@ -236,7 +237,7 @@ public:
 	// `compile_function`, minus the `Run`: a source accepted here is exactly one
 	// the loader would accept. `CompileModule` would NOT do, since the runtime's
 	// module wrapper is a classic script.
-	template<typename _Placeholder = void>
+	template <typename _Placeholder = void>
 	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
 		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
 		v8::TryCatch try_catch(isolate);
@@ -267,6 +268,28 @@ public:
 		}
 		return false;
 	}
+
+#if JSB_DEBUG
+	// 取当前 JavaScript 调用栈的快照（最外层在最后，与 `StackTrace::GetFrame` 的顺序一致）。
+	// 与 `Error.stack` 不同，这个不依赖抛出异常，所以停在断点上时也能作答。
+	// VM 本来就会采集全部信息（`kDetailed`），这里传该选项只是为表意清楚。
+	static void snapshot_stack(v8::Isolate *isolate, DebugStackFrameList &r_frames, int p_limit) {
+		const v8::Local<v8::StackTrace> trace = v8::StackTrace::CurrentStackTrace(isolate, p_limit, v8::StackTrace::kDetailed);
+		if (trace.IsEmpty()) {
+			return;
+		}
+		const int count = trace->GetFrameCount();
+		r_frames.resize(count);
+		for (int index = 0; index < count; ++index) {
+			const v8::Local<v8::StackFrame> frame = trace->GetFrame(isolate, index);
+			DebugStackFrame &out = r_frames[index];
+			out.function = to_string(isolate, frame->GetFunctionName());
+			out.file = to_string(isolate, frame->GetScriptNameOrSourceURL());
+			out.line = frame->GetLineNumber();
+			out.column = frame->GetColumn();
+		}
+	}
+#endif // JSB_DEBUG
 
 	template <int N>
 	_FORCE_INLINE_ static void throw_error(v8::Isolate *isolate, const char (&message)[N]) {

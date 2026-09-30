@@ -33,6 +33,7 @@
 #include "jsb_quickjs_pch.h"
 #include "jsb_quickjs_primitive.h"
 
+#include "../../internal/jsb_debug_stack.h"
 #include "../jsb_primitive_conv.h"
 
 namespace jsb::impl {
@@ -258,7 +259,7 @@ public:
 	// Parse `p_source` without executing it. `Script::Compile` already compiles
 	// with `JS_EVAL_FLAG_COMPILE_ONLY`, but it discards the exception and this
 	// needs the message, so `JS_Eval` is called directly with the same flag.
-	template<typename _Placeholder = void>
+	template <typename _Placeholder = void>
 	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
 		jsb_unused(context);
 		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
@@ -291,6 +292,33 @@ public:
 		}
 		return false;
 	}
+
+#if JSB_DEBUG
+	// 取当前 JavaScript 调用栈的快照。
+	//
+	// quickjs 公开的栈内省只有 `JS_GetScriptOrModuleName` 这一个：它沿
+	// `rt->current_stack_frame->prev_frame` 走，给出某一层的**文件名**
+	// （它的行号表 `find_line_num`/`pc2line` 在引擎源码里是 static，没有导出）。
+	// 所以帧是真实的，但只带文件名：函数名与行号留空，而不是猜。
+	// 三者俱全的 `Error.stack` 依赖抛出异常，因此在真的捕获到异常时另行处理。
+	static void snapshot_stack(v8::Isolate *isolate, DebugStackFrameList &r_frames, int p_limit) {
+		JSContext *ctx = isolate->ctx();
+		for (int level = 0; level < p_limit; ++level) {
+			const JSAtom file = JS_GetScriptOrModuleName(ctx, level);
+			if (file == JS_ATOM_NULL) {
+				break; // no such level: end of the stack.
+			}
+			const JSValue file_value = JS_AtomToString(ctx, file);
+			DebugStackFrame frame;
+			frame.file = QuickJS::GetString(ctx, file_value);
+			frame.line = 0; // quickjs exposes no line table through its public API.
+			frame.column = 0;
+			JS_FreeValue(ctx, file_value);
+			JS_FreeAtom(ctx, file);
+			r_frames.push_back(frame);
+		}
+	}
+#endif // JSB_DEBUG
 
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		// js_free(context->GetIsolate()->ctx(), data);
