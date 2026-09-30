@@ -295,17 +295,35 @@ public:
 	virtual PackedStringArray _get_reserved_words() const override;
 
 #if JSB_DEBUG
-	virtual String _debug_get_error() const override { return ""; } // TODO
-	virtual int32_t _debug_get_stack_level_count() const override { return 1; } // TODO
-	virtual int32_t _debug_get_stack_level_line(int32_t p_level) const override { return 1; } // TODO
-	virtual String _debug_get_stack_level_function(int32_t p_level) const override { return ""; } // TODO
-	virtual String _debug_get_stack_level_source(int32_t p_level) const override { return ""; } // TODO
-	virtual Dictionary _debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual Dictionary _debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual void *_debug_get_stack_level_instance(int32_t p_level) override { return nullptr; } // TODO
-	virtual Dictionary _debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); } // TODO
-	virtual String _debug_parse_stack_level_expression(int32_t p_level, const String &p_expression, int32_t p_max_subitems, int32_t p_max_depth) override { return ""; } // TODO
-	virtual TypedArray<Dictionary> _debug_get_current_stack_info() override { return {}; } // TODO: Vector<StackInfo>
+	/** NOTE: 调试功能未经实测 */
+	virtual String _debug_get_error() const override;
+	virtual int32_t _debug_get_stack_level_count() const override;
+	virtual int32_t _debug_get_stack_level_line(int32_t p_level) const override;
+	virtual String _debug_get_stack_level_function(int32_t p_level) const override;
+	virtual String _debug_get_stack_level_source(int32_t p_level) const override;
+
+	// 以下三个 hook 在本 VM 的嵌入 API 上**无法作答**，因此如实返回空，而不是编造条目。
+	// 这是查证过的，不是推测：
+	//
+	//   - v8 的作用域内省（`ScopeIterator`、`v8::Debug` 命名空间）在本仓 vendor 的
+	//     头文件里**根本不存在**：穷举 `third/v8/include/*.h`，与调试相关的只有
+	//     `StackTrace` / `StackFrame` / `Message`（`v8-debug.h`）。局部变量/作用域
+	//     只能经 Chrome DevTools 协议，从 `jsb_debugger.cpp` 里那条 websocket 会话
+	//     异步取得 —— 那是另一套调试器，不是一次函数调用能拿到的。
+	//   - 因此被暂停的 JS 帧的局部变量在此不可知；帧所属的实例同样不可知：JSB 不记录
+	//     「当前正在执行的 script instance」，而纯 JS 帧也从不经过那个记录。
+	//
+	// 返回空恰好是引擎需要的行为（不是随便返回）：
+	//   - `debug_get_stack_level_instance` 返回 nullptr，才会让 `get_stack_frame_vars`
+	//     跳过 `self` 条目（core/debugger/remote_debugger.cpp:507），
+	//     并让 `evaluate` 直接退出（同文件 :554-556），而不是拿一个错的实例去求值。
+	virtual Dictionary _debug_get_stack_level_locals(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); }
+	virtual Dictionary _debug_get_stack_level_members(int32_t p_level, int32_t p_max_subitems, int32_t p_max_depth) override { return Dictionary(); }
+	virtual void *_debug_get_stack_level_instance(int32_t p_level) override { return nullptr; }
+
+	virtual Dictionary _debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) override;
+	virtual String _debug_parse_stack_level_expression(int32_t p_level, const String &p_expression, int32_t p_max_subitems, int32_t p_max_depth) override;
+	virtual TypedArray<Dictionary> _debug_get_current_stack_info() override;
 
 	virtual void _profiling_start() override;
 	virtual void _profiling_stop() override;
@@ -316,6 +334,26 @@ public:
 #endif // JSB_DEBUG
 
 private:
+#if JSB_DEBUG
+	// 供那些 const 的 `_debug_get_stack_level_*` hook 读取的快照。放在这里是为了让
+	// 引擎的一次枚举（先 count、再逐层取）只走一遍 VM，而不是每层走一遍；
+	// `count` 与 `get_error` 会重取，取层级的只在「还没有快照」时重取。
+	struct DebugStackSnapshot {
+		jsb::DebugStackFrameList frames;
+		// 待处理异常的文本（若有）。这是运行时唯一能说明「错误来自哪里」的地方。
+		String error;
+		bool valid = false;
+	};
+	mutable DebugStackSnapshot debug_stack_;
+
+	// 从 VM 重取 `debug_stack_`，并把每一帧映射回可编辑的源文件（见实现处）。
+	void _refill_debug_stack() const;
+
+	// 在主 realm 里求值 `p_expression`，并把结果整理成调试面板要的形式。
+	// 返回值表示是否求到了值；失败时 `r_error`（若给出）拿到 VM 自己的错误文本。
+	bool _evaluate_debug_expression(const String &p_expression, Variant &r_value, String *r_error = nullptr) const;
+#endif // JSB_DEBUG
+
 	std::shared_ptr<jsb::Environment> create_shadow_environment();
 	void destroy_shadow_environment(const std::shared_ptr<jsb::Environment> &p_env);
 

@@ -35,7 +35,11 @@
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_type_convert.h"
 #include "../bridge/jsb_worker.h"
+#include "../internal/jsb_debug_stack.h"
+// Debug hooks translate VM frames back to the editable source: the source map
+// beside the compiled artifact, and `ProjectSettings` to name it as `res://`.
 #include "../internal/jsb_internal.h"
+#include "../internal/jsb_source_map_cache.h"
 #include "../jsb_runtime_preset.h"
 #include "jsb_monitor.h"
 #if JSB_USE_TYPESCRIPT
@@ -48,6 +52,7 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/reg_ex_match.hpp>
 #include <godot_cpp/classes/resource_format_loader.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -915,8 +920,284 @@ struct GodotJSScriptDepSort {
 
 #if JSB_DEBUG
 namespace {
+// 把帧的文件名改成编辑器能用的形式。
+//
+// VM 报的是输出目录下的**编译产物**（绝对路径 —— 装载时塞进 `ScriptOrigin` 的就是
+// `FileAccessSourceReader::source_url`），而用户编辑的是 `res://` 下的 TypeScript。
+// 二者是两个不同文件，直接用 VM 的原始帧，编辑器会指到一个生成产物上。
+//
+// 两步，都复用运行时已有的机制：
+//   1. `SourceMapCache` 按产物旁边的 `.map` 把位置映射回原始源文件（与
+//      `jsb_bridge_helper.cpp` 给日志栈回溯做的是同一件事）。
+//   2. 折回工程内（`res://`），使错误栏的 `begins_with("res://")` 判定
+//      （script_editor_debugger.cpp:640）与 `fetch_source` 的行为和 GDScript 一致。
+// 非工程代码里的帧（宿主内部帧）保持 VM 报的原样，不强行改造。
+String localize_debug_frame_path(const String &p_path) {
+	if (p_path.is_empty()) {
+		return p_path;
+	}
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	if (!settings) {
+		return p_path;
+	}
+	const String globalized = settings->globalize_path("res://").simplify_path();
+	const String normalized = p_path.simplify_path().replace("\\", "/");
+	if (normalized.begins_with("res://")) {
+		return normalized;
+	}
+	if (!globalized.is_empty() && normalized.begins_with(globalized)) {
+		return "res://" + normalized.substr(globalized.length()).trim_prefix("/");
+	}
+	return p_path;
+}
+} //namespace
+
+// `_debug_get_stack_level_*` 这一组都是 const，所以快照缓存在这里、在一次枚举里复用，
+// 而不是每层都去走一遍 VM。`count` 与 `get_error` 是入口，每次都重取；取层级的几个
+// 只在「还没有快照」时才重取。
+//
+// 引擎的调用次序：先 `debug_get_error()` 与 `debug_get_stack_level_count()`
+// （core/debugger/remote_debugger.cpp:420-426、:483-495），再逐层读；
+// `_debug_get_current_stack_info()` 是独立调用。所以上述次序在实践中成立 ——
+// 但这**依赖调用方**，而一次重取很便宜（一次 `CurrentStackTrace`），
+// 这就是「不在每个 hook 里都取快照」这个取舍的依据。
+void GodotJSScriptLanguage::_refill_debug_stack() const {
+	debug_stack_.frames.clear();
+	debug_stack_.error = String();
+	debug_stack_.valid = true;
+
+	if (!is_initialized()) {
+		return;
+	}
+
+	const std::shared_ptr<jsb::Environment> &env = environment_;
+	if (!env) {
+		return;
+	}
+
+	v8::Isolate *isolate = env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = env->get_context();
+	v8::Context::Scope context_scope(context);
+
+	// 先把帧取出来：对「栈存在待处理异常里」的后端，这一步不消耗任何东西。
+	// 帧数上限由用户设置决定（不是硬编码常量）。
+	jsb::impl::Helper::snapshot_stack(isolate, debug_stack_.frames, jsb::internal::settings::project::get_debug_max_stack_frames());
+
+	// 再把每一帧从编译产物映射回可编辑的源文件，编辑器才能打开。`find` 要的是
+	// 零基位置，所以这里减 1。
+	const bool sourcemap_enabled = jsb::internal::settings::project::is_sourcemap_enabled();
+	jsb::internal::SourceMapCache &source_map_cache = env->get_source_map_cache();
+	for (jsb::DebugStackFrame &frame : debug_stack_.frames) {
+		if (frame.file.is_empty() || frame.line <= 0) {
+			continue;
+		}
+		if (sourcemap_enabled) {
+			String source_path;
+			int source_line = 0;
+			int source_column = 0;
+			if (source_map_cache.remap_position(frame.file, frame.line - 1, frame.column > 0 ? frame.column - 1 : 0, source_path, source_line, source_column)) {
+				frame.file = source_path;
+				frame.line = source_line;
+				frame.column = source_column;
+			}
+		}
+		frame.file = localize_debug_frame_path(frame.file);
+	}
+
+	// 待处理异常（若有）是错误信息的唯一来源。读它会把它清掉，所以只在这里读一次并留存。
+	if (jsb::impl::TryCatch try_catch(isolate); try_catch.has_caught()) {
+		try_catch.get_message(&debug_stack_.error, nullptr);
+	}
+}
+
+bool GodotJSScriptLanguage::_evaluate_debug_expression(const String &p_expression, Variant &r_value, String *r_error) const {
+	if (r_error) {
+		*r_error = String();
+	}
+	if (p_expression.is_empty() || !is_initialized()) {
+		return false;
+	}
+	const std::shared_ptr<jsb::Environment> &env = environment_;
+	if (!env) {
+		return false;
+	}
+
+	v8::Isolate *isolate = env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = env->get_context();
+	v8::Context::Scope context_scope(context);
+
+	const CharString expression_utf8 = p_expression.utf8();
+	const jsb::impl::TryCatch try_catch(isolate);
+	const v8::MaybeLocal<v8::Value> maybe = jsb::impl::Helper::eval(context, expression_utf8.get_data(), expression_utf8.length(), "debug:evaluate");
+	if (try_catch.has_caught()) {
+		if (r_error) {
+			// 用 VM 自己的错误文本 —— 例如 `ReferenceError: x is not defined`，
+			// 这正是「变量只存在于被暂停的帧里」的情形
+			// （见 `_debug_parse_stack_level_expression`）。
+			try_catch.get_message(r_error, nullptr);
+		}
+		return false;
+	}
+	v8::Local<v8::Value> value;
+	if (!maybe.ToLocal(&value)) {
+		return false;
+	}
+	return jsb::TypeConvert::js_to_gd_var(isolate, context, value, r_value);
+}
+
+String GodotJSScriptLanguage::_debug_get_error() const {
+	// 无条件重取。读一次待处理异常就会把它清掉，所以本 hook 必须每次都看到新的，
+	// 而不能复用「已被上一个 hook 读过异常」的那份快照。
+	_refill_debug_stack();
+	return debug_stack_.error;
+}
+
+int32_t GodotJSScriptLanguage::_debug_get_stack_level_count() const {
+	// 引擎的枚举从这里开始，所以快照在此处取。
+	_refill_debug_stack();
+	return (int32_t)debug_stack_.frames.size();
+}
+
+int32_t GodotJSScriptLanguage::_debug_get_stack_level_line(int32_t p_level) const {
+	if (!debug_stack_.valid) {
+		_refill_debug_stack();
+	}
+	if (p_level < 0 || p_level >= (int32_t)debug_stack_.frames.size()) {
+		return 0;
+	}
+	return debug_stack_.frames[p_level].line;
+}
+
+String GodotJSScriptLanguage::_debug_get_stack_level_function(int32_t p_level) const {
+	if (!debug_stack_.valid) {
+		_refill_debug_stack();
+	}
+	if (p_level < 0 || p_level >= (int32_t)debug_stack_.frames.size()) {
+		return String();
+	}
+	return debug_stack_.frames[p_level].function;
+}
+
+String GodotJSScriptLanguage::_debug_get_stack_level_source(int32_t p_level) const {
+	if (!debug_stack_.valid) {
+		_refill_debug_stack();
+	}
+	if (p_level < 0 || p_level >= (int32_t)debug_stack_.frames.size()) {
+		return String();
+	}
+	return debug_stack_.frames[p_level].file;
+}
+
+Dictionary GodotJSScriptLanguage::_debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) {
+	// 引擎按 `名称 -> 值` 的字典读它（script_language_extension.h:643-662），
+	// 所以这里报告运行时的全局对象。
+	//
+	// 预期它很稀疏。GodotJS 的模块是在 CommonJS 包装里编译的，脚本自己的绑定是
+	// 函数局部量、从不进全局；而全局对象上**确实**存在的那些（require/setTimeout/gc...）
+	// 都是函数，`TypeConvert::js_to_gd_var` 不把函数转成 Variant
+	// （jsb_type_convert.cpp 里有明确的 `//TODO`）。表示不了的值直接跳过，不伪造。
+	jsb_unused(p_max_subitems);
+	jsb_unused(p_max_depth);
+
+	Dictionary globals;
+	if (!is_initialized()) {
+		return globals;
+	}
+	const std::shared_ptr<jsb::Environment> &env = environment_;
+	if (!env) {
+		return globals;
+	}
+
+	v8::Isolate *isolate = env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = env->get_context();
+	v8::Context::Scope context_scope(context);
+
+	if (const v8::Local<v8::Object> global = context->Global(); !global.IsEmpty()) {
+		v8::MaybeLocal<v8::Array> maybe_names = global->GetOwnPropertyNames(context);
+		if (!maybe_names.IsEmpty()) {
+			const v8::Local<v8::Array> names_checked = maybe_names.ToLocalChecked();
+			const uint32_t count = names_checked->Length();
+			for (uint32_t index = 0; index < count; ++index) {
+				v8::Local<v8::Value> name;
+				if (!names_checked->Get(context, index).ToLocal(&name)) {
+					continue;
+				}
+				const String name_str = jsb::impl::Helper::to_string(isolate, name);
+				if (name_str.is_empty()) {
+					continue;
+				}
+				v8::Local<v8::Value> value;
+				if (!global->Get(context, name).ToLocal(&value)) {
+					continue;
+				}
+				Variant value_var;
+				if (jsb::TypeConvert::js_to_gd_var(isolate, context, value, value_var)) {
+					globals[name_str] = value_var;
+				}
+			}
+		}
+	}
+	return globals;
+}
+
+TypedArray<Dictionary> GodotJSScriptLanguage::_debug_get_current_stack_info() {
+	// 供引擎的错误处理器消费（core/debugger/remote_debugger.cpp:113-130），
+	// 它从每个条目里读 `file` / `func` / `line`（script_language_extension.h:666-680）。
+	// 无条件重取：这是独立调用，不属于任何一次枚举。
+	_refill_debug_stack();
+
+	TypedArray<Dictionary> result;
+	for (const jsb::DebugStackFrame &frame : debug_stack_.frames) {
+		Dictionary entry;
+		entry["file"] = frame.file;
+		entry["func"] = frame.function;
+		entry["line"] = frame.line;
+		result.push_back(entry);
+	}
+	return result;
+}
+
+String GodotJSScriptLanguage::_debug_parse_stack_level_expression(int32_t p_level, const String &p_expression, int32_t p_max_subitems, int32_t p_max_depth) {
+	// 注意（契约）：本 hook **看不到被暂停帧的变量**。
+	//
+	// 引擎从调试面板的表达式框调用它（local_debugger.cpp:222），其上游还会用
+	// `debug_get_stack_level_locals` + `debug_get_globals` 拼一个 `Expression`
+	// （remote_debugger.cpp:553-611）。而 JSVM 的局部作用域在本仓 vendor 的 v8 头文件里
+	// 没有任何公开 API 能取到（无 `ScopeIterator`、无 `Debug` 命名空间，已核实）；
+	// v8 给出的函数名本身就是参数表（见 `_debug_get_stack_level_function`），
+	// 所以帧的参数只能靠解析那个字符串还原 —— 那是猜测，不做。
+	//
+	// 本 hook **能**做的是：在运行时的全局作用域里求值，并回报 VM 自己的结果，
+	// 而不是一口回绝。这样对「由全局量构成的表达式」（即 `_debug_get_globals` 报告的
+	// 那些）是有答案的；对只存在于帧里的变量，则给出 VM 的原话，
+	// 例如 `ReferenceError: x is not defined` —— 真实原因，而不是本运行时猜的原因。
+	jsb_unused(p_max_subitems);
+	jsb_unused(p_max_depth);
+	// 无条件重取：引擎从表达式框调用本 hook 时（local_debugger.cpp:222）
+	// **不会**先调 `debug_get_stack_level_count()`；若复用缓存，就会拿「碰巧存在的那份
+	// 快照」作答 —— 包括早先空闲时取到的那份空快照。
+	_refill_debug_stack();
+	if (p_level < 0 || p_level >= (int32_t)debug_stack_.frames.size()) {
+		return "<no stack frame at level " + itos(p_level) + ">";
+	}
+
+	Variant value;
+	String error;
+	if (_evaluate_debug_expression(p_expression, value, &error)) {
+		return value.stringify();
+	}
+	return error.is_empty() ? String("<evaluation failed>") : error;
+}
+
+namespace {
 String to_signature(const String &p_path, const StringName &p_class, const StringName &p_method) {
-	// path :: line :: class :: method
+	// 路径 :: 行号 :: 类名 :: 方法名
 	return jsb_format("%s::0::%s::%s", p_path, p_class, p_method);
 }
 } //namespace
