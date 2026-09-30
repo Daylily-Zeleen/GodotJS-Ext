@@ -713,11 +713,14 @@ void GodotJSEditorPlugin::remove_obsolete_files() {
 }
 
 bool GodotJSEditorPlugin::verify_file(const jsb::weaver::InstallFileInfo &p_file, bool p_verify_content) {
-	//TODO d.ts 应当只在 GENERATE 阶段产出、不在 INSTALL 阶段安装（原注释里被注掉的三行就是该动作）。
-	//     现状是二者混在一条路径上：`install_static_types`（`:1008`）由 `generate_types` 调用，
-	//     而它安装的正是 `CH_D_TS` 那批 preset（`:480-496`）。要落实这个分工，需要先把
-	//     「api 生成产出的 d.ts」与「preset 里随包分发的 d.ts」两类分开——现在它们同为 `CH_D_TS`，
-	//     所以无条件在此跳过会让 preset 那份也永不更新。
+	// NOTE: this predicate is shared by both phases, so it must NOT skip d.ts.
+	// The INSTALL/GENERATE split ("d.ts are the GENERATE phase's job") is enforced
+	// by `install_project_files()`, which drops them before `install_files()` and
+	// lets `generate_types()` install them through `install_static_types()`.
+	// Skipping them here instead would starve `install_static_types()` -- it picks
+	// its files with `filter_files()` -> this function -- so nothing would install
+	// the declarations (verified: `--generate-types` reported success while a
+	// deleted `typings/godot.minimal.d.ts` was never restored).
 	if ((p_file.hint & jsb::weaver::CH_OBSOLETE) != 0) {
 		// return false if obsolete file exists
 		const String target_name = jsb::internal::PathUtil::combine(p_file.target_dir, p_file.source_name);
@@ -795,7 +798,30 @@ bool GodotJSEditorPlugin::install_files(const Vector<jsb::weaver::InstallFileInf
 void GodotJSEditorPlugin::install_project_files(std::function<void(bool)> complete, const Vector<jsb::weaver::InstallFileInfo> &p_files) {
 	ERR_FAIL_COND_MSG(!api_tool::has_generated_data(), "Please generate api data first.");
 
-	if (!install_files(p_files)) return;
+	// The INSTALL phase does not write type declarations: they are api-driven
+	// output and the GENERATE phase owns them (`generate_types()` below installs
+	// them through `install_static_types()`), so writing them here as well would
+	// be redundant. Obsolete entries are kept so they still get deleted.
+	//
+	// Only `*.d.ts` is dropped -- the `.gdignore` files carry CH_D_TS too (they
+	// live in the typings tree) but are not declarations, and the INSTALL phase
+	// still owns them.
+	//
+	// This is where the original "skip all d.ts files during the INSTALL phase"
+	// requirement has to live: it cannot go into `verify_file()`, because
+	// `install_static_types()` -- the GENERATE-phase installer -- selects its files
+	// through `filter_files()` -> `verify_file()`. A blanket skip there starves it
+	// and nothing installs the declarations at all.
+	Vector<jsb::weaver::InstallFileInfo> install_list;
+	install_list.reserve(p_files.size());
+	for (const jsb::weaver::InstallFileInfo &info : p_files) {
+		if (info.source_name.ends_with(".d.ts") && (info.hint & jsb::weaver::CH_OBSOLETE) == 0) {
+			continue;
+		}
+		install_list.push_back(info);
+	}
+
+	if (!install_files(install_list)) return;
 	load_editor_entry_module();
 	ensure_tsc_installed();
 	on_successfully_installed();
@@ -1291,10 +1317,7 @@ void GodotJSEditorPlugin::start_tsc_watch() {
 #else
 	const String exe_path = "node";
 #endif
-	// 子进程输出已经被接收：`jsb::internal::Process` 用后台读取线程排空 stdout（stderr 也重定向到
-	// 同一句柄），逐行经 `JSB_PROCESS_LOG(Log, "[%s] %s", ...)` 打进日志并交给 line callback
-	// （`jsb_process.cpp:131/134` 与 POSIX 侧 `:433/435`）。所以 `tsc -w` 的类型检查错误
-	// 会出现在编辑器输出里，不需要在这里额外接线。
+	//TODO no console output in this way, implement pipes here
 	tsc_ = jsb::internal::Process::create("tsc", exe_path, args);
 	if (!tsc_ || !tsc_->is_running()) {
 		kill_tsc();
