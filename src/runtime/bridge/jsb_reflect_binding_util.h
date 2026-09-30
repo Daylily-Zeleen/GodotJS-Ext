@@ -395,9 +395,7 @@ struct ReflectConstructorCall<Vector2> : ReflectConstructorCallValueBinder<Vecto
 		}
 		const v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
-		// 构造函数里刻意不取 `info.Data()` 里的 ClassID：那需要一次 `v8::Value` 解包，
-		// 而本结构的所有分支都已由模板参数 `T` 静态决定类型（`bind_valuetype<T>` 直接用它），
-		// ClassID 在这里没有用途。留作说明，去掉这行的前提是 `info.Data()` 反而变便宜。
+		//TODO ClassID temporarily not used for possibly better performance in constructor (by avoiding info.Data())
 		// const NativeClassID class_id = (NativeClassID) info.Data().As<v8::Uint32>()->Value();
 
 		if (v8_argc == 0) {

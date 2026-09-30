@@ -444,6 +444,7 @@ class jsbb_Engine {
         this._stack.SetValue(jsbb_StackPos.Error, value);
     }
 
+    //TODO
     private _throw_trivial(value: any) {
         //TODO not sure, temporarily throw all trivial errors
         this._throw(value);
@@ -1522,8 +1523,7 @@ class _jsbb_ {
         return HEAP32;
     }
 
-    //NOTE `BigInt64Array` is an ES2020 builtin and the bridge targets es2021
-    // (bridge/tsconfig.json), so this is supported.
+    //TODO may not be supported?
     static get i64(): BigInt64Array {
         if (wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();

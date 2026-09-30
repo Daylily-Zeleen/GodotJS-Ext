@@ -621,10 +621,7 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 					r_ret = Callable(owner_, p_name);
 					return true;
 				} else {
-					//TODO 把静态方法包成 Callable。`Callable(owner_, name)` 绑定的是**实例**上的方法，
-					//     而静态方法在 JS 里挂在类构造函数上，没有实例可绑，所以需要先有「绑定类而非
-					//     实例」的 Callable 载体。GDScript 同样只在 `callp`（`gdscript.cpp:937`）里拒绝
-					//     静态方法，不在这里产出 Callable。
+					// TODO: Warp static method to Callable
 				}
 			}
 		}
@@ -824,6 +821,7 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed) {
 	// since `NOTIFICATION_READY` is not reversed, `notification` will be posted after `callp`.
 	// so, we can't `call_prelude` here with `NOTIFICATION_READY`
 
+	//TODO find the method named `_notification`, cal it with `p_notification` as `argv`
 	//TODO call it at all type levels? @seealso `GDScriptInstance::notification`
 	Variant value = p_notification;
 	const Variant *argv[] = { &value };

@@ -52,10 +52,7 @@ struct PrimitiveAccessBoilerplate {
 		return *VariantCaster<T>::from(context, p_val);
 	}
 
-	// 该结构目前**没有调用点**（`git grep -n PrimitiveAccessBoilerplate -- src` 只命中本文件），
-	// 所以「未测试」这件事无从验证起：连入口都没有。保留为可复用的样板（它按 `T` 静态决定
-	// 类型并走 `expose_godot_primitive_class`，与 primitive 绑定的其它路径同形），
-	// 一旦有调用点再补测试；不挂 TODO。
+	//TODO test
 	static bool return_(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::FunctionCallbackInfo<v8::Value> &info, const T &val) {
 		Environment *environment = Environment::wrap(isolate);
 		NativeClassID class_id;

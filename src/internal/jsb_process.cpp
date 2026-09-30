@@ -307,11 +307,7 @@ class ProcessImpl : public Process {
 	}
 };
 #elif defined(UNIX_ENABLED) && !defined(__EMSCRIPTEN__)
-// 已在 Linux 覆盖：`src/runtime/tests/test_jsb_process.h` 的两个用例在
-// `WINDOWS_ENABLED || (UNIX_ENABLED && !__EMSCRIPTEN__)` 下都注册，而 CI 的 test job
-// 有 `ubuntu-22.04` 的 host-v8 / host-qjs / host-node 三条腿跑 `--jsb-run-tests`
-// （`.github/workflows/ci.yml:993-1019`）。用例覆盖 stdin 往返、行分帧，以及
-// 「子进程不读 stdin 时 stop() 不挂死」这条与常驻工具进程同形的崩溃路径。
+//TODO not tested on linux
 class ProcessImpl : public Process {
 	String proc_name;
 	// `-1` 而非 `0`：`0` 是 stdin，若 `pipe()` 失败（on_start 提前返回、无读取线程）

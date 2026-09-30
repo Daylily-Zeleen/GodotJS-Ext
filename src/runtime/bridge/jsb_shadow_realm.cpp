@@ -527,9 +527,7 @@ public:
 
 		const TStrongRef<v8::Name> &symbol = get_flag_symbol(isolate);
 		wrapper.As<v8::Object>()->Set(context, symbol.object_.Get(isolate), data).Check();
-		// 不 Freeze/Proxy：这个 wrapper 是**跨环境调用时临时产出**并立即交回宿主侧使用的，
-		// 双方都可能给它挂属性（`add_cache` 之后还会被复用），冻结会打断其中一侧。
-		// 防止篡改的需求要单独设计（例如只读的 proxy 转发），不是这里加一行 `Freeze` 的事。
+		// TODO: Freeze 或 proxy, 防止被篡改
 
 		add_cache(p_guest_isolate, p_function, isolate, wrapper);
 		return wrapper;

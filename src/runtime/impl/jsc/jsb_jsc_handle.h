@@ -153,8 +153,7 @@ private:
 	void **internal_fields_;
 };
 
-// 弱引用基于 JSWeakPrivate.h 的 JSWeakRef：`shadow_` 是 JSWeakRef，`JSWeakGetObject` 取存活对象、
-// `JSWeakRelease` 释放。该头文件是 WebKit 私有头，随仓复制一份（jsb_jsc_pch.h:47 已引入）。
+//TODO use JSWeakRef (JSWeakPrivate.h)
 template <typename T>
 class Global {
 	enum WeakType { kStrong,

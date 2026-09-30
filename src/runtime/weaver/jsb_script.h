@@ -98,12 +98,7 @@ private:
 	jsb::StatelessScriptClassInfo script_class_info_;
 
 #if JSB_TOOLS
-	// 保持 `LocalVector`：成员数是个位数（一个脚本的占位实例只在其原生对象出现时才存在），
-	// 线性扫描比 `HashMap` 的哈希与节点开销更划算；两个热点（`_update_exports_internal` 的
-	// 全量遍历、`try_get_placeholder_script_instance` 的按对象查找）里前者本就要求遍历。
-	// 按对象查找走的是 `PlaceholderScriptInstance::placeholders_` 那个静态 `HashMap`，
-	// 这里不需要再建索引。
-	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders;
+	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
 #endif
 #if JSB_DEBUG
 	HashMap<ObjectInstanceID, ScriptInstancePropertyState> pending_reload_state_;

@@ -469,12 +469,8 @@ void Isolate::_BridgeInstance_finalizer(JSObjectRef obj) {
 
 JSValueRef _NotAllowedCallAsFunction(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception) {
 	Isolate *isolate = (Isolate *)jsb::impl::JavaScriptCore::GetContextOpaque(ctx);
-	//NOTE 直接读保留槽，不要 `stack_dup`：`ConstructorCallError` 是常驻槽（在 `Isolate` 构造时
-	// `emplace_` 建好、`_release()` 里统一 `JSValueUnprotect`，见 jsb_jsc_isolate.cpp:160/190），
-	// 而 `stack_dup` 会再 `JSValueProtect` 一份且没有任何路径释放它——异常路径上的保护计数泄漏。
-	// 注意不能改成 `_GetError()`：那是**窃取**并复位 `StackPos::Exception`（:405-414），
-	// 与本槽位（`StackPos::ConstructorCallError`）不是同一个（jsb_jsc_isolate.h:95/103）。
-	*exception = isolate->stack_val(jsb::impl::StackPos::ConstructorCallError);
+	//TODO copy or steal?
+	*exception = isolate->stack_dup(jsb::impl::StackPos::ConstructorCallError);
 	return nullptr;
 }
 
