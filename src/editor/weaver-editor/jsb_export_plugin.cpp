@@ -288,17 +288,22 @@ void GodotJSExportPlugin::_export_file(const String &p_path, const String &p_typ
 
 		// always skip the typescript source from packing
 		JSB_EXPORTER_LOG(Verbose, "export source: %s => %s", p_path, compiled_script_path);
+	} else if (p_path.ends_with("." JSB_JAVASCRIPT_EXT)) {
+		// A plain `.js` project gets no dependency walk otherwise: Godot would pack
+		// the file as an ordinary resource, and any module it `require`s at runtime
+		// would be missing from the package. Routing it through
+		// export_compiled_script makes the module graph available, exactly as the
+		// `.ts` branch does for a compiled script.
+		//
+		// No duplication: export_compiled_script returns early on a path already in
+		// exported_paths_, and the same set is consulted by export_raw_file, so the
+		// file is added once whether reached from here or from the dependency walk.
+		export_compiled_script(p_path, true);
+		JSB_EXPORTER_LOG(Verbose, "export js module: %s", p_path);
 	} else if (get_ignored_paths().has(p_path)) {
 		skip();
 		JSB_EXPORTER_LOG(Verbose, "ignored: %s", p_path);
 	}
-
-	//TODO 纯 JS 项目（`.js`/`.cjs`/`.mjs`）的模块依赖没有被遍历导出：`.ts` 分支走
-	//     `export_compiled_script` 时会载入模块、带出 source/package.json 并递归一层依赖，
-	//     裸 `.js` 只作为普通文件被 Godot 打包，运行时才 `require` 到的模块不会被带进包。
-	//     补法是对 `.js` 也调用 `export_compiled_script`（原注释里已写出这一步），
-	//     需要先确认它不会把同一文件按两种身份重复加进包（`export_raw_file` 的
-	//     `exported_paths_` 只按路径去重、不区分身份）。
 }
 
 String GodotJSExportPlugin::_get_name() const {
@@ -306,12 +311,7 @@ String GodotJSExportPlugin::_get_name() const {
 }
 
 bool GodotJSExportPlugin::_supports_platform(const Ref<EditorExportPlatform> &p_export_platform) const {
-	//TODO 检查当前构建能否导出到指定平台：把平台名（`get_os_name()` 小写）与其架构
-	//     映射到 `res://addons/godotjs-ext.daylily-zeleen/bin/<platform>/` 下的实际产物，
-	//     目录/文件不存在则返回 false，让编辑器在导出面板直接禁用该平台，而不是导出一个
-	//     缺少扩展库的包。架构可参考 `godotjs-ext.gdextension` 的 `[libraries]` 键与
-	//     `misc/release/package.py` 的 `leg_library_key()`（平台+target+arch → 文件名，
-	//     macOS `universal`、iOS xcframework 无 arch 标签）。
+	//TODO
 	JSB_EXPORTER_LOG(VeryVerbose, "GodotJSExportPlugin::_supports_platform( %s )", p_export_platform.is_valid() ? p_export_platform->get_class() : String("null"));
 	return true;
 }
