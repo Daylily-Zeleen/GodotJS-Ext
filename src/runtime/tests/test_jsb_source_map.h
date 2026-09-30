@@ -192,6 +192,50 @@ TEST_CASE("[runtime] [jsb.sourcemap] process_source_position rewrites stacktrace
 	DirAccess::remove_absolute(map_path);
 }
 
+TEST_CASE("[runtime] [jsb.sourcemap] remap_position maps one frame onto the original source") {
+	GodotJSScriptLanguageIniter initer;
+
+	// Same fixture shape as `process_source_position` above, but driven through the
+	// single-frame entry point the debugger hooks use.
+	const String js_path = ProjectSettings::get_singleton()->globalize_path("res://").path_join("test_remap_position.js");
+	const String map_path = js_path + String(".map");
+	{
+		Ref<FileAccess> file = FileAccess::open(map_path, FileAccess::WRITE);
+		CHECK(file.is_valid());
+		file->store_string(R"({
+	"version": 3,
+	"file": "test_remap_position.js",
+	"sources": ["../../../../tests/testScript.ts"],
+	"names": [],
+	"mappings": "AACG"
+})");
+		file->close();
+	}
+
+	internal::SourceMapCache cache;
+	String source_path;
+	int line = 0;
+	int column = 0;
+
+	// (0,0) is the mapped segment ('AACG' -> source line 1, column 3, both zero-based);
+	// the returned positions are one-based, as the editor consumes them.
+	CHECK(cache.remap_position(js_path, 0, 0, source_path, line, column));
+	CHECK(source_path.contains("testScript.ts"));
+	CHECK(!source_path.contains(".."));
+	CHECK(line == 2);
+	CHECK(column == 4);
+
+	// A generated line with no mapping must not answer with a stale or invented one.
+	CHECK(!cache.remap_position(js_path, 99, 0, source_path, line, column));
+
+	// A file without a `.map` beside it is a genuine "no mapping", not a failure.
+	CHECK(!cache.remap_position(js_path + String(".absent"), 0, 0, source_path, line, column));
+
+	cache.invalidate(js_path);
+	cache.clear();
+	DirAccess::remove_absolute(map_path);
+}
+
 TEST_CASE("[runtime] [jsb.sourcemap] chinese path filename in stacktrace") {
 	// regression for the utf-8 byte-length bug in `impl::Helper::compile_function`:
 	// the generated filename was truncated when it contained non-ascii characters

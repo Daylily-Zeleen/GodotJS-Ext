@@ -173,7 +173,9 @@ TEST_CASE("[runtime] [jsb.lang] validate reports declared functions, and no bogu
 	// counted by hand: `PackedStringArray::count` needs the builtin method bindings,
 	// which are not initialised this early in the test run.
 	int bar_count = 0;
-	for (const String &name : functions) { if (name == "bar") ++bar_count; }
+	for (const String &name : functions) {
+		if (name == "bar") ++bar_count;
+	}
 	CHECK(bar_count == 1);
 
 	// no `functions` requested -> no key, so the engine does no work
@@ -230,6 +232,155 @@ TEST_CASE("[runtime] [jsb.script] inherits_script walks the base chain") {
 	CHECK(!child->_inherits_script(derived));
 	// 空引用不做任何事
 	CHECK(!child->_inherits_script(Ref<Script>()));
+}
+// The debug hooks feed `DebuggerMarshalls::ScriptStackDump`
+// (core/debugger/remote_debugger.cpp:483-495) and the engine's error handler
+// (`:113-130`), both of which go through `debug_get_current_stack_info` and the
+// `debug_get_stack_level_*` family. Before this the family reported one frame at
+// line 1 with an empty source, i.e. the debugger showed a call stack that never
+// existed -- worse than showing none.
+TEST_CASE("[runtime] [jsb.lang] debug stack hooks report a real stack, never an invented one") {
+	GodotJSScriptLanguageIniter initer;
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+	REQUIRE(lang->is_initialized());
+
+	// Outside any JS call there is no stack, and the honest answer is zero frames.
+	// The old stub answered 1, which made the debugger present a phantom frame.
+	const int32_t idle_count = lang->_debug_get_stack_level_count();
+	CHECK(idle_count == 0);
+	CHECK(lang->_debug_get_current_stack_info().is_empty());
+	CHECK(lang->_debug_get_error() == "");
+
+	// Walking a LIVE JS stack is what the debugger actually needs, and "no frames
+	// when idle" alone does not prove it. Bind a native probe as a JS global, call
+	// it from JS, and inspect the stack from inside the call: this is the same
+	// position the engine's debug hooks run in.
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
+	REQUIRE(env->load(".godot/godotjs_ext/tests/extend/child") == OK);
+
+	// A convertible global the globals map must report, and a value the debugger
+	// expression box can resolve.
+	const String global_key = "__jsb_debug_global_probe__";
+
+	// Captured from the native probe below.
+	static int32_t probe_hook_count;
+	static String probe_hook_source;
+	static String probe_hook_function;
+	static TypedArray<Dictionary> probe_hook_enumerated;
+	static String probe_expr_ok;
+	static String probe_expr_err;
+	static jsb::DebugStackFrameList probe_frames;
+	probe_frames.clear();
+
+	v8::Isolate *isolate = env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = env->get_context();
+	v8::Context::Scope context_scope(context);
+
+	const v8::Local<v8::Function> probe = v8::Function::New(
+			context,
+			[](const v8::FunctionCallbackInfo<v8::Value> &info) {
+		jsb::impl::Helper::snapshot_stack(info.GetIsolate(), probe_frames, jsb::internal::settings::project::get_debug_max_stack_frames());
+		GodotJSScriptLanguage *language = GodotJSScriptLanguage::get_singleton();
+		probe_expr_ok = language->_debug_parse_stack_level_expression(0, "__jsb_debug_global_probe__", -1, -1);
+		probe_expr_err = language->_debug_parse_stack_level_expression(0, "__jsb_absent_symbol__", -1, -1);
+		// the hook's own view of the stack, which is what the debugger reads
+		probe_hook_count = language->_debug_get_stack_level_count();
+		probe_hook_source = language->_debug_get_stack_level_source(0);
+		probe_hook_function = language->_debug_get_stack_level_function(0);
+		probe_hook_enumerated = language->_debug_get_current_stack_info();
+	})
+												  .ToLocalChecked();
+	context->Global()->Set(context, jsb::impl::Helper::new_string(isolate, "__jsb_debug_probe__"), probe).Check();
+
+	// The expression hook is evaluated from the debugger while a JS frame is
+	// paused, so it is exercised from inside the call too -- at rest there is no
+	// frame, and the hook correctly refuses by level (checked further below).
+	Error probe_err = OK;
+	lang->eval_source(jsb_format("globalThis.%s = 12345;\n"
+								 "function __jsb_debug_outer__(){ __jsb_debug_probe__(); }\n"
+								 "__jsb_debug_outer__();\n",
+							  global_key),
+			probe_err);
+	CHECK(probe_err == OK);
+
+	// The expression box, exercised while a frame WAS current: a global resolves, and
+	// a name that exists nowhere yields the VM's own ReferenceError rather than a
+	// fabricated answer.
+	CHECK(probe_expr_ok == "12345");
+	CHECK(probe_expr_err.contains("__jsb_absent_symbol__"));
+
+	// The stack the hooks themselves report during that call: the frame count the
+	// engine would enumerate, the frame's function, and the standalone stack-info
+	// list -- all from the same live frame, so all must be populated.
+#	if JSB_WITH_V8 || JSB_WITH_NODE
+	// 帧数不得超过用户设置的上限 —— 证明上限确实来自设置，而非硬编码常量。
+	CHECK(probe_frames.size() <= (size_t)jsb::internal::settings::project::get_debug_max_stack_frames());
+	CHECK(probe_hook_count <= jsb::internal::settings::project::get_debug_max_stack_frames());
+	CHECK(probe_hook_count >= 1);
+	CHECK(probe_hook_function == "__jsb_debug_outer__");
+	CHECK(!probe_hook_enumerated.is_empty());
+	// the frame is named, and its path is one the editor can open: never the
+	// generated artifact under `.godot/`, and preferably a `res://` path.
+	CHECK(!probe_hook_source.is_empty());
+	CHECK(!probe_hook_source.contains("godotjs_ext"));
+#	endif
+	jsb_unused(probe_hook_count);
+	jsb_unused(probe_hook_source);
+	jsb_unused(probe_hook_function);
+	jsb_unused(probe_hook_enumerated);
+
+	// v8/node can snapshot a live stack, so inside a JS call the probe MUST have
+	// seen frames. Without this the block below would pass vacuously on an empty
+	// snapshot. (jsc and web expose no stack introspection, hence the guard.)
+#	if JSB_WITH_V8 || JSB_WITH_NODE
+	REQUIRE(!probe_frames.is_empty());
+#	endif
+	{
+		bool named_outer = false;
+		for (const jsb::DebugStackFrame &frame : probe_frames) {
+			if (frame.function == "__jsb_debug_outer__") {
+				named_outer = true;
+				break;
+			}
+		}
+#	if JSB_WITH_V8 || JSB_WITH_NODE
+		CHECK(named_outer);
+		jsb_unused(named_outer);
+#	else
+		jsb_unused(named_outer);
+#	endif
+	}
+
+	// `_debug_get_globals` mirrors what the engine reads for the globals panel: a
+	// `name -> value` map (`script_language_extension.h:643-662`). GodotJS's own
+	// globals are functions (require/setTimeout/...) and the converter does not
+	// turn a function into a Variant, so the map is legitimately sparse -- the
+	// probe global defined above is what proves the map works.
+	const Dictionary globals = lang->_debug_get_globals(-1, -1);
+	CHECK(globals.has(global_key));
+	CHECK((int64_t)globals[global_key] == 12345);
+
+	// A level out of range must answer empty/zero rather than index the snapshot.
+	CHECK(lang->_debug_get_stack_level_source(9999) == "");
+	CHECK(lang->_debug_get_stack_level_function(9999) == "");
+	CHECK(lang->_debug_get_stack_level_line(9999) == 0);
+
+	// Scope-level introspection is not exposed by the VM's embedder API, so these
+	// must stay empty/nullptr rather than invent entries. `nullptr` from the
+	// instance hook is load-bearing: the engine uses it to skip the `self` entry
+	// (remote_debugger.cpp:507) and to bail out of `evaluate` (:554-556).
+	CHECK(lang->_debug_get_stack_level_locals(0, -1, -1).is_empty());
+	CHECK(lang->_debug_get_stack_level_members(0, -1, -1).is_empty());
+	CHECK(lang->_debug_get_stack_level_instance(0) == nullptr);
+
+	// Expression evaluation runs in the runtime's scope and reports the VM's own
+	// outcome: a global resolves, and a name that exists nowhere yields the VM's
+	// ReferenceError rather than this runtime's guess.
+	// and a level that is not on the stack is refused by name, not evaluated
+	CHECK(lang->_debug_parse_stack_level_expression(9999, "1", -1, -1).contains("9999"));
 }
 #endif // JSB_TOOLS
 
