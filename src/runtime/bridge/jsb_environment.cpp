@@ -50,9 +50,10 @@
 #include "../internal/jsb_settings.h"
 #include "../internal/jsb_variant_util.h"
 #include "../jsb_runtime_preset.h"
-#include "../weaver/jsb_script.h"
 #include "../weaver/jsb_script_instance.h"
 #include "../weaver/jsb_script_language.h"
+//TODO remove this
+#include "../weaver/jsb_script.h"
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
@@ -377,12 +378,8 @@ Environment::Environment(const CreateParams &p_params)
 		}
 
 #if JSB_WITH_DEBUGGER
-		// debugger 在 init 里按 debugger_port 一次性启动（下一行），不区分 Editor/Game：
-		// 两者的差异是**由谁提供端口**（编辑器从 `GodotJSEditorPlugin` 的设置推入，游戏从项目设置读），
-		// 而 `p_params.debugger_port` 已经是这条差异的归一点。原 TODO 设想的「不同阶段启动」
-		// 在现有调用链上没有对应物——Editor 的 `_init` 与 Game 的 `Environment` 构造走的是同一个
-		// `CreateParams`（`jsb_script_language.cpp:236-241` 与 game runtime 各自填 port）。
 		debugger_ready_future_ = debugger_ready_promise_.get_future();
+		//TODO call `start_debugger` at different stages for Editor/Game Runtimes.
 #endif
 		if (p_params.debugger_port != 0) {
 			start_debugger(p_params.debugger_port);
@@ -511,6 +508,11 @@ void Environment::dispose() {
 	variant_allocator_.drain();
 	flags_ |= EF_PostDispose;
 	EnvironmentStore::get_shared().remove(this);
+#if JSB_TOOLS
+	for (const auto &E : disposed_callbacks) {
+		E.value(this);
+	}
+#endif // JSB_TOOLS
 }
 
 void Environment::update(uint64_t p_delta_msecs) {
@@ -1279,17 +1281,12 @@ NativeObjectID Environment::crossbind(Object *p_this, ScriptClassID p_class_id, 
 	if (const NativeObjectID object_id = this->try_get_object_id(p_this)) {
 		JSB_LOG(Verbose, "crossbinding on previously bound object %d (addr:%d), rebind it to script class %d", object_id, (uintptr_t)p_this, p_class_id);
 
-		// 这里**不能**调用 `_rebind` 后早退，原因是可核对的：`_rebind` 开头就
-		// `try_get_object(p_this, instance)`，拿不到就 `JSB_LOG(Fatal, "bad instance")`
-		// （`jsb_environment.cpp:1366-1371`）——而它被注释掉的位置**紧跟在 `remove_object` 之后**，
-		// 此时原生对象已不在 `object_db_` 里，必然走 Fatal 分支。这正是原注释
-		//「may not work in this way」的具体含义，不是「不确定要不要」。
-		// 继续往下走的正常路径会 `Reflect.construct` 出新实例并以 `ConstructorBindObject`
-		// 重新绑定（`:1329-1351`），语义上就是要重建而不是改 prototype。
-		// 摘除旧绑定是必须的：下面的 `Reflect.construct` 结尾要求这一次构造真的绑定了原生对象
-		// （`:1345-1348` 的 `jsb_check`），旧槽位不让出来就会重绑失败。
 		ObjectHandlePtr handler = object_db_.try_get_object(p_this);
-		object_db_.remove_object(handler, p_this);
+		object_db_.remove_object(handler, p_this); // 不需要移除绑定
+
+		// //TODO may not work in this way
+		// _rebind(isolate, context, p_this, p_class_id);
+		// return object_id;
 	}
 
 	StringName js_class_name;
@@ -1453,7 +1450,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 		do {
 			debugger_.update(); // process incoming debugger connections
 
-			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration);
+			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration); // TODO
 
 			if (status == std::future_status::ready) {
 				break;
@@ -2233,4 +2230,16 @@ AsyncModuleManager &Environment::get_async_module_manager() {
 	}
 	return *async_module_manager_;
 }
+
+#if JSB_TOOLS
+HashMap<void *, std::function<void(Environment *)>> Environment::disposed_callbacks;
+void Environment::add_disposed_callback(void *p_owner, std::function<void(Environment *)> p_callback) {
+	jsb_check(!disposed_callbacks.has(p_owner));
+	disposed_callbacks[p_owner] = p_callback;
+}
+void Environment::remove_disposed_callback(void *p_owner) {
+	disposed_callbacks.erase(p_owner);
+}
+#endif // JSB_TOOLS
+
 } //namespace jsb

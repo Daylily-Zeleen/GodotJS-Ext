@@ -176,13 +176,6 @@ private:
 	friend struct ClassRegister;
 	friend struct EnvironmentStore;
 
-	//TODO 收紧这个 friend：`ScriptClassInfo` 目前直接读 `Environment::flags_` 与私有枚举
-	//     `EnvironmentFlags::EF_Shadow`（`jsb_class_info.cpp:830`，用于
-	//     `instance_and_native_object_create` 的 shadow 模式参数）。可行的收口是给
-	//     `Environment` 加一个语义明确的公开谓词（现有 `is_shadow()` 表「本环境即影子环境」，
-	//     与「以影子模式创建实例」不是同一件事），然后删掉这个 friend。
-	friend struct ScriptClassInfo;
-
 	// symbol for class_id on FunctionTemplate of native class
 	v8::Global<v8::Symbol> symbols_[Symbols::kNum];
 
@@ -513,7 +506,19 @@ public:
 	_FORCE_INLINE_ void notify_microtasks_run() { flags_ |= EF_MicrotaskCheckpoint; }
 	_FORCE_INLINE_ bool is_disposing() const { return (flags_ & EF_PreDispose) != 0; }
 	_FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
+	_FORCE_INLINE_ bool is_worker() const { return (flags_ & EF_Worker) != 0; }
 	_FORCE_INLINE_ bool is_shadow_realm() const { return (flags_ & EF_ShadowRealm) != 0; }
+
+	// Which kind of realm this environment is. Derived from the same flags the
+	// constructors set (jsb_environment.cpp:305-307), so callers that need to
+	// label or enumerate realms (the editor REPL, diagnostics) do not have to
+	// re-derive it from the individual predicates.
+	_FORCE_INLINE_ Type get_realm_type() const {
+		if (is_shadow()) return Type::Shadow;
+		if (is_worker()) return Type::Worker;
+		if (is_shadow_realm()) return Type::ShadowRealm;
+		return Type::Default;
+	}
 
 	_FORCE_INLINE_ Variant *alloc_variant(const Variant &p_templet) {
 		jsb_check(p_templet.get_type() != Variant::OBJECT);
@@ -851,6 +856,13 @@ public:
 	const internal::Index32 add_shadow_env(const std::shared_ptr<Environment> &p_env) { return shadow_env_list_.add(p_env->weak_from_this()); }
 	void remove_shadow_env(internal::Index32 p_index) { shadow_env_list_.remove_at(p_index); }
 #endif // JSB_SHADOW_REALM_ENABLED
+
+#if JSB_TOOLS
+	static void add_disposed_callback(void*p_owner, std::function<void(Environment *)> p_callback);
+	static void remove_disposed_callback(void*p_owner);
+private:
+	static HashMap<void*,std::function<void(Environment *)>> disposed_callbacks;
+#endif // JSB_TOOLS
 };
 
 #if !JSB_WITH_WEB

@@ -110,6 +110,27 @@ TEST_CASE("[runtime] [api] eval_source_with_arg exposes the argument as __jsb_ar
 	CHECK((int)result.to_variant() == 42);
 }
 
+TEST_CASE("[runtime] [api] PROBE module id forms") {
+	GodotJSScriptLanguageIniter initer;
+	const std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	const char *forms[] = {
+		"res://jslibs/empty.js",
+		"jslibs/empty.js",
+		"res://.godot/godotjs_ext/test_01.js",
+		".godot/godotjs_ext/test_01",
+		"res://.godot/godotjs_ext/test_01.js",
+		"res://tests/extend/child.ts",
+	};
+	for (const char *f : forms) {
+		Dictionary info;
+		const Error err = env->get_module_source_info(String(f), info);
+		PackedStringArray deps;
+		const Error derr = env->get_module_direct_dependencies(String(f), deps);
+		JSB_LOG(Warning, "PROBE form='%s' info_err=%d deps_err=%d source='%s' deps=%d",
+				f, (int)err, (int)derr, String(info.get("source", "")).utf8().get_data(), (int)deps.size());
+	}
+}
+
 TEST_CASE("[runtime] [api] get_module_source_info reports source and package paths") {
 	GodotJSScriptLanguageIniter initer;
 	const std::shared_ptr<jsb::Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();

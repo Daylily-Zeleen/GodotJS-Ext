@@ -1,3 +1,4 @@
+// uid://dit5h0tvym0yw This line is generated, don't modify or remove it.
 import { Node, ProjectSettings } from "godot";
 import { reportTestFailure } from "../test-status";
 

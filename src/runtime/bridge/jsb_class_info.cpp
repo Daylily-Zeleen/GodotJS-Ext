@@ -827,7 +827,7 @@ void ScriptClassInfo::instantiate(Environment *p_env, const StringName &p_module
 	const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(source_path, jsb_typename(GodotJSScript));
 	if (script.is_valid()) {
 		jsb_unused(script->_can_instantiate()); // make it loaded immediately
-		const ScriptInstance *script_instance = script->instance_and_native_object_create(p_self, p_env->flags_ & Environment::EnvironmentFlags::EF_Shadow);
+		const ScriptInstance *script_instance = script->instance_and_native_object_create(p_self, p_env->is_shadow());
 		jsb_unused(script_instance);
 		jsb_check(script_instance);
 	}
