@@ -32,8 +32,6 @@
 #include "../../internal/jsb_statistics.h"
 #include "jsb.gen.h"
 
-#include "compat/ring_buffer.h"
-
 //TODO WARNING: ONLY FOR DEV, NOT SUPPORTED TO BUILD. REMOVE IT AFTER jsc.impl IS READY.
 #if !defined(API_AVAILABLE) && !defined(MACOS_ENABLED) && !defined(IOS_ENABLED)
 #	define API_AVAILABLE(...)

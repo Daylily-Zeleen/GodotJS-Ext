@@ -214,8 +214,10 @@ public:
 	static bool _hasInstance_callback(JSContextRef ctx, JSObjectRef constructor, JSValueRef possibleInstance, JSValueRef *exception);
 	JSObjectRef _NewConstructor(JSObjectCallAsConstructorCallback func, const char *name, v8::FunctionCallback callback, uint32_t class_payload);
 	JSObjectRef _NewObjectProtoClass(JSValueRef prototype, void *data);
-	void _delete_cfunction(jsb::impl::CapturedValueID id);
 	JSValueRef _get_captured_value(jsb::impl::CapturedValueID id) { return captured_values_.get_value(id); }
+	// 由 `_CFunction_finalize`（可能在任意线程）调用：只把 payload 入队，不碰
+	// JSC，也不做任何分配。真正的释放推迟到主线程的 PerformMicrotaskCheckpoint。
+	void _queue_delete_cfunction(jsb::impl::CFunctionPayload *p_payload);
 
 	// return nullptr if exception is thrown (saved in stack)
 	JSValueRef _CallAsConstructor(JSObjectRef func_obj, int argc, JSValueRef *arguments);
@@ -364,7 +366,11 @@ private:
 	JSObjectRef bridge_calls_[jsb::impl::JSBridgeCall::Num];
 
 	jsb::internal::SArray<JSValueRef, jsb::impl::CapturedValueID> captured_values_;
-	RingBuffer<jsb::impl::CapturedValueID> pending_delete_;
+	// 待删除的 C function。`_CFunction_finalize` 可能在**任意线程**被 JSC 调用
+	// （JSObjectRef.h 对 JSObjectFinalizeCallback 的原话：'An object may be
+	// finalized on any thread'），所以用仓内既有的跨线程双缓冲：
+	// 生产者侧 add() 带锁，消费者侧 swap() 换出整个缓冲、清空后保留容量。
+	jsb::internal::DoubleBuffered<jsb::impl::CFunctionPayload *> pending_delete_;
 	mutable std::recursive_mutex pending_finalize_mutex_;
 	Vector<jsb::impl::InternalData *> pending_finalize_;
 

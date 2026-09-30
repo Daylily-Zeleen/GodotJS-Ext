@@ -62,7 +62,7 @@ Isolate *Isolate::New(const CreateParams &params) {
 	return isolate;
 }
 
-Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), pending_delete_(::godot::Math::nearest_shift(2048U)), stack_pos_(0) {
+Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), stack_pos_(0) {
 	rt_ = JSContextGroupCreate();
 	ctx_ = _CreateContext(rt_);
 
@@ -209,6 +209,17 @@ void Isolate::_release() {
 	JSContextGroupRelease(rt_);
 	rt_ = nullptr;
 
+	// 上面释放 context 时，仍被引用的 C function 会被 finalize，其 payload 经
+	// `_queue_delete_cfunction` 入队。此刻 context 已销毁，无需（也不能）再调
+	// JSValueUnprotect，但 payload 本身必须释放，否则这里直接泄漏。
+	{
+		std::vector<jsb::impl::CFunctionPayload *> &pending = pending_delete_.swap();
+		for (size_t i = 0, n = pending.size(); i < n; ++i) {
+			memdelete(pending[i]);
+		}
+		pending.clear();
+	}
+
 	memdelete(this);
 }
 
@@ -261,11 +272,28 @@ uint16_t Isolate::push_set() {
 }
 
 void Isolate::PerformMicrotaskCheckpoint() {
-	while (pending_delete_.data_left()) {
-		const jsb::impl::CapturedValueID id = pending_delete_.read();
-		const JSValueRef value = captured_values_.get_value(id);
-		JSValueUnprotect(ctx_, value);
-		captured_values_.remove_at(id);
+	// 排空待删除的 C function。`swap()` 交换缓冲区（不是共享同一块内存），此后该缓冲
+	// 归消费者独占，锁外做 JSC 调用与释放：`JSValueUnprotect` 可能触发 GC，不能持锁。
+	{
+		std::vector<jsb::impl::CFunctionPayload *> &delete_batch = pending_delete_.swap();
+
+		for (size_t i = 0, n = delete_batch.size(); i < n; ++i) {
+			jsb::impl::CFunctionPayload *payload = delete_batch[i];
+			if (!payload) {
+				continue;
+			}
+			// 每个 captured value 在 `_NewFunction` 里都被 protect 过，这里是它成对的
+			// unprotect。原先只有这条路径释放，而队列在跨线程竞争下可能丢条目，
+			// 那一次 unprotect 就永不发生（captured value 与 payload 一起泄漏）。
+			const jsb::impl::CapturedValueID id = payload->captured_value_id;
+			const JSValueRef value = captured_values_.get_value(id);
+			JSValueUnprotect(ctx_, value);
+			captured_values_.remove_at(id);
+			memdelete(payload);
+		}
+
+		// 保留容量，供下一轮复用（与仓内其它 DoubleBuffered 消费点一致）。
+		delete_batch.clear();
 	}
 
 	Vector<jsb::impl::InternalData *> finalize_batch;
@@ -448,10 +476,11 @@ JSValueRef Isolate::_GetOwnPropertyNames(JSObjectRef obj) {
 }
 
 void _CFunction_finalize(JSObjectRef obj) {
+	// JSC 可能在任意线程回调这里，且明令禁止在 finalizer 内触发分配或 GC。
+	// 所以只入队，由主线程的 PerformMicrotaskCheckpoint 完成释放。
 	jsb::impl::CFunctionPayload *payload = (jsb::impl::CFunctionPayload *)JSObjectGetPrivate(obj);
 	jsb_check(payload);
-	payload->isolate->_delete_cfunction(payload->captured_value_id);
-	memdelete(payload);
+	payload->isolate->_queue_delete_cfunction(payload);
 }
 
 // no guarantee for main thread
@@ -537,11 +566,10 @@ JSObjectRef Isolate::_NewFunction(JSObjectCallAsFunctionCallback func, const cha
 	return func_obj;
 }
 
-void Isolate::_delete_cfunction(jsb::impl::CapturedValueID id) {
-	//TODO delete FunctionData in a thread safe way
-	//TODO JSValueUnprotect(data.data);
-	const ::Error error = pending_delete_.write(id);
-	jsb_check(error == ::OK);
+void Isolate::_queue_delete_cfunction(jsb::impl::CFunctionPayload *p_payload) {
+	// 任意线程都可能走到这里：`DoubleBuffered::add` 内部持锁，且只做一次 push_back。
+	// 不调用任何 JSC 函数、不分配、不释放 —— finalizer 内两者都被禁止。
+	pending_delete_.add(p_payload);
 }
 
 } //namespace v8
