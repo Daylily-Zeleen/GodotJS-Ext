@@ -1213,6 +1213,14 @@ void GodotJSScriptLanguage::_profiling_stop() {
 }
 
 void GodotJSScriptLanguage::_profiling_set_save_native_calls(bool p_enable) {
+	// 刻意不实现：开关本意是「脚本调用引擎原生方法」是否单独记一条 profile
+	// （GDScript 在 gdscript_vm.cpp 里用 profile_native_calls 表达，编辑器经
+	// script_editor_debugger.cpp:1385 -> servers_debugger.cpp:206 下发；C# 同样空实现）。
+	// JSB 唯一记账点在 ScriptCallProfilingScope，只记「Godot 调 JS」，且
+	// add_script_call_profile_info 已声明不做 JS 深剖（请用 Chrome DevTools）。
+	// 真做需在每个原生调用入口（_godot_object_method 与 thunks/* 生成代码）插桩，
+	// 那是全仓最热路径、且四后端成本不对称，收益有限，故不做。
+	jsb_unused(p_enable);
 	JSB_LOG(Verbose, "TODO [GodotJSScriptLanguage::_profiling_set_save_native_calls] NOT IMPLEMENTED");
 }
 
