@@ -57,12 +57,27 @@ static constexpr char kRtAdditionalSearchPaths[] = JSB_MODULE_NAME_STRING "/runt
 static constexpr char kRtEntryScriptPath[] = JSB_MODULE_NAME_STRING "/runtime/core/entry_script_path";
 static constexpr char kScriptInlineResourceUID[] = JSB_MODULE_NAME_STRING "/editor/script/inline_uid";
 static constexpr char kRtSourceMapEnabled[] = JSB_MODULE_NAME_STRING "/runtime/logger/source_map_enabled";
+// 调试 hook 取一次 JS 调用栈快照时，最多回溯多少帧。
+// 这是**显示/采样**上限，不是执行上限：它不限制 JS 能递归多深，只限制一次快照
+// 抓多少帧（VM 的 `CurrentStackTrace` 会按此值分配并遍历）。因此它与 GDScript 的
+// `debug/settings/gdscript/max_call_stack`（那个是 GDScript 专属的**栈溢出判定阈值**，
+// 超了直接中断执行）是两回事，不能混用。
+static constexpr char kRtDebugMaxStackFrames[] = JSB_MODULE_NAME_STRING "/runtime/debugger/max_stack_frames";
 
 void init_runtime_settings() {
 	// TODO: 考虑挪到 jsb_editor_setting 中，并移除 godot-jsb 模块 (BridgeModuleLoader) 中的依赖，让runtime不再需要
 	_GLOBAL_DEF(kRtCamelCaseBindingsEnabled, false, JSB_SET_RESTART(true), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
 
 	_GLOBAL_DEF(kRtSourceMapEnabled, true, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	{
+		// 带范围提示，形如 `debug/settings/gdscript/max_call_stack`（gdscript.cpp:2851）。
+		PropertyInfo DebugMaxStackFrames;
+		DebugMaxStackFrames.type = Variant::INT;
+		DebugMaxStackFrames.name = kRtDebugMaxStackFrames;
+		DebugMaxStackFrames.hint = PROPERTY_HINT_RANGE;
+		DebugMaxStackFrames.hint_string = "1,4096,1";
+		_GLOBAL_DEF(DebugMaxStackFrames, 64, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(false), JSB_SET_INTERNAL(false));
+	}
 	{
 		PropertyInfo EntryScriptPath;
 		EntryScriptPath.type = Variant::STRING;
@@ -140,6 +155,11 @@ bool is_script_inline_resource_uid() {
 
 bool is_sourcemap_enabled() {
 	return GLOBAL_GET(kRtSourceMapEnabled);
+}
+
+int get_debug_max_stack_frames() {
+	// 兜底成 1：0 或负值会让 VM 的 `CurrentStackTrace` 什么都取不到。
+	return MAX(1, (int)GLOBAL_GET(kRtDebugMaxStackFrames));
 }
 } //namespace project
 

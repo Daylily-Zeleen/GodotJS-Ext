@@ -48,6 +48,9 @@ PackedStringArray get_additional_search_paths();
 String get_entry_script_path();
 bool is_script_inline_resource_uid();
 bool is_sourcemap_enabled();
+/// 一次 JS 调用栈快照最多回溯的帧数（>=1）。见 `init_runtime_settings` 里的说明：
+/// 这是采样上限，不是执行上限。
+int get_debug_max_stack_frames();
 } //namespace project
 
 } //namespace jsb::internal::settings
