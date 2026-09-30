@@ -117,6 +117,24 @@ Variant EDITOR_GET(const String &p_setting, const Variant &p_default) {
 	return p_default;
 }
 
+// 如果未来 godot 暴露 EditorSettings::set_restart_if_changed 的话可用
+template <typename T>
+	requires requires(T *es, const String &p_setting, bool p_restart_if_changed) { es->set_restart_if_changed(p_setting, p_restart_if_changed); }
+void set_restart_if_changed(T *p_editor_settings, const String &p_setting, bool p_restart_if_changed) {
+	p_editor_settings->set_restart_if_changed(p_setting, p_restart_if_changed);
+}
+template <typename T>
+void set_restart_if_changed(T *p_editor_settings, const String &p_setting, bool p_restart_if_changed) {}
+
+// 如果未来 godot 暴露 EditorSettings::set_basic 的话可用
+template <typename T>
+	requires requires(T *es, const String &p_setting, bool p_basic) { es->set_basic(p_setting, p_basic); }
+void set_basic(T *p_editor_settings, const String &p_setting, bool p_basic) {
+	p_editor_settings->set_basic(p_setting, p_basic);
+}
+template <typename T>
+void set_basic(T *p_editor_settings, const String &p_setting, bool p_basic) {}
+
 Variant _EDITOR_DEF(const String &p_setting, const Variant &p_default, bool p_restart_if_changed, bool p_basic) {
 	Ref<EditorSettings> editor_settings = get_editor_settings();
 	ERR_FAIL_NULL_V_MSG(editor_settings.ptr(), p_default, "EditorSettings not instantiated yet.");
@@ -130,8 +148,8 @@ Variant _EDITOR_DEF(const String &p_setting, const Variant &p_default, bool p_re
 		editor_settings->set_setting(p_setting, p_default);
 		editor_settings->set_block_signals(blocking_signals);
 	}
-	// editor_settings->set_restart_if_changed(p_setting, p_restart_if_changed); // TODO: EditorSettings 未暴露该接口
-	// editor_settings->set_basic(p_setting, p_basic);
+	set_restart_if_changed(editor_settings.ptr(), p_setting, p_restart_if_changed);
+	set_basic(editor_settings.ptr(), p_setting, p_basic);
 
 	editor_settings->set_initial_value(p_setting, p_default, false);
 	return ret;
