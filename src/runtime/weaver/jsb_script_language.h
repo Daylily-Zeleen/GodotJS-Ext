@@ -236,26 +236,21 @@ public:
 	virtual bool _can_make_function() const override { return false; }
 	virtual String _make_function(const String &p_class_name, const String &p_function_name, const PackedStringArray &p_function_args) const override { return ""; }
 
-	// 不适用：`ScriptLanguageExtension::auto_indent_code` 是**静态成员**，`EditorAdapter::format_code`
-	// 直接值调用它，不经过虚分派 ⇒ 本覆写在 extension 路径下永远不会被调用（「自动缩进」走
-	// `EditorLanguage::format_code`）。要支持自动缩进需实现 `EditorLanguage` 侧，而不是这里。
-	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override { return p_code; }
+	// Auto indent. This IS reached: the editor's `EditorAdapter::format_code`
+	// (script_language_extension.h:310-312) forwards to `auto_indent_code`
+	// (:573), which is a `GDVIRTUAL3RC_REQUIRED` -- a real virtual dispatch that
+	// lands here. The hook receives the whole text plus the line range the user
+	// selected, and must return the whole text with that range re-indented; the
+	// caller writes the lines back (script_text_editor.cpp:1804-1808). It can be
+	// called once per caret range, so it must be a pure function of the input.
+	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override;
 
-	// 以下两个不适用：唯一调用方是 autoload（`editor/settings/editor_autoload_settings.cpp` 的
-	// 增/删/占名，与 `main/main.cpp:4490/4538` 游戏启动的两遍）。语义是「让脚本里的**裸标识符**
-	// 解析到该值」——TS/JS 没有裸标识符解析（strict 下未声明即 ReferenceError），本仓也没有
-	// 任何 autoload 集成；上游 C# 对 `add_named` / `remove_named` 二者不覆写（基类空实现）。
-	// 第三个同类钩子 `_add_global_constant` 因不属于 `#if JSB_TOOLS` 区段，声明在下方
-	// `_get_recognized_extensions` 之后，那里有对应说明。
-	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {}
-	virtual void _remove_named_global_constant(const StringName &p_name) override {}
+	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
+	virtual void _remove_named_global_constant(const StringName &p_name) override {} // TODO
 
-	// 以下三个不适用：唯一消费者是 `editor/doc/doc_tools.cpp`，为语言生成 `@<语言名>` 文档页。
-	// 要做需要新增并维护一份 C++ 侧的语言内建清单；本仓的 `@bind` 注解在运行时 bundle 里，
-	// 不满足该同步接口。上游 C# 同样为空实现。
-	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; }
-	virtual Dictionary _get_public_constants() const override { return Dictionary(); }
-	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; }
+	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // TODO: Vector<StackInfo>
+	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // TODO: Vector<StackInfo>
+	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
 
 	virtual bool _handles_global_class_type(const String &p_type) const override;
 	virtual Dictionary _get_global_class_name(const String &p_path) const override;
@@ -295,10 +290,7 @@ public:
 
 	virtual PackedStringArray _get_recognized_extensions() const override;
 
-	// 不适用：唯一调用方是 autoload（`main.cpp:4490/4538` 启动两遍）。GDScript 借此把核心常量
-	// 灌进 `globals` 数组**供解析器做常量折叠**，JS 没有这个阶段；本仓亦无 autoload 集成。
-	// 上游 C# 对同名钩子为空实现。
-	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {}
+	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
 
 	virtual PackedStringArray _get_reserved_words() const override;
 

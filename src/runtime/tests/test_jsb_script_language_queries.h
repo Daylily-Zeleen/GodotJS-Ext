@@ -86,6 +86,56 @@ TEST_CASE("[runtime] [jsb.lang] validate_path checks the class name derived from
 	CHECK(!lang->_validate_path("res://1abc.ts").is_empty());
 }
 
+// `_auto_indent_code` is the `ScriptLanguageExtension` hook the editor's
+// `EditorAdapter::format_code` forwards to (script_language_extension.h:310-312 ->
+// :573 -> GDVIRTUAL_CALL :575, a REQUIRED virtual). The editor passes the whole
+// text plus the line range the caret/selection covers and writes the returned lines
+// back (script_text_editor.cpp:1804-1808); it may call once per caret range, so the
+// hook must be a pure function of its inputs.
+TEST_CASE("[runtime] [jsb.lang] auto_indent_code re-indents by brace depth") {
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+
+	// Depth accumulates over the whole text, not just the requested range, so
+	// indenting a selection in the middle of a file knows how deep it starts.
+	const String nested = "class A {\nfoo() {\nbar();\n}\n}\n";
+	CHECK(lang->_auto_indent_code(nested, 0, 4) == "class A {\n\tfoo() {\n\t\tbar();\n\t}\n}\n");
+
+	// Only the requested range is rewritten; lines outside it keep their text.
+	CHECK(lang->_auto_indent_code(nested, 2, 2) == "class A {\nfoo() {\n\t\tbar();\n}\n}\n");
+
+	// A line that starts with a closing bracket lines up with the line that opened
+	// the block. `deltas` already accounts for that bracket, so the running depth
+	// must not drop twice: `} else {` stays at the `if` level.
+	const String chain = "function f() {\nif (a) {\nb();\n} else {\nc();\n}\n}\n";
+	CHECK(lang->_auto_indent_code(chain, 0, 6) == "function f() {\n\tif (a) {\n\t\tb();\n\t} else {\n\t\tc();\n\t}\n}\n");
+
+	// Brackets inside strings, template literals and comments are not depth.
+	const String quoted = "const s = \"{ }\";\nif (a) {\nb();\n}\n";
+	CHECK(lang->_auto_indent_code(quoted, 0, 3) == "const s = \"{ }\";\nif (a) {\n\tb();\n}\n");
+	const String templated = "const t = `${{a: 1}}`;\nif (a) {\nb();\n}\n";
+	CHECK(lang->_auto_indent_code(templated, 0, 3) == "const t = `${{a: 1}}`;\nif (a) {\n\tb();\n}\n");
+	const String commented = "if (a) {\nb(); // }\n}\n";
+	CHECK(lang->_auto_indent_code(commented, 0, 2) == "if (a) {\n\tb(); // }\n}\n");
+
+	// Blank lines stay blank (no trailing indentation), and the call is pure: a
+	// second pass over its own output changes nothing.
+	const String blank = "if (a) {\n\nb();\n}\n";
+	CHECK(lang->_auto_indent_code(blank, 0, 3) == "if (a) {\n\n\tb();\n}\n");
+	const String once = lang->_auto_indent_code(chain, 0, 6);
+	CHECK(lang->_auto_indent_code(once, 0, 6) == once);
+
+	// A leading `)` / `]` (a continuation line) does not move: depth counts braces
+	// only, so `);` stays at the depth its statement started at.
+	const String multiline_call = "foo(\nbar,\nbaz\n);\nif (a) {\nb();\n}\n";
+	CHECK(lang->_auto_indent_code(multiline_call, 0, 6) == "foo(\nbar,\nbaz\n);\nif (a) {\n\tb();\n}\n");
+
+	// Degenerate ranges: reversed, out of bounds and empty input are returned as-is.
+	CHECK(lang->_auto_indent_code("if (a) {\n}\n", 1, 0) == "if (a) {\n}\n");
+	CHECK(lang->_auto_indent_code("", 0, 0) == "");
+	CHECK(lang->_auto_indent_code("x();\n", 0, 5) == "x();\n");
+}
+
 TEST_CASE("[runtime] [jsb.script] inherits_script walks the base chain") {
 	// 契约同 `GDScript::inherits_script`（`gdscript.cpp:1213-1229`）：沿 base 链比较**脚本对象**
 	// 身份。调用方是 `container_type_validate.h:141/185`（类型化容器/属性校验）与

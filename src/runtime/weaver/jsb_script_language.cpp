@@ -563,6 +563,154 @@ String GodotJSScriptLanguage::_validate_path(const String &p_path) const {
 	return "";
 }
 
+String GodotJSScriptLanguage::_auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const {
+	// Re-indent the selected line range from brace depth, which is what a JS/TS
+	// source needs: the editor's "Auto Indent" acts on the caret/selection and
+	// expects the whole text back with those lines rewritten
+	// (script_text_editor.cpp:1804-1808).
+	//
+	// Depth is computed over the whole text -- not just the range -- so indenting
+	// a selection in the middle of a file still knows how deep it starts. Braces
+	// inside strings, template literals, regexes and comments are not counted:
+	// counting them would indent code after e.g. `if (a) { /* } */ }` wrongly.
+	//
+	// Lines that are only a closing brace are de-indented, matching the editor's
+	// own convention (a `}` lines up with the line that opened the block).
+	//
+	// Only braces drive depth. Parentheses and brackets are deliberately ignored:
+	// counting them would indent a multi-line argument list (arguably right) but
+	// would also over-indent the body of an arrow function passed to a call --
+	// `a.map((v) => {` opens a paren that stays open across lines, so the body
+	// would land two levels in instead of one. Block structure is what auto-indent
+	// is for here; aligning continuation lines is left to the user.
+	//
+	// Tabs are used, one per level: the project formats C++ with tabs and the
+	// scaffolded TS ships with tabs, and the editor's indent setting is not
+	// reachable from a ScriptLanguageExtension.
+	PackedStringArray lines = p_code.split("\n");
+	const int32_t line_count = lines.size();
+	if (line_count == 0 || p_to_line < p_from_line) {
+		return p_code;
+	}
+	const int32_t first = MAX(0, p_from_line);
+	const int32_t last = MIN(line_count - 1, p_to_line);
+	if (first > last) {
+		return p_code;
+	}
+
+	// Pass 1: per-line brace delta and whether the line starts with a closer,
+	// with strings / comments / template literals skipped.
+	Vector<int32_t> deltas;
+	deltas.resize(line_count);
+	Vector<bool> starts_with_closer;
+	starts_with_closer.resize(line_count);
+
+	int depth = 0;
+	for (int32_t i = 0; i < line_count; ++i) {
+		const String &line = lines[i];
+		int32_t delta = 0;
+		bool saw_non_space = false;
+		bool first_token_is_closer = false;
+		bool in_block_comment = false;
+		bool in_template = false;
+
+		for (int32_t c = 0; c < line.length(); ++c) {
+			const char32_t ch = line[c];
+			const char32_t next = c + 1 < line.length() ? line[c + 1] : 0;
+
+			if (in_block_comment) {
+				if (ch == '*' && next == '/') {
+					in_block_comment = false;
+					++c;
+				}
+				continue;
+			}
+			if (in_template) {
+				if (ch == '\\') {
+					++c;
+				} else if (ch == '`') {
+					in_template = false;
+				}
+				continue;
+			}
+			if (!saw_non_space) {
+				if (ch == ' ' || ch == '\t') {
+					continue;
+				}
+				saw_non_space = true;
+				// Only a closing brace may shift the line out one level: depth counts
+				// braces, so a leading `)` / `]` (a continuation line) must not move.
+				if (ch == '}') {
+					first_token_is_closer = true;
+				}
+			}
+			if (ch == '/' && next == '/') {
+				break; // line comment: rest of the line is inert
+			}
+			if (ch == '/' && next == '*') {
+				in_block_comment = true;
+				++c;
+				continue;
+			}
+			if (ch == '`') {
+				in_template = true;
+				continue;
+			}
+			if (ch == '"' || ch == '\'') {
+				const char32_t quote = ch;
+				for (++c; c < line.length(); ++c) {
+					if (line[c] == '\\') {
+						++c;
+					} else if (line[c] == quote) {
+						break;
+					}
+				}
+				continue;
+			}
+			if (ch == '{') {
+				++delta;
+			} else if (ch == '}') {
+				--delta;
+			}
+		}
+
+		deltas.write[i] = delta;
+		starts_with_closer.write[i] = first_token_is_closer;
+	}
+
+	// Pass 2: rewrite the requested range. `depth` is the nesting level the line
+	// starts at, carried from the top so the first re-indented line already knows
+	// it. A line that begins with a closing bracket is placed one level out (it
+	// lines up with the line that opened the block); that offset only affects the
+	// line's own indentation -- `deltas[i]` already contains the closer, so the
+	// running depth must not be decremented a second time.
+	depth = 0;
+	for (int32_t i = 0; i < line_count; ++i) {
+		int32_t indent = depth;
+		if (starts_with_closer[i] && indent > 0) {
+			--indent;
+		}
+		if (i >= first && i <= last) {
+			const String body = lines[i].strip_edges(true, false);
+			if (body.is_empty()) {
+				lines.set(i, "");
+			} else {
+				String prefix;
+				for (int32_t level = 0; level < indent; ++level) {
+					prefix += "\t";
+				}
+				lines.set(i, prefix + body);
+			}
+		}
+		depth += deltas[i];
+		if (depth < 0) {
+			depth = 0;
+		}
+	}
+
+	return String("\n").join(lines);
+}
+
 int GodotJSScriptLanguage::find_identifier_line(const String &p_identifier, const String &p_source) const {
 	return locate_identifier_line(js_declaration_matcher_, p_identifier, p_source);
 }
@@ -904,9 +1052,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 		const String scr_path = scr->get_path();
 		print_verbose("GodotJSScript: Reloading: " + scr_path);
 		if (scr->is_built_in()) {
-			//TODO 用比「重新加载整个场景」更省的方式重载内置脚本。内置脚本（挂在 .tscn 里的子资源）
-			//     没有独立文件路径，`load_source_code` 需要先从场景里取到那一份资源；更省的做法是
-			//     只重读该子资源的 `SceneState` 属性，但那需要 `PackedScene` 的私有接口。
+			// TODO: It would be nice to do it more efficiently than loading the whole scene again.
 			Ref<PackedScene> scene = ResourceLoader::get_singleton()->load(scr_path.get_slice("::", 0), "", ResourceLoader::CACHE_MODE_IGNORE_DEEP);
 			ERR_CONTINUE(scene.is_null());
 
