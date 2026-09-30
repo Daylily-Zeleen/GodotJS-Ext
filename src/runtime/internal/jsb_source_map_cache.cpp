@@ -81,6 +81,27 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 #	endif
 }
 
+bool SourceMapCache::remap_position(const String &p_filename, int p_line, int p_column, String &r_source_path, int &r_line, int &r_column) {
+	const SourceMap *map = find_source_map(p_filename);
+	if (!map) {
+		return false;
+	}
+	IndexedSourcePosition position;
+	if (!map->find(p_line, p_column, position)) {
+		return false;
+	}
+	const String &source = map->get_source(position.index);
+	if (source.is_empty()) {
+		return false;
+	}
+	// 与 `process_source_position` 里同样的拼法：map 自带的 root 是相对产物所在目录的。
+	// 返回 1 基位置，编辑器要的就是这个。
+	r_source_path = PathUtil::to_platform_specific_path(PathUtil::combine(PathUtil::dirname(p_filename), map->get_source_root(), source));
+	r_line = position.line + 1;
+	r_column = position.column + 1;
+	return true;
+}
+
 String SourceMapCache::process_source_position(const String &p_stacktrace, SourcePosition *r_position) {
 	if (!internal::settings::project::is_sourcemap_enabled()) return p_stacktrace;
 	if (p_stacktrace.length() == 0) return p_stacktrace;

@@ -53,6 +53,14 @@ struct SourceMapCache {
 	// match a single stacktrace line (e.g. `at xxx (file.js:1:2)`) and extract the frame info.
 	bool match(const String &p_line, MatchResult &r_result);
 
+	// Translate ONE position in a compiled artifact back to the original source,
+	// using the `.map` beside it. Same mapping `process_source_position` applies
+	// to a whole trace, for a caller that holds a single frame (the debugger
+	// hooks) rather than text.
+	// @param p_line/p_column zero-based, as the Source Map spec defines them.
+	// @return false when there is no map or the position is unmapped.
+	bool remap_position(const String &p_filename, int p_line, int p_column, String &r_source_path, int &r_line, int &r_column);
+
 private:
 	SourceMap *find_source_map(const String &p_filename);
 
