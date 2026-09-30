@@ -715,3 +715,112 @@ P0-2 —— `_debug_get_error` + 9 个 `_debug_get_stack_level_*` 桩（`jsb_scr
 另外我一度顺手删了 `jsb_runtime_settings.cpp`（2 条）与 `jsb_script.h`（2 条）里的 TODO —— 与本步无关，**已 `git checkout --` 还原**。`jsb_environment.h` 里 `disposed_callbacks` 的空白漂移（非我本意）也已还原到 HEAD。
 
 **未提交、未推送。等用户审查。**
+
+---
+
+## 17. P0-2：调试 hook（`_debug_*`）实现进展
+
+**本轮授权仅「改文件」：未提交、未推送。**
+
+### 17.1 已实现（8 个 hook 有真实现）
+
+| hook | 实现 | 数据源 |
+|---|---|---|
+| `_debug_get_error` | 待处理异常的文本 | 每次调用重取（读异常会消费它，不能复用快照） |
+| `_debug_get_stack_level_count` | 真帧数（无栈时 **0**，旧桩恒 1 = 伪造一帧） | `snapshot_stack` |
+| `_debug_get_stack_level_line` | 真行号 | 同上 |
+| `_debug_get_stack_level_function` | 真函数名 | 同上 |
+| `_debug_get_stack_level_source` | 真源文件路径 | 同上 + sourcemap + `res://` 归一 |
+| `_debug_get_globals` | global 对象的可转换项 | `TypeConvert::js_to_gd_var` |
+| `_debug_parse_stack_level_expression` | 运行时作用域真求值，失败返回 VM 原话 | `impl::Helper::eval` |
+| `_debug_get_current_stack_info` | `{file, func, line}` 列表 | `snapshot_stack` |
+
+per-impl（`impl::Helper::snapshot_stack`，按各后端真实能力，不写共享空壳）：
+
+| 后端 | 能力 |
+|---|---|
+| v8 / node | `v8::StackTrace::CurrentStackTrace` + `StackFrame::GetFunctionName/GetScriptNameOrURL/GetLineNumber/GetColumn` → **文件+函数+行+列** |
+| quickjs | `JS_GetScriptOrModuleName(ctx, level)`（公开导出，走 `current_stack_frame->prev_frame`）→ **仅文件**（行号表 `find_line_num`/`pc2line` 是 static，未导出） |
+| jsc | 无栈内省 ⇒ 读待处理异常的 `Error.stack`，按单条目返回 |
+| web | 同 jsc |
+
+### 17.2 帧坐标映射（用户要求的 A 方案）
+
+问题：VM 报的是**编译产物**（`.godot/godotjs_ext/*.js` 的绝对路径，来自 `FileAccessSourceReader::source_url` → ScriptOrigin），而用户编辑的是 `res://` 下的 `.ts`。直接用 VM 帧会导致：
+
+- `script_editor_debugger.cpp:534` 直接显示该路径 → 用户看到 `.godot/` 下的产物；
+- 同文件 `:640` 用 `begins_with("res://")` 判工程文件 → JSB 的绝对路径不成立；
+- DAP `debug_adapter_protocol.cpp:1111` → `fetch_source` 打开的是 `.js` 而非 `.ts`。
+
+修法（复用 JSB 已有机制，不另起一套）：
+
+1. 新增 `SourceMapCache::remap_position(filename, line, col, ...)`（公开单帧入口；原来只有私有的 `find_source_map` 和整段文本的 `process_source_position`）。内部映射与 `process_source_position` 完全一致。
+2. `localize_debug_frame_path()`：把绝对路径按 `ProjectSettings::globalize_path("res://")` 前缀折回 `res://`。非工程帧（宿主内部）保持原样。
+
+### 17.3 仍为空但**有证据**的 3 个
+
+`_debug_get_stack_level_locals` / `_members` / `_instance`（注释已改写为中文证据说明）：
+
+- v8 的作用域内省（`ScopeIterator`、`v8::Debug` 命名空间）在本仓 vendor 的头文件里**不存在** —— 穷举 `third/v8/include/*.h`，与调试相关的只有 `StackTrace`/`StackFrame`/`Message`。作用域只能经 DevTools 协议从 `jsb_debugger.cpp` 的 websocket 会话异步取，不是一次调用能拿到的。
+- JSB 不记录「当前正在执行的 script instance」，纯 JS 帧也从不经过它。
+- 返回空正是引擎所需：`_debug_get_stack_level_instance` 返回 `nullptr` 才会让 `get_stack_frame_vars` 跳过 `self`（`remote_debugger.cpp:507`）、让 `evaluate` 直接退出（`:554-556`）。
+
+### 17.4 顺带修掉的真 bug
+
+`_debug_parse_stack_level_expression` 原先只在 `!debug_stack_.valid` 时重取。而 `valid` 表示「取过快照」而非「新鲜」：空闲时调一次 `_debug_get_error()` 会留下**空的且 valid=true** 的快照，表达式 hook 便复用过期的空数据（测试实测复现）。该 hook 是独立调用（`local_debugger.cpp:222`，不经 `count`），已改为无条件重取。
+
+### 17.5 `_refill_debug_stack` 的可见性
+
+它原先落在 `public:` 区（我插入位置错误），**不该 public**。`DebugStackSnapshot`、`debug_stack_`、`_refill_debug_stack`、`_evaluate_debug_expression` 已全部移入 `private:`；类是 final 的，本类之外没有任何地方需要读 JS 栈。基类虚函数保持 public（必须）。
+
+### 17.6 验证（实测）
+
+- 构建 `scons platform=windows target=editor debug_symbols=yes dev_build=yes tests=yes -j6` → **rc=0**
+- doctest `--jsb-run-tests` → **81/81 cases、1212/1212 assertions、rc=0**
+- 项目冒烟 `--quit-after 8000` → **rc=0**，含 `GODOTJS_TEST_PROJECT_COMPLETED`
+- 活跃 JS 调用内（原生探针回调里）断言：`probe_hook_count >= 1`、`probe_hook_function == "__jsb_debug_outer__"`、`probe_hook_enumerated` 非空、`probe_hook_source` 非空且**不含 `godotjs_ext`**
+- 新增 `SourceMapCache::remap_position` 单元测试（命中/未映射行/无 map 三种情形）
+- 表达式 hook：活跃调用内求值 `globalThis.KEY` → `"12345"`；未知符号 → 含符号名的 VM `ReferenceError`
+
+**未验证**：jsc/quickjs/web 的 `snapshot_stack` 仅保证语法（本机只编 v8），无运行证据。这是本次唯一残留风险。
+
+---
+
+## 18. 修正：`snapshot_stack` 的守卫条件写错了（`JSB_TOOLS` -> `JSB_DEBUG`）
+
+用户发现：`snapshot_stack` 被包在 `#if JSB_TOOLS` 里，但它的唯一调用点
+`_refill_debug_stack` 在 `#if JSB_DEBUG` 里。**两个宏彼此独立**
+（`jsb.config.h:32-46`：`JSB_DEBUG = DEBUG_ENABLED`，`JSB_TOOLS = TOOLS_ENABLED`），
+所以只要出现 `DEBUG=1 && TOOLS=0` 的构建，就会编译不过。
+
+**这是我的错**：守卫条件是从 `validate_source`（其调用点 `_validate` 确实在 TOOLS 里，
+所以那里是对的）照搬过来的惯性。
+
+**复现**（实测）：`scons platform=windows target=template_debug`（TOOLS=0 / DEBUG=1）
+→ 修复前：
+```
+src/runtime/weaver/jsb_script_language.cpp(985): error C2039: "snapshot_stack": 不是 "jsb::impl::Helper" 的成员
+```
+修复后同一命令 rc=0。
+
+**为什么本地一直没暴露**：此前只用 `target=editor dev_build=yes`（两个宏同为 1），
+在这个组合下错配不可见。
+
+### 修复与验证
+
+四个 impl 的 `#if JSB_TOOLS` 改为 `#if JSB_DEBUG`（`validate_source` 已被用户改为
+`template <typename _Placeholder = void>` 的惰性实例化形式，不再用宏，故不受影响）。
+
+四种构建配置**全部 rc=0**：
+
+| 配置 | TOOLS | DEBUG | 结果 |
+|---|---|---|---|
+| `target=template_debug` | 0 | 1 | rc=0（修复前必挂） |
+| `target=template_release` | 0 | 0 | rc=0 |
+| `target=editor dev_build=yes tests=yes` | 1 | 1 | rc=0 |
+| `target=editor` | 1 | 0 | rc=0 |
+
+回归：doctest **81/81、1212/1212、rc=0**；项目冒烟 rc=0，`GODOTJS_TEST_PROJECT_COMPLETED`。
+
+**教训**：新增的 `#if <宏>` 守卫，必须核对**调用点所在的是哪个宏**，而不是复制邻近代码的写法；
+并且要在宏取值不同的构建组合下至少编译一次，否则同号的组合会掩盖错配。

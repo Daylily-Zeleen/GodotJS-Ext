@@ -106,7 +106,7 @@ private:
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
 
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
-	// 这批路径列表**刻意保持** `Vector<String>`，不改成 `PackedStringArray`（原 TODO 建议改）：
+	// 这批路径列表**刻意保持** `Vector<String>`，不改成 `PackedStringArray`：
 	// GDExtension 下 `PackedStringArray` 的 `push_back`/`operator[]`/`size` 每个元素都是一次
 	// gdextension 函数指针调用（`third/godot-cpp/gen/src/variant/packed_string_array.cpp` 全是
 	// `_call_builtin_method_ptr_*`），只有 `ptr()/ptrw()` 是一次调用取整块；而 `Vector<String>`
