@@ -824,3 +824,79 @@ src/runtime/weaver/jsb_script_language.cpp(985): error C2039: "snapshot_stack": 
 
 **教训**：新增的 `#if <宏>` 守卫，必须核对**调用点所在的是哪个宏**，而不是复制邻近代码的写法；
 并且要在宏取值不同的构建组合下至少编译一次，否则同号的组合会掩盖错配。
+
+---
+
+## 19. P1：JSC `FunctionData` 泄漏（不是过时注释，是真 bug；已实现，已提交）
+
+### 结论
+
+`jsb_jsc_isolate.cpp` 里那两条 TODO
+（`//TODO delete FunctionData in a thread safe way`、`//TODO JSValueUnprotect(data.data);`）
+描述的是**同一个真缺陷的两半**，且比注释字面更严重。
+
+### 证据
+
+1. **JSC 官方头文件明确允许 finalizer 跑在任意线程**
+   `src/runtime/impl/jsc/_NOT_FOR_INCLUDE_/JavaScriptCore/JSObjectRef.h`，
+   对 `JSObjectFinalizeCallback` 的原文：
+   > *"The callback invoked when an object is finalized ... **An object may be finalized on any thread.**"*
+   > *"You must not call any function that may cause a garbage collection or an allocation
+   > of a garbage collected object from within a JSObjectFinalizeCallback."*
+
+2. **改前的 `_CFunction_finalize` 两件事都违规**
+   ```cpp
+   payload->isolate->_delete_cfunction(payload->captured_value_id); // 写无锁队列
+   memdelete(payload);                                             // 在 finalizer 内释放
+   ```
+   `_delete_cfunction` 只做 `pending_delete_.write(id)`，而 `pending_delete_` 是
+   `RingBuffer` → 底层 `godot::Vector`（CowData）→ 跨线程写 = 数据竞争。
+
+3. **同文件已有正确写法作对照**：`_BridgeInstance_finalizer`（`jsb_jsc_isolate.cpp:458`）
+   上方写着 `// no guarantee for main thread`，并**用 `pending_finalize_mutex_` 保护**。
+   `_CFunction_finalize` 没有 —— 是遗漏，不是设计。
+
+4. **泄漏链**：每个 C function 的 captured value 在 `_NewFunction:531` 被 `JSValueProtect`，
+   唯一成对的 `JSValueUnprotect` 在 `PerformMicrotaskCheckpoint`（由 `pending_delete_` 驱动）。
+   队列竞争丢条目 → 该次 unprotect 永不发生 → captured value 与 `CFunctionPayload` 双双泄漏。
+
+### 修法：改用仓内 `DoubleBuffered`（经用户指正的最终形态）
+
+**先纠正两个中途的错误判断**（都写下来，避免复犯）：
+
+- `RingBuffer` 是 Godot 核心模板（`core/templates/ring_buffer.h`），**满时 `write` 直接
+  丢弃**（`ERR_FAIL_COND_V(space_left()<1, FAILED)`），且自身**无任何同步**。原作者把它
+  用作「有界队列」，但本场景恰恰最不能丢条目 —— 丢一个 = 一个 JS 值永久泄漏。
+- 第一版修法用了 `recursive_mutex + Vector`。**这是错的**：`delete_batch = pending_delete_`
+  只做 `CowData` refcount++，两对象**共享同一块缓冲**，并非「把数据交给消费者」；
+  且 `Vector::clear()` 走 `_unref()`，refcount 为 1 时**释放缓冲**，所以 `reserve` 无法复用。
+
+**最终形态**：`jsb::internal::DoubleBuffered<CFunctionPayload *>`（`src/internal/jsb_double_buffered.h`，
+仓内已有 3 处在用：`jsb_environment.cpp:545`、`jsb_worker.cpp:325`、`jsb_repl.cpp:475`）。
+
+- 生产者 `_queue_delete_cfunction` → `pending_delete_.add(payload)`（`add` 内部 `SpinLock`，只 push_back）。
+- 消费者 `PerformMicrotaskCheckpoint` → `std::vector<...> &batch = pending_delete_.swap()`，
+  **换缓冲**（指针交换，消费者独占），随后 `clear()` **保留容量**供下轮复用。
+- `_CFunction_finalize` 只调 `_queue_delete_cfunction(payload)`；`memdelete` 移走。
+- `_release()`：`JSGlobalContextRelease` 后补一段 `swap()` 排空，只 `memdelete` 残留 payload
+  （context 已销毁，不能再调 JSC），否则漏掉「释放 context 期间被 finalize 的」payload。
+
+**已知代价（非阻塞 swap 语义）**：`DoubleBuffered::swap()` 换到哪个缓冲就用哪个，不保证
+一定是最新的那个，故待删项**最多延迟一轮 checkpoint**。这符合仓内既有用法；如要求「当期必清」
+则 `DoubleBuffered` 不适用。
+
+### 验证
+
+JSC 后端在 Windows 上不参与构建（`SConstruct:957` 仅在 `JSB_WITH_JAVASCRIPTCORE` 时 glob
+`impl/jsc/*.cpp`），但头文件随仓 vendored，可做编译级验证：
+
+- 用 `compile_commands.json` 的真实旗标 + `_NOT_FOR_INCLUDE_` + CoreFoundation 桩，
+  `clang++ -fsyntax-only -std=c++20` 过 **`impl/jsc/*.cpp` 全部 15 个 TU**：**15/15 rc=0，零诊断**。
+- Windows 侧回归（v8 路径）：构建 rc=0；doctest **81/81、1214/1214、rc=0**；
+  项目冒烟 rc=0 + `GODOTJS_TEST_PROJECT_COMPLETED`（`--quit-after 16000`）。
+- 测试基建之外的注意：`--quit-after 8000` 有时不够跑完，会看不到 COMPLETED，**不是回归**。
+
+### 残留
+
+- **无运行证据**：JSC 只能在 macOS/iOS 上真正链接运行，本机未执行过这段代码。
+  并发正确性目前只有「编译通过 + 推理」，交 CI / macOS 验证。
