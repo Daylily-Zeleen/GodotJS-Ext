@@ -231,6 +231,43 @@ public:
 		return compile_function(context, p_source, p_source_len, p_filename);
 	}
 
+	// Parse `p_source` without executing it, reporting the first syntax error.
+	// This deliberately uses the same classic-script compile as
+	// `compile_function`, minus the `Run`: a source accepted here is exactly one
+	// the loader would accept. `CompileModule` would NOT do, since the runtime's
+	// module wrapper is a classic script.
+	template<typename _Placeholder = void>
+	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
+		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
+		v8::TryCatch try_catch(isolate);
+		const v8::Local<v8::String> source = new_string(isolate, p_source);
+		const v8::MaybeLocal<v8::Script> script = v8::Script::Compile(context, source);
+		if (!script.IsEmpty() && !try_catch.HasCaught()) {
+			return true;
+		}
+
+		if (r_message) {
+			const v8::Local<v8::Message> message = try_catch.Message();
+			if (!message.IsEmpty()) {
+				*r_message = to_string(isolate, message->Get());
+				if (r_line) {
+					if (const v8::Maybe<int> line = message->GetLineNumber(context); line.IsJust()) {
+						*r_line = line.FromJust();
+					}
+				}
+				if (r_column) {
+					*r_column = message->GetStartColumn() + 1;
+				}
+			} else {
+				*r_message = to_string(isolate, try_catch.Exception());
+			}
+			if (r_message->is_empty()) {
+				*r_message = "Failed to parse the script.";
+			}
+		}
+		return false;
+	}
+
 	template <int N>
 	_FORCE_INLINE_ static void throw_error(v8::Isolate *isolate, const char (&message)[N]) {
 		isolate->ThrowError(message);

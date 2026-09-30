@@ -1624,10 +1624,59 @@ bool Environment::_get_main_module(v8::Local<v8::Object> *r_main_module) const {
 	return false;
 }
 
-bool Environment::validate_script(const String &p_path) {
-	//TODO try to compile?
-	return true;
+#if JSB_TOOLS
+// Parse the module WITHOUT executing it, so the editor can flag syntax errors on
+// every keystroke (script_text_editor.cpp:913 -> `_validate`). The actual
+// "parse without executing" primitive is engine specific and lives in each impl
+// layer (`impl::Helper::validate_source`).
+//
+// IMPORTANT: `p_path` is the EDITABLE source (`.ts`), which is TypeScript and
+// therefore not parseable by any JS engine (decorators and type annotations are
+// syntax errors there). What the runtime loads is the compiled JS under the output
+// dir -- the same mapping `GodotJSScript::load_source_code` uses
+// (jsb_script.cpp:897). Validating the `.ts` text would report every file broken.
+bool Environment::validate_script(const String &p_path, Dictionary *r_error) {
+	v8::Isolate *isolate = get_isolate();
+	const String compiled_path = jsb::internal::PathUtil::convert_typescript_path(p_path);
+	const String path = FileAccess::file_exists(compiled_path) ? compiled_path : p_path;
+
+	const Ref<FileAccess> access = FileAccess::open(path, FileAccess::READ);
+	if (access.is_null()) {
+		// not built yet -- do NOT call the script invalid for a missing artifact.
+		return true;
+	}
+	const PackedByteArray bytes = access->get_buffer(access->get_length());
+	access->close();
+
+	// The loader compiles every module inside this CommonJS wrapper
+	// (`DefaultModuleResolver::read_all_bytes_with_shebang`). Parsing the bare
+	// file instead would accept or reject text the loader never sees; the header
+	// carries no newline, so the reported line numbers stay unchanged.
+	const String source = String(kModuleSourceHeader) + String::utf8((const char *)bytes.ptr(), bytes.size()) + String(kModuleSourceFooter);
+
+	// The isolate and handle scopes must be active before any `v8::Local` is created,
+	// including the context, and the context scope must then be entered before any
+	// compile touching it; this mirrors `eval_source`. Getting the context earlier
+	// yields an empty Local, and compiling outside its scope crashes.
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
+	v8::Context::Scope context_scope(context);
+
+	String message;
+	int line = 1;
+	int column = 1;
+	const bool valid = impl::Helper::validate_source(isolate, context, path, source, &message, &line, &column);
+	if (!valid && r_error) {
+		// Shape consumed by `_validate`; `ScriptLanguageExtension::validate`
+		// requires line/column/message on every entry.
+		r_error->operator[]("message") = message;
+		r_error->operator[]("line") = line;
+		r_error->operator[]("column") = column;
+	}
+	return valid;
 }
+#endif // JSB_TOOLS
 
 bool Environment::release_function(ObjectCacheID p_func_id) {
 	this->check_internal_state();

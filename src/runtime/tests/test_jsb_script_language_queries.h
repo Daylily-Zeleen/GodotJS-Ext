@@ -136,6 +136,74 @@ TEST_CASE("[runtime] [jsb.lang] auto_indent_code re-indents by brace depth") {
 	CHECK(lang->_auto_indent_code("x();\n", 0, 5) == "x();\n");
 }
 
+// `_validate` is `GDVIRTUAL6RC_REQUIRED` (script_language_extension.h:393) and is
+// reached by the script editor in two places: script_text_editor.cpp:176 fills the
+// function outline from the "functions" key, script_text_editor.cpp:913 fills the
+// error/warning gutter from "errors"/"warnings". Before this was implemented the
+// hook answered `valid=true` with an empty "functions", so the outline was always
+// empty; and on failure it emitted a bogus "NOT_IMPLEMENTED" error at line 0, which
+// made the editor jump to an unrelated line.
+TEST_CASE("[runtime] [jsb.lang] validate reports declared functions, and no bogus errors") {
+	GodotJSScriptLanguageIniter initer;
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+	REQUIRE(lang->is_initialized());
+
+	const String source = "class A {\n"
+						  "  bar() {}\n"
+						  "  static baz() {}\n"
+						  "  bar() {}   // declared twice: listed once\n"
+						  "  // mentioned in a comment: not_a_declaration\n"
+						  "  get prop() { return 1; }\n"
+						  "}\n";
+
+	const Dictionary result = lang->_validate(source, "res://test_01.ts", true, true, true, true);
+	REQUIRE(result.has("valid"));
+	CHECK((bool)result["valid"]);
+
+	// the outline
+	REQUIRE(result.has("functions"));
+	const PackedStringArray functions = result["functions"];
+	CHECK(functions.has("bar"));
+	CHECK(functions.has("baz"));
+	CHECK(functions.has("prop"));
+	CHECK(!functions.has("not_a_declaration"));
+	// a repeated declaration is listed once (it matches `_find_function`, which
+	// resolves a name to its first declaration)
+	// counted by hand: `PackedStringArray::count` needs the builtin method bindings,
+	// which are not initialised this early in the test run.
+	int bar_count = 0;
+	for (const String &name : functions) { if (name == "bar") ++bar_count; }
+	CHECK(bar_count == 1);
+
+	// no `functions` requested -> no key, so the engine does no work
+	CHECK(!lang->_validate(source, "res://test_01.ts", false, false, false, false).has("functions"));
+
+	// A script whose COMPILED output is broken must be reported invalid, with a
+	// position. The editable `.ts` is TypeScript and is not what gets validated --
+	// `validate_script` maps the path to the compiled JS first (jsb_script.cpp:897),
+	// so decorators and type annotations in the source are not mistaken for errors.
+	const String broken = "res://__test_broken__.js";
+	{
+		const Ref<FileAccess> w = FileAccess::open(broken, FileAccess::WRITE);
+		REQUIRE(w.is_valid());
+		w->store_string("function ( {\n");
+		w->close();
+	}
+	const Dictionary bad = lang->_validate("ignored", broken, false, true, false, false);
+	CHECK((bool)bad["valid"] == false);
+	REQUIRE(bad.has("errors"));
+	const Array errors = bad["errors"];
+	REQUIRE(errors.size() >= 1);
+	const Dictionary first = errors[0];
+	CHECK(first.has("line"));
+	CHECK(first.has("column"));
+	CHECK(first.has("message"));
+	// and a well-formed module compiles: the project's own compiled fixture
+	CHECK((bool)lang->_validate("ignored", "res://jslibs/empty.js", false, true, false, false)["valid"] == true);
+	DirAccess::remove_absolute(broken);
+}
+
 TEST_CASE("[runtime] [jsb.script] inherits_script walks the base chain") {
 	// 契约同 `GDScript::inherits_script`（`gdscript.cpp:1213-1229`）：沿 base 链比较**脚本对象**
 	// 身份。调用方是 `container_type_validate.h:141/185`（类型化容器/属性校验）与

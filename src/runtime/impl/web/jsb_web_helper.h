@@ -226,6 +226,29 @@ public:
 		return v8::MaybeLocal<v8::Value>(v8::Data(isolate, rval_sp));
 	}
 
+	// Parse `p_source` without executing it. The bridge's compile op evaluates a
+	// function *expression*: parsing the body happens then, but the body does not
+	// run -- only the loader's later call does. So compiling is the syntax check,
+	// and no extra bridge op is needed.
+	template<typename _Placeholder = void>
+	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
+		jsb_unused(r_line); // the browser reports the message only.
+		jsb_unused(r_column);
+
+		const impl::TryCatch try_catch(isolate);
+		const CharString source_cs = p_source.utf8();
+		if (!compile_function(context, source_cs.get_data(), source_cs.length(), p_origin).IsEmpty() && !try_catch.has_caught()) {
+			return true;
+		}
+		if (r_message) {
+			try_catch.get_message(r_message, nullptr);
+			if (r_message->is_empty()) {
+				*r_message = "Failed to parse the script.";
+			}
+		}
+		return false;
+	}
+
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		::free(data);
 	}

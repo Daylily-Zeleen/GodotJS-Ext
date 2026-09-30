@@ -216,6 +216,36 @@ public:
 		return compile_function(context, p_source, p_source_len, p_filename);
 	}
 
+	// Parse `p_source` without executing it. `Script::Compile` cannot do this on
+	// JSC (see the note in jsb_jsc_object.cpp: `Compile` only stashes the text
+	// and defers syntax errors to `Run`), so the engine's own non-evaluating
+	// check is used instead.
+	template<typename _Placeholder = void>
+	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
+		jsb_unused(context); // JSC keys everything off the JSGlobalContextRef.
+		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
+		jsb_unused(r_line); // JSC's public syntax check reports no position.
+
+		const JSContextRef ctx = isolate->ctx();
+		const CharString source_cs = p_source.utf8();
+		const JSStringRef script = JSStringCreateWithUTF8CString(source_cs.get_data());
+		JSValueRef exception = nullptr;
+		const bool valid = JSCheckScriptSyntax(ctx, script, nullptr, 1, &exception);
+		JSStringRelease(script);
+
+		if (valid) {
+			return true;
+		}
+		if (r_message) {
+			*r_message = exception ? JavaScriptCore::GetString(ctx, exception) : String();
+			if (r_message->is_empty()) {
+				*r_message = "Failed to parse the script.";
+			}
+		}
+		jsb_unused(r_column);
+		return false;
+	}
+
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		//NOTE not a good practice, just for the simplicity of Buffer (to move/free by Buffer)
 		memfree(data);

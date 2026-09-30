@@ -113,19 +113,16 @@ bool IModuleResolver::load_from_evaluator(Environment *p_env, JavaScriptModule &
 }
 
 size_t DefaultModuleResolver::read_all_bytes_with_shebang(const internal::ISourceReader &p_reader, Vector<uint8_t> &o_bytes) {
-	static constexpr char header[] = "(function(exports,require,module,__filename,__dirname){";
-	static constexpr char footer[] = "\n})";
-
 	jsb_check(!p_reader.is_null());
 	const size_t file_len = p_reader.get_length();
 	jsb_check(file_len);
-	o_bytes.resize((int)(file_len + ::std::size(header) + ::std::size(footer) - 2
+	o_bytes.resize((int)(file_len + ::std::size(kModuleSourceHeader) + ::std::size(kModuleSourceFooter) - 2
 			+ 1 // zero_terminated anyway
 			));
 
-	memcpy(o_bytes.ptrw(), header, ::std::size(header) - 1);
-	p_reader.get_buffer(o_bytes.ptrw() + ::std::size(header) - 1, file_len);
-	memcpy(o_bytes.ptrw() + file_len + ::std::size(header) - 1, footer, ::std::size(footer)); // include the ending zero
+	memcpy(o_bytes.ptrw(), kModuleSourceHeader, ::std::size(kModuleSourceHeader) - 1);
+	p_reader.get_buffer(o_bytes.ptrw() + ::std::size(kModuleSourceHeader) - 1, file_len);
+	memcpy(o_bytes.ptrw() + file_len + ::std::size(kModuleSourceHeader) - 1, kModuleSourceFooter, ::std::size(kModuleSourceFooter)); // include the ending zero
 	return o_bytes.size() - 1;
 }
 

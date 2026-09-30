@@ -396,26 +396,85 @@ PackedStringArray GodotJSScriptLanguage::_get_string_delimiters() const {
 	return PackedStringArray{ "' '", "\" \"", "` `" };
 }
 
+// Collect the declared member names of a script's source, in declaration order.
+//
+// This is the same matcher `_find_function` and `GodotJSScript::_get_member_line`
+// use (`js_declaration_matcher_`), so the editor's function outline, "go to
+// function" and the member-line queries cannot disagree with each other.
+static PackedStringArray collect_declared_functions(const Ref<RegEx> &p_matcher, const String &p_source) {
+	PackedStringArray functions;
+	if (!p_matcher.is_valid() || p_source.is_empty()) {
+		return functions;
+	}
+
+	int begin = 0;
+	while (begin <= p_source.length()) {
+		const int end = p_source.find("\n", begin);
+		const String row = end < 0 ? p_source.substr(begin) : p_source.substr(begin, end - begin);
+
+		// One declaration per line by construction of the matcher (it is anchored at
+		// the line start), so `search` is enough; `search_all` would be needed only
+		// for a non-anchored pattern.
+		if (const Ref<RegExMatch> match = p_matcher->search(row); match.is_valid() && match->get_group_count() > 0) {
+			const String name = match->get_string(1);
+			// `_find_function` returns the FIRST declaration of a name; the outline
+			// must therefore list each name once, at that same position.
+			if (!functions.has(name)) {
+				functions.push_back(name);
+			}
+		}
+
+		if (end < 0) {
+			break;
+		}
+		begin = end + 1;
+	}
+	return functions;
+}
+
 Dictionary GodotJSScriptLanguage::_validate(const String &p_script, const String &p_path, bool p_validate_functions, bool p_validate_errors, bool p_validate_warnings, bool p_validate_safe_lines) const {
+	// Contract (script_language_extension.h:393-455): the returned Dictionary is
+	// parsed by `ScriptLanguageExtension::validate`, which requires a "valid" key
+	// and reads "functions" / "errors" / "warnings" / "safe_lines" only when the
+	// corresponding out-param was requested. Callers:
+	//   - script_text_editor.cpp:176  -> the script editor's function list
+	//   - script_text_editor.cpp:913  -> the error/warning gutter
+	//   - script_editor_plugin.cpp:1540 -> validity after an external reload
 	Dictionary result;
-	// TODO
-	// "functions": PackedStringArray
-	// "errors": Array[Dictionary] ScriptError {"line": int, "column": int, "message": String}
-	// "warnings": Array[Dictionary] Warning {"start_line": int, "end_line": int, "code": int(Error Code), "string_code": String, "message": String}
-	// "safe_lines": PackedInt32Array
-	if (environment_->validate_script(p_path)) {
-		result["valid"] = true;
+	if (!is_initialized()) {
+		result["valid"] = false;
 		return result;
 	}
 
-	//TODO parse error info
-	result["valid"] = false;
+	// The function outline is a pure text scan: it must not depend on the module
+	// being loadable, or a script with a syntax error would lose its outline
+	// exactly when the user is looking at the error.
+	if (p_validate_functions) {
+		result["functions"] = collect_declared_functions(js_declaration_matcher_, p_script);
+	}
 
-	Dictionary err;
-	err["line"] = 0;
-	err["column"] = 0;
-	err["message"] = "NOT_IMPLEMENTED";
-	result["errors"] = Array::make(err);
+	// Errors are only useful with a position; ask for them only when the caller wants
+	// them (script_text_editor.cpp:913 requests errors+warnings+safe_lines on every
+	// edit, :176 requests only functions).
+	Dictionary error;
+	const bool valid = environment_->validate_script(p_path, p_validate_errors ? &error : nullptr);
+	result["valid"] = valid;
+
+	if (!valid && p_validate_errors && !error.is_empty()) {
+		// Shape required by ScriptLanguageExtension::validate (line/column/message are
+		// mandatory, "path" optional); before this the hook emitted a fake
+		// "NOT_IMPLEMENTED" row at line 0, which made the editor jump nowhere useful.
+		Dictionary err;
+		err["path"] = p_path;
+		err["line"] = error.get("line", 1);
+		err["column"] = error.get("column", 1);
+		err["message"] = error.get("message", String("Failed to parse the script."));
+		result["errors"] = Array::make(err);
+	}
+	// warnings and safe_lines are not produced: there is no lint pass to derive them
+	// from, and inventing entries would put marks next to lines that are fine.
+	jsb_unused(p_validate_warnings);
+	jsb_unused(p_validate_safe_lines);
 	return result;
 }
 

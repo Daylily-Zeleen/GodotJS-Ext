@@ -255,6 +255,43 @@ public:
 		return compile_function(context, p_source, p_source_len, p_filename);
 	}
 
+	// Parse `p_source` without executing it. `Script::Compile` already compiles
+	// with `JS_EVAL_FLAG_COMPILE_ONLY`, but it discards the exception and this
+	// needs the message, so `JS_Eval` is called directly with the same flag.
+	template<typename _Placeholder = void>
+	static bool validate_source(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const String &p_origin, const String &p_source, String *r_message, int *r_line, int *r_column) {
+		jsb_unused(context);
+		jsb_unused(p_origin); // accepted for a uniform signature across the impl layers.
+		jsb_unused(r_line); // the engine reports the message only.
+		jsb_unused(r_column);
+
+		JSContext *ctx = isolate->ctx();
+		const CharString source_cs = p_source.utf8();
+		const JSValue func = JS_Eval(ctx, source_cs.get_data(), source_cs.length(), "<validate>", JS_EVAL_FLAG_COMPILE_ONLY | JS_EVAL_TYPE_GLOBAL);
+		if (!JS_IsException(func)) {
+			JS_FreeValue(ctx, func);
+			return true;
+		}
+
+		if (r_message) {
+			const JSValue ex = JS_GetException(ctx);
+			if (QuickJS::IsError(ctx, ex)) {
+				const JSValue err_message = JS_GetProperty(ctx, ex, JS_ATOM_message);
+				*r_message = QuickJS::GetString(ctx, err_message);
+				JS_FreeValue(ctx, err_message);
+			} else {
+				*r_message = QuickJS::GetString(ctx, ex);
+			}
+			JS_FreeValue(ctx, ex);
+			if (r_message->is_empty()) {
+				*r_message = "Failed to parse the script.";
+			}
+		} else {
+			QuickJS::MarkExceptionAsTrivial(ctx);
+		}
+		return false;
+	}
+
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		// js_free(context->GetIsolate()->ctx(), data);
 
