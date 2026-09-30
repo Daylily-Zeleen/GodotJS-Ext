@@ -28,7 +28,7 @@
 #include "jsb_console_output.h"
 
 #include <compat/rw_lock.h>
-#include <godot_cpp/templates/vector.hpp>
+#include <godot_cpp/templates/local_vector.hpp>
 
 #if JSB_WITH_NODE
 #	include "runtime/impl/node/jsb_node_console_hook.h"
@@ -37,7 +37,7 @@
 namespace jsb::internal {
 namespace {
 RWLock lock_;
-Vector<IConsoleOutput *> outputs_; // TODO: LocalVector?
+LocalVector<IConsoleOutput *> outputs_;
 } //namespace
 
 IConsoleOutput::IConsoleOutput() {
@@ -49,7 +49,7 @@ IConsoleOutput::IConsoleOutput() {
 	jsb::impl::console_hook_arm();
 #endif
 	RWLockWrite lock(lock_);
-	outputs_.append(this);
+	outputs_.push_back(this);
 }
 
 IConsoleOutput::~IConsoleOutput() {
