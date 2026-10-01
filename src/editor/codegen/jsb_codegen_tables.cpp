@@ -434,67 +434,67 @@ void build_undo_redo(TypeMutation &t) {
 	add_override(t, "add_undo_property", lit({ m("add_undo_property") + "<T extends " + object_class + ", P extends GodotNames<T>>(object: T, property: P, value: ResolveGodotNameValue<T, P>): void" }));
 }
 
-const HashMap<String, TypeMutation> *s_direct_table = nullptr;
+static HashMap<String, TypeMutation> s_direct_table;
 
 void build_direct_table() {
-	HashMap<String, TypeMutation> *table = new HashMap<String, TypeMutation>();
+	HashMap<String, TypeMutation> &table = s_direct_table;
 	TypeMutation t;
 
 	t = TypeMutation();
 	build_animation_library(t);
-	table->insert("AnimationLibrary", t);
+	table.insert("AnimationLibrary", t);
 
 	t = TypeMutation();
 	build_animation_mixer(t);
-	table->insert("AnimationMixer", t);
+	table.insert("AnimationMixer", t);
 
 	t = TypeMutation();
 	build_animation_player(t);
-	table->insert("AnimationPlayer", t);
+	table.insert("AnimationPlayer", t);
 
 	t = TypeMutation();
 	build_callable(t);
-	table->insert("Callable", t);
+	table.insert("Callable", t);
 
 	t = TypeMutation();
 	build_camera_feed(t);
-	table->insert("CameraFeed", t);
+	table.insert("CameraFeed", t);
 
 	t = TypeMutation();
 	build_editor_undo_redo_manager(t);
-	table->insert("EditorUndoRedoManager", t);
+	table.insert("EditorUndoRedoManager", t);
 
 	t = TypeMutation();
 	build_garray(t);
-	table->insert("GArray", t);
+	table.insert("GArray", t);
 
 	t = TypeMutation();
 	build_gdictionary(t);
-	table->insert("GDictionary", t);
+	table.insert("GDictionary", t);
 
 	t = TypeMutation();
 	build_input(t);
-	table->insert("Input", t);
+	table.insert("Input", t);
 
 	t = TypeMutation();
 	build_input_event(t);
-	table->insert("InputEvent", t);
+	table.insert("InputEvent", t);
 
 	t = TypeMutation();
 	build_node(t);
-	table->insert("Node", t);
+	table.insert("Node", t);
 
 	t = TypeMutation();
 	build_object(t);
-	table->insert(c("Object"), t); // [names.get_class("Object")] key
+	table.insert(c("Object"), t); // [names.get_class("Object")] key
 
 	t = TypeMutation();
 	build_class_db(t);
-	table->insert("ClassDB", t);
+	table.insert("ClassDB", t);
 
 	t = TypeMutation();
 	build_packed_to_array(t, "PackedByteArray", "int8", "PackedByteArray", true);
-	table->insert("PackedByteArray", t);
+	table.insert("PackedByteArray", t);
 
 	struct PackedEntry {
 		const char *cls;
@@ -516,69 +516,63 @@ void build_direct_table() {
 		const PackedEntry &entry = packed_entries[i];
 		t = TypeMutation();
 		build_packed_to_array(t, entry.js_type, entry.element_type, entry.cls, false);
-		table->insert(entry.cls, t);
+		table.insert(entry.cls, t);
 	}
 
 	t = TypeMutation();
 	build_packed_scene(t);
-	table->insert("PackedScene", t);
+	table.insert("PackedScene", t);
 
 	t = TypeMutation();
 	build_resource(t);
-	table->insert("Resource", t);
+	table.insert("Resource", t);
 
 	t = TypeMutation();
 	build_resource_loader(t);
-	table->insert("ResourceLoader", t);
+	table.insert("ResourceLoader", t);
 
 	t = TypeMutation();
 	build_signal(t);
-	table->insert("Signal", t);
+	table.insert("Signal", t);
 
 	t = TypeMutation();
 	build_undo_redo(t);
-	table->insert("UndoRedo", t);
-
-	s_direct_table = table;
+	table.insert("UndoRedo", t);
 }
 
-const HashMap<String, TypeMutation> *s_inherited_table = nullptr;
+static HashMap<String, TypeMutation> s_inherited_table;
 
 void build_inherited_table() {
-	HashMap<String, TypeMutation> *table = new HashMap<String, TypeMutation>();
-
 	{
 		TypeMutation t;
 		t.generic_parameters.push_back({ "NodeMap", gp("NodePathMap", "any") });
 		t.generic_parameters.push_back({ "LibraryMap", gp("AnimationMixerPathMap", "any") });
 		t.super_generic_arguments = { "NodeMap", "LibraryMap" };
-		table->insert("AnimationMixer", t);
+		s_inherited_table.insert("AnimationMixer", t);
 	}
 	{
 		TypeMutation t;
 		t.generic_parameters.push_back({ "Map", gp("NodePathMap", "any") });
 		t.super_generic_arguments = { "Map" };
-		table->insert("Node", t);
+		s_inherited_table.insert("Node", t);
 	}
-
-	s_inherited_table = table;
 }
 
 } // namespace
 
 const TypeMutation *find_direct_mutation(const String &p_name) {
-	if (s_direct_table == nullptr) {
+	if (s_direct_table.is_empty()) {
 		build_direct_table();
 	}
-	const TypeMutation *it = s_direct_table->getptr(p_name);
+	const TypeMutation *it = s_direct_table.getptr(p_name);
 	return it;
 }
 
 const TypeMutation *find_inherited_mutation(const String &p_name) {
-	if (s_inherited_table == nullptr) {
+	if (s_inherited_table.is_empty()) {
 		build_inherited_table();
 	}
-	const TypeMutation *it = s_inherited_table->getptr(p_name);
+	const TypeMutation *it = s_inherited_table.getptr(p_name);
 	return it;
 }
 

@@ -498,19 +498,17 @@ Dictionary build_rpc_config() {
 	return make_object(properties);
 }
 
-HashMap<String, Dictionary> *s_annotation_types = nullptr;
+static HashMap<String, Dictionary> s_annotation_types;
 
 } // namespace
 
 const HashMap<String, Dictionary> &get_annotation_types() {
-	if (s_annotation_types == nullptr) {
-		HashMap<String, Dictionary> *map = new HashMap<String, Dictionary>();
-		map->insert("ClassBinder", build_class_binder());
-		map->insert("ExportOptions", build_export_options());
-		map->insert("RPCConfig", build_rpc_config());
-		s_annotation_types = map;
+	if (s_annotation_types.is_empty()) {
+		s_annotation_types.insert("ClassBinder", build_class_binder());
+		s_annotation_types.insert("ExportOptions", build_export_options());
+		s_annotation_types.insert("RPCConfig", build_rpc_config());
 	}
-	return *s_annotation_types;
+	return s_annotation_types;
 }
 
 } // namespace codegen
