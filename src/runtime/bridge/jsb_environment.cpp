@@ -807,6 +807,9 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 	}
 	if (p_js_owned_non_ref) binding_flags.set_flag(OBF_JS_OWNED);
 	const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void *)p_pointer, p_object, binding_flags, force_weak);
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): trace by ObjectID (low 32 bits) so the test
+	// log's ObjectID can be matched to a native pointer.
+	{ static int n = 0; if (n < 60) { ++n; JSB_LOG(Error, "[jsc-diag] BIND#%d idlo=%d ptr=%d class=%s owned=%d fw=%d", n, (int)(uint32_t)p_pointer->get_instance_id(), (uintptr_t)p_pointer, (String)native_classes_.get_value(p_class_id).name, (int)p_js_owned_non_ref, (int)force_weak); } }
 
 	// 绑定
 	jsb_check(pending_binding_object_ == nullptr);
@@ -903,6 +906,8 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
+	// TEMPORARY DIAGNOSTIC (jsc refcounted)
+	{ static int n = 0; if (n < 60) { ++n; JSB_LOG(Error, "[jsc-diag] REFOBJ#%d idlo=%d ptr=%d %s rc=%d weak=%d", n, (int)(uint32_t)ref_counted->get_instance_id(), (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); } }
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
