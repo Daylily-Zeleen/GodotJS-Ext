@@ -61,7 +61,7 @@ struct PrimitiveAccessBoilerplate {
 		jsb_check(TypeConvert::is_variant(inst.As<v8::Object>()));
 
 		// the lifecycle will be managed by javascript runtime, DO NOT DELETE it externally
-		environment->bind_valuetype(environment->alloc_variant(val), inst.As<v8::Object>());
+		environment->bind_valuetype(environment->alloc_variant(val), inst);
 		info.GetReturnValue().Set(inst);
 		return true;
 	}
