@@ -1119,7 +1119,10 @@ Dictionary GodotJSScriptLanguage::_debug_get_globals(int32_t p_max_subitems, int
 	v8::Context::Scope context_scope(context);
 
 	if (const v8::Local<v8::Object> global = context->Global(); !global.IsEmpty()) {
-		v8::MaybeLocal<v8::Array> maybe_names = global->GetOwnPropertyNames(context);
+		// The filter must be passed explicitly: real v8 defaults it to ALL_PROPERTIES, but
+		// the jsc/quickjs/web shims declare only the key_conversion default, so a
+		// single-argument call compiles on v8 and fails on every other backend.
+		v8::MaybeLocal<v8::Array> maybe_names = global->GetOwnPropertyNames(context, v8::ALL_PROPERTIES);
 		if (!maybe_names.IsEmpty()) {
 			const v8::Local<v8::Array> names_checked = maybe_names.ToLocalChecked();
 			const uint32_t count = names_checked->Length();
