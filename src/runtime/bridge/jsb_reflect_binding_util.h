@@ -188,7 +188,7 @@ JSB_DEFINE_VARIANT_OPAQUE_POINTER(PackedVector3Array, get_vector3_array)
 JSB_DEFINE_VARIANT_OPAQUE_POINTER(PackedColorArray, get_color_array)
 JSB_DEFINE_VARIANT_OPAQUE_POINTER(PackedVector4Array, get_vector4_array)
 
-// TODO: 以下内容改为在构建时根据 extension_api.json 生成，妈的哪来的傻逼全部硬编码
+/** NOTE: 以下是部分热的快调用路径 */
 // not supported
 template <typename OwnerT, typename ReturnT, typename... Ts>
 struct ReflectBuiltinMethodPointerCall {
