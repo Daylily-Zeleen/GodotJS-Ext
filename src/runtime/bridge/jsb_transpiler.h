@@ -52,7 +52,6 @@ struct PrimitiveAccessBoilerplate {
 		return *VariantCaster<T>::from(context, p_val);
 	}
 
-	//TODO test
 	static bool return_(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::FunctionCallbackInfo<v8::Value> &info, const T &val) {
 		Environment *environment = Environment::wrap(isolate);
 		NativeClassID class_id;

@@ -34,7 +34,6 @@
 
 #include "internal/jsb_settings.h"
 
-// TODO: 摆脱 editor 依赖
 #if JSB_TOOLS
 #	include <godot_cpp/classes/engine.hpp>
 #	include "compat/editor_settings.h"
@@ -65,7 +64,6 @@ static constexpr char kRtSourceMapEnabled[] = JSB_MODULE_NAME_STRING "/runtime/l
 static constexpr char kRtDebugMaxStackFrames[] = JSB_MODULE_NAME_STRING "/runtime/debugger/max_stack_frames";
 
 void init_runtime_settings() {
-	// TODO: 考虑挪到 jsb_editor_setting 中，并移除 godot-jsb 模块 (BridgeModuleLoader) 中的依赖，让runtime不再需要
 	_GLOBAL_DEF(kRtCamelCaseBindingsEnabled, false, JSB_SET_RESTART(true), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
 
 	_GLOBAL_DEF(kRtSourceMapEnabled, true, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
