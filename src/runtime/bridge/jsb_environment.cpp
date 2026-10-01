@@ -81,7 +81,7 @@ struct EnvironmentStore {
 		std::vector<std::shared_ptr<Environment>> rval;
 		std::lock_guard lock(mutex_);
 		for (void *ptr : all_runtimes_) {
-			//TODO check if it's not removed from `all_runtimes_` but being destructed already (consider remove it from the list immediately on destructor called)
+			// 已强制要求 Environment 在析构前执行 dispose(), 并确保它在析构开头从列表中移除。
 			Environment *env = (Environment *)ptr;
 			rval.push_back(env->shared_from_this());
 		}
@@ -93,7 +93,7 @@ struct EnvironmentStore {
 		std::shared_ptr<Environment> rval;
 		std::lock_guard lock(mutex_);
 		if (all_runtimes_.has(p_runtime)) {
-			//TODO check if it's not removed from `all_runtimes_` but being destructed already (consider remove it from the list immediately on destructor called)
+			// 已强制要求 Environment 在析构前执行 dispose(), 并确保它在析构开头从列表中移除。
 			Environment *env = (Environment *)p_runtime;
 			rval = env->shared_from_this();
 		}
@@ -120,7 +120,7 @@ struct EnvironmentStore {
 		}
 
 		for (void *ptr : all_runtimes_) {
-			//TODO check if it's not removed from `all_runtimes_` but being destructed already (consider remove it from the list immediately on destructor called)
+			// 已强制要求 Environment 在析构前执行 dispose(), 并确保它在析构开头从列表中移除。
 			Environment *env = (Environment *)ptr;
 			if (env->is_shadow_realm()) {
 				// ShadowRealm 环境是寄生于宿主线程的临时环境，永远不应成为"当前线程环境"的答案。
@@ -389,12 +389,11 @@ Environment::Environment(const CreateParams &p_params)
 
 // no JS code should be executed in the destructor.
 Environment::~Environment() {
-	//TODO not always safe
-	if ((flags_ & EF_PreDispose) == 0) {
-		JSB_LOG(Warning, "Environment is not disposed before destructing it %s", (uintptr_t)id());
-		;
-		check_internal_state();
-		dispose();
+	CRASH_COND_MSG((flags_ & (EF_PreDispose | EF_PostDispose)) != (EF_PreDispose | EF_PostDispose), "Environment should be called 'dispose()' before being destructed.");
+
+	if (EnvironmentStore::get_shared().exists(this)) {
+		/** 确保从列表中移除，防止任何回调在JS 环境析构时 执行 JS 代码*/
+		EnvironmentStore::get_shared().remove(this);
 	}
 
 	JSB_LOG(Verbose, "destructing Environment %s", (uintptr_t)id());
