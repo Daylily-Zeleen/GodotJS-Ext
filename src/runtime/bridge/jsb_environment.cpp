@@ -237,6 +237,10 @@ private:
 	 * @param p_reference Ref 还是 Unref 操作
 	 */
 	static GDExtensionBool reference_callback(void *p_token, void *p_binding, GDExtensionBool p_reference) {
+		// TEMPORARY DIAGNOSTIC (jsc refcounted): reaching the failure branch here returns
+		// true, which tells Godot "the extension will delete it" - but nothing ever does,
+		// leaving the RefCounted at rc==0 forever. Confirm it is actually hit.
+		{ static int n = 0; if (n < 30) { ++n; const bool has_env = !!EnvironmentStore::get_shared().access(p_token); JSB_LOG(Error, "[jsc-diag] REFCB#%d ptr=%d %s has_env=%d", n, (uintptr_t)p_binding, p_reference ? "REF" : "DEREF", (int)has_env); } }
 		if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token)) {
 			if (env->verify_object(p_binding) && env->add_async_call(p_reference ? Environment::AsyncCall::TYPE_REF : Environment::AsyncCall::TYPE_DEREF, p_binding)) {
 				//NOTE Always return false to avoid `delete` in godot unreference() call,
