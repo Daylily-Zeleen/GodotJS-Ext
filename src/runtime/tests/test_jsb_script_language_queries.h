@@ -309,8 +309,19 @@ TEST_CASE("[runtime] [jsb.lang] debug stack hooks report a real stack, never an 
 	// The expression box, exercised while a frame WAS current: a global resolves, and
 	// a name that exists nowhere yields the VM's own ReferenceError rather than a
 	// fabricated answer.
+	//
+	// Guarded to the backends that can snapshot a live stack: the hook refuses every
+	// level when the snapshot is empty (see `_debug_parse_stack_level_expression`), and
+	// jsc/web expose no stack introspection at all -- so on those the frame does not
+	// exist and there is nothing to evaluate against. Asserting here would demand
+	// inventing a frame. (The out-of-range refusal in this block stays unconditional:
+	// it must hold on every backend, empty snapshot or not.)
+#	if JSB_WITH_V8 || JSB_WITH_NODE
 	CHECK(probe_expr_ok == "12345");
 	CHECK(probe_expr_err.contains("__jsb_absent_symbol__"));
+#	endif
+	jsb_unused(probe_expr_ok);
+	jsb_unused(probe_expr_err);
 
 	// The stack the hooks themselves report during that call: the frame count the
 	// engine would enumerate, the frame's function, and the standalone stack-info
