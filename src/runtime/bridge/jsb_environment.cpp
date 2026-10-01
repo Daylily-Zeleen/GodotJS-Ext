@@ -807,9 +807,6 @@ NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *
 	}
 	if (p_js_owned_non_ref) binding_flags.set_flag(OBF_JS_OWNED);
 	const NativeObjectID object_id = bind_pointer(p_class_id, NativeClassType::GodotObject, (void *)p_pointer, p_object, binding_flags, force_weak);
-	// TEMPORARY DIAGNOSTIC (jsc refcounted): trace by ObjectID (low 32 bits) so the test
-	// log's ObjectID can be matched to a native pointer.
-	{ static int n = 0; if (n < 60) { ++n; JSB_LOG(Error, "[jsc-diag] BIND#%d idlo=%d ptr=%d class=%s owned=%d fw=%d", n, (int)(uint32_t)p_pointer->get_instance_id(), (uintptr_t)p_pointer, (String)native_classes_.get_value(p_class_id).name, (int)p_js_owned_non_ref, (int)force_weak); } }
 
 	// 绑定
 	jsb_check(pending_binding_object_ == nullptr);
@@ -840,6 +837,9 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 #endif
 
 	jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): is each rebind handed a NEW JSObject, and
+	// was the handle empty before this Reset?
+	{ static int n = 0; if (n < 80) { ++n; JSB_LOG(Error, "[jsc-diag] RESET#%d native=%d was_empty=%d weak=%d", n, (uintptr_t)p_pointer, (int)handle->ref_.IsEmpty(), (int)handle->ref_.IsWeak()); } }
 	handle->ref_.Reset(get_isolate(), p_object);
 
 	if (p_fore_weak) {
