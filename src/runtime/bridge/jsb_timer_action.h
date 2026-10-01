@@ -37,20 +37,24 @@ struct JavaScriptTimerAction {
 	}
 
 	_FORCE_INLINE_ JavaScriptTimerAction(v8::Global<v8::Function> &&p_func, int p_argc) : argc_(p_argc) {
-		function_ = new v8::Global<v8::Function>(std::move(p_func));
+		function_ = memnew(v8::Global<v8::Function>(std::move(p_func)));
 
 		if (p_argc > 0) {
-			argv_ = new v8::Global<v8::Value>[p_argc];
+			argv_ = memnew_arr(v8::Global<v8::Value>, p_argc);
 		} else {
 			argv_ = nullptr;
 		}
 	}
 
 	_FORCE_INLINE_ ~JavaScriptTimerAction() {
-		delete function_;
-		delete[] argv_;
-		function_ = nullptr;
-		argv_ = nullptr;
+		if (function_) {
+			memdelete(function_);
+			function_ = nullptr;
+		}
+		if (argv_) {
+			memdelete_arr(argv_);
+			argv_ = nullptr;
+		}
 	}
 
 	JavaScriptTimerAction(JavaScriptTimerAction &p_other) = delete;
@@ -66,8 +70,8 @@ struct JavaScriptTimerAction {
 
 	_FORCE_INLINE_ JavaScriptTimerAction &operator=(JavaScriptTimerAction &&p_other) noexcept {
 		if (this != &p_other) {
-			delete function_;
-			delete[] argv_;
+			if (function_) memdelete(function_);
+			if (argv_) memdelete_arr(argv_);
 
 			function_ = p_other.function_;
 			argc_ = p_other.argc_;
