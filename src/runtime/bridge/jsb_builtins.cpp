@@ -114,9 +114,12 @@ void Builtins::_require(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 void Builtins::_gc(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): does JS `gc()` actually reach the engine?
+	JSB_LOG(Error, "[jsc-diag] JSGC invoke");
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	Environment::wrap(context)->gc();
+	JSB_LOG(Error, "[jsc-diag] JSGC done");
 }
 
 } //namespace jsb
