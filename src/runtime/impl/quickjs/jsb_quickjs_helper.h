@@ -306,11 +306,7 @@ public:
 		for (int level = 0; level < p_limit; ++level) {
 			const JSAtom file = JS_GetScriptOrModuleName(ctx, level);
 			if (file == JS_ATOM_NULL) {
-				// JS_ATOM_NULL means "no name at this level", which happens both past the
-				// end of the stack and for a frame with no bytecode -- notably a native C
-				// function, which is exactly frame 0 when this is called from a callback.
-				// Skipping (not stopping) keeps the real JS frames; the loop stays bounded
-				// by p_limit.
+				/** NOTE: Native 帧无法获取文件名等信息（通常是首帧），这里进行跳过，只记录 JS 调用帧。*/
 				continue;
 			}
 			const JSValue file_value = JS_AtomToString(ctx, file);
