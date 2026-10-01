@@ -1184,7 +1184,18 @@ void GodotJSEditorPlugin::generate_scene_nodes_types(std::function<void(bool)> c
 		return;
 	}
 
-	// P1: pure C++ codegen, no JS runtime involved.
+	// P1: pure C++ codegen, no JS runtime involved -- but it reads the api store for
+	// primitive/class declarations and asserts when a class is missing. An editor start
+	// that reaches codegen before the store exists (e.g. a first run that dumps the api
+	// afterwards) would otherwise abort the process before the caller can report it.
+	if (!api_tool::is_loaded()) {
+		JSB_LOG(Warning, "generate_scene_nodes_dts: api store not loaded yet; skipping (regenerate the api data)");
+		if (complete) {
+			complete(false);
+		}
+		return;
+	}
+
 	jsb::codegen::SceneTSDGenerator generator("./" + jsb::internal::settings::editor::get_autogen_path(), filtered_paths);
 	const bool success = generator.emit();
 
@@ -1231,7 +1242,16 @@ void GodotJSEditorPlugin::generate_resource_types(std::function<void(bool)> comp
 		return;
 	}
 
-	// P1: pure C++ codegen, no JS runtime involved.
+	// P1: pure C++ codegen, no JS runtime involved -- but it reads the api store (same
+	// reason as generate_scene_nodes_types above).
+	if (!api_tool::is_loaded()) {
+		JSB_LOG(Warning, "generate_resource_dts: api store not loaded yet; skipping (regenerate the api data)");
+		if (complete) {
+			complete(false);
+		}
+		return;
+	}
+
 	jsb::codegen::ResourceTSDGenerator generator("./" + jsb::internal::settings::editor::get_autogen_path(), filtered_paths);
 	const bool success = generator.emit();
 
