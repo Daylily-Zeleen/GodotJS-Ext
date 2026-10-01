@@ -495,9 +495,6 @@ void Isolate::_BridgeInstance_finalizer(JSObjectRef obj) {
 	if (jsb::impl::InternalData *data = (jsb::impl::InternalData *)JSObjectGetPrivate(obj)) {
 		v8::Isolate *isolate = (v8::Isolate *)data->isolate;
 		JSB_JSC_LOG(VeryVerbose, "remove internal data JSObject:%s id:%s", (uintptr_t)obj, (uintptr_t)data);
-		// TEMPORARY DIAGNOSTIC (jsc refcounted): internal_fields[0] is the native pointer,
-		// so this ties each collected JS wrapper to its Godot object.
-		{ static int n = 0; if (n < 60) { ++n; JSB_JSC_LOG(Error, "[jsc-diag] FIN#%d js=%d ptr=%d cb=%d", n, (uintptr_t)obj, (uintptr_t)data->internal_fields[0], (uintptr_t)data->weak.callback); } }
 
 		{
 			std::lock_guard lock(isolate->pending_finalize_mutex_);

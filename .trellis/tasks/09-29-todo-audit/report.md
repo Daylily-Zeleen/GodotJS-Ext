@@ -1129,3 +1129,43 @@ handle_crash: Program crashed with signal 11
 3. **给未支持的后端加 CI 腿，先想清楚它的结论是否应当阻断**。加腿本身是对的（jsc 的三个
    问题里有两个是它第一次暴露的），但把一个自称 NOT SUPPORTED 的后端设为门禁，结果只会是
    「大家都习惯忽略红 CI」。
+
+
+### 26. jsc refcounted 失败：已确认的对象生命周期（2026-10-02）
+
+用 ObjectID 的低 32 位把测试打印的 `ObjectID=9223372076549670391` 与 native 指针
+对上：**测试的 Resource 是 `idlo=1040188919 ptr=53521357008`**。完整轨迹：
+
+```
+BIND#50   ptr=53521357008 Resource owned=1     <- new Resource() 建立绑定
+REFOBJ#12 DEC rc=1 weak=0                      <- 弱化
+REFOBJ#13 INC rc=2 weak=1                      <- 变强
+BIND#51   ptr=53521356912 WeakRef               <- weakref(object)
+REFOBJ#15 DEC rc=1 weak=0
+REFOBJ#16 INC rc=2 weak=1
+BIND#52..58  ptr=53521357008 Resource owned=0  x7   <- 反复重绑 7 次
+FIN#46..49   ptr=53521357008 cb=0              x4   <- wrapper 被回收 4 次
+BIND#59   ptr=53521357008 Resource owned=0
+REFOBJ#17 DEC rc=1 weak=0                      <- gc() 之前：handle 已弱化
+JSGC invoke / JSGC done                        <- 测试调用 gc()
+REFOBJ#18 INC rc=2 weak=1                      <- gc() 之后：get_ref() 把 rc 抬到 2
+REFOBJ#19 DEC rc=1 weak=0
+FIN#50..60   ... 没有 53521357008              <- 该 wrapper 此后再未被回收
+```
+
+**关键**：gc() 之前 handle 已弱化（`REFOBJ#17 DEC rc=1 weak=0`），gc() 之后该
+wrapper **没有被 finalize**，随后 `get_ref()` 返回非 null。
+
+**已排除**（都有日志实证）：
+- `_BridgeInstance_finalizer` 不跑 -> 否，跑了 60+ 次
+- `shadow_` 强引 -> 否，SETWEAK 与 FIN 的对象大量相交
+- inc/dec 不配对 -> 否，结束态是 weak
+- `reference_callback` 走失败分支 -> 否，`verify=0` 计数为 0
+- `JS gc()` 没到引擎 -> 否，`JSGC invoke/done` 都在
+
+**下一步（精准探针，代价低）**：只对 `ptr=53521357008` 打印每一次
+protect/unprotect 配对（在 jsc `Global::Reset/SetWeak/ClearWeak` 里按对象地址过滤），
+确认最后一次弱化之后是否仍有残留 protect。
+
+**注意**：`bind_pointer` 在对象已绑定时复用同一 handle（`object_db_.add_object`
+返回既有 entry），所以 7 次重绑不会各自新增 protect。
