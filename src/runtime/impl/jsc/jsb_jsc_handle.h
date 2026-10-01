@@ -259,7 +259,10 @@ public:
 
 		if (weak_type_ == WeakType::kWeakCallback) {
 			// clear callback
-			const JSObjectRef obj = jsb::impl::JavaScriptCore::AsObject(ctx, value_);
+			// NOTE: `value_` is nullptr while this handle is weak (see `SetWeak`): the object
+			// must be read back through `shadow_`, otherwise `Broker::SetWeak` bails out on
+			// its `!value` guard and the previous weak callback stays registered.
+			const JSObjectRef obj = JSWeakGetObject(shadow_);
 			jsb::impl::Broker::SetWeak(isolate_, obj, nullptr, nullptr);
 		}
 
