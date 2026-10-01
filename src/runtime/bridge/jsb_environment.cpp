@@ -898,6 +898,8 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): rate-limited, 30 hits max
+	{ static int n = 0; if (n < 30) { ++n; JSB_LOG(Error, "[jsc-diag] REF#%d ptr=%d %s rc=%d weak_before=%d", n, (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); } }
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
@@ -922,6 +924,8 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 		if (ref_count == 1) // 正常情况下 JS 会持有一个引用
 		{
 			object_handle->ref_.SetWeak((void *)p_pointer, &object_gc_callback, v8::WeakCallbackType::kInternalFields);
+			// TEMPORARY DIAGNOSTIC (jsc refcounted)
+			{ static int n = 0; if (n < 30) { ++n; JSB_LOG(Error, "[jsc-diag] WEAKENED#%d ptr=%d weak_after=%d", n, (uintptr_t)p_pointer, (int)object_handle->ref_.IsWeak()); } }
 		}
 		return true;
 	}
