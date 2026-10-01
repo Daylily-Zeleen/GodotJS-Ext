@@ -112,6 +112,13 @@ function(key, value, getter, setter) {
 		JSB_JSC_DEFINE_ATOM(Set);
 		JSB_JSC_DEFINE_ATOM(Promise);
 		JSB_JSC_DEFINE_ATOM(ArrayBuffer);
+		// Must mirror the JS_ATOM_* enum in jsb_jsc_typedef.h exactly: the check in
+		// JSB_JSC_DEFINE_ATOM compares each name against the running index, so leaving
+		// these out shifted every following atom and tripped
+		//   jsb_check(JS_ATOM_get == _atom_index_gen_)
+		// at isolate construction.
+		JSB_JSC_DEFINE_ATOM(Symbol);
+		JSB_JSC_DEFINE_ATOM(Proxy);
 
 		// the following ATOMs may be unnecessary
 		JSB_JSC_DEFINE_ATOM(get);

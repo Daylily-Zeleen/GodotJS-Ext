@@ -306,7 +306,12 @@ public:
 		for (int level = 0; level < p_limit; ++level) {
 			const JSAtom file = JS_GetScriptOrModuleName(ctx, level);
 			if (file == JS_ATOM_NULL) {
-				break; // no such level: end of the stack.
+				// JS_ATOM_NULL means "no name at this level", which happens both past the
+				// end of the stack and for a frame with no bytecode -- notably a native C
+				// function, which is exactly frame 0 when this is called from a callback.
+				// Skipping (not stopping) keeps the real JS frames; the loop stays bounded
+				// by p_limit.
+				continue;
 			}
 			const JSValue file_value = JS_AtomToString(ctx, file);
 			DebugStackFrame frame;

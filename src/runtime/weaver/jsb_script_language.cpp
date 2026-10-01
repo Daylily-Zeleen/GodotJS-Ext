@@ -975,6 +975,14 @@ void GodotJSScriptLanguage::_refill_debug_stack() const {
 		return;
 	}
 
+	// 只允许在拥有该 Environment 的线程上进入 V8：node 模式的运行时线程终身持有
+	// `v8::Locker`，其它线程（例如打印错误时的 ScriptServer 回溯路径）进入 V8 会触发
+	// "Entering the V8 API without proper locking"，而该平台锁在别的线程上取不到
+	// （会与运行时线程互锁）。所以这里按线程如实拒绝，而不是冒险进入。
+	if (!env->is_caller_thread()) {
+		return;
+	}
+
 	v8::Isolate *isolate = env->get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
@@ -1021,6 +1029,11 @@ bool GodotJSScriptLanguage::_evaluate_debug_expression(const String &p_expressio
 	}
 	const std::shared_ptr<jsb::Environment> &env = environment_;
 	if (!env) {
+		return false;
+	}
+
+	// 同 `_refill_debug_stack`：非本环境线程不得进入 V8。
+	if (!env->is_caller_thread()) {
 		return false;
 	}
 
@@ -1109,6 +1122,11 @@ Dictionary GodotJSScriptLanguage::_debug_get_globals(int32_t p_max_subitems, int
 	}
 	const std::shared_ptr<jsb::Environment> &env = environment_;
 	if (!env) {
+		return globals;
+	}
+
+	// 同 `_refill_debug_stack`：非本环境线程不得进入 V8。
+	if (!env->is_caller_thread()) {
 		return globals;
 	}
 
