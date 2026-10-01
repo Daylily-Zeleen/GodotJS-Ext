@@ -896,7 +896,12 @@ static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env,
 			impl::TryCatch try_catch1(p_guest_isolate);
 			deserializer.ReadHeader(host_context).Check();
 			v8::Local<v8::Value> result = deserializer.ReadValue(host_context).ToLocalChecked();
-			delete[] data.first;
+			// `ValueSerializer::Release` hands the buffer to the caller, allocated by the
+			// backend's own allocator (jsc uses memalloc, v8/web use the default free(), ...).
+			// Free it with the matching backend free: `delete[]` is wrong for every one of
+			// them, and on jsc it trips "pointer being freed was not allocated" outright.
+			// The other consumer, `Buffer::drop()`, already uses `impl::Helper::free`.
+			impl::Helper::free(data.first);
 
 			ERR_FAIL_COND_V_MSG(try_catch1.has_caught(), {}, BridgeHelper::get_exception(try_catch1));
 
