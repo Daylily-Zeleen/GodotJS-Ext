@@ -900,3 +900,232 @@ JSC 后端在 Windows 上不参与构建（`SConstruct:957` 仅在 `JSB_WITH_JAV
 
 - **无运行证据**：JSC 只能在 macOS/iOS 上真正链接运行，本机未执行过这段代码。
   并发正确性目前只有「编译通过 + 推理」，交 CI / macOS 验证。
+
+---
+
+## 20. P1 生命周期（1/2/3）+ CI 修复
+
+### 20.1 `EnvironmentStore` 三处 UAF 风险（`:84/96/123`）— 已修
+
+**问题**：`get_list()` / `access()` 扫描 `all_runtimes_` 时对裸指针调 `shared_from_this()`。
+原注释自己写着「需要确认它没被从表里摘掉但正在析构」——因为 `remove(this)` 只在
+`dispose()` **尾部**调用（HEAD 全文只有这一处 remove）。
+
+**触发窗口是 `~Environment` 路径**：析构时若 `EF_PreDispose` 未置位，析构会调用
+`dispose()`，此后**除 `this` 外已无任何 `shared_ptr`**（是它触发的析构）。而 HEAD 的
+`remove` 在 `dispose()` 末尾，于是从 `~Environment` 进入直到 dispose 结束，对象一直留在
+表里、`use_count == 0`——这期间任何 `get_list()`/`access()` 命中它并调
+`shared_from_this()` 都是 **use-after-free**（`enable_shared_from_this` 的控制块已死）。
+
+**修法**（注释自己建议的「析构时立即从列表移除」）：把 `remove(this)` 从 `dispose()`
+**尾部提到开头**（`flags_ |= EF_PreDispose` 之后、任何拆除之前）。
+
+- 只有这一处 remove（尾部那处已删）。
+- `remove()` 保持原来的 `jsb_check(all_runtimes_.has(...))` **未改**（唯一调用点已
+  被上面的析构分支用 `EF_PreDispose` 门禁，不会二次调用）。
+- `internal_access()` 与 `exists()` 只做指针比较、不解引用，不属此列。
+
+### 20.2 `~Environment` 的 `//TODO not always safe`（`:392`）— 已改写为事实
+
+**实情（与 TODO 字面不同）**：析构里的 `dispose()` 只在「从未 dispose 过」时执行，
+即 owner 直接丢掉了最后一个 `shared_ptr`（正常路径是 `_finish() -> dispose()`，
+worker/shadow 同理）。但 `dispose()` 会跑完整 JS 拆除（weak 回调、对象 finalizer），
+与紧邻注释「no JS code should be executed in the destructor」直接矛盾——这正是
+「not always safe」所指。
+
+**处置**：**只改写注释**为事实说明（冷路径 + 为何作为最后手段保留），并在 20.1 里把这个
+路径的 UAF 窗口堵上。**未**新增 `dispose()` 幂等守卫、**未**在析构里加第二次 remove：
+逐条核对调用点后确认二次 dispose 不可达（`_finish` 单次；`~Environment` 受
+`EF_PreDispose` 门禁；`dispose()` 自身不会递归），加防御性代码会掩盖后续误用。
+
+### 20.3 timer 未捕获异常（`:531`）— TODO 描述与事实不符，已改写
+
+**核查结论**：timer 异常**没有被吞**。`JavaScriptTimerAction::operator()`
+（`jsb_timer_action.cpp:45-73`）已用 `impl::TryCatch` 包住调用并
+`JSB_LOG(Error, "timer error %s", BridgeHelper::get_exception(try_catch))`；
+`JSB_LOG(Error)` 经 `jsb_logger.h` 走 `IConsoleOutput::internal_write` +
+`godot::_err_print_error`，**会进编辑器错误面板**。
+
+真正**未做**的是 TODO 第二句：转发给所属 worker 的 `onerror`（worker 错误走
+`Message::TYPE_ERROR`，`_on_worker_message:740`），目前无代码把本地 timer 异常转成这条
+消息。**处置**：按事实改写注释，保留该真实缺口，不做无法验证的改动。
+
+### 20.4 CI 修复：`_debug_get_globals` 的 v8-only 默认参数（**已提交推送**）
+
+CI（run `36782280664`）在 12 个建腿里失败 5 个：macos-jsc 与全部 qjs-ng。
+
+```
+jsb_script_language.cpp:1122:78: error: too few arguments to function call, expected at least 2, have 1
+```
+
+**是我的错**：`5172cc2` 里写的 `global->GetOwnPropertyNames(context)` 依赖**真实 v8 的
+`filter` 默认参数**；而 jsc/quickjs/web 三个 shim（`jsb_{jsc,quickjs,web}_object.h:64-65`）
+只声明了 `key_conversion` 的默认值、**没有 `filter` 默认值**。于是「Windows/v8 能编过、
+其余后端编不过」——我此前只验证了 v8 腿，没验证别的后端。
+
+**修法**：显式传 `v8::ALL_PROPERTIES`（与真实 v8 默认一致，三处 shim 均已定义该枚举）。
+
+**验证（实测，不是推理）**：
+1. `scons platform=windows target=editor use_quickjs_ng=yes`（复刻 CI 的 Windows qjs 腿）
+   → **原样复现同一错误**（`scons: *** [jsb_script_language...obj] Error 2`）。
+2. 改回单参、删除 obj 强制重编 → 仍失败；加上 `v8::ALL_PROPERTIES` → `done building targets`。
+3. jsc shim：`clang++ -fsyntax-only` 编译 `jsb_script_language.cpp`（`-DJSB_WITH_JAVASCRIPTCORE=1`
+   + `bridge_pch.h`）→ rc=0，零诊断。
+4. v8 回归：构建 rc=0；doctest **81/81、1214/1214**；冒烟 rc=0 + `GODOTJS_TEST_PROJECT_COMPLETED`。
+
+**教训**：`v8::` 命名空间下的调用在 v8 腿编译通过**不能证明**其余后端可用——shim 的默认
+参数不保证与真实 v8 一致。涉及 `v8::` API 的改动必须在至少一个 shim 后端（quickjs 最省事，
+Windows 就能编）上编译一次。
+
+### 20.5 未提交内容 / 未做部分
+
+- 20.1–20.3 改动**未提交**（本轮指令：P1 不要提交）。
+- **未加专门回归测试**：20.1/20.2 依赖「未 dispose 直接析构 + 并发查询」竞态，无法确定性
+  复现；没有可复现的失败前置条件，故只做冒烟与推理，不编造测试。
+
+---
+
+## 21. CI 转红：三个后端各自的问题（已修复并推送 `922c25e`）
+
+run `36783896788`（`20a53d3`）在 12 条腿里失败 5 条：**macos-jsc 与全部 qjs-ng 构建**、
+以及 **host-qjs / host-node×3 / host-jsc** 测试。逐条定位如下。
+
+### 21.1 构建红：`_debug_get_globals` 用了 v8-only 默认参数（`20a53d3` 已修）
+
+```
+jsb_script_language.cpp:1122:78: error: too few arguments to function call, expected at least 2, have 1
+```
+`global->GetOwnPropertyNames(context)` 依赖**真实 v8 的 `filter` 默认参数**；jsc/quickjs/web
+三个 shim（`jsb_{jsc,quickjs,web}_object.h:64-65`）只声明了 `key_conversion` 的默认值。
+**Windows/v8 能编过、其余后端编不过**——我此前只验了 v8 腿。显式传 `v8::ALL_PROPERTIES`。
+
+**实测复现**：`scons platform=windows target=editor use_quickjs_ng=yes` 原样报同一错误；
+修正后同一命令 `done building targets`。jsc 侧另用 `clang++ -fsyntax-only`
+（`-DJSB_WITH_JAVASCRIPTCORE=1`）过 `jsb_script_language.cpp`，rc=0。
+
+**教训**：`v8::` API 在 v8 腿编过**不能证明**其余后端可用——shim 的默认参数不保证与真实 v8 一致。
+**quickjs 在 Windows 上可构建**，是这类改动最省事的回归后端。
+
+### 21.2 quickjs 测试红：`snapshot_stack` 在 0 层就停
+
+`test_jsb_script_language_queries.h:312-313`（`probe_expr_ok == "12345"` 等）在 qjs 上失败。
+
+**根因**：`JS_GetScriptOrModuleName(ctx, level)` 对**无字节码的帧**返回 `JS_ATOM_NULL`；
+而调用它时**第 0 帧正是那个原生探针函数**（C 函数，无字节码）。我原来把 `NULL` 当作
+「栈到此为止」直接 `break`，于是永远取不到任何 JS 帧 → `_debug_parse_stack_level_expression`
+因「没有帧」提前返回，表达式框拿不到值。
+
+**修法**：把 `break` 改为 `continue`——`NULL` 表示「此层无名」而非「栈结束」，跳过该层即可
+（循环仍受 `p_limit` 约束）。
+
+**实测**：本机构建 `platform=windows use_quickjs_ng=yes dev_build=yes tests=yes`，
+原样复现失败（`81 passed | 1 failed`）；修复后 **82/82、1210/1210、rc=0**。
+
+### 21.3 jsc 测试红：`JSB_JSC_DEFINE_ATOM` 漏了两个 atom
+
+```
+FATAL: Condition "!(jsb::impl::JS_ATOM_get == _atom_index_gen_)" is true.
+```
+`JSB_JSC_DEFINE_ATOM(AtomName)` 会断言 `JS_ATOM_##AtomName == _atom_index_gen_`（逐一递增）。
+`jsb_jsc_typedef.h` 的枚举里有 `JS_ATOM_Symbol`、`JS_ATOM_Proxy`，但
+`jsb_jsc_isolate.cpp` 的定义序列**漏了这两个**，导致其后每个 atom 的序号都错位，
+在 `JS_ATOM_get` 处触发断言（isolate 构造即崩）。
+
+**修法**：补上 `JSB_JSC_DEFINE_ATOM(Symbol);` 与 `(Proxy);`。已按枚举逐项核对序号
+（修正前在第 12 项开始错位，修正后 18 项逐一吻合）。
+
+**限制**：jsc 本机不能运行，此修复**只有静态核对 + `clang++ -fsyntax-only`（15/15 TU rc=0）**，
+最终仍需 macOS 腿确认。
+
+### 21.4 node 测试红：`HandleScope` 缺 `v8::Locker`（**经三轮才定位正确**）
+
+```
+FATAL ERROR: HandleScope::HandleScope Entering the V8 API without proper locking in place
+```
+native 栈指向：打印一条 JSB 警告 → `_err_print_error` → `ScriptServer::capture_script_backtraces`
+→ **我新实现的 `_debug_get_current_stack_info`** → `HandleScope`。
+
+**第一版尝试（错）**：把 `v8::Locker` 加进 `JSB_ISOLATE_SCOPE`（对所有 node 调用点生效）
+→ **doctest 挂死**。**第二版尝试（也错）**：只在三个 hook 前加 `JSB_NODE_V8_LOCKER`
+→ **同样挂死**。原因：`NodeRuntime` 在第 61 行**终身持有** `v8::Locker`，别的线程去取
+会**永久互锁**。
+
+**这意味着崩溃点本身就在别的线程上**（能拿到锁的线程不会报这个错）。也就是说：
+`_err_print_error` 的 `capture_script_backtraces` 可以从**任意线程**发起，
+而我的 hook 无条件进入 V8。
+
+**正确修法**：**按线程如实拒绝**。`Environment` 已有
+`is_caller_thread()`（`jsb_environment.h:502`），三个进入 V8 的 hook
+（`_refill_debug_stack` / `_evaluate_debug_expression` / `_debug_get_globals`）
+在非本环境线程时直接返回空结果，不进入 V8。
+
+**实测**：本机构建 `platform=windows use_node=yes dev_build=yes tests=yes`，
+修复前 smoke rc=134（复现同一 FATAL）；修复后 **doctest 83/83、1088/1088**、
+**smoke rc=0 + `GODOTJS_TEST_PROJECT_COMPLETED`**。另用二分确认：
+`0e7d01b7`(last green) rc=0 → `1fff25c` rc=0 → `ae8b0b4` rc=134，把范围锁到 debug-hook 那几个提交。
+
+### 21.5 本轮验证矩阵（全部本机实测）
+
+| 后端 | 构建 | doctest | 冒烟 |
+|---|---|---|---|
+| v8 | rc=0 | 81/81、1214/1214 | rc=0 + COMPLETED |
+| quickjs | rc=0 | 82/82、1210/1210 | rc=0 + COMPLETED |
+| node | rc=0 | 83/83、1088/1088 | rc=0 + COMPLETED |
+| jsc | 仅 `clang++ -fsyntax-only` 15/15 | 不能运行 | 不能运行 |
+
+**教训（三条，都可复用）**：
+1. 「v8 腿过了」不等于改对了——涉及 `v8::` API 的改动至少要在 quickjs（Windows 可编可跑）上验一次。
+2. shim 的**默认参数**与真实 v8 不一致，是最容易漏的一类不兼容。
+3. 引擎的**错误打印路径会回调脚本语言的回溯 hook**，因此这类 hook 可能在**任意线程**被调用；
+   在 node 上前提是持有 `v8::Locker`，而该锁只有运行时线程能拿。
+
+---
+
+## 22. CI 收绿（`fa4eec5`）与 jsc 腿的定位
+
+### 22.1 结果
+
+`run 36793893040`（`fa4eec5`）**completed success**。全部构建腿与 host-v8 / host-qjs /
+host-node×3 测试腿通过；**host-jsc 仍失败，但已标记为 informational**
+（`continue-on-error: ${{ matrix.runtime == 'host-jsc' }}`），不再阻断工作流。
+
+### 22.2 jsc 腿为什么失败（**不是**这次改动引入的）
+
+崩溃发生在**编辑器 API 生成阶段**、测试套件尚未开始：
+
+```
+ERROR: builtin class not found: Vector2
+   at: _load_primitive_type (src/editor/codegen/jsb_codegen_type_db.cpp:312)
+handle_crash: Program crashed with signal 5
+handle_crash: Program crashed with signal 11
+```
+
+即 `--headless --editor --dump-extension-api-with-docs` 路径在 jsc 后端下崩溃。
+这条管线**此前从未在 jsc 上跑过**——是我新加的那条测试腿第一次让它被跑到。
+后端自身也标着（`jsb_jsc_pch.h:35`）：
+`//TODO WARNING: ONLY FOR DEV, NOT SUPPORTED TO BUILD. REMOVE IT AFTER jsc.impl IS READY.`
+
+**处置**：保留该腿（它的价值就是让 jsc 的缺口可见），但用 `continue-on-error` 不阻断
+其它腿的信号。等 jsc 宣布可用后应删除该标志。
+
+### 22.3 本轮真正修掉的（对照 21 节）
+
+| 问题 | 归属 | 状态 |
+|---|---|---|
+| `GetOwnPropertyNames` 缺 `filter` 默认参数 | 我（`5172cc2`） | 已修 `20a53d3` |
+| qjs `snapshot_stack` 在 0 层即停 | 我（`23cd8c9`） | 已修 `922c25e` |
+| jsc atom 枚举漏 `Symbol`/`Proxy` | 既有（jsc 从未跑过） | 已修 `922c25e` |
+| node `HandleScope` 缺 `v8::Locker` | 我（`5172cc2`） | 已修 `922c25e` |
+| 测试把表达式检查写成无条件 | 我（`f2a8239`） | 已修 `fc85701` |
+
+### 22.4 教训（可复用）
+
+1. **「v8 腿过了」≠ 改对了**。涉及 `v8::` API 的改动，必须至少在 **quickjs**（Windows 可编可跑）
+   上验一次；shim 的默认参数不保证与真实 v8 一致，这是最容易漏的一类不兼容。
+2. **引擎的错误打印路径会回调脚本语言的回溯 hook**（`_err_print_error` →
+   `ScriptServer::capture_script_backtraces`），所以这类 hook 可能在**任意线程**被调用。
+   在 node 上前提是持有 `v8::Locker`，而该锁只有运行时线程能拿 —— 因此必须在 hook 内
+   **按线程拒绝**，而不是试图加锁。
+3. **给未支持的后端加 CI 腿，先想清楚它的结论是否应当阻断**。加腿本身是对的（jsc 的三个
+   问题里有两个是它第一次暴露的），但把一个自称 NOT SUPPORTED 的后端设为门禁，结果只会是
+   「大家都习惯忽略红 CI」。
