@@ -773,6 +773,17 @@ jobs:
             os: macos-latest
             artifact: macos-editor-arm64-node
             godot_asset: Godot_v4.7.1-stable_macos.universal.zip
+          # host-jsc: the JavaScriptCore backend. It only builds on macOS/iOS, so
+          # this is the sole leg that runs the JS test suite against the jsc
+          # implementation -- without it a jsc-only regression (e.g. the C
+          # function payload lifecycle) is invisible: the build matrix compiles
+          # jsc but nothing ever executes it. `run-runtime-matrix.mts` refuses
+          # host-jsc off macOS, and `--skip-builds` makes it use the artifact
+          # staged above rather than rebuilding the extension.
+          - runtime: host-jsc
+            os: macos-latest
+            artifact: macos-editor-arm64-jsc
+            godot_asset: Godot_v4.7.1-stable_macos.universal.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
