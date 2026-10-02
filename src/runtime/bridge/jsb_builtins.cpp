@@ -114,9 +114,13 @@ void Builtins::_require(const v8::FunctionCallbackInfo<v8::Value> &info) {
 }
 
 void Builtins::_gc(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): same stderr channel as the RES# probe,
+	// so the ordering between "gc ran" and the target's last reference event is exact.
+	JSB_LOG(Error, "[jsc-diag] GC-BEGIN");
 	v8::Isolate *isolate = info.GetIsolate();
 	v8::Local<v8::Context> context = isolate->GetCurrentContext();
 	Environment::wrap(context)->gc();
+	JSB_LOG(Error, "[jsc-diag] GC-END");
 }
 
 } //namespace jsb
