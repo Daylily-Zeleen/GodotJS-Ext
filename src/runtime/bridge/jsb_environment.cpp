@@ -563,6 +563,14 @@ void Environment::update(uint64_t p_delta_msecs) {
 #endif
 
 	exec_async_calls();
+#if JSB_WITH_JAVASCRIPTCORE
+	if (gc_again_on_update_) {
+		gc_again_on_update_ = false;
+		if ((flags_ & EF_PreDispose) == 0) {
+			get_isolate()->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
+		}
+	}
+#endif
 
 #if !JSB_WITH_NODE
 	// quickjs delayed the free op after all HandleScope left, we need to swap the free op list manually explicitly.
@@ -2266,6 +2274,15 @@ void Environment::_on_gc_request() {
 	get_isolate()->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
 #else
 	get_isolate()->LowMemoryNotification();
+#endif
+#if JSB_WITH_JAVASCRIPTCORE
+	// JavaScriptCore collects conservatively: a value that is still on the machine stack
+	// or in a register is never collected (see JSBase.h, JSGarbageCollect). When `gc()`
+	// is invoked from JavaScript, the whole JS call frame chain is still live, so anything
+	// the caller holds - including the very wrapper being tested - is treated as reachable
+	// and survives this collection. Queue one more collection for the next engine frame,
+	// where those JS frames have returned and the stack scan can no longer see them.
+	gc_again_on_update_ = true;
 #endif
 }
 

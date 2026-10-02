@@ -242,6 +242,11 @@ private:
 	// EnvironmentFlags
 	uint32_t flags_ = EF_None;
 
+	// JavaScriptCore only: a forced collection issued from JS cannot reclaim anything
+	// the JS stack still references (JSC scans conservatively). Set by `_on_gc_request`,
+	// consumed on the next engine frame where the JS frames have returned.
+	bool gc_again_on_update_ = false;
+
 #if JSB_WITH_DEBUGGER
 	JavaScriptDebugger debugger_;
 	std::promise<void> debugger_ready_promise_;
