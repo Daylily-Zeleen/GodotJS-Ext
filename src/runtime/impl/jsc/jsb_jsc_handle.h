@@ -309,6 +309,8 @@ public:
 		jsb::impl::Broker::SetWeak(isolate_, obj, parameter, (void *)callback);
 		JSValueUnprotect(ctx, value_);
 		jsb_u((JSObjectRef)value_);
+		// TEMPORARY DIAGNOSTIC (jsc refcounted): link the JSObject to its native pointer.
+		{ static int n = 0; if (parameter && n < 40) { ++n; JSB_JSC_LOG(Error, "[jsc-diag] LINK native=%d obj=%d net=%d", (uintptr_t)parameter, (uintptr_t)obj, v8::jsb_net()[(uintptr_t)obj]); } }
 		value_ = nullptr;
 	}
 
