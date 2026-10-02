@@ -66,6 +66,8 @@ private:
 
 	Ref<RegEx> source_map_match1_;
 	Ref<RegEx> source_map_match2_;
+	// JavaScriptCore frame form (`fn@file.js:line:col`), see `match()`.
+	Ref<RegEx> source_map_match3_;
 	HashMap<String, SourceMap> cached_source_maps_;
 #endif
 };

@@ -63,7 +63,14 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 			? source_map_match1_
 			: source_map_match2_;
 
-	const Ref<RegExMatch> match = regex->search(p_line);
+	Ref<RegExMatch> match = regex->search(p_line);
+	if (!match.is_valid()) {
+		// JavaScriptCore prints `fn@file.js:line:col` (no `at`, no parentheses) instead of the
+		// V8/quickjs-ng `at fn (file.js:line:col)`. Without this arm a jsc stacktrace never
+		// matches, so no frame is ever translated back to the original `.ts`.
+		if (source_map_match3_.is_null()) source_map_match3_ = RegEx::create_from_string(R"(([^@]*)@(.+\.js):(\d+):(\d+))");
+		match = source_map_match3_->search(p_line);
+	}
 	if (!match.is_valid()) return false;
 	const int group_index = match->get_group_count() - 3;
 	const int one_based_stack_line = (int)match->get_string(group_index + 2).to_int();
@@ -158,6 +165,7 @@ void SourceMapCache::invalidate(const String &p_filename) {
 void SourceMapCache::clear() {
 	source_map_match1_.unref();
 	source_map_match2_.unref();
+	source_map_match3_.unref();
 	cached_source_maps_.clear();
 }
 

@@ -124,6 +124,30 @@ TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:0:1)", result));
 		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:1:0)", result));
 	}
+
+	// JavaScriptCore style: <function>@<filename>:<line>:<col> - no `at`, no parentheses.
+	// jsc emits this form, which is why a jsc stacktrace used to match nothing at all.
+	{
+		CHECK(cache.match("_ready@/tmp/中文路径/testScript.js:20:40", result));
+		CHECK(result.function == "_ready");
+		CHECK(result.filename == "/tmp/中文路径/testScript.js");
+		CHECK(result.line == 19);
+		CHECK(result.col == 39);
+	}
+
+	// ... including a frame with no function name at all (`@file.js:1:2`)
+	{
+		CHECK(cache.match("@/tmp/中文路径/testScript.js:56:23", result));
+		CHECK(result.function.is_empty());
+		CHECK(result.filename == "/tmp/中文路径/testScript.js");
+		CHECK(result.line == 55);
+		CHECK(result.col == 22);
+	}
+
+	// an Apple `@[native code]` frame names no `.js` file and must not match
+	{
+		CHECK(!cache.match("@[native code]", result));
+	}
 }
 #	else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
 TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
