@@ -64,6 +64,8 @@
 #include "jsb_primitive_bindings.h"
 
 namespace jsb {
+// TEMPORARY DIAGNOSTIC (jsc refcounted): defined in the jsc backend.
+void jsb_diag_dump_protect_net();
 #if JSB_V8_CPPGC
 // for cppgc wrapper descriptor
 enum {
@@ -531,7 +533,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	if (gc_again_on_update_) {
 		gc_again_on_update_ = false;
 		if ((flags_ & EF_PreDispose) == 0) {
-			JSB_LOG(Error, "[jsc-diag] DEFERRED-GC");
+			jsb_diag_dump_protect_net();
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
 			get_isolate()->LowMemoryNotification();

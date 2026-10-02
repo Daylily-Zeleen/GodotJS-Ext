@@ -37,6 +37,10 @@ class Helper;
 }
 
 namespace v8 {
+// TEMPORARY DIAGNOSTIC (jsc refcounted): net JSValueProtect per JSObject.
+inline std::unordered_map<uintptr_t, int> &jsb_diag_protect_net() { static std::unordered_map<uintptr_t, int> m; return m; }
+inline void jsb_diag_protect(JSObjectRef obj) { if (obj) { ++jsb_diag_protect_net()[(uintptr_t)obj]; } }
+inline void jsb_diag_unprotect(JSObjectRef obj) { if (obj) { --jsb_diag_protect_net()[(uintptr_t)obj]; } }
 template <typename T>
 class Global;
 
@@ -209,6 +213,7 @@ public:
 				// release if strong referenced
 				const JSContextRef ctx = jsb::impl::Broker::ctx(isolate_);
 				JSValueUnprotect(ctx, value_);
+				jsb_diag_unprotect((JSObjectRef)value_);
 				value_ = nullptr;
 				break;
 			}
@@ -243,6 +248,7 @@ public:
 		if (!value.IsEmpty()) {
 			// protected
 			value_ = jsb::impl::Broker::stack_dup(isolate_, value.data_.stack_pos_);
+			jsb_diag_protect((JSObjectRef)value_);
 			shadow_ = nullptr;
 			weak_type_ = WeakType::kStrong;
 		}
@@ -269,6 +275,7 @@ public:
 		weak_type_ = WeakType::kStrong;
 		value_ = JSWeakGetObject(shadow_);
 		JSValueProtect(ctx, value_);
+		jsb_diag_protect((JSObjectRef)value_);
 		JSWeakRelease(rt, shadow_);
 		shadow_ = nullptr;
 	}
@@ -284,6 +291,7 @@ public:
 		shadow_ = JSWeakCreate(rt, obj);
 		jsb::impl::Broker::SetWeak(isolate_, obj, nullptr, nullptr);
 		JSValueUnprotect(ctx, value_);
+		jsb_diag_unprotect((JSObjectRef)value_);
 		value_ = nullptr;
 	}
 
@@ -299,6 +307,7 @@ public:
 		shadow_ = JSWeakCreate(rt, obj);
 		jsb::impl::Broker::SetWeak(isolate_, obj, parameter, (void *)callback);
 		JSValueUnprotect(ctx, value_);
+		jsb_diag_unprotect((JSObjectRef)value_);
 		value_ = nullptr;
 	}
 
@@ -372,3 +381,13 @@ bool Local<T>::operator!=(const Global<S> &other) const {
 }
 
 } //namespace v8
+
+namespace jsb {
+// TEMPORARY DIAGNOSTIC (jsc refcounted)
+inline void jsb_diag_dump_protect_net() {
+	const auto &m = v8::jsb_diag_protect_net();
+	int pos = 0;
+	for (const auto &kv : m) { if (kv.second > 0) { ++pos; if (pos <= 25) { JSB_JSC_LOG(Error, "[jsc-diag] NETPOS obj=%d net=%d", (uintptr_t)kv.first, kv.second); } } }
+	JSB_JSC_LOG(Error, "[jsc-diag] NET total=%d netpos=%d", (int)m.size(), pos);
+}
+} //namespace jsb
