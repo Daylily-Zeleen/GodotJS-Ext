@@ -507,6 +507,10 @@ export default class TestCrossEnvironment extends Node {
 				if (retained.get_reference_count() < 2) fail('refcounted: holder reference was consumed by transfer');
 				retained = null;
 			}
+			// TEMPORARY DIAGNOSTIC: this async frame still names the last returned wrapper.
+			// A live JS reference legitimately keeps the RefCounted alive, so drop it and
+			// let the assertion below measure what it claims to measure.
+			object = null as unknown as GodotObject;
 		} finally {
 			if (!terminated) peer.terminate();
 			if (objectId !== undefined && scenario !== 'refcounted' && is_instance_id_valid(objectId)) {
