@@ -779,10 +779,6 @@ private:
 	// NOTE: First-pass weak callbacks are very restricted in V8. Do not do heavy work there.
 	_FORCE_INLINE_ static void object_gc_callback(const v8::WeakCallbackInfo<void> &info) {
 		if (Environment *env = wrap(info.GetIsolate())) {
-			// TEMPORARY DIAGNOSTIC (jsc refcounted): the one event never yet observed for the
-			// test Resource. If gc() runs and this still never fires for its pointer, the
-			// wrapper was never collected - not "collected but not unref'd".
-			{ static int n = 0; if (n < 80) { ++n; JSB_LOG(Error, "[jsc-diag] GC_CB#%d ptr=%d", n, (uintptr_t)info.GetParameter()); } }
 			// V8 requires clearing the weak handle in first-pass callbacks.
 			if (ObjectHandlePtr object_handle = env->object_db_.try_get_object(info.GetParameter())) {
 				object_handle->ref_.Reset();

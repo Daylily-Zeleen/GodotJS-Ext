@@ -64,8 +64,6 @@
 #include "jsb_primitive_bindings.h"
 
 namespace jsb {
-// TEMPORARY DIAGNOSTIC (jsc refcounted): defined in the jsc backend.
-void jsb_diag_dump_protect_net();
 #if JSB_V8_CPPGC
 // for cppgc wrapper descriptor
 enum {
@@ -239,11 +237,6 @@ private:
 	 * @param p_reference Ref 还是 Unref 操作
 	 */
 	static GDExtensionBool reference_callback(void *p_token, void *p_binding, GDExtensionBool p_reference) {
-		// TEMPORARY DIAGNOSTIC (jsc refcounted): the FAILURE branch is `return true`, which
-		// tells Godot "the extension will delete it" while nothing in JSB does -> the
-		// RefCounted stays at rc==0 forever, still visible to ObjectDB, and WeakRef::get_ref()
-		// then revives it. has_env is NOT the gate; verify_object is. Log both.
-		{ static int n = 0; if (n < 30) { ++n; const std::shared_ptr<Environment> e = EnvironmentStore::get_shared().access(p_token); JSB_LOG(Error, "[jsc-diag] REFCB#%d ptr=%d %s has_env=%d verify=%d", n, (uintptr_t)p_binding, p_reference ? "REF" : "DEREF", (int)(bool)e, (int)(e && e->verify_object(p_binding))); } }
 		if (const std::shared_ptr<Environment> env = EnvironmentStore::get_shared().access(p_token)) {
 			if (env->verify_object(p_binding) && env->add_async_call(p_reference ? Environment::AsyncCall::TYPE_REF : Environment::AsyncCall::TYPE_DEREF, p_binding)) {
 				//NOTE Always return false to avoid `delete` in godot unreference() call,
@@ -533,7 +526,6 @@ void Environment::update(uint64_t p_delta_msecs) {
 	if (gc_again_on_update_) {
 		gc_again_on_update_ = false;
 		if ((flags_ & EF_PreDispose) == 0) {
-			jsb_diag_dump_protect_net();
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
 			get_isolate()->LowMemoryNotification();
@@ -923,8 +915,6 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
-	// TEMPORARY DIAGNOSTIC (jsc refcounted): low-noise; only near-death events.
-	if (ref_count <= 2) { static int n = 0; if (n < 120) { ++n; JSB_LOG(Error, "[jsc-diag] NEAR#%d ptr=%d %s rc=%d weak=%d", n, (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); } }
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
