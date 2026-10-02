@@ -521,6 +521,20 @@ void Environment::dispose() {
 
 void Environment::update(uint64_t p_delta_msecs) {
 	v8::Isolate *isolate = get_isolate();
+#if JSB_WITH_JAVASCRIPTCORE
+	// JavaScriptCore collects conservatively (see JSBase.h, JSGarbageCollect): a value
+	// still on the machine stack or in a register is never collected. A collection
+	// requested from JavaScript therefore runs while the whole JS call chain that reached
+	// `gc()` is still live, and keeps everything that chain can see - including the very
+	// wrapper under test. Run the deferred collection here, at the top of the engine
+	// frame, before this frame executes any JavaScript.
+	if (gc_again_on_update_) {
+		gc_again_on_update_ = false;
+		if ((flags_ & EF_PreDispose) == 0) {
+			get_isolate()->LowMemoryNotification();
+		}
+	}
+#endif
 #if JSB_WITH_NODE
 	// in node mode timers, IO and microtasks are driven by node's uv loop.
 	// pump it once per engine frame (like gode's spin_loop).
@@ -563,14 +577,6 @@ void Environment::update(uint64_t p_delta_msecs) {
 #endif
 
 	exec_async_calls();
-#if JSB_WITH_JAVASCRIPTCORE
-	if (gc_again_on_update_) {
-		gc_again_on_update_ = false;
-		if ((flags_ & EF_PreDispose) == 0) {
-			get_isolate()->LowMemoryNotification();
-		}
-	}
-#endif
 
 #if !JSB_WITH_NODE
 	// quickjs delayed the free op after all HandleScope left, we need to swap the free op list manually explicitly.
