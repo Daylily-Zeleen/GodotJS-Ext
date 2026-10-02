@@ -845,9 +845,6 @@ NativeObjectID Environment::bind_pointer(NativeClassID p_class_id, NativeClassTy
 #endif
 
 	jsb_v8_check(native_classes_.get_value(p_class_id).type == p_type);
-	// TEMPORARY DIAGNOSTIC (jsc refcounted): is each rebind handed a NEW JSObject, and
-	// was the handle empty before this Reset?
-	{ static int n = 0; if (n < 80) { ++n; JSB_LOG(Error, "[jsc-diag] RESET#%d native=%d was_empty=%d weak=%d", n, (uintptr_t)p_pointer, (int)handle->ref_.IsEmpty(), (int)handle->ref_.IsWeak()); } }
 	handle->ref_.Reset(get_isolate(), p_object);
 
 	if (p_fore_weak) {
@@ -914,6 +911,8 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): low-noise; only near-death events.
+	if (ref_count <= 2) { static int n = 0; if (n < 120) { ++n; JSB_LOG(Error, "[jsc-diag] NEAR#%d ptr=%d %s rc=%d weak=%d", n, (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); } }
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
