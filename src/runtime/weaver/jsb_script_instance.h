@@ -88,7 +88,7 @@ public:
 		if constexpr (std::is_same_v<ScriptInstanceTy, GodotJSShadowScriptInstance>) {
 			if (!(GodotJSScriptInstanceBase *)si->is_shadow()) return nullptr;
 		}
-		if constexpr (std::is_same_v<ScriptInstanceTy, GodotJSShadowScriptInstance>) {
+		if constexpr (std::is_same_v<ScriptInstanceTy, GodotJSScriptInstance>) {
 			if ((GodotJSScriptInstanceBase *)si->is_shadow()) return nullptr;
 		}
 		return static_cast<ScriptInstanceTy *>(si);
