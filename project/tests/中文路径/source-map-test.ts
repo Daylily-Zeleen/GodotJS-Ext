@@ -14,8 +14,10 @@ import { Node } from "godot";
  *  1. the generated filename keeps the full non-ascii directory and the `.js` extension
  *     (regression for the utf-8 byte-length bug in `impl::Helper::compile_function`;
  *     the C++ doctest only covers a hardcoded name, this checks the real tsc output path);
- *  2. the frame is in the `at ... (file.js:line:col)` form that `SourceMapCache::match()`
- *     consumes, so the C++ rewrite pipeline actually picks the frame up.
+ *  2. the frame carries the engine's own function/file/line/col frame, in the form
+ *     `SourceMapCache::match()` consumes for that engine: V8 and quickjs-ng print
+ *     `at fn (file.js:line:col)`, JavaScriptCore prints `fn@file.js:line:col`.
+ *     Either way the frame must be pick-uppable, so the rewrite pipeline handles it.
  *
  * The *rewritten* stacktrace itself is produced in C++ (`process_source_position`) and
  * cannot be read back from TS; that logic is covered by the C++ doctest
@@ -36,15 +38,15 @@ export default class SourceMapTest extends Node {
                 pass: rawStack.includes("中文路径"),
             },
             {
-                name: "frame in `at ... (file.js:line:col)` form",
-                pass: /at .+source-map-test\.js:\d+:\d+\)/.test(rawStack),
+                name: "frame carries file:line:col in the engine's own frame form",
+                pass: /(?:at\s.+\s)?\(?[^\s()]*source-map-test\.js:\d+:\d+\)?/.test(rawStack),
             },
         ];
         const allPassed = checks.every((check) => check.pass);
 
         // report the expected format, the stacktrace under test, and the check results
         console.log("=== [source-map-test] raw stacktrace check ===");
-        console.log("expected: a V8 frame like `at fn (..../source-map-test.js:LINE:COL)` whose path keeps");
+        console.log("expected: the engine's own frame form naming source-map-test.js with LINE:COL");
         console.log("          `中文路径` and the `.js` extension (utf-8 byte-length regression).");
         console.log("stacktrace under test (from `new Error().stack`):");
         console.log(rawStack);
