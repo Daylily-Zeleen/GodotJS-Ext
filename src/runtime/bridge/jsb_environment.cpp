@@ -567,7 +567,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	if (gc_again_on_update_) {
 		gc_again_on_update_ = false;
 		if ((flags_ & EF_PreDispose) == 0) {
-			get_isolate()->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
+			get_isolate()->LowMemoryNotification();
 		}
 	}
 #endif
