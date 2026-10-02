@@ -269,7 +269,6 @@ public:
 		weak_type_ = WeakType::kStrong;
 		value_ = JSWeakGetObject(shadow_);
 		JSValueProtect(ctx, value_);
-		jsb_p((JSObjectRef)value_);
 		JSWeakRelease(rt, shadow_);
 		shadow_ = nullptr;
 	}
