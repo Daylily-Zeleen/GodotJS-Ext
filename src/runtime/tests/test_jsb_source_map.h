@@ -208,8 +208,13 @@ TEST_CASE("[runtime] [jsb.sourcemap] process_source_position rewrites stacktrace
 	// quickjs carries no column at all, v8/quickjs-ng do. Routing this through the real
 	// `match()` is the point of the test, so it cannot use one engine's shape for another.
 #	if JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
+	// classic quickjs: no column in the frame.
 	String stacktext = String("Error: SOURCE_MAP_TEST_MARKER\n") + String("    at fn (") + js_path + String(":1)");
+#	elif JSB_WITH_JAVASCRIPTCORE
+	// JavaScriptCore: `fn@file:line:col` - no `at`, no parentheses.
+	String stacktext = String("Error: SOURCE_MAP_TEST_MARKER\n") + String("fn@") + js_path + String(":1:1");
 #	else
+	// V8 / quickjs-ng: `at fn (file:line:col)`.
 	String stacktext = String("Error: SOURCE_MAP_TEST_MARKER\n") + String("    at fn (") + js_path + String(":1:1)");
 #	endif
 	const String rewritten = cache.process_source_position(stacktext);
