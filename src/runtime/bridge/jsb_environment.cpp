@@ -913,11 +913,6 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
-	// TEMPORARY DIAGNOSTIC (jsc refcounted): only Resources, so the noise stays tiny.
-	// TEMPORARY DIAGNOSTIC (jsc refcounted): idlo matches the ObjectID the test prints.
-	if ((String)native_classes_.get_value(object_handle->class_id).name == String("Resource")) {
-		static int n = 0; if (n < 80) { ++n; JSB_LOG(Error, "[jsc-diag] RES#%d idlo=%d ptr=%d %s rc=%d weak=%d", n, (int)(uint32_t)ref_counted->get_instance_id(), (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); }
-	}
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
 		// adding references
