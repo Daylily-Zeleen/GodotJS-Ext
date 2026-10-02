@@ -437,6 +437,7 @@ export default class TestCrossEnvironment extends Node {
 		let objectId: Numeric64 | undefined;
 		let childId: Numeric64 | undefined;
 		let resourceObserver: GodotWeakRef | undefined;
+		let refcountedNativeId: Numeric64 | undefined; // TEMPORARY DIAGNOSTIC
 		const nativeHolder = new Node();
 		try {
 			const control = await this.objectTransferRequest(peer, { type: MessageType.ObjectTransfer, action: 'control' });
@@ -446,6 +447,7 @@ export default class TestCrossEnvironment extends Node {
 				: new Resource();
 			if (scenario === 'refcounted') {
 				const rawId = object.get_instance_id();
+				refcountedNativeId = rawId; // TEMPORARY DIAGNOSTIC
 				console.log(`[cross-environment-test] object-transfer:refcounted:${backend} ObjectID=${String(rawId)} type=${typeof rawId} safeNumber=${String(Number.isSafeInteger(rawId))}; observing via native WeakRef`);
 				// RefCounted ObjectIDs set bit 63. The current signed int64 -> JS
 				// number conversion can round them; never use that number as an ObjectDB key.
@@ -532,8 +534,13 @@ export default class TestCrossEnvironment extends Node {
 			if (!('gc' in globalThis) || typeof globalThis.gc !== 'function') {
 				fail('refcounted object-transfer requires the existing global gc()');
 			}
+			// TEMPORARY DIAGNOSTIC: distinguish "native object still alive" from
+			// "only the JS wrapper is still alive". is_instance_id_valid touches ObjectDB
+			// only; get_ref would create a wrapper and retain the Resource.
+			console.log(`[probe] pre-gc valid=${String(refcountedNativeId !== undefined && is_instance_id_valid(refcountedNativeId))}`);
 			globalThis.gc();
 			await this.get_tree().process_frame.as_promise();
+			console.log(`[probe] post-gc valid=${String(refcountedNativeId !== undefined && is_instance_id_valid(refcountedNativeId))}`);
 			if (resourceObserver.get_ref() !== null) fail('refcounted: Resource survived native holder release and GC');
 		}
 	}
