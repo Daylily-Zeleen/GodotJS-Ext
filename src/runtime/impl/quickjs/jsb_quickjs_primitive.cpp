@@ -41,7 +41,7 @@ Local<Primitive> Null(Isolate *isolate) {
 Maybe<bool> Name::Equals(Local<Context> context, Local<Name> other) const {
 	const JSValue v1 = (JSValue) * this;
 	const JSValue v2 = (JSValue)other;
-	return Maybe<bool>(jsb::impl::QuickJS::Equals(v1, v2));
+	return Maybe<bool>(jsb::impl::QuickJS::Equals(isolate_->ctx(), v1, v2));
 }
 
 MaybeLocal<Value> Value::ToPrimitive(Local<Context> context) const {

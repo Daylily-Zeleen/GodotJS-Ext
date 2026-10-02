@@ -302,7 +302,7 @@ public:
 
 	template <typename S>
 	bool operator==(const Global<S> &other) const {
-		return shadow_ == other.shadow_ || jsb::impl::QuickJS::Equals(value_, other.value_);
+		return shadow_ == other.shadow_ || jsb::impl::QuickJS::Equals(isolate_->ctx(), value_, other.value_);
 	}
 
 	template <typename S>

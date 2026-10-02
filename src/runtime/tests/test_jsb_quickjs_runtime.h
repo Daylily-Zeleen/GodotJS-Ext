@@ -31,6 +31,10 @@
 #include "../bridge/jsb_essentials.h"
 #include "jsb_test_helpers.h"
 
+#include <cmath>
+#include <cstdio>
+#include <string>
+
 #if JSB_WITH_QUICKJS
 // all quickjs.impl specific test cases
 namespace jsb::tests {
@@ -63,5 +67,107 @@ TEST_CASE("[runtime] [jsb] quickjs.minimal") {
 	JS_FreeContext(ctx);
 	JS_FreeRuntime(rt);
 }
+// `Equals` stands in for the engine`s strict equality, so it has to agree with JS on
+// the cases where a bitwise or pointer compare does not: quickjs normalises 0.0 to an
+// int but keeps -0.0 a float64 (equal values, different tags), and NaN has one bit
+// pattern while being unequal to itself.
+// `Equals` stands in for the engine`s strict equality, so it must agree with JS where a
+// tag+pointer compare does not: quickjs normalises 0.0 to an int but keeps -0.0 a float64
+// (equal values, different tags), and NaN has a single bit pattern while being unequal to
+// itself. Values are built through the C API so the case is exactly the pair Equals sees.
+// `Equals` is the backend`s `===` (see Data::strict_eq). A tag + pointer compare is not:
+// it gets `-0.0 === 0.0` and `NaN === NaN` backwards, and it compares strings and BigInts
+// by address where JS compares by value. Expectations are written out rather than taken
+// from the engine, so an Equals that tracked the engine bug instead of the language would
+// still fail here.
+TEST_CASE("[runtime] [jsb] quickjs strict equality matches JS") {
+	JSRuntime *rt = JS_NewRuntime();
+	JSContext *ctx = JS_NewContext(rt);
+	{
+		struct Case {
+			JSValue a;
+			JSValue b;
+			const char *label;
+			bool equal;
+		};
+
+		// Numbers: quickjs normalises 0.0 to an int but keeps -0.0 a float64, so strictly
+		// equal numbers can carry different tags.
+		const JSValue minus_zero = JS_NewFloat64(ctx, -0.0);
+		const JSValue zero = JS_NewFloat64(ctx, 0.0);
+		const JSValue int_zero = JS_NewInt32(ctx, 0);
+		const JSValue one = JS_NewInt32(ctx, 1);
+		const JSValue one_f = JS_NewFloat64(ctx, 1.0);
+		const JSValue two = JS_NewInt32(ctx, 2);
+		const JSValue three = JS_NewInt32(ctx, 3);
+		const JSValue infinity = JS_NewFloat64(ctx, INFINITY);
+		const JSValue nan = JS_NewFloat64(ctx, NAN);
+		const JSValue half = JS_NewFloat64(ctx, 1.5);
+		const JSValue two_half = JS_NewFloat64(ctx, 2.5);
+		// Booleans, null and undefined are compared by their own payload.
+		const JSValue js_true = JS_NewBool(ctx, true);
+		const JSValue js_false = JS_NewBool(ctx, false);
+		// Strings and BigInts are compared by value, and each call builds a distinct
+		// allocation, so an address compare would call every pair unequal.
+		const JSValue str_a = JS_NewString(ctx, "a");
+		const JSValue str_a2 = JS_NewString(ctx, "a");
+		const JSValue str_ab = JS_NewString(ctx, "ab");
+		const JSValue str_ac = JS_NewString(ctx, "ac");
+		const JSValue big_1 = JS_Eval(ctx, "1n", 2, "<v>", JS_EVAL_TYPE_GLOBAL);
+		const JSValue big_1b = JS_Eval(ctx, "1n", 2, "<v>", JS_EVAL_TYPE_GLOBAL);
+		const JSValue big_2 = JS_Eval(ctx, "2n", 2, "<v>", JS_EVAL_TYPE_GLOBAL);
+		const JSValue big_huge_a = JS_Eval(ctx, "12345678901234567890123n", 24, "<v>", JS_EVAL_TYPE_GLOBAL);
+		const JSValue big_huge_b = JS_Eval(ctx, "12345678901234567890123n", 24, "<v>", JS_EVAL_TYPE_GLOBAL);
+		// Objects are compared by identity.
+		const JSValue array_a = JS_NewArray(ctx);
+		const JSValue array_b = JS_NewArray(ctx);
+
+		const Case cases[] = {
+			{ minus_zero, zero, "-0.0 === 0.0 (different tags, equal value)", true },
+			{ int_zero, minus_zero, "0 === -0.0 (int vs float64)", true },
+			{ nan, nan, "NaN === NaN (one bit pattern, still unequal)", false },
+			{ one, one_f, "1 === 1.0 (int vs float64)", true },
+			{ two, three, "2 === 3", false },
+			{ two, two, "2 === 2", true },
+			{ infinity, infinity, "Infinity === Infinity", true },
+			{ half, two_half, "1.5 === 2.5", false },
+			{ js_true, js_false, "true === false", false },
+			{ js_true, one, "true === 1 (no coercion)", false },
+			{ js_false, int_zero, "false === 0 (no coercion)", false },
+			{ JS_NULL, JS_NULL, "null === null", true },
+			{ JS_UNDEFINED, JS_UNDEFINED, "undefined === undefined", true },
+			{ JS_NULL, JS_UNDEFINED, "null === undefined", false },
+			{ JS_NULL, int_zero, "null === 0", false },
+			{ str_a, str_a2, "'a' === 'a' (distinct allocations, equal value)", true },
+			{ str_ab, str_ac, "'ab' === 'ac'", false },
+			{ str_a, one, "'a' === 1", false },
+			{ big_1, big_1b, "1n === 1n (distinct BigInts)", true },
+			{ big_1, big_2, "1n === 2n", false },
+			{ big_huge_a, big_huge_b, "a BigInt beyond int64 === itself", true },
+			{ big_1, one, "1n === 1", false },
+			{ array_a, array_b, "[] === [] (distinct objects)", false },
+		};
+
+		for (const Case &c : cases) {
+			CHECK_MESSAGE(impl::QuickJS::Equals(ctx, c.a, c.b) == c.equal,
+					c.label, " - Equals disagrees with JS ===");
+		}
+
+		JS_FreeValue(ctx, big_huge_b);
+		JS_FreeValue(ctx, big_huge_a);
+		JS_FreeValue(ctx, big_2);
+		JS_FreeValue(ctx, big_1b);
+		JS_FreeValue(ctx, big_1);
+		JS_FreeValue(ctx, str_ac);
+		JS_FreeValue(ctx, str_ab);
+		JS_FreeValue(ctx, str_a2);
+		JS_FreeValue(ctx, str_a);
+		JS_FreeValue(ctx, array_b);
+		JS_FreeValue(ctx, array_a);
+	}
+	JS_FreeContext(ctx);
+	JS_FreeRuntime(rt);
+}
+#endif // JSB_WITH_QUICKJS
+
 } //namespace jsb::tests
-#endif

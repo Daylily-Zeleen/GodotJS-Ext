@@ -28,6 +28,10 @@
 #pragma once
 #include "jsb_quickjs_pch.h"
 
+#if !JSB_PREFER_QUICKJS_NG
+#	include <string.h>
+#endif
+
 namespace v8 {
 class Isolate;
 }
@@ -112,12 +116,58 @@ public:
 		return String();
 	}
 
-	static bool Equals(JSValueConst a, JSValueConst b) {
-		if (JS_VALUE_GET_TAG(a) != JS_VALUE_GET_TAG(b)) return false;
+	// 严格相等。
+	static bool Equals(JSContext *ctx, JSValueConst p_a, JSValueConst p_b) {
+#if JSB_PREFER_QUICKJS_NG
+		return JS_IsStrictEqual(ctx, p_a, p_b);
+#else
+		const auto content_eq = [ctx](JSValueConst a, JSValueConst b) {
+			const char *text_a = JS_ToCString(ctx, a);
+			if (!text_a) {
+				// leaves an exception pending, matching the rest of the shim
+				return false;
+			}
+			const char *text_b = JS_ToCString(ctx, b);
+			if (!text_b) {
+				JS_FreeCString(ctx, text_a);
+				return false;
+			}
+			const bool equal = strcmp(text_a, text_b) == 0;
+			JS_FreeCString(ctx, text_a);
+			JS_FreeCString(ctx, text_b);
+			return equal;
+		};
 
-		//TODO unsafe eq check
-		if (JS_VALUE_GET_PTR(a) != JS_VALUE_GET_PTR(b)) return false;
-		return true;
+		const int tag_a = JS_VALUE_GET_NORM_TAG(p_a);
+		const int tag_b = JS_VALUE_GET_NORM_TAG(p_b);
+		switch (tag_a) {
+			case JS_TAG_BOOL:
+				return tag_a == tag_b && JS_VALUE_GET_INT(p_a) == JS_VALUE_GET_INT(p_b);
+			case JS_TAG_NULL:
+			case JS_TAG_UNDEFINED:
+				return tag_a == tag_b;
+			case JS_TAG_STRING:
+				return tag_b == JS_TAG_STRING && content_eq(p_a, p_b);
+			case JS_TAG_SYMBOL:
+				// interned atoms: identity is the pointer
+				return tag_a == tag_b && JS_VALUE_GET_PTR(p_a) == JS_VALUE_GET_PTR(p_b);
+			case JS_TAG_OBJECT:
+				return tag_b == JS_TAG_OBJECT && JS_VALUE_GET_PTR(p_a) == JS_VALUE_GET_PTR(p_b);
+			case JS_TAG_INT:
+				// int vs float64 compares numerically, not by tag or by bits
+				if (tag_b == JS_TAG_INT) return JS_VALUE_GET_INT(p_a) == JS_VALUE_GET_INT(p_b);
+				if (JS_TAG_IS_FLOAT64(tag_b)) return (double)JS_VALUE_GET_INT(p_a) == JS_VALUE_GET_FLOAT64(p_b);
+				return false;
+			case JS_TAG_FLOAT64:
+				if (tag_b == JS_TAG_FLOAT64) return JS_VALUE_GET_FLOAT64(p_a) == JS_VALUE_GET_FLOAT64(p_b);
+				if (tag_b == JS_TAG_INT) return JS_VALUE_GET_FLOAT64(p_a) == (double)JS_VALUE_GET_INT(p_b);
+				return false;
+			case JS_TAG_BIG_INT:
+				return tag_b == JS_TAG_BIG_INT && content_eq(p_a, p_b);
+			default:
+				return tag_a == tag_b && JS_VALUE_GET_PTR(p_a) == JS_VALUE_GET_PTR(p_b);
+		}
+#endif
 	}
 
 	static int _RefCount(JSValueConst value) {

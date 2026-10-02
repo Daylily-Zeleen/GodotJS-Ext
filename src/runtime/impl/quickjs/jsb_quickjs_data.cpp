@@ -156,7 +156,7 @@ bool Data::IsProxy() const {
 bool Data::strict_eq(const Data &other) const {
 	const JSValue val1 = isolate_->stack_val(stack_pos_);
 	const JSValue val2 = isolate_->stack_val(other.stack_pos_);
-	return jsb::impl::QuickJS::Equals(val1, val2);
+	return jsb::impl::QuickJS::Equals(isolate_->ctx(), val1, val2);
 }
 
 } //namespace v8
