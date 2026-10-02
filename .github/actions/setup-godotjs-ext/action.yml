@@ -35,7 +35,7 @@ inputs:
     required: true
   engine:
     description: >-
-      JS engine for this leg (v8, qjs-ng, node, jsc). Only used to install the
+      JS engine for this leg (v8, qjs-ng, qjs, node, jsc). Only used to install the
       toolchain a specific engine needs: libnode is built by the
       GodotJS-Dependencies workflow with gcc-12, so a linux x86_64 node leg
       must consume it with gcc-12 as well (see the gcc-12 step below).

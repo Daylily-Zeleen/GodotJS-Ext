@@ -433,6 +433,20 @@ jobs:
             arch: x86_64
             target: editor
             engine: qjs-ng
+          # The ORIGINAL QuickJS (`use_quickjs=yes`). It is NOT a release
+          # engine (misc/release/package.py publishes v8/qjs-ng/node/jsc/web
+          # only) and it has no prebuilt dependency: its sources are in-tree
+          # under third/quickjs, so this leg needs only a C compiler. It exists
+          # because the qjs-ng leg cannot see classic-quickjs-only breakage -
+          # two such defects (a misspelled identifier and a quickjs-ng-only API
+          # call) had made that backend unbuildable while every CI leg stayed
+          # green. Linux x86_64 only: nothing needs it elsewhere, and a second
+          # platform would only double the minutes.
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: editor
+            engine: qjs
           # Linux arm64 builds (cross-compiled on x86_64 runner with
           # gcc-aarch64-linux-gnu; native arm64 runners are too scarce)
           - platform: linux
@@ -758,6 +772,13 @@ jobs:
           - runtime: host-qjs
             os: ubuntu-22.04
             artifact: linux-editor-x86_64-qjs-ng
+            godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
+          # host-qjs-classic: the original QuickJS backend, which host-qjs
+          # (quickjs-ng) never exercises. Same linux artifact family, separate
+          # build leg; see the qjs entry in the build matrix.
+          - runtime: host-qjs-classic
+            os: ubuntu-22.04
+            artifact: linux-editor-x86_64-qjs
             godot_asset: Godot_v4.7.1-stable_linux.x86_64.zip
           # host-node runs on all three desktop platforms: libnode is linked
           # there (see the build matrix), so the runtime leg is available.

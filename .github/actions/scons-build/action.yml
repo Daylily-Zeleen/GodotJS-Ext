@@ -42,7 +42,8 @@ inputs:
   engine:
     description: >-
       JS engine: v8 (default, no extra flag), web (browser host JS on the wasm
-      platform, also no extra flag), qjs-ng, node or jsc.
+      platform, also no extra flag), qjs-ng, qjs (the original QuickJS,
+      linux-only, CI test-only - see the matrix comment), node or jsc.
     required: false
     default: v8
   windows-compiler:
@@ -138,6 +139,7 @@ runs:
           # JSB_WITH_WEB=1 for this leg (see the ci.yml matrix comment).
           web)    engine_arg="" ;;
           qjs-ng) engine_arg=use_quickjs_ng=yes ;;
+          qjs)    engine_arg=use_quickjs=yes ;;
           node)   engine_arg=use_node=yes ;;
           jsc)    engine_arg=use_jsc=yes ;;
           *) echo "::error::unknown engine '$LEG_ENGINE'"; exit 1 ;;

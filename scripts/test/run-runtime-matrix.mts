@@ -80,8 +80,8 @@ const webBootstrapFailurePatterns = [
 ];
 
 const runtimeAliasMap = new Map<string, string[]>([
-    ["all", ["host-v8", "host-qjs", "host-jsc", "host-node", "web-browser", "web-qjs"]],
-    ["host", ["host-v8", "host-qjs", "host-jsc"]],
+    ["all", ["host-v8", "host-qjs", "host-qjs-classic", "host-jsc", "host-node", "web-browser", "web-qjs"]],
+    ["host", ["host-v8", "host-qjs", "host-qjs-classic", "host-jsc"]],
     ["web", ["web-browser", "web-qjs"]],
 ]);
 const selectableRuntimeNames = new Set<string>(runtimeAliasMap.get("all"));
@@ -885,6 +885,8 @@ function buildHostRuntime(runtimeName: string) {
 
     if (runtimeName === "qjs") {
         args.push("use_quickjs_ng=yes");
+    } else if (runtimeName === "qjs-classic") {
+        args.push("use_quickjs=yes");
     } else if (runtimeName === "jsc") {
         args.push("use_jsc=yes");
     }
@@ -955,6 +957,7 @@ async function main(): Promise<void> {
     const needsAnyWeb = needsWebBrowser || needsWebQjs;
     const needsHostV8 = isRuntimeSelected("host-v8") || needsAnyWeb;
     const needsHostQjs = isRuntimeSelected("host-qjs");
+    const needsHostQjsClassic = isRuntimeSelected("host-qjs-classic");
     const needsHostJscRequested = isRuntimeSelected("host-jsc");
     // host-node has no per-platform gate: libnode is linked on windows, linux and
     // macos (see the CI build matrix), and the matrix only schedules those runners.
@@ -976,6 +979,7 @@ async function main(): Promise<void> {
 
     const hostV8Binary = needsHostV8 ? buildHostRuntime("v8") : null;
     const hostQjsBinary = needsHostQjs ? buildHostRuntime("qjs") : null;
+    const hostQjsClassicBinary = needsHostQjsClassic ? buildHostRuntime("qjs-classic") : null;
     const hostJscBinary = needsHostJsc ? buildHostRuntime("jsc") : null;
     const webBrowserTemplate = needsWebBrowser ? buildWebRuntime("browser") : null;
     const webQjsTemplate = needsWebQjs ? buildWebRuntime("qjs") : null;
@@ -983,6 +987,7 @@ async function main(): Promise<void> {
     const hostRuns = [
         ...(isRuntimeSelected("host-v8") && hostV8Binary ? [{ runtime: "host-v8", binary: hostV8Binary }] : []),
         ...(isRuntimeSelected("host-qjs") && hostQjsBinary ? [{ runtime: "host-qjs", binary: hostQjsBinary }] : []),
+        ...(isRuntimeSelected("host-qjs-classic") && hostQjsClassicBinary ? [{ runtime: "host-qjs-classic", binary: hostQjsClassicBinary }] : []),
     ];
 
     if (isRuntimeSelected("host-jsc") && hostJscBinary) {
