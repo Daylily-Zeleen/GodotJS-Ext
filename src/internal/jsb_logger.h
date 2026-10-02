@@ -28,6 +28,8 @@
 #pragma once
 
 #include <godot_cpp/core/print_string.hpp>
+
+#include <mutex>
 #if !JSB_VERBOSE_ENABLED
 #	include <godot_cpp/classes/os.hpp>
 #endif // JSB_VERBOSE_ENABLED
@@ -78,6 +80,7 @@ public:
 			// all verbose logs write to stdout only
 			const String str = format(p_format, p_args...);
 			set_default_callbacks();
+			// Single vprintf downstream; no lock needed (see the note above).
 			_print_verbose(str);
 		}
 	}
@@ -90,6 +93,14 @@ public:
 		_print_verbose = verbose_cb;
 		_print_line = line_cb;
 		_print_error = error_callback;
+	}
+
+	// 仅 C++ 测试使用，添加占位模板参数避免非测试构建编译进去
+	template <typename _Placeholder = void>
+	static void reset_callbacks() {
+		_print_verbose = _default_print_verbose;
+		_print_line = _default_print_line;
+		_print_error = _default_print_error;
 	}
 
 private:
@@ -108,18 +119,19 @@ private:
 	static _print_line_callback _print_verbose;
 	static _print_error_callback _print_error;
 
+	// `line` and `verbose` are single stdio calls (see the note at the top of this file),
+	// so they need nothing. Only `error` writes several times and takes the lock.
 	static void _default_print_verbose(const String &p_str) {
-		//TODO cache messages from background threads to avoid messing up the output
 		godot::print_line_rich(vformat("\u001b[90m%s\u001b[39m\n", p_str));
 	}
 
 	static void _default_print_line(const String &p_str) {
-		//TODO cache messages from background threads to avoid messing up the output
 		godot::print_line(p_str);
 	}
 
 	static void _default_print_error(const char *p_function, const char *p_file, int p_line, const String &p_error, bool p_editor_notify, bool p_is_warning) {
-		//TODO cache messages from background threads to avoid messing up the output
+		static std::mutex mutex;
+		const std::lock_guard<std::mutex> lock(mutex);
 		godot::_err_print_error(p_function, p_file, p_line, p_error, p_editor_notify, p_is_warning);
 	}
 

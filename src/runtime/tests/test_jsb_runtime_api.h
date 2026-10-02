@@ -48,6 +48,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <string>
+#include <vector>
 
 namespace jsb::tests {
 
@@ -72,6 +73,33 @@ struct CapturedSink final : public jsb::internal::IConsoleOutput {
 		last_text.assign(utf8.get_data(), (size_t)utf8.length());
 	}
 };
+
+// `Logger::set_callbacks` takes plain function pointers, so these recorders cannot be
+// capturing lambdas. Each severity class is routed to its own slot so the test can prove
+// the four entry points dispatch through the callback indirection rather than calling
+// godot::print directly.
+struct CallbackRecorder {
+	int verbose = 0;
+	int line = 0;
+	int error = 0;
+	std::vector<std::string> errors;
+	std::vector<std::string> lines;
+};
+
+CallbackRecorder &recorder() {
+	static CallbackRecorder state;
+	return state;
+}
+
+void record_verbose(const String &) { recorder().verbose++; }
+void record_line(const String &p_str) {
+	recorder().line++;
+	recorder().lines.push_back(p_str.utf8().get_data());
+}
+void record_error(const char *, const char *, int, const String &p_error, bool, bool) {
+	recorder().error++;
+	recorder().errors.push_back(p_error.utf8().get_data());
+}
 
 } //namespace runtime_api_test
 
@@ -202,6 +230,60 @@ TEST_CASE("[runtime] [api] console sinks receive writes until they are destroyed
 	// scratch was destroyed with its scope: the list must have dropped it
 	internal::IConsoleOutput::internal_write(internal::ELogSeverity::Info, String("api-console-after"));
 	CHECK_MESSAGE(sink.writes == 2, "the surviving sink keeps receiving writes");
+}
+
+// The logger's four entry points must dispatch through the `_print_*` callbacks, not
+// straight to godot::print: the web backend replaces all three callbacks at init
+// (src/runtime/impl/web/jsb_web_global_init.cpp:190) and its console goes through them.
+//
+// Per jsb_macros.h, JSB_LOG routes by severity: >= Error -> error callback,
+// >= Warning -> error callback with is_warning, > Verbose -> line callback,
+// else -> verbose callback (itself gated on OS::is_stdout_verbose()).
+//
+// A torn (interleaved) multi-threaded error message is deliberately NOT asserted: whether
+// two threads' stdio writes interleave is a scheduling race, and observing it portably
+// would mean hooking production code. That serialisation is the lock in
+// `_default_print_error`; this case covers the dispatch path it sits on.
+TEST_CASE("[runtime] [api] logger entry points dispatch through the installed callbacks") {
+	using namespace runtime_api_test;
+	GodotJSScriptLanguageIniter initer;
+
+	recorder() = CallbackRecorder();
+	internal::Logger::set_callbacks(&record_verbose, &record_line, &record_error);
+
+	JSB_LOG(Info, "api-cb-line");
+	JSB_LOG(Error, "api-cb-error");
+	JSB_LOG(Warning, "api-cb-warning");
+
+	CHECK_MESSAGE(recorder().line == 1,
+			"Info must reach the line callback; got ", std::to_string(recorder().line));
+	CHECK_MESSAGE(recorder().error == 2,
+			"Error and Warning must both reach the error callback; got ", std::to_string(recorder().error));
+	// Both payloads must arrive intact and distinguishable.
+	const std::string joined_errors = recorder().errors[0] + "|" + recorder().errors[1];
+	CHECK_MESSAGE(joined_errors.find("api-cb-error") != std::string::npos,
+			"the Error payload was lost or mangled; got '", joined_errors.c_str(), "'");
+	CHECK_MESSAGE(joined_errors.find("api-cb-warning") != std::string::npos,
+			"the Warning payload was lost or mangled; got '", joined_errors.c_str(), "'");
+	CHECK_MESSAGE(recorder().lines[0].find("api-cb-line") != std::string::npos,
+			"the line payload was mangled; got '", recorder().lines[0].c_str(), "'");
+
+	// Verbose is gated at runtime on stdout verbosity, so it is exercised only when the
+	// engine reports it enabled - asserting either way would pin the test to that setting.
+	if (OS::get_singleton()->is_stdout_verbose()) {
+		JSB_LOG(Verbose, "api-cb-verbose");
+		CHECK_MESSAGE(recorder().verbose == 1,
+				"with stdout verbose on, Verbose must reach the verbose callback; got ",
+				std::to_string(recorder().verbose));
+	}
+
+	// Restoring must actually unwire them: further logs must not reach the recorders.
+	internal::Logger::reset_callbacks();
+	JSB_LOG(Info, "api-cb-after-reset");
+	JSB_LOG(Error, "api-cb-after-reset-error");
+
+	CHECK_MESSAGE(recorder().line == 1, "reset_callbacks did not unwire the line callback");
+	CHECK_MESSAGE(recorder().error == 2, "reset_callbacks did not unwire the error callback");
 }
 
 #if JSB_WITH_NODE
