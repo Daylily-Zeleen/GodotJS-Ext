@@ -1169,3 +1169,48 @@ protect/unprotect 配对（在 jsc `Global::Reset/SetWeak/ClearWeak` 里按对�
 
 **注意**：`bind_pointer` 在对象已绑定时复用同一 handle（`object_db_.add_object`
 返回既有 entry），所以 7 次重绑不会各自新增 protect。
+
+### 27. jsc refcounted 根因（已修，§26 的「下一步」已作废）
+
+**根因**：`impl/jsc` 的 `LowMemoryNotification()` / `RequestGarbageCollectionForTesting()`
+调用的 `JSGarbageCollect()` **根本不执行回收**。上游 WebKit `Source/JavaScriptCore/API/JSBase.cpp`：
+
+```cpp
+void JSGarbageCollect(JSContextRef ctx)
+{
+    // We used to recommend passing NULL ... the previously recommended usage became a no-op
+    ...
+    vm.heap.reportAbandonedObjectGraph();
+}
+```
+
+而 `Heap::reportAbandonedObjectGraph()` 只是「假装多分配了一些内存，好让**下一次异步**回收
+提前」——**不做任何收集**。所以 jsc 后端上「强制 GC」是个空操作（v8 的
+`LowMemoryNotification()` 是真收集），这解释了「同一断言 v8 通过、jsc 不通过」。
+
+**同步全量收集**是 `JSSynchronousGarbageCollectForDebugging()`（`vm.heap.collectNow(Sync,
+CollectionScope::Full)`）。它不在公开 SDK 头里，但**从随系统发布的 JavaScriptCore 框架导出**
+（WebKit 的 `Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h` 就为此而存在：
+`extern "C" JS_EXPORT void JSSynchronousGarbageCollectForDebugging(JSContextRef);`），
+因此在本仓 `jsb_jsc_isolate.cpp` 内自行声明后可用。
+
+**改动**：`b2f88ec` —— jsc 后端三处强制回收（`_release()` / `RequestGarbageCollectionForTesting` /
+`LowMemoryNotification`）改用 `JSSynchronousGarbageCollectForDebugging()`。
+
+**顺带修掉的真 bug**：`23e672c`。`SourceMapCache::match()` 只认 v8/quickjs-ng 的
+`at fn (file.js:line:col)` 形态，而 JavaScriptCore 打的是 `fn@file.js:line:col`（native 为
+`@[native code]`）。**jsc 上没有任何一帧能匹配，整个 source map 回写链路在 jsc 上是死的**。
+补了 JSC 分支 + doctest（具名帧 / 匿名帧 / `@[native code]` 不匹配）。
+
+**测试侧**：`fcf2ba3` 让 raw stack 检查接受「各引擎自己的帧形态」（它读的是 `new Error().stack`，
+本来就是引擎产物；v8 是其自身的合法行为，不是被弱化的断言）。同一检查在本地 v8 实测三种子检查
+仍全部 PASS。
+
+**清探针**：`db42282` 删除 `RES#` / `GC-BEGIN` / `GC-END` / `DEFER-GC` 与测试侧
+`refcountedNativeId` / 两处 `[probe]`（`e3f6096` 的 `object = null` 也一并撤掉——那是当时的
+诊断，真因既已找到就不该留）。
+
+**最终验证（`db42282`，run 36972327224）**：CI `conclusion: success`；除刻意 skip 的两个
+Benchmark job 外全部 success，含 `Test (host-jsc, macos-latest)`。jsc 日志内实测
+`[probe] pre-gc valid=true` → `post-gc valid=false`、`GODOTJS_TEST_PROJECT_COMPLETED`、
+无 `fail@`、无 `[FAIL]`。本地 v8：doctest 81/81（1225 断言）、smoke rc=0。
