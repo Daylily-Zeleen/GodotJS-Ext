@@ -64,7 +64,6 @@
 #include "jsb_primitive_bindings.h"
 
 namespace jsb {
-void jsb_dump_net();
 #if JSB_V8_CPPGC
 // for cppgc wrapper descriptor
 enum {
@@ -527,12 +526,10 @@ void Environment::update(uint64_t p_delta_msecs) {
 	if (gc_again_on_update_) {
 		gc_again_on_update_ = false;
 		if ((flags_ & EF_PreDispose) == 0) {
-			jsb_dump_net();
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
-			jsb_dump_net();
 		}
 	}
 #endif
