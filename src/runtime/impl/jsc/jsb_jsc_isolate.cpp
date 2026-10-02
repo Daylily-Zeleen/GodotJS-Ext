@@ -33,6 +33,14 @@
 
 #include <godot_cpp/core/math_funcs_binary.hpp>
 
+// `JSGarbageCollect()` does NOT perform a collection: upstream WebKit implements it as
+// `vm.heap.reportAbandonedObjectGraph()`, which only brings the *next asynchronous*
+// collection forward. That is why a JS `gc()` looked like a no-op in this backend.
+// The synchronous full collection is `JSSynchronousGarbageCollectForDebugging()`; it is not
+// part of the public SDK headers, but it IS exported from the shipped JavaScriptCore
+// framework (see `Source/JavaScriptCore/API/ExtraSymbolsForTAPI.h`), so declare it here.
+extern "C" void JSSynchronousGarbageCollectForDebugging(JSContextRef);
+
 #define JSB_JSC_DEFINE_ATOM_BEGIN() int _atom_index_gen_ = 0
 #define JSB_JSC_DEFINE_ATOM(AtomName)                             \
 	jsb_check(jsb::impl::JS_ATOM_##AtomName == _atom_index_gen_); \
@@ -187,7 +195,7 @@ void Isolate::_release() {
 	}
 
 	// manually run GC before freeing the context/runtime to ensure all objects free-ed (valuetype objects)
-	JSGarbageCollect(ctx_);
+	JSSynchronousGarbageCollectForDebugging(ctx_);
 	PerformMicrotaskCheckpoint();
 
 	// cleanup
@@ -334,11 +342,11 @@ Local<Context> Isolate::GetCurrentContext() {
 }
 
 void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
-	JSGarbageCollect(ctx_);
+	JSSynchronousGarbageCollectForDebugging(ctx_);
 }
 
 void Isolate::LowMemoryNotification() {
-	JSGarbageCollect(ctx_);
+	JSSynchronousGarbageCollectForDebugging(ctx_);
 }
 
 bool Isolate::_IsPromise(JSValueRef val) const {
