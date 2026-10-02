@@ -47,13 +47,13 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 	const int group_index = match->get_group_count() - 2;
 	const int one_base_stack_line = (int)match->get_string(group_index + 2).to_int();
 #		if !JSB_TESTS_ENABLED
-	jsb_checkf(one_based_stack_line > 0, "Invalid stack line number %d. They should one-based, impossible to reach 0 or lesser.", one_base_stack_line);
+	jsb_checkf(one_base_stack_line > 0, "Invalid stack line number %d. They should one-based, impossible to reach 0 or lesser.", one_base_stack_line);
 #		endif // !JSB_TESTS_ENABLED
-	if (one_based_stack_line <= 0) return false;
+	if (one_base_stack_line <= 0) return false;
 
 	r_result.function = match->get_string(group_index);
 	r_result.filename = match->get_string(group_index + 1);
-	r_result.line = one_based_stack_line - 1;
+	r_result.line = one_base_stack_line - 1;
 	r_result.col = 0; // quickjs has not stack column.
 	return true;
 #	else // ! JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
