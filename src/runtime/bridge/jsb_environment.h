@@ -243,9 +243,8 @@ private:
 	uint32_t flags_ = EF_None;
 
 	// JavaScriptCore only: a forced collection issued from JS cannot reclaim anything
-	// the JS stack still references (JSC scans conservatively). Set by `_on_gc_request`,
-	// consumed on the next engine frame where the JS frames have returned.
-	bool gc_again_on_update_ = false;
+	// the JS stack still references (JSC scans conservatively). Set by `_on_gc_request`; decremented once per engine frame.
+	int gc_again_on_update_ = 0;
 
 #if JSB_WITH_DEBUGGER
 	JavaScriptDebugger debugger_;

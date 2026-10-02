@@ -524,10 +524,8 @@ void Environment::update(uint64_t p_delta_msecs) {
 	// wrapper under test. Run the deferred collection here, at the top of the engine
 	// frame, before this frame executes any JavaScript.
 	if (gc_again_on_update_) {
-		gc_again_on_update_ = false;
+		--gc_again_on_update_;
 		if ((flags_ & EF_PreDispose) == 0) {
-			get_isolate()->LowMemoryNotification();
-			get_isolate()->PerformMicrotaskCheckpoint();
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
 		}
@@ -916,8 +914,9 @@ bool Environment::reference_object(void *p_pointer, bool p_is_inc) {
 	RefCounted *ref_counted = (RefCounted *)p_pointer;
 	auto ref_count = ref_counted->get_reference_count();
 	// TEMPORARY DIAGNOSTIC (jsc refcounted): only Resources, so the noise stays tiny.
+	// TEMPORARY DIAGNOSTIC (jsc refcounted): idlo matches the ObjectID the test prints.
 	if ((String)native_classes_.get_value(object_handle->class_id).name == String("Resource")) {
-		static int n = 0; if (n < 60) { ++n; JSB_LOG(Error, "[jsc-diag] RES#%d ptr=%d %s rc=%d weak=%d empty=%d", n, (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak(), (int)object_handle->ref_.IsEmpty()); }
+		static int n = 0; if (n < 80) { ++n; JSB_LOG(Error, "[jsc-diag] RES#%d idlo=%d ptr=%d %s rc=%d weak=%d", n, (int)(uint32_t)ref_counted->get_instance_id(), (uintptr_t)p_pointer, p_is_inc ? "INC" : "DEC", (int)ref_count, (int)object_handle->ref_.IsWeak()); }
 	}
 	jsb_checkf(ref_count >= 1, "Unexpected case: a bound RefCounted should keep at least 1 refcount.");
 	if (p_is_inc) {
@@ -2287,7 +2286,7 @@ void Environment::_on_gc_request() {
 	// the caller holds - including the very wrapper being tested - is treated as reachable
 	// and survives this collection. Queue one more collection for the next engine frame,
 	// where those JS frames have returned and the stack scan can no longer see them.
-	gc_again_on_update_ = true;
+	gc_again_on_update_ = 5;
 #endif
 }
 
