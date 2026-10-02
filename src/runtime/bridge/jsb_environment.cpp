@@ -531,9 +531,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	if (gc_again_on_update_) {
 		gc_again_on_update_ = false;
 		if ((flags_ & EF_PreDispose) == 0) {
-			// TEMPORARY DIAGNOSTIC (jsc refcounted): confirm the deferred collection runs,
-			// and how many wrappers it queues for finalization.
-			{ std::lock_guard lock(pending_finalize_mutex_); JSB_LOG(Error, "[jsc-diag] DEFERRED-GC before pending=%d", (int)pending_finalize_.size()); }
+			JSB_LOG(Error, "[jsc-diag] DEFERRED-GC");
 			get_isolate()->LowMemoryNotification();
 			get_isolate()->PerformMicrotaskCheckpoint();
 			get_isolate()->LowMemoryNotification();
