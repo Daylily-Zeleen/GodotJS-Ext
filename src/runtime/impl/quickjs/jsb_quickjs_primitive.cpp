@@ -290,18 +290,20 @@ int64_t BigInt::Int64Value(bool *lossless) const {
 }
 
 uint64_t BigInt::Uint64Value(bool *lossless) const {
-	// `JS_ToBigUint64` shares `JS_ToBigInt64Free`, whose own comment reads
-	// "return the value mod 2^64": the read is a bit-pattern read, not a range
-	// check. That is the contract the callers rely on.
+	// Both engines read the low 64 bits as a bit pattern, not as a range-checked value:
+	// quickjs-ng's `JS_ToBigUint64` is literally `JS_ToBigInt64Free(ctx, (int64_t *)pres, ...)`
+	// and classic quickjs' `JS_ToBigInt64Free` uses `bf_get_int64(pres, a, BF_GET_INT_MOD)`
+	// ("value mod 2^64"). Classic quickjs exports no `JS_ToBigUint64`, so the signed entry
+	// point is reused with a cast - the same thing quickjs-ng does internally.
 	const JSValue val = (JSValue) * this;
-	uint64_t rval;
-	if (JS_ToBigUint64(isolate_->ctx(), &rval, val) == -1) {
+	int64_t rval;
+	if (JS_ToBigInt64(isolate_->ctx(), &rval, val) == -1) {
 		jsb::impl::QuickJS::MarkExceptionAsTrivial(isolate_->ctx());
 		if (lossless) *lossless = false;
 		return 0;
 	}
 	if (lossless) *lossless = true;
-	return rval;
+	return (uint64_t)rval;
 }
 
 Local<BigInt> BigInt::New(Isolate *isolate, int64_t value) {
