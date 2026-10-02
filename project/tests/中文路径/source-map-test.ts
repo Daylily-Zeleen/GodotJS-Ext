@@ -16,7 +16,8 @@ import { Node } from "godot";
  *     the C++ doctest only covers a hardcoded name, this checks the real tsc output path);
  *  2. the frame carries the engine's own function/file/line/col frame, in the form
  *     `SourceMapCache::match()` consumes for that engine: V8 and quickjs-ng print
- *     `at fn (file.js:line:col)`, JavaScriptCore prints `fn@file.js:line:col`.
+ *     `at fn (file.js:line:col)`, classic quickjs prints `at fn (file.js:line)` (no
+ *     column at all), JavaScriptCore prints `fn@file.js:line:col`.
  *     Either way the frame must be pick-uppable, so the rewrite pipeline handles it.
  *
  * The *rewritten* stacktrace itself is produced in C++ (`process_source_position`) and
@@ -39,7 +40,8 @@ export default class SourceMapTest extends Node {
             },
             {
                 name: "frame carries file:line:col in the engine's own frame form",
-                pass: /(?:at\s.+\s)?\(?[^\s()]*source-map-test\.js:\d+:\d+\)?/.test(rawStack),
+                // classic quickjs stops at the line (no column); v8/quickjs-ng/jsc add `:col`.
+                pass: /(?:at\s.+\s)?\(?[^\s()]*source-map-test\.js:\d+(?::\d+)?\)?/.test(rawStack),
             },
         ];
         const allPassed = checks.every((check) => check.pass);

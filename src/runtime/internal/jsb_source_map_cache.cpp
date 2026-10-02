@@ -45,40 +45,48 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 	if (!match.is_valid()) return false;
 
 	const int group_index = match->get_group_count() - 2;
-	const int one_base_stack_line = (int)match->get_string(group_index + 2).to_int();
-#		if !JSB_TESTS_ENABLED
-	jsb_checkf(one_base_stack_line > 0, "Invalid stack line number %d. They should one-based, impossible to reach 0 or lesser.", one_base_stack_line);
-#		endif // !JSB_TESTS_ENABLED
-	if (one_base_stack_line <= 0) return false;
+	const int one_based_stack_line = (int)match->get_string(group_index + 2).to_int();
+	jsb_checkf(one_based_stack_line > 0, "Invalid stack line number %d. They should one-based, impossible to reach 0 or lesser.", one_based_stack_line);
 
 	r_result.function = match->get_string(group_index);
 	r_result.filename = match->get_string(group_index + 1);
-	r_result.line = one_base_stack_line - 1;
+	r_result.line = one_based_stack_line - 1;
 	r_result.col = 0; // quickjs has not stack column.
 	return true;
-#	else // ! JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+#	elif JSB_WITH_JAVASCRIPTCORE
+	// JavaScriptCore prints `fn@file.js:line:col` - no leading `at`, no parentheses - and
+	// `@[native code]` for natives. It never emits the V8 form, so it gets its own pattern
+	// rather than being probed as a fallback after the V8 ones.
+	if (source_map_match1_.is_null()) source_map_match1_ = RegEx::create_from_string(R"(([^@]*)@(.+\.js):(\d+):(\d+))"); // e.g. _ready@file.js:1:2
+	const Ref<RegExMatch> match = source_map_match1_->search(p_line);
+	if (!match.is_valid()) return false;
+
+	const int one_based_stack_line = (int)match->get_string(3).to_int();
+	const int one_based_stack_col = (int)match->get_string(4).to_int();
+	jsb_checkf(one_based_stack_line > 0 && one_based_stack_col > 0, "Invalid stack line number %d or column %d. They should one-based, impossible to reach 0 or lesser.", one_based_stack_line, one_based_stack_col);
+
+	r_result.function = match->get_string(1);
+	r_result.filename = match->get_string(2);
+	r_result.line = one_based_stack_line - 1;
+	r_result.col = one_based_stack_col - 1;
+	return true;
+#	else // V8 / quickjs-ng
 	if (source_map_match1_.is_null()) source_map_match1_ = RegEx::create_from_string(R"(\s+at\s(.+)\s\((.+\.js):(\d+):(\d+)\))"); // e.g. at xxx (file.js:1:2)
+#		if JSB_WITH_V8
 	if (source_map_match2_.is_null()) source_map_match2_ = RegEx::create_from_string(R"(\s+at\s(.+\.js):(\d+):(\d+))"); // e.g. at file.js:1:2
 	const Ref<RegEx> &regex = p_line.contains("(") && p_line.contains(")")
 			? source_map_match1_
 			: source_map_match2_;
+#		else
+	const Ref<RegEx> &regex = source_map_match1_;
+#		endif
 
-	Ref<RegExMatch> match = regex->search(p_line);
-	if (!match.is_valid()) {
-		// JavaScriptCore prints `fn@file.js:line:col` (no `at`, no parentheses) instead of the
-		// V8/quickjs-ng `at fn (file.js:line:col)`. Without this arm a jsc stacktrace never
-		// matches, so no frame is ever translated back to the original `.ts`.
-		if (source_map_match3_.is_null()) source_map_match3_ = RegEx::create_from_string(R"(([^@]*)@(.+\.js):(\d+):(\d+))");
-		match = source_map_match3_->search(p_line);
-	}
+	const Ref<RegExMatch> match = regex->search(p_line);
 	if (!match.is_valid()) return false;
 	const int group_index = match->get_group_count() - 3;
 	const int one_based_stack_line = (int)match->get_string(group_index + 2).to_int();
 	const int one_based_stack_col = (int)match->get_string(group_index + 3).to_int();
-#		if !JSB_TESTS_ENABLED
 	jsb_checkf(one_based_stack_line > 0 && one_based_stack_col > 0, "Invalid stack line number %d or column %d. They should one-based, impossible to reach 0 or lesser.", one_based_stack_line, one_based_stack_col);
-#		endif // !JSB_TESTS_ENABLED
-	if (one_based_stack_line <= 0 || one_based_stack_col <= 0) return false;
 
 	r_result.function = group_index == 0 ? String() : match->get_string(group_index);
 	r_result.filename = match->get_string(group_index + 1);
@@ -164,8 +172,9 @@ void SourceMapCache::invalidate(const String &p_filename) {
 
 void SourceMapCache::clear() {
 	source_map_match1_.unref();
+#	if JSB_WITH_V8
 	source_map_match2_.unref();
-	source_map_match3_.unref();
+#	endif
 	cached_source_maps_.clear();
 }
 

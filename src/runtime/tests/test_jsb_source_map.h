@@ -91,42 +91,13 @@ TEST_CASE("[runtime] [jsb.sourcemap] parse and find") {
 	}
 }
 
-#	if !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
-TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
+#	if JSB_WITH_JAVASCRIPTCORE
+TEST_CASE("[runtime] [jsb.sourcemap] match JavaScriptCore frames") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
 
-	// V8 style: at <function> (<filename>:<line>:<col>), one-based positions
-	{
-		CHECK(cache.match("    at __esDecorate (F:\\中文路径\\testScript.js:20:40)", result));
-		CHECK(result.function == "__esDecorate");
-		CHECK(result.filename == "F:\\中文路径\\testScript.js");
-		CHECK(result.line == 19);
-		CHECK(result.col == 39);
-	}
-
-	// V8 style without function name: at <filename>:<line>:<col>
-	{
-		CHECK(cache.match("    at F:\\中文路径\\testScript.js:91:26", result));
-		CHECK(result.function.is_empty());
-		CHECK(result.filename == "F:\\中文路径\\testScript.js");
-		CHECK(result.line == 90);
-		CHECK(result.col == 25);
-	}
-
-	// a line without any stack frame should not match
-	{
-		CHECK(!cache.match("TypeError: Cannot read properties of undefined (reading 'name')", result));
-	}
-
-	// stacktrace coordinates are one-based and zero is invalid
-	{
-		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:0:1)", result));
-		CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:1:0)", result));
-	}
-
-	// JavaScriptCore style: <function>@<filename>:<line>:<col> - no `at`, no parentheses.
-	// jsc emits this form, which is why a jsc stacktrace used to match nothing at all.
+	// JSC style: <function>@<filename>:<line>:<col> - no leading `at`, no parentheses.
+	// jsc never emits the V8 form, so it is matched directly instead of as a fallback.
 	{
 		CHECK(cache.match("_ready@/tmp/中文路径/testScript.js:20:40", result));
 		CHECK(result.function == "_ready");
@@ -149,7 +120,41 @@ TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 		CHECK(!cache.match("@[native code]", result));
 	}
 }
-#	else // !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+#	elif !JSB_WITH_QUICKJS || JSB_PREFER_QUICKJS_NG
+TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
+	internal::SourceMapCache cache;
+	internal::SourceMapCache::MatchResult result;
+
+	// V8 style: at <function> (<filename>:<line>:<col>), one-based positions
+	{
+		CHECK(cache.match("    at __esDecorate (F:\\中文路径\\testScript.js:20:40)", result));
+		CHECK(result.function == "__esDecorate");
+		CHECK(result.filename == "F:\\中文路径\\testScript.js");
+		CHECK(result.line == 19);
+		CHECK(result.col == 39);
+	}
+
+#	if JSB_WITH_V8
+	// V8-only: a frame with no function name loses the parentheses too, i.e. the bare
+	// `at <filename>:<line>:<col>` form. quickjs/quickjs-ng never emit this - they always
+	// keep the parentheses (filling the name with `<anonymous>`), so `match2_` is V8-only.
+	// V8 style without function name: at <filename>:<line>:<col>
+	{
+		CHECK(cache.match("    at F:\\中文路径\\testScript.js:91:26", result));
+		CHECK(result.function.is_empty());
+		CHECK(result.filename == "F:\\中文路径\\testScript.js");
+		CHECK(result.line == 90);
+		CHECK(result.col == 25);
+	}
+#	endif // JSB_WITH_V8
+
+	// a line without any stack frame should not match
+	{
+		CHECK(!cache.match("TypeError: Cannot read properties of undefined (reading 'name')", result));
+	}
+
+}
+#	else // classic quickjs (no column)
 TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
 	internal::SourceMapCache cache;
 	internal::SourceMapCache::MatchResult result;
@@ -159,8 +164,6 @@ TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {
 	CHECK(result.filename == "F:\\中文路径\\testScript.js");
 	CHECK(result.line == 19);
 	CHECK(result.col == 0);
-
-	CHECK(!cache.match("    at fn (F:\\中文路径\\testScript.js:0)", result));
 }
 #	endif // JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
 
@@ -200,8 +203,15 @@ TEST_CASE("[runtime] [jsb.sourcemap] process_source_position rewrites stacktrace
 
 	internal::SourceMapCache cache;
 	// one-based positions in the stacktrace (line 1, column 1) must be converted into
-	// zero-based ones before the lookup, then printed back as one-based (line 2, column 4)
+	// zero-based ones before the lookup, then printed back as one-based (line 2, column 4).
+	// The frame text has to be in the shape the build's backend actually emits - classic
+	// quickjs carries no column at all, v8/quickjs-ng do. Routing this through the real
+	// `match()` is the point of the test, so it cannot use one engine's shape for another.
+#	if JSB_WITH_QUICKJS && !JSB_PREFER_QUICKJS_NG
+	String stacktext = String("Error: SOURCE_MAP_TEST_MARKER\n") + String("    at fn (") + js_path + String(":1)");
+#	else
 	String stacktext = String("Error: SOURCE_MAP_TEST_MARKER\n") + String("    at fn (") + js_path + String(":1:1)");
+#	endif
 	const String rewritten = cache.process_source_position(stacktext);
 	// the `..` segments in `sources` must be resolved; the output is an absolute OS path whose
 	// prefix and separators are platform-dependent, so assert on the resolved content only
