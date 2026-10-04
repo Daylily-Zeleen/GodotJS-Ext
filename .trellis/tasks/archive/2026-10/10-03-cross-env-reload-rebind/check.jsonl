@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "C++ 开发前检查单与质量检查"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "命名空间禁令、格式化、临时文件位置"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "Environment 生命周期与 worker 线程约束"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "godot-cpp API 调用约定"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "本地构建门禁命令"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "测试约定"}
+{"file": ".trellis/tasks/10-03-cross-env-reload-rebind/prd.md", "reason": "需求、约束、验收标准"}
+{"file": ".trellis/tasks/10-03-cross-env-reload-rebind/design.md", "reason": "技术设计与已定决策"}

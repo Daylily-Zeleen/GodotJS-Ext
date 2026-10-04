@@ -26,12 +26,14 @@
 /************************************************************************/
 
 #include "jsb_script.h"
-#include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_signature.h"
 #include "../internal/jsb_path_util.h"
 #include "jsb_script_instance.h"
 #include "jsb_script_language.h"
+#if JSB_TOOLS
+#	include "../bridge/jsb_script_doc.h"
+#endif // JSB_TOOLS
 
 #include <compat/misc.h>
 #include <godot_cpp/classes/engine.hpp>
@@ -289,6 +291,13 @@ Error GodotJSScript::_reload(bool p_keep_state) {
 		// ...
 
 		loaded_ = false;
+
+		// Broadcast so every other env that cached this module (or owns one of its
+		// instances) marks ITS OWN module dirty and rebinds ITS OWN instances.
+		// Deliberately here rather than in `load_module_immediately`: `loaded_` is
+		// shared, so whichever env reaches `ensure_module_loaded` first consumes it
+		// and the others may never enter the load path at all.
+		_notify_script_reloaded_in_envs(env);
 	} else if (result != jsb::ModuleReloadResult::NoChanges) {
 		JSB_LOG(Warning, "failed to mark module as reloading: %s (%d)", module_id, result);
 	}
@@ -890,6 +899,91 @@ Variant GodotJSScript::_get_rpc_config() const {
 	return script_class_info_.rpc_config;
 }
 
+// 通知那些 module cache 里含有本脚本的其它 env：请它们在自己的线程上刷新模块并重绑
+// 自己的实例（GodotJSScript::refresh_in_env）。
+void GodotJSScript::_notify_script_reloaded_in_envs(std::shared_ptr<jsb::Environment> p_caller_env) {
+	const StringName module_id = script_class_info_.module_id;
+	if (!jsb::internal::VariantUtil::is_valid_name(module_id)) {
+		return;
+	}
+
+	std::vector<std::shared_ptr<jsb::Environment>> all_envs = jsb::Environment::get_all_environments();
+	std::vector<jsb::Environment *> targets;
+	targets.reserve(all_envs.size());
+
+	for (const std::shared_ptr<jsb::Environment> &other : all_envs) {
+		if (!other || other == p_caller_env) {
+			continue;
+		}
+		// 缓存里没有这个模块就与本次重载无关。
+		if (!other->get_module_cache().find(module_id)) {
+			continue;
+		}
+		if (std::find(targets.begin(), targets.end(), other.get()) == targets.end()) {
+			targets.push_back(other.get());
+		}
+	}
+
+	const Ref<GodotJSScript> self{ this };
+	jsb_check(self.is_valid());
+	for (jsb::Environment *target : targets) {
+		// 只传指针：`notify_script_reloaded` 会替队列 reference() 一票、由消费端归还，
+		// 所以队列在途期间对象被钉住，"入队后对象被析构"的窗口不存在。
+		target->notify_script_reloaded(self);
+	}
+}
+
+// 在【本 env 所属线程】上刷新本脚本，并重绑本 env 拥有的实例。
+void GodotJSScript::refresh_in_env(jsb::Environment *p_env) {
+	// TODO(已知遗留): 接受通知到重绑生效之间，本 env 自己的逻辑仍可能跑在旧 prototype 上；
+	// 后续需把重绑推迟到安全时机，或在入口处校验实例是否已重绑。
+	JSB_BENCHMARK_SCOPE(GodotJSScript, refresh_in_env);
+	if (!p_env || p_env->is_disposing()) {
+		return;
+	}
+
+	const String module_id = jsb::internal::PathUtil::convert_typescript_path(get_path());
+	if (module_id.is_empty()) {
+		JSB_LOG(Warning, "cannot load a GodotJSScript without a path");
+		return;
+	}
+
+	// 标脏【本 env】的 module。若本 env 已经刷新过（文件没再变），这里是幂等的出口。
+	if (p_env->mark_as_reloading(module_id) != (int)jsb::ModuleReloadResult::Requested) {
+		return;
+	}
+
+	// 在本 env 里重新解析模块：_load_module 会看到本 env 那份 reload_requested。
+	jsb::JavaScriptModule *module = nullptr;
+	// Same id `mark_as_reloading` matched, so both act on one module entry.
+	if (p_env->load(module_id, &module) != OK || !module) {
+		JSB_LOG(Warning, "failed to refresh module %s in a foreign environment", module_id);
+		return;
+	}
+
+	if (is_valid_internal()) {
+		if (!instances_.is_empty()) {
+			// 重绑【本 env 拥有】的实例。instances_ 仍是进程级的，遍历必须持锁。
+			const StringName &native_class_name = p_env->get_script_class(module->script_class_id)->native_class_name;
+			std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_);
+			for (RBSet<Object *>::Element *E = instances_.front(); E;) {
+				Object *obj = E->get();
+				jsb_check(Variant(obj->get_script()) == Variant(this));
+				if (p_env->verify_object(obj)) {
+					if (ClassDB::is_parent_class(native_class_name, obj->get_class())) {
+						p_env->rebind(obj, module->script_class_id);
+					} else {
+						JSB_LOG(Warning, "Cannot rebind class %s (%s) on %s, it requires a %s", script_class_info_.js_class_name, script_class_info_.module_id, obj->get_class(), native_class_name);
+						obj->set_script(Ref<Script>());
+					}
+				}
+
+				E = E->next();
+			}
+		}
+	}
+}
+
 void GodotJSScript::load_module_immediately() {
 	if (loaded_) return;
 	JSB_BENCHMARK_SCOPE(GodotJSScript, load_module);
@@ -933,24 +1027,22 @@ void GodotJSScript::load_module_immediately() {
 
 	if (is_valid_internal()) {
 		JSB_LOG(VeryVerbose, "GodotJSScript module loaded %s", path);
-		{
-			//TODO a dirty but approaching solution for hot-reloading
-			//TODO will crash if reloading script instances in worker threads
+		if (!instances_.is_empty()) {
+			const StringName &native_class_name = env->get_script_class(module->script_class_id)->native_class_name;
 			std::lock_guard lock(GodotJSScriptLanguage::get_singleton()->mutex_); // necessary?
 			for (RBSet<Object *>::Element *E = instances_.front(); E;) {
-				RBSet<Object *>::Element *N = E->next();
 				Object *obj = E->get();
 				jsb_check(Variant(obj->get_script()) == Variant(this));
-				jsb_check(env->verify_object(obj));
-
-				if (ClassDB::is_parent_class(env->get_script_class(module->script_class_id)->native_class_name, obj->get_class())) {
-					env->rebind(obj, module->script_class_id);
-				} else {
-					JSB_LOG(Warning, "Cannot rebind class %s (%s) on %s, it requires a %s", script_class_info_.js_class_name, script_class_info_.module_id, obj->get_class(), env->get_script_class(module->script_class_id)->native_class_name);
-					obj->set_script(Ref<Script>());
+				// 只能处理属于调用环境的对象（Isolate 隔离）
+				if (env->verify_object(obj)) {
+					if (ClassDB::is_parent_class(native_class_name, obj->get_class())) {
+						env->rebind(obj, module->script_class_id);
+					} else {
+						JSB_LOG(Warning, "Cannot rebind class %s (%s) on %s, it requires a %s", script_class_info_.js_class_name, script_class_info_.module_id, obj->get_class(), env->get_script_class(module->script_class_id)->native_class_name);
+						obj->set_script(Ref<Script>());
+					}
 				}
-
-				E = N;
+				E = E->next();
 			}
 		}
 

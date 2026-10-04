@@ -63,6 +63,7 @@
 // get v8 symbol value from pre-allocated symbol registry
 #define jsb_symbol(env, name) (env)->get_symbol(Symbols::name)
 
+class GodotJSScript;
 namespace jsb {
 enum : uint32_t { kIsolateEmbedderData = 0,
 };
@@ -147,6 +148,11 @@ private:
 
 			// request a full gc from other threads
 			TYPE_GC_REQUEST,
+
+			// 通知脚本已被重载，需要在该环境中重新加载该模块，并 rebind 属于该环境的脚本实例。
+			// 携带参数是脚本对象指针。**入队时由 notify_script_reloaded() 先 reference、
+			// 消费端 unreference**：队列在途期间持有一个引用保活。
+			TYPE_SCRIPT_RELOAD,
 		};
 
 		Type type_;
@@ -754,6 +760,11 @@ private:
 	 */
 	bool add_async_call(AsyncCall::Type p_type, void *p_user_data);
 
+public:
+	// 通知某个脚本被重载了，需要在该环境中重新加载模块并 rebind 脚本实例。
+	void notify_script_reloaded(const Ref<GodotJSScript> &p_script);
+
+private:
 #if !JSB_WITH_WEB
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
 #endif
@@ -864,10 +875,11 @@ public:
 #endif // JSB_SHADOW_REALM_ENABLED
 
 #if JSB_TOOLS
-	static void add_disposed_callback(void*p_owner, std::function<void(Environment *)> p_callback);
-	static void remove_disposed_callback(void*p_owner);
+	static void add_disposed_callback(void *p_owner, std::function<void(Environment *)> p_callback);
+	static void remove_disposed_callback(void *p_owner);
+
 private:
-	static HashMap<void*,std::function<void(Environment *)>> disposed_callbacks;
+	static HashMap<void *, std::function<void(Environment *)>> disposed_callbacks;
 #endif // JSB_TOOLS
 };
 

@@ -494,6 +494,8 @@ void Environment::dispose() {
 		symbols_[index].Reset();
 	}
 
+	// 双缓冲的两个槽都清一遍。
+	exec_async_calls();
 	exec_async_calls();
 	_on_gc_request();
 
@@ -641,6 +643,12 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_user_data) {
 		case AsyncCall::TYPE_GC_REQUEST:
 			_on_gc_request();
 			break;
+		case AsyncCall::TYPE_SCRIPT_RELOAD: {
+			// 入队时 notify_script_reloaded() 使用 reference() 保活，这里需要 unreference()。
+			GodotJSScript *script = static_cast<GodotJSScript *>(p_user_data);
+			script->refresh_in_env(this);
+			script->unreference(); // 可能触发析构，之后不得再访问 script
+		} break;
 		default:
 			jsb_checkf(false, "unknown AsyncCall: %d", p_type);
 			break;
@@ -656,6 +664,20 @@ bool Environment::add_async_call(AsyncCall::Type p_type, void *p_user_data) {
 #endif
 	exec_async_call(p_type, p_user_data);
 	return true;
+}
+
+void Environment::notify_script_reloaded(const Ref<GodotJSScript> &p_script) {
+	jsb_check(p_script.is_valid());
+
+	if (is_disposing()) {
+		// 环境正在销毁：刷新没有意义（refresh_in_env 也会自己早退），而且入队也等不到消费
+		return;
+	}
+
+	// 让整个重载调用过程持有一个计数,
+	/** NOTE: 不检查 reference() 返回值，传入参数以及确保至少有一个计数。 */
+	p_script->reference();
+	add_async_call(AsyncCall::TYPE_SCRIPT_RELOAD, p_script.ptr());
 }
 
 #if !JSB_WITH_WEB

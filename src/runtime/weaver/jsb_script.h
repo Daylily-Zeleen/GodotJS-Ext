@@ -280,7 +280,14 @@ public:
 		}
 	}
 
+	// 在【本 env 所属线程】上刷新本脚本并重绑本 env 拥有的实例。
+	// 由 Environment 在消费 TYPE_SCRIPT_RELOAD 通知时调用；不碰任何共享快照。
+	void refresh_in_env(jsb::Environment *p_env);
+
 private:
+	// 通知其它缓存了本脚本的 env 刷新自己（见实现处的范围说明）。
+	void _notify_script_reloaded_in_envs(std::shared_ptr<jsb::Environment> p_caller_env);
+
 	void load_module_immediately();
 	_FORCE_INLINE_ void ensure_module_loaded() const {
 		if (jsb_unlikely(!loaded_)) const_cast<GodotJSScript *>(this)->load_module_immediately();
