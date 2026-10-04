@@ -104,6 +104,6 @@ MethodInfo signature_to_method_info(const StringName &p_name, const ScriptMethod
  *
  * @return `ScriptArgumentCount::Unknown` 表示无法判定（模块/类/方法缺失，或形参表闭合不了）。
  */
-int resolve_declared_parameter_count(Environment *p_env, const StringName &p_module_id, const StringName &p_exposed_name);
+int resolve_declared_parameter_count(std::shared_ptr<jsb::Environment> p_env, const StringName &p_module_id, const StringName &p_exposed_name);
 
 } //namespace jsb::internal

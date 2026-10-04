@@ -388,7 +388,7 @@ MethodInfo signature_to_method_info(const StringName &p_name, const ScriptMethod
 	return info;
 }
 
-int resolve_declared_parameter_count(Environment *p_env, const StringName &p_module_id, const StringName &p_exposed_name) {
+int resolve_declared_parameter_count(std::shared_ptr<jsb::Environment> p_env, const StringName &p_module_id, const StringName &p_exposed_name) {
 	if (p_env == nullptr || !p_env->is_caller_thread()) {
 		// 跨线程进入 isolate 不安全（与环境既有的 `check_internal_state` 同一条约束）。
 		return ScriptArgumentCount::Unknown;

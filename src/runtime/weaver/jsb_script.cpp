@@ -820,7 +820,7 @@ int GodotJSScript::_resolve_method_argument_count(const StringName &p_exposed_na
 	// 回退：没有签名清单时读函数源文本（与改动前的行为一致）。必须进入 isolate，
 	// 因此这条路径要求当前线程就是环境所属线程（`resolve_declared_parameter_count` 内已守卫）。
 	jsb::JSEnvironment env(get_path(), true);
-	const int count = jsb::internal::resolve_declared_parameter_count(env.operator->(), script_class_info_.module_id, p_exposed_name);
+	const int count = jsb::internal::resolve_declared_parameter_count(env, script_class_info_.module_id, p_exposed_name);
 	// 结果落字段（`Unknown` 也落）：解析期不再重算，"读不出来"也不必每次查询重试。
 	info->argument_count = count;
 	return count;
