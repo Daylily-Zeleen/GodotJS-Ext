@@ -930,11 +930,7 @@ void GodotJSScript::load_module_immediately() {
 		const jsb::ScriptClassInfoPtr class_info_ptr = env->find_script_class(module->script_class_id);
 		script_class_info_ = class_info_ptr ? (jsb::StatelessScriptClassInfo)*class_info_ptr : jsb::StatelessScriptClassInfo();
 	}
-#if JSB_TOOLS
-	// 源注释文档可能早于模块加载被推入（编辑器安装/重扫只处理文件，不实例化脚本）。
-	// 此刻类信息刚由上面一行从解析结果拷出，把属于本脚本的文档补上。
-	_apply_pending_source_doc();
-#endif
+
 	if (is_valid_internal()) {
 		JSB_LOG(VeryVerbose, "GodotJSScript module loaded %s", path);
 		{
@@ -971,22 +967,14 @@ void GodotJSScript::load_module_immediately() {
 			}
 		}
 
+#if JSB_TOOLS
+		// 源注释文档可能早于模块加载被推入（编辑器安装/重扫只处理文件，不实例化脚本）。
+		// 此刻类信息刚由上面一行从解析结果拷出，把属于本脚本的文档补上。
+		_apply_pending_source_doc();
+#endif
+
 		// update the default value cache
 		_update_exports();
-#if JSB_TOOLS
-		// temp and tricky workaround to avoid missing doc when showing on inspector the first time after load
-		// GDExtension 没有暴露 DocData/EditorHelp are not available in godot-cpp GDExtension
-		// TODO: 可以考虑调用 EditorFileSystem::update_file() 进行触发，是有必要吗？
-		// if (DocTools* doc_tools = EditorHelp::get_doc_data())
-		// {
-		//     const Vector<DocData::ClassDoc> documentations = get_documentation();
-		//     for (int i = 0; i < documentations.size(); i++)
-		//     {
-		//         const DocData::ClassDoc& doc = documentations.get(i);
-		//         doc_tools->add_doc(doc);
-		//     }
-		// }
-#endif
 		return;
 	}
 	JSB_LOG(Debug, "a stub script loaded which does not contain a GodotJS class %s", path);
