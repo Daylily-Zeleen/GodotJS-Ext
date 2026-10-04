@@ -50,6 +50,10 @@ uint16_t Broker::push_copy(v8::Isolate *isolate, JSValue value) {
 	return isolate->push_copy(value);
 }
 
+JSContext *Broker::ctx(v8::Isolate *isolate) {
+	return isolate->ctx();
+}
+
 void Broker::add_phantom(v8::Isolate *isolate, void *token) {
 	return isolate->add_phantom(token);
 }

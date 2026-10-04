@@ -54,6 +54,10 @@ public:
 
 	static uint16_t push_copy(v8::Isolate *isolate, JSValueConst value);
 
+	// `Global::operator==` 要用 ctx，但 handle 头只看到 `v8::Isolate` 的前置声明
+	// （该类自己有 `Local` 成员，直接包含定义会成环）。走声明过的函数，就不在非完整类型上做成员访问。
+	static JSContext *ctx(v8::Isolate *isolate);
+
 	static void _add_reference(v8::Isolate *isolate);
 	static void _remove_reference(v8::Isolate *isolate);
 };
