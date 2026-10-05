@@ -363,7 +363,6 @@ bool _parse_script_class_iterate(const v8::Local<v8::Context> &p_context, const 
 	v8::Isolate *isolate = p_context->GetIsolate();
 	Environment *environment = Environment::wrap(isolate);
 
-	//TODO collect methods/signals/properties
 	v8::Local<v8::Value> prototype_val;
 	if (!class_obj->Get(p_context, jsb_name(environment, prototype)).ToLocal(&prototype_val) || !prototype_val->IsObject()) {
 		JSB_LOG(Warning, "(script-parser) class prototype is missing or invalid");

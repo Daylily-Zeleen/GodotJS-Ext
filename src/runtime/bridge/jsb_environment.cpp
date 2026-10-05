@@ -1471,7 +1471,9 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 		do {
 			debugger_.update(); // process incoming debugger connections
 
-			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration); // TODO
+			// TODO: evaluate whether this handshake can
+			// drop the std::future/std::promise dependency
+			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration);
 
 			if (status == std::future_status::ready) {
 				break;

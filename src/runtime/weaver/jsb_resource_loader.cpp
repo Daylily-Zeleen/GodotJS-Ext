@@ -62,30 +62,6 @@ String ResourceFormatLoaderGodotJSScript::_get_resource_type(const String &p_pat
 Variant ResourceFormatLoaderGodotJSScript::_load(const String &p_path, const String &p_original_path, bool p_use_sub_threads, int32_t p_cache_mode) const {
 	JSB_BENCHMARK_SCOPE(ResourceFormatLoaderGodotJSScript, _load);
 
-	// {
-	//     //TODO a dirty but approaching solution for hot-reloading
-	//     std::lock_guard lock(GodotJSScriptLanguage::singleton_->mutex_);
-	//     SelfList<GodotJSScript> *elem = GodotJSScriptLanguage::singleton_->script_list_.first();
-	//     while (elem)
-	//     {
-	//         //TODO need to handle duplicate scripts if GodotJSScript is implemented as thread-wide (not implemented yet)
-	//         if (elem->self()->get_path() == p_path)
-	//         {
-	//             if (p_cache_mode != CACHE_MODE_REUSE)
-	//             {
-	//                 elem->self()->load_source_code_from_path();
-	//             }
-	//
-	//             //TODO temporarily ignore it, we are trying to implement scripts in worker threads which may be better not to reuse an existing script reference
-	//             if (p_cache_mode == CACHE_MODE_REUSE)
-	//             {
-	//                 return Ref(elem->self());
-	//             }
-	//         }
-	//         elem = elem->next();
-	//     }
-	// }
-
 #if JSB_TOOLS
 	// only check the source file in editor mode since .ts source code is not required in runtime mode
 	if (Engine::get_singleton()->is_editor_hint() && !FileAccess::file_exists(p_path)) {

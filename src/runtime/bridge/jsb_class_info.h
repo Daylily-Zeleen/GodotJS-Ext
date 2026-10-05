@@ -100,7 +100,6 @@ struct NativeClassInfo {
 	// it's called when a JS value with this class type garbage collected by JS runtime
 	FinalizerFunc finalizer;
 
-	//TODO RESERVED FOR FUTURE USE
 	NativeClassType::Type type;
 
 	// *only if type == GodotObject*
@@ -231,7 +230,7 @@ struct ScriptStaticVariableInfo {
 	PropertyInfo details;
 };
 
-struct ScriptMethodInfo // TODO: 为什么不复用 MethodInfo
+struct ScriptMethodInfo
 {
 #if JSB_TOOLS
 	ScriptMethodDoc doc;
