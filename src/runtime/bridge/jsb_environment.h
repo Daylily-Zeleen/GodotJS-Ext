@@ -453,15 +453,6 @@ public:
 	 */
 	Error get_module_direct_dependencies(const String &p_module_id, PackedStringArray &r_deps);
 
-#if JSB_TOOLS
-	// Compile the script WITHOUT executing it, to answer whether it is syntactically
-	// valid. Optimally this would also report where the error is; `r_error` receives
-	// the compile error's message and 1-based line/column when one occurred, so the
-	// script editor can point at it (see `_validate`).
-	// @return true when the source compiles.
-	bool validate_script(const String &p_path, Dictionary *r_error = nullptr);
-#endif // JSB_TOOLS
-
 	NativeObjectID crossbind(Object *p_this, ScriptClassID p_class_id, const Variant **p_args, int p_argcount);
 
 	void rebind(Object *p_this, ScriptClassID p_class_id);
@@ -623,6 +614,7 @@ public:
 
 	// request a full garbage collection
 	static void gc();
+	// TODO: 作为项目设置使用
 	void set_battery_save_mode(bool p_enabled) { get_isolate()->SetBatterySaverMode(p_enabled); }
 
 	void update(uint64_t p_delta_msecs);

@@ -695,7 +695,7 @@ P0-2 —— `_debug_get_error` + 9 个 `_debug_get_stack_level_*` 桩（`jsb_scr
 `(function(exports,require,module,__filename,__dirname){ … \n})`
 （`DefaultModuleResolver::read_all_bytes_with_shebang`）后用 **classic** `Script::Compile` 编译。实测 `project/.godot/godotjs_ext/**.js` 112 个产物中 0 个含顶层 `import/export`，全是 `exports.`/`require(`。
 
-所以校验必须解析**同一个头包裹后的文本**，否则与 loader 的接受/拒绝集不一致。头尾已提为 `jsb::kModuleSourceHeader/Footer`，`read_all_bytes_with_shebang` 加 `static_assert` 锁同步，`validate_script` 复用之。
+所以校验必须解析**同一个头包裹后的文本**，否则与 loader 的接受/拒绝集不一致。头尾已提为 `jsb::kModuleSourceHeader/Footer`（现于 `src/runtime/internal/jsb_module_wrapper.h`），loader 与语法校验复用同一对符号。
 
 ### 16.4 验证（实测）
 

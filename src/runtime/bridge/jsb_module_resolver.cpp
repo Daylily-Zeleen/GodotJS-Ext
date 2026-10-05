@@ -32,6 +32,7 @@
 #	include <internal/jsb_paths_mapping.h>
 #endif
 
+#include "../internal/jsb_module_wrapper.h"
 #include "../internal/jsb_path_util.h"
 #include "runtime/internal/jsb_runtime_settings.h"
 #include <godot_cpp/classes/dir_access.hpp>

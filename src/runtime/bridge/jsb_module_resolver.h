@@ -31,13 +31,6 @@
 #include "jsb_module.h"
 
 namespace jsb {
-// The CommonJS wrapper every module source is compiled inside (see
-// `DefaultModuleResolver::read_all_bytes_with_shebang`). Exposed so a syntax
-// check can parse exactly the text the runtime would compile, instead of a
-// lookalike that may accept or reject different input.
-inline constexpr const char kModuleSourceHeader[] = "(function(exports,require,module,__filename,__dirname){";
-inline constexpr const char kModuleSourceFooter[] = "\n})";
-
 class IModuleResolver {
 public:
 	virtual ~IModuleResolver() = default;

@@ -183,7 +183,7 @@ TEST_CASE("[runtime] [jsb.lang] validate reports declared functions, and no bogu
 
 	// A script whose COMPILED output is broken must be reported invalid, with a
 	// position. The editable `.ts` is TypeScript and is not what gets validated --
-	// `validate_script` maps the path to the compiled JS first (jsb_script.cpp:897),
+	// `_validate` maps the path to the compiled JS first (jsb_script.cpp:897),
 	// so decorators and type annotations in the source are not mistaken for errors.
 	const String broken = "res://__test_broken__.js";
 	{

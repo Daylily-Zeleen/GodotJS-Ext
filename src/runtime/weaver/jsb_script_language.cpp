@@ -31,6 +31,7 @@
 
 #include <string_view>
 
+#include "../internal/jsb_module_wrapper.h"
 #include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_type_convert.h"
@@ -458,22 +459,40 @@ Dictionary GodotJSScriptLanguage::_validate(const String &p_script, const String
 		result["functions"] = collect_declared_functions(js_declaration_matcher_, p_script);
 	}
 
-	// Errors are only useful with a position; ask for them only when the caller wants
-	// them (script_text_editor.cpp:913 requests errors+warnings+safe_lines on every
-	// edit, :176 requests only functions).
-	Dictionary error;
-	const bool valid = environment_->validate_script(p_path, p_validate_errors ? &error : nullptr);
+	bool valid = true;
+	String message;
+	int line = 1;
+	int column = 1;
+	const String compiled_path = jsb::internal::PathUtil::convert_typescript_path(p_path);
+	const String resolved_path = FileAccess::file_exists(compiled_path) ? compiled_path : p_path;
+	if (const Ref<FileAccess> access = FileAccess::open(resolved_path, FileAccess::READ); access.is_valid()) {
+		// 产物还没生成：缺文件不算脚本非法。
+		const PackedByteArray bytes = access->get_buffer(access->get_length());
+		access->close();
+		// 头尾不含换行，所以报出的行号与裸文件一致。
+		const String source = String(jsb::kModuleSourceHeader) + String::utf8((const char *)bytes.ptr(), bytes.size()) + String(jsb::kModuleSourceFooter);
+
+		// isolate/handle scope 必须在任何 `v8::Local`（含 context）之前建立，context scope
+		// 又必须在编译之前进入；顺序错了会拿到空 Local 或直接崩。
+		v8::Isolate *isolate = environment_->get_isolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = environment_->get_context();
+		v8::Context::Scope context_scope(context);
+
+		valid = jsb::impl::Helper::validate_source(isolate, context, resolved_path, source, &message, &line, &column);
+	}
 	result["valid"] = valid;
 
-	if (!valid && p_validate_errors && !error.is_empty()) {
+	if (!valid && p_validate_errors) {
 		// Shape required by ScriptLanguageExtension::validate (line/column/message are
 		// mandatory, "path" optional); before this the hook emitted a fake
 		// "NOT_IMPLEMENTED" row at line 0, which made the editor jump nowhere useful.
 		Dictionary err;
 		err["path"] = p_path;
-		err["line"] = error.get("line", 1);
-		err["column"] = error.get("column", 1);
-		err["message"] = error.get("message", String("Failed to parse the script."));
+		err["line"] = line;
+		err["column"] = column;
+		err["message"] = message.is_empty() ? String("Failed to parse the script.") : message;
 		result["errors"] = Array::make(err);
 	}
 	// warnings and safe_lines are not produced: there is no lint pass to derive them
