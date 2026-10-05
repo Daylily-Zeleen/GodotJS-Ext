@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "验收命令与判定"}
+{"file": ".trellis/tasks/10-05-resource-loader-deps/design.md", "reason": "对照方案的取舍（尤其不接 Environment 的理由）"}

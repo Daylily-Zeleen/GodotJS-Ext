@@ -39,7 +39,7 @@ private:
 	// in web, it's the prototype object.
 	v8::Global<v8::Object> prototype_;
 
-	//TODO may unnecessary, should be identical with prototype.constructor?
+	// 类构造函数的强引用，也是 `Get()` 的返回值。
 	v8::Global<v8::Function> constructor_;
 
 public:

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "新增 C++ 模块的编码约定"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "分层/依赖方向：扫描器不得依赖 Environment"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "doctest 注册与运行方式"}
+{"file": ".trellis/tasks/09-29-todo-audit/report.md", "reason": "§24/§26 的 #148 影响面与消费者证据"}

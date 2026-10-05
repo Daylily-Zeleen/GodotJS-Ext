@@ -121,3 +121,14 @@ spike 证据在 `.agent_tmp/docs-spike/`（安装 126 包 / 构建 1.96s / 自�
 `path.join(site.base, relativePath)` 生成文档 id，我又套了一次 `withBase`，
 得到 `/godotjs-ext.github.io/godotjs-ext.github.io/...`（404）。
 修复：`hit.id` 原样使用。提交 `ed855ee`。
+
+## 2026-10-06 补页：已知限制与实现细节（misc/known-issues）
+
+- 新增 `docs/misc/known-issues.md` + `docs/en/misc/known-issues.md`，`docs/.vitepress/data/nav.mts` 的「其他 / Misc」
+  段加一行（双语条目一行搞定，符合该文件约定）。
+- 内容两条（**用户视角，无引擎内部机制**）：① 编辑器看不到脚本的模块依赖——现象/影响/不受影响；
+  ② autoload 不能在 JS/TS 里按名字用——现象/当前做法（`get_node("/root/<名字>")`）。
+  标题与侧栏标签为「已知问题」/「Known issues」。
+- 验证：`node scripts/check-i18n.mts` → `ok (10 pages x 2 locales)`；`npx vitepress build docs` → build complete in 4.16s；
+  浏览器实测 zh 与 en 页面标题/正文/侧栏条目（`is-active`）均正确。
+- 状态：docs 仓改动未提交（待授权）。

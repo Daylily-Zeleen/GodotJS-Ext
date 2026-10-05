@@ -41,7 +41,7 @@ private:
 	//NOTE `constructor == info.NewTarget()` only if directly creating a class instance
 	v8::Global<v8::Object> prototype_;
 
-	//TODO may unnecessary, should be identical with prototype.constructor?
+	// 类构造函数的强引用，`Get()` 直接返回它（不读可被用户改写的 `prototype.constructor`）。
 	v8::Global<v8::Function> constructor_;
 
 	uint8_t internal_field_count_ = 0;
@@ -61,10 +61,7 @@ public:
 	}
 
 	_FORCE_INLINE_ v8::Local<v8::Object> Get(v8::Isolate *isolate) const {
-		const JSObjectRef prototype = JavaScriptCore::AsObject(isolate->ctx(), (JSValueRef)prototype_);
-		const JSValueRef constructor = isolate->_GetProperty(prototype, JS_ATOM_constructor);
-		jsb_check(constructor);
-		return v8::Local<v8::Object>(v8::Data(isolate, isolate->push_copy(constructor)));
+		return v8::Local<v8::Object>(v8::Data(isolate, constructor_.Get(isolate)->stack_pos_));
 	}
 
 	//NOTE NewInstance should not trigger the underlying native constructor of this class

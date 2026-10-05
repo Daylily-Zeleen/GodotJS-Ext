@@ -1471,8 +1471,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 		do {
 			debugger_.update(); // process incoming debugger connections
 
-			// TODO: evaluate whether this handshake can
-			// drop the std::future/std::promise dependency
+			// TODO: 评估能否脱离标准库 future/promise（这里只是 50ms 轮询一个一次性就绪标志）。
 			std::future_status status = debugger_ready_future_.wait_for(debugger_connection_pool_duration);
 
 			if (status == std::future_status::ready) {

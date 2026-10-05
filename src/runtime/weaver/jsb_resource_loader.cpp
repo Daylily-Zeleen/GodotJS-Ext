@@ -121,7 +121,9 @@ bool ResourceFormatLoaderGodotJSScript::_handles_type(const StringName &p_type) 
 }
 
 PackedStringArray ResourceFormatLoaderGodotJSScript::_get_dependencies(const String &p_path, bool p_add_types) const {
-	//TODO
+	// TODO: 恒返回空——编辑器的依赖图、依赖面板与 `ResourceLoader.get_dependencies()` 都看不到 `.ts/.js`
+	// 的模块依赖。引擎里没有脚本语言上报依赖（GDScript 的 `GDScriptParser::get_dependencies()` 是空实现，
+	// C# 未覆写；2026-10-05 核对 4.8.0-dev）。导出打包与运行期不受影响。
 	return {};
 }
 

@@ -245,9 +245,6 @@ public:
 	// called once per caret range, so it must be a pure function of the input.
 	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override;
 
-	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
-	virtual void _remove_named_global_constant(const StringName &p_name) override {} // TODO
-
 	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // TODO: Vector<StackInfo>
 	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // TODO: Vector<StackInfo>
 	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
@@ -290,7 +287,18 @@ public:
 
 	virtual PackedStringArray _get_recognized_extensions() const override;
 
-	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {} // TODO
+	// Autoload 钩子：引擎通过它们把 autoload 对象交给脚本语言。
+	// - `_add_global_constant`：运行期（非编辑器），只针对单例（`*` 前缀）的 autoload；调用两次——
+	//   先传 `Variant()` 占位，再传实例化后的节点。
+	// - `_add_named_global_constant`：编辑器 Autoload 面板装载/改动，以及一次以 `Variant()` 预注册名字。
+	// - `_remove_named_global_constant`：编辑器里 autoload 被移除或改名。
+	// 引擎分成两套是因为运行期的表是索引数组（索引进字节码，不可删），编辑器的是 name->value 映射（可删）。
+	// TODO: 实现 autoload 暴露。待定：(1) 环境隔离——`Environment` 按 isolate 划分，钩子不带环境参数，
+	//       值要定义到当时存活的每个环境、之后新建的也要补；(2) 编辑器 `.d.ts` 里 autoload 的类型来源
+	//       （类型来自 autoload 挂的脚本，不是钩子传的值）。
+	virtual void _add_global_constant(const StringName &p_name, const Variant &p_value) override {}
+	virtual void _add_named_global_constant(const StringName &p_name, const Variant &p_value) override {}
+	virtual void _remove_named_global_constant(const StringName &p_name) override {}
 
 	virtual PackedStringArray _get_reserved_words() const override;
 

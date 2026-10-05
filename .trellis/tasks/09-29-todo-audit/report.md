@@ -1214,3 +1214,201 @@ CollectionScope::Full)`）。它不在公开 SDK 头里，但**从随系统发�
 Benchmark job 外全部 success，含 `Test (host-jsc, macos-latest)`。jsc 日志内实测
 `[probe] pre-gc valid=true` → `post-gc valid=false`、`GODOTJS_TEST_PROJECT_COMPLETED`、
 无 `fail@`、无 `[FAIL]`。本地 v8：doctest 81/81（1225 断言）、smoke rc=0。
+
+## §24 TODO 清单清理（2026-10-05，用户圈定 9 项）
+
+**背景修正**：清单本身 3 处与代码不符——`#20` `console_output` 已是 `LocalVector`（`src/internal/jsb_console_output.cpp:40`）；
+`#170` `_auto_indent_code` 已实现且有 doctest（`src/runtime/weaver/jsb_script_language.cpp:649`）；`#58` 上一版标注「已按用户指示删除」是错的，该行仍在。
+TODO 计数：140（旧）→ 132（本轮前）→ **123**（本轮后）。
+
+### 代码改动（纯注释，7 文件，+11/-31）
+| 项 | 位置 | 动作 |
+|---|---|---|
+| 38 | `src/runtime/bridge/jsb_class_info.cpp:366` | 删 `//TODO collect methods/signals/properties`（同函数 `:390-397` 清表、`:416+` 收方法、`:499+` 信号、`:532+` 属性，已被代码覆盖）|
+| 135/136/137 | `src/runtime/weaver/jsb_resource_loader.cpp:65-87` | 删整块被注释掉的旧热重载方案（内含 3 条 TODO）|
+| 42 | `src/runtime/bridge/jsb_class_info.h:103` | 只删注释。`NativeClassInfo::type` **是活字段**：`jsb_bridge_helper.cpp:52`、`jsb_transpiler.h:298`、`jsb_type_convert.cpp:507` 三处读——上一轮称其「死字段」是错的 |
+| 43 | `src/runtime/bridge/jsb_class_info.h:234` | 删 `// TODO: 为什么不复用 MethodInfo` |
+| 58 | `src/runtime/bridge/jsb_environment.cpp:1474` | 裸 TODO → `// TODO: evaluate whether this handshake can drop the std::future/std::promise dependency` |
+| 92/105/126 | `src/runtime/impl/{jsc,quickjs,web}/jsb_{jsc,quickjs,web}_class.h` | TODO → 事实结论（见下）|
+
+### 调研结论
+1. **#92/105/126 `constructor_`**：三腿 `Build()` 同时建立 `prototype.constructor` 与 `constructor_`，二者同一个函数
+   （jsc `jsb_jsc_class_builder.h:265` `_SetProperty(prototype, JS_ATOM_constructor, constructor)`；quickjs
+   `jsb_quickjs_class_builder.h:261` `JS_SetConstructor`；web `jsb_web_class_builder.h:275` 由 shim 建类）。差别在读路径：
+   **web `jsb_web_class.h:61` 直接返回 `constructor_`**，而 jsc `jsb_jsc_class.h:65` / quickjs `jsb_quickjs_class.h:64`
+   从 `prototype.constructor` 读回，字段只做 `IsEmpty()` 哨兵 + 强引用。潜在脆弱点（未改行为）：`prototype.constructor`
+   三引擎都是普通可写属性，用户 JS 覆写后 jsc/quickjs 的 `Class::Get()`（`jsb_environment.cpp:1569`/`:1597`、
+   `jsb_godot_module_loader.cpp:134`/`:145`，即 `godot.Node` 这类类对象）会取到被覆写的值，web 不会。
+2. **#114 `key_conversion`**：既非 quickjs 限制也非未做。`jsb_quickjs_object.cpp:355-361` 已有完整说明（quickjs 以 atom
+   报索引，各模式都得到字符串名，故 `kConvertToString` 精确、其余模式降级，与 jsc/web 一致）。真正的 TODO 在 web 侧：
+   `src/runtime/impl/web/bridge/src/monolith.ts:946`（= #121）。
+3. **#148 `_get_dependencies`**：`jsb_resource_loader.cpp:147-150` 恒返回 `{}` → 编辑器依赖扫描/导出插件拿不到 `.ts` 的模块依赖。
+   运行时侧已有 `Environment::get_module_direct_dependencies`（`jsb_environment.cpp:1514-1545`，读 AMD 模块 `children`）；
+   缺口是 editor→runtime 的环境获取路径 + 「内建模块是否计入依赖」的语义定义（同 `research/todo-audit.md:214`）。
+
+## §25 全局常量钩子（#171/172/177）可行性与代价
+
+**钩子可达性（已验证）**：godot-cpp `third/godot-cpp/gen/include/godot_cpp/classes/script_language_extension.hpp:126-128`
+声明 `_add_global_constant` / `_add_named_global_constant` / `_remove_named_global_constant` 三个虚函数，
+`:249-256` 用 `BIND_VIRTUAL_METHOD` 注册进扩展虚表；引擎侧 `EXBIND2`（`core/extension/ext_wrappers.gen.h:80-86`）展开为
+`add_global_constant(...) { GDVIRTUAL_CALL(_add_global_constant, ...); }` → 落到我们的 override。
+实测（本地 `bin/windows` v8 构建，`--headless --path ./project --quit-after 300`，项目有 autoload
+`_Config="*res://tests/singleton/config-singleton.ts"`）：无 `Required virtual method ... must be overridden` 报错，rc=0。
+
+**引擎何时调用**：`add_global_constant` 只在运行期 autoload：`main/main.cpp:4487-4491`（脚本加载前，传 `Variant()`）与
+`:4537-4539`（实例化后，传节点）。`add_named_global_constant` / `remove_named_global_constant` 只在编辑器：
+`editor/settings/editor_autoload_settings.cpp:395-397`（面板初始化）、`:598-600`（改动）、`:876-878`（预注册名字，传 `Variant()`）、
+`:566-568`（删除）。**Engine 单例不走这些钩子**——GDScript 自己在 `modules/gdscript/gdscript.cpp:2154-2160` 注入。
+
+**关键字是静态的**：`modules/gdscript/gdscript.cpp:2615+` 静态表；autoload/单例名永不进入关键字集合，只是反向校验
+（`editor/settings/editor_autoload_settings.cpp:124-131` 拒绝与关键字同名的 autoload）。编辑器高亮只读 `get_reserved_words`
+（`editor/syntax_highlighters.cpp:135-139`），不读全局表。**「GDScript 会根据 autoload/单例变化动态识别关键字」不成立**；
+动态的是「裸标识符解析成全局」（`gdscript_analyzer.cpp:4710-4714`、编译器 `gdscript_compiler.cpp:419-431`/`:471-473`、VM
+`gdscript_vm.cpp:3805-3829`）。
+
+**JS 侧等价做法与代价**：
+- 机制上简单：JS 裸标识符本就沿作用域链落到 `globalThis`，所以 autoload = 在全局对象上定义一个属性；不需要语言层解析器改动。
+- 但值可能先 `Variant()` 后节点（两遍调用）→ 属性必须可重定义。
+- **跨 JS 环境**：`Environment` 是 per-isolate 的（主/worker/ShadowRealm），钩子不带 env 参数 → 实现需遍历活动环境；后创建的
+  worker 要补定义；对象本身跨 env 仍受既有序列化约束。
+- **TS 类型**：autoload 在 codegen 里**完全没有处理**（`src/` 内 grep `autoload` 无命中）；单例则有 `SingletonDecl`
+  （`jsb_codegen_type_db.cpp:440-456` → `jsb_codegen_generator.cpp:280-289`）且运行期是通过 `godot` 模块成员暴露的
+  （`import { Engine, Input } from "godot"`，见 `project/tests/benchmark/cases.object.ts:13-15`）。要让 autoload 也能裸用并通过
+  类型检查，需要在生成的 `.d.ts` 里 `declare global { const _Config: ... }`，类型来自其脚本；`global_script_class_cache.cfg`
+  有 `class_name → path`，可行但需新增一条 codegen 路径。动态刷新疑问同样存在于 .d.ts：`jsb_script_language.cpp:1535`
+  已留「单例可以在编辑器过程中被动态增减，如何动态刷新？」
+
+**未决（需用户定）**：(a) 注入 `globalThis` 还是沿用 `godot` 模块成员；(b) 是否传播到 worker/ShadowRealm；(c) 是否同时做 .d.ts。
+
+## §26 四项裁定（2026-10-05 追问后）
+
+1. **#148 `_get_dependencies`（现 `src/runtime/weaver/jsb_resource_loader.cpp:123-126`）——决定实现，但不接 runtime env**。
+   消费者：`editor/file_system/editor_file_system.cpp:2094`（`EditorFileSystem::_get_dependencies` → `ResourceLoader::get_dependencies`，填
+   `FileInfo::deps`；`:996`/`:1362`/`:2495`/`:2807`/`:3091` 使用）、`editor/file_system/dependency_editor.cpp:262`/`:1032`（依赖面板）、
+   脚本 API `core/core_bind.cpp:111-113`。**不能**用 `Environment::get_module_direct_dependencies`（`src/runtime/bridge/jsb_environment.cpp:1514-1545`）：
+   它 `load()` 模块（真执行 JS）且需要 isolate/context，导出插件调用前必须 `Thread::is_main_thread()` 守卫（`src/editor/weaver-editor/jsb_export_plugin.cpp:244`），
+   而 loader 钩子在编辑器文件系统扫描（可能后台线程、`const`）里被调用。做法对齐 GDScript 先例（`modules/gdscript/gdscript_resource_format.cpp:79-93`：解析取依赖、不执行）：
+   静态扫描 import/require 说明符 → `res://` 路径，裸包名不计入。导出打包**不受影响**（导出插件自走模块图，`jsb_export_plugin.cpp:260-268`）。
+2. **#171/172/177 = 只有 autoload**（运行期 `main/main.cpp:4487-4491`/`:4537-4539` 且仅 `is_singleton`；编辑器 `editor/settings/editor_autoload_settings.cpp:394-397` 等）。
+   Engine 单例不走钩子（`modules/gdscript/gdscript.cpp:2154-2160`）。**`Variant()` 占位不影响 d.ts 类型**：类型来源是编辑期项目设置
+   `ProjectSettings::get_autoload_list()` → `AutoloadInfo{name, path, is_singleton}`（`core/config/project_settings.h:68-72`；`is_singleton` = path 前缀 `*`，
+   `editor_autoload_settings.cpp:509`），类型即其脚本模块的导出类（`project/tests/singleton/config-singleton.ts:8`）。d.ts 形态有先例
+   （`project/declarations/res.d.ts` 的 `declare module "res://*.json"`）；要精确类型需发 `declare global { const _Config: import("res://...").default }`，
+   需给 codegen 新增 autoload 路径 + 处理编辑器增删后的刷新（同 `jsb_script_language.cpp:1535` 的单例疑问）。
+3. **#92/105/126 结论**：`constructor_` **不能删**（web `jsb_web_class.h:61` 的 `Get()` 就是它；jsc/quickjs 上是 `IsEmpty()` 哨兵+保活）。
+   原注释方向错了——要改的是 jsc/quickjs 的 `Get()`（现从可写的 `prototype.constructor` 读回）。**决定：暂不改**（收益仅防极端场景，
+   成本是三腿行为改动且 jsc 只能靠 CI 验证）；注释已记事实。
+4. **#114 从清单剔除**：代码里的说明是已定论（`src/runtime/impl/quickjs/jsb_quickjs_object.cpp:355-361`）；未完成项在 web 侧
+   `src/runtime/impl/web/bridge/src/monolith.ts:946`（#121，D 类）。`STATUS.md:164` 把它列在「重判为行动项」是错的，连同 #20/#170/#58 三处过时标注待修（需授权改文档）。
+
+## §27 三项追问的裁定（2026-10-05 第二轮）
+
+### (1) Autoload 三个钩子已按用户要求聚合（改动：`src/runtime/weaver/jsb_script_language.h:288-314`）
+- 三个声明聚到一处（`public:` 段内、`#if JSB_TOOLS` 之外，因 `_add_global_constant` 是运行期钩子）；
+  每个接口上方一句调用时机；末尾一条 TODO（Autoload 对象 + 环境隔离 + 编辑器 `.d.ts`）。
+- **为什么引擎分成两个接口**（证据）：
+  - 运行期 `add_global_constant` → GDScript `globals`/`global_array` **稠密索引数组**（`modules/gdscript/gdscript.cpp:2079-2096` `_add_global`：已存在就地覆盖，否则 push_back）。
+    编译器按**索引**发射：singleton autoload 走 `write_store_global(global, idx)`，注释明说延迟到运行期是为了「一个 autoload 不要在其他 autoload 编译完成前加载它」
+    （`modules/gdscript/gdscript_compiler.cpp:419-432`）。索引被编译进字节码 → 只能追加/覆盖、**不能删**（所以没有 remove 对应物，`main/main.cpp` 才能先传 `Variant()` 再传真节点）。
+  - 编辑器 `add_named_global_constant`/`remove_named_global_constant` → `named_globals` 名→值映射，整条编译路径包在 `#ifdef TOOLS_ENABLED`
+    （`gdscript_compiler.cpp:470-476`），发射按名取值的 `write_store_named_global` → `OPCODE_STORE_NAMED_GLOBAL`
+    （`modules/gdscript/gdscript_byte_codegen.cpp:1035-1038`）；编辑器里 autoload 可随时增删改名 → 必须能删、按名解析。
+  → 一句话：**运行期按索引（不可删/可覆盖），编辑器按名（可增删）**。
+
+### (2) `Class::Get()` 调用现状与建议（未改，等用户决定）
+- 语义：`Get()` = 「给我这个绑定类的 JS 构造函数对象」。调用点（都在共享 bridge 层，四腿共用）：
+  - `src/runtime/bridge/jsb_environment.cpp:1571`（`expose_class` 新暴露类）→ `on_class_post_bind(p_type_name, class_)`（`:1576`）；
+  - `src/runtime/bridge/jsb_environment.cpp:1599`（`expose_godot_object_class` 反射绑定 Godot 类）→ `on_class_post_bind(class_name, class_)`（`:1602`）；
+  - `src/runtime/bridge/jsb_godot_module_loader.cpp:134`（静态类）与 `:145`（动态绑定）→ 作为 `godot.Node` 这类模块属性值交给 JS。
+  - 其余成员不用 `Get()`：`jsb_object_bindings.cpp:243` 用 `Inherit(super.clazz)`、`jsb_shadow_realm.cpp:520`/`:650` 用 `NewInstance(...)`。
+- 三腿差异：v8 原生腿 `Get()` 从持有的模板取构造函数（`src/runtime/impl/v8/jsb_v8_class.h:56-58` `template_.Get(isolate)->GetFunction(...)`，`IsEmpty()` 同样只看模板）；
+  web 腿读字段（`src/runtime/impl/web/jsb_web_class.h:61`）；**jsc/quickjs 从 `prototype.constructor` 读回**（`jsb_jsc_class.h:65` / `jsb_quickjs_class.h:64`）——三者中唯一的例外。
+- **建议：改**（1 行/腿，照 web 写法 `v8::Local<v8::Object>(v8::Data(isolate, constructor_.Get(isolate)->stack_pos_))`）。
+  依据：① 与 v8 原生态一致（`GetFunction()` 语义是「模板持有的构造函数」而非 prototype 上的属性）；② 与 web 一致；③ 字段即 `Build()` 传入的构造函数，读它不受用户改写
+  `prototype.constructor`（后者在三腿都是可写普通属性）影响；④ 类型兼容已被证明——`Local<S>` 有非 explicit 转换构造（`src/runtime/impl/web/jsb_web_handle.h:66-67`），
+  且 web 腿的 `Get()` 已经返回 `Local<Object>` 而共享调用点（`jsb_environment.cpp:1571`、`jsb_godot_module_loader.cpp:134`）赋值给 `Local<Function>`，四腿共用同一份 bridge 代码。
+  验证：jsc 语法门（本机）+ v8/qjs 门禁 + CI（jsc 腿集成测试）。风险：jsc 本机跑不了，只能靠 CI 往返。
+
+### (3) #148 —— 结论反转：**不实现**
+用户指出并已核实：**GDScript 自己也没实现**——`modules/gdscript/gdscript_parser.h:1684-1687`：
+```cpp
+const List<String> get_dependencies() const {
+    // TODO: Keep track of deps.
+    return List<String>();
+}
+```
+即 `ResourceFormatLoaderGDScript::get_dependencies`（`modules/gdscript/gdscript_resource_format.cpp:79-93`）恒返回空；C# 连 loader 钩子都没覆写；
+基类默认实现 `core/io/resource_loader.cpp:184-192` 在未覆写时同样什么都不产出。
+→ 我上一轮「对齐 GDScript 先例」的建议建立在误读之上（只看了 loader 侧，没看 parser 侧），作废。
+**建议**：不实现，把 `src/runtime/weaver/jsb_resource_loader.cpp:124` 的 `//TODO` 换成「已知限制」说明（引用本节影响面），
+Trellis 任务 `10-05-resource-loader-deps` 按 design 备选 C 收尾并归档（保留 prd/design 作为决策记录）。
+
+## §28 第三轮（2026-10-05）：注释中文化、#92 定案、#148 转 NOTE、文档站新页
+
+### 1. 新增/改动的注释全部改为中文（用户要求）
+- `src/runtime/weaver/jsb_script_language.h:290-314`（autoload 三钩子聚拢 + 调用时机 + 单条 TODO）
+- `src/runtime/impl/jsc/jsb_jsc_class.h:44-46`、`src/runtime/impl/quickjs/jsb_quickjs_class.h:44-47`、
+  `src/runtime/impl/web/jsb_web_class.h:42-43`
+- `src/runtime/bridge/jsb_environment.cpp:1474-1477`（#58）
+- 注意：`jsb_environment.cpp:1474` 我上轮那句英文 TODO 在提交后被外部改成「注释独立两行」的形式（本仓无 pre-commit hook），已按现状改写。
+
+### 2. #92/105/126 定案：统一为「读字段」（= v8/web 语义）
+判定依据（用户给的判据：会不会破坏绑定机制）——**会**：`Class::Get()` 的返回值会被交给 JS 侧的
+`_post_bind_`（`scripts/jsb.runtime/src/godot.typeloader.ts:125-131`，C++ 侧 `jsb_environment.cpp:1416-1428`），
+处理器会在那个对象上挂静态成员/继承/注解；若 `Get()` 返回被用户改写过的 `prototype.constructor`，
+静态成员就挂到错误对象上，而 `NewInstance`/`Inherit` 仍用真实原型 → 绑定机制脱节。
+v8 腿本来就不受影响（`FunctionTemplate::GetFunction()` 的文档是 "Returns the unique function instance in the
+current execution context."，`third/v8/include/v8-template.h:595-597`，与 `prototype.constructor` 属性无关），
+web 腿也读字段 → 只有 jsc/quickjs 是例外。
+改动：两腿 `Get()` 改为 `v8::Local<v8::Object>(v8::Data(isolate, constructor_.Get(isolate)->stack_pos_))`（同 web）。
+
+**验证**：quickjs-ng 构建 rc=0 → doctest **84/84（1236 断言）SUCCESS** → 完整 smoke 工程跑通（`GODOTJS_TEST_PROJECT_COMPLETED`）；
+v8 构建 rc=0 → doctest **82/82（1224 断言）SUCCESS** → smoke 跑通。
+jsc 本机不可运行：用语法门（`clang++ -fsyntax-only @.agent_tmp/jsc_args.rsp src/runtime/impl/jsc/jsb_jsc_isolate.cpp`）通过，
+且自检（故意写错的文件）能报错 → 门有效；jsc 运行期行为待 CI。
+
+### 3. #148 转 NOTE（不实现）
+`src/runtime/weaver/jsb_resource_loader.cpp:123-135` 的 `//TODO` 换成中文 `// NOTE`，写明：现状、不实现的依据
+（GDScript parser 空实现 / C# 未覆写 / 基类默认空，核对日期 2026-10-05，引擎 4.8.0-dev）、影响范围、导出与运行期不受影响。
+
+### 4. 文档站新增页面（docs 仓 `Daylily-Zeleen/godotjs-ext.github.io`）
+- 新增 `docs/misc/known-issues.md` + `docs/en/misc/known-issues.md`（「已知限制与实现细节」/「Known limitations」），
+  收录：① 编辑器看不到脚本模块依赖（#148）；② Autoload 未暴露给 JS（三个钩子、调用时机、为什么两个接口、
+  `Engine` 单例不走钩子、环境隔离与 .d.ts 两个待解问题）。
+- `docs/.vitepress/data/nav.mts` 加一行（每个条目双语，单文件为准）。
+- **验证**：`node scripts/check-i18n.mts` → `ok (10 pages x 2 locales)`；`npx vitepress build docs` → complete in 4.16s；
+  用真实浏览器打开预览：zh/en 两页标题与正文关键内容齐备，侧栏条目存在且 `is-active`（DOM 实测）。
+- 未提交（主仓与 docs 仓都待用户授权）。
+
+### §28 补充（同日）：按用户要求精简注释与文档
+
+**注释精简**（只删文字，无代码改动）：
+
+| 文件 | 变化 |
+|---|---|
+| `src/runtime/weaver/jsb_script_language.h:290-301` | autoload 块 22 行 → 8 行（去掉「`Engine` 单例不走这里」与逐条 file:line，只留钩子语义 + 两套表的原因 + TODO 两条待定） |
+| `src/runtime/impl/jsc/jsb_jsc_class.h:44`、`src/runtime/impl/quickjs/jsb_quickjs_class.h:44` | 字段注释 3 行 → 1 行；`Get()` 内注释 2 行 → 删除（三腿行为已一致，不必互指） |
+| `src/runtime/impl/web/jsb_web_class.h:42` | 2 行 → 1 行 |
+| `src/runtime/bridge/jsb_environment.cpp:1474` | 3 行 → 1 行 |
+| `src/runtime/weaver/jsb_resource_loader.cpp:123-128` | NOTE 10 行 → 3 行 |
+
+发现：用户编辑器会把工作区文件的行尾改回 CRLF（`jsb_script_language.h` 又被改回混合行尾，导致替换不匹配）；
+本次处理方式是**先把文件规范为 LF 再替换**（git 里存的本来就是 LF，diff 因此干净：该文件 16 行、其余 2-7 行）。
+
+**文档页精简**（docs 仓）：
+- 删掉「`Engine` 的单例不走这些钩子」（与本页主题无关，且引擎单例本仓已绑定）与 `#ifdef TOOLS_ENABLED` 等细节；
+- 两节压缩成「现象 / 原因 / 依据表 / 影响」；`file:line` 引用更新为精简后的真实行号
+  （`jsb_script_language.h:290-301`、`jsb_resource_loader.cpp:123-128`）。
+- **验证**：`check:i18n` → `ok (10 pages x 2 locales)`；`vitepress build` → 5.03s；浏览器实测：zh 正文 1280 字符、
+  en 2512，关键锚点齐备，已删内容确认不再出现（`Engine 单例` / `TOOLS_ENABLED` / `Engine singletons do not` 均为 False），
+  侧栏条目 `is-active` 正常。
+
+### §28 补充 2（同日）：文档站改成用户视角、#148 注释改回 TODO
+
+- **文档站定位纠正**：上一版把引擎内部机制（是否拆两套接口、`Engine` 单例、`#ifdef TOOLS_ENABLED`、
+  环境隔离与 `.d.ts` 两个实现待办）写进了面向用户的页面——用户指出那是给用户看的，不该有这些。
+  现已重写为纯用户视角：**现象 / 影响 / 不受影响 / 当前做法**；标题与侧栏标签「已知问题」/「Known issues」。
+  实测（浏览器）：zh 正文 425 字符、en 883；`索引数组`/`isolate`/`TOOLS_ENABLED`/`GDScriptParser`/`钩子`/`环境隔离`/`.d.ts`
+  在正文中全部不存在（逐项检查为 clean）；侧栏标签与 `is-active` 正常。`check:i18n` ok、build 4.88s。
+- **#148 注释**：`src/runtime/weaver/jsb_resource_loader.cpp:124-126` 的标记由 `// NOTE` 改回 `// TODO`
+  （用户要求保留 TODO 标记），内容仍是中文的已知限制说明。
