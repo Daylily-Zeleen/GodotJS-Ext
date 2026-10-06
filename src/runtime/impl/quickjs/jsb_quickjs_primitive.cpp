@@ -107,10 +107,17 @@ Local<Symbol> Symbol::New(Isolate *isolate, Local<String> description) {
 
 Local<Symbol> Symbol::_get_well_known(Isolate *isolate, const char *name) {
 	JSContext *ctx = isolate->ctx();
-	HandleScope func_scope(isolate);
-	const JSValue &symbol_obj = isolate->stack_val(jsb::impl::StackPos::SymbolClass);
-	JSValue val = JS_GetPropertyStr(ctx, symbol_obj, name);
-	JS_FreeValue(ctx, symbol_obj);
+	// NOTE: 不能开 HandleScope ，否则无法返回的 Local<Symbol> 会因为离开作用域被析构
+	const JSValue symbol_obj = isolate->stack_val(jsb::impl::StackPos::SymbolClass);
+	const JSValue val = JS_GetPropertyStr(ctx, symbol_obj, name);
+	if (JS_IsException(val)) {
+		jsb::impl::QuickJS::MarkExceptionAsTrivial(ctx);
+		return Local<Symbol>();
+	}
+	if (!JS_IsSymbol(val)) {
+		JS_FreeValue(ctx, val);
+		return Local<Symbol>();
+	}
 	return Local<Symbol>(Data(isolate, isolate->push_steal(val)));
 }
 
@@ -181,7 +188,7 @@ Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, 
 Local<Symbol> Symbol::For(Isolate *isolate, Local<String> key) {
 	JSContext *ctx = isolate->ctx();
 
-	HandleScope func_scope(isolate);
+	// NOTE: 不能开 HandleScope ，否则无法返回的 Local<Symbol> 会因为离开作用域被析构
 	const JSValue &symbol_obj = isolate->stack_val(jsb::impl::StackPos::SymbolClass);
 
 	// Use Symbol.for(key) from JavaScript
