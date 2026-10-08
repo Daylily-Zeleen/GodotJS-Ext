@@ -1412,3 +1412,78 @@ jsc 本机不可运行：用语法门（`clang++ -fsyntax-only @.agent_tmp/jsc_a
   在正文中全部不存在（逐项检查为 clean）；侧栏标签与 `is-active` 正常。`check:i18n` ok、build 4.88s。
 - **#148 注释**：`src/runtime/weaver/jsb_resource_loader.cpp:124-126` 的标记由 `// NOTE` 改回 `// TODO`
   （用户要求保留 TODO 标记），内容仍是中文的已知限制说明。
+
+### §29 交付（2026-10-05）
+
+- 主仓：`d3b7602 fix(jsc,quickjs): resolve the bound class object from the stored constructor`
+  → 已推 `origin/main`（`f3362ea..d3b7602`）。内容：jsc/quickjs 的 `Class::Get()` 改读 `constructor_`；
+  注释中文化与精简；#148 注释内容改写（标记仍为 TODO）；`09-29-todo-audit` / `09-29-docs-site` 过程记录。
+- 任务归档：`10-05-resource-loader-deps` → `.trellis/tasks/archive/2026-10/10-05-resource-loader-deps`
+  （`--skip-branch-validation`，该任务无独立分支；结论=不实现，改为已知限制 + 文档）。
+- docs 仓：`4da5ac2 docs(known-issues): add a user-facing known issues page`
+  → 已推 `origin/main`（`6774e7a..4da5ac2`）。3 文件：`docs/misc/known-issues.md`、`docs/en/misc/known-issues.md`、
+  `docs/.vitepress/data/nav.mts`（Misc 段 +1 行，双语）。
+- 未重编：`Get()` 之后只改了注释（代码与已通过门禁的版本逐字相同），按仓库规则不做措辞性验证编译；
+  jsc 腿的运行期验证由 CI 完成。
+- 用户裁决（本轮）：(a) 主仓提交推送 ✓ (b) 文档站提交推送 ✓ (c) 归档 ✓ (d) 暂不建 Trellis 任务，
+  文档站跟随主仓变化逐步修改。
+
+### §29 补充：CI 全绿（run 37340603973，commit `d3b7602`）
+
+`OVERALL: success`。逐 job 实测结论：
+
+- **`Test (host-jsc, macos-latest)` → success** —— jsc 腿集成测试通过，即 `Class::Get()` 改读 `constructor_`
+  在 JavaScriptCore 上的运行期行为得到验证（本机只能做语法门，这是第一次真跑）。
+- 其余测试腿全 success：`host-v8` / `host-qjs` / `host-qjs-classic`（ubuntu）+ `host-node` × 3（macos / ubuntu / windows）。
+- 所有构建腿 success，含 `Build (macos, arm64, editor, jsc)`、`Build (windows, x86_64, editor, v8/qjs-ng/node)`、
+  web × 3、android × 4、ios × 3、linux × 5。
+- 刻意跳过：`Benchmark build (${{ matrix.binding-mode }})`、`Benchmark (static vs dynamic)`（与本改动无关，历来 skip）。
+- 无失败 job，故无需抓日志。
+
+## §30 跨隔离区异常处理：分析 + 实测（2026-10-05）
+
+用户问题：错误上报在 ShadowRealm 上也要做；跨隔离区抛异常到底该怎么处理。
+
+### 边界（三种）
+| 边界 | 形态 | 现有跨边界机制 |
+|---|---|---|
+| Worker | 独立 isolate + 独立线程；只有消息 | `Message`（type + 序列化 buffer + `TransferData`），`jsb_message.h:44-63` |
+| `JSShadowRealm`（同步） | **同线程、两个 isolate**（host 调 `evaluate` → 切 guest 执行 → 回 host 包装返回值） | `wrap_cross_env_value`（`jsb_shadow_realm.cpp:59/62-87/1262`）、`_transfer_string` |
+| `TransferableJSShadowRealm` | 同 worker 的消息模型（`postMessage`/`onmessage`/`onerror`） | `:1708-1717`（master 方向）、`:1746-1755`（realm 方向） |
+
+### 原理
+`v8::Local/Global` 绑定 isolate，跨 isolate 使用 = UB（不是抛异常，是崩）。因此跨边界异常只有一条路：
+**先把异常降级成 realm 无关的数据（字符串/普通对象），再在目标 realm 重建错误对象**，然后按 API 形态抛出 / reject / 交给 `onerror`。
+旁证：JS 规范对 ShadowRealm WrappedFunction 的处理是——原始值原样抛，对象则改为在调用方 realm 抛 `TypeError`（规范自己也不允许异常对象跨 realm）；结构化克隆里 `Error` 的可克隆内容就是 `{name, message, stack, cause}`（全字符串）。
+
+### 现状（含实测）
+1. **`JSShadowRealm::evaluate` 遇到异常会崩（已实测）**：
+   - `jsb_shadow_realm.cpp:1251` / `:1252` 用了 `ToLocalChecked()`；异常时 `Script::Run` 返回空 `MaybeLocal`（jsc `jsb_jsc_object.cpp:418-422`、quickjs `jsb_quickjs_object.cpp:542-545`；真 v8 同），而三 shim 的 `ToLocalChecked()` = `jsb_check(!IsEmpty())`（`jsb_jsc_handle.h:118-121`、quickjs/web 同），dev 构建 `CRASH_COND`（`jsb_macros.h:60`），release 下 `jsb_check` 被编掉 → 取到无效栈槽（UB）。
+   - 因此紧随的 `try_catch.has_caught()`（`:1254-1256`）对真异常是**死代码**；即便走到，`jsb_throw(guest_isolate, <String>)` 也是抛进 guest isolate，调用方（host）只会收到 `undefined`（返回值从未 set），且可能在 guest 留下 pending throw（v8 语义，待确认）。
+   - **实测**：临时探针（已删除）在 `src/runtime/tests/test_jsb_shadow_realm.h` 里执行
+     `globalThis.__realm.evaluate("(function () { throw new Error(\"boom\"); })()")`
+     → `ERROR: test case CRASHED: Unhandled SEH exception caught`，C++ 栈顶 = `jsb::ShadowRealmImpl::evaluate (jsb_shadow_realm.cpp:1252)`；
+     doctest 当轮从 82 例中断在 **66 例（65 passed / 1 failed）**。删探针 + 重建复跑 → **82/82 SUCCESS**（源码已还原到 HEAD，无残留 diff）。
+2. **`importValue` / `importValueSync`**：错误在 `_importValue` 里被压成 **String**（`:1140-1151`），异步分支 `resolver->Reject(context, new_string(err_msg))`（`:1316`）→ 调用方拿到**字符串拒绝**；`importValueSync` 是 `jsb_throw(isolate, err_msg)`（`:1362`，host isolate，能到调用方）——两者都没有 stack、`instanceof Error` 为假。
+3. **Worker**：三处回调 catch 只 `JSB_WORKER_LOG`（`jsb_worker.cpp:286-292`、`:566-572`、`:839-844`），从不 `post_message(TYPE_ERROR, ...)`；host 侧 `onerror` 通路**已实现**（`jsb_environment.cpp:761-767` → `invoke_worker_callback_from_message` `:684-730`），typings 已声明（`scripts/typings/godot.worker.d.ts:42-43`）。缺的只是发送端。
+4. **`TransferableJSShadowRealm`**：同消息模型，`onerror` 已声明（`godot.shadowRealm.d.ts:62-63`）但无发送端；serializer 无原生 Error 支持（quickjs 版只有 typed array/Date/RegExp + 委托钩子，`jsb_quickjs_serializer.cpp:1002-1025`）→ 记录对象而非 Error。
+
+### 建议方案
+统一记录 `{ name, message, stack, cause? }`；源侧用 `impl::TryCatch::get_message(&msg, &stack)`（jsc 已有该 API，`jsb_jsc_catch.h:47`）采集；目标侧：同步 API 抛重建的 Error、Promise 用同一 Error reject、消息 API 用 `TYPE_ERROR` 发记录并在 host `onerror` 里重建。
+**先修两个坑**：(1) `:1251-1252` 改 `ToLocal(...)`（顺带让 `has_caught()` 可达）；(2) 错误分支显式清理/正确结束异常（三 shim 的 `~TryCatch()` 都是 `= default`，不做清理）。
+
+### §31 立项（2026-10-06）
+
+跨隔离区错误上报已建 Trellis 任务：`.trellis/tasks/10-06-cross-isolate-error-reporting/`
+（prd / design / implement + jsonl，`validate` 通过，状态 planning，未 `start`）。
+
+范围：ShadowRealm 三个入口（`evaluate` / `importValue` / `importValueSync`，其中 `evaluate` 已实测会崩）、
+Worker 的 `onerror` 发送端（启动失败 + 回调抛错）、`TransferableShadowRealm.onerror`（与 Worker 同形态）、
+可选：定时器回调异常。
+
+对用户提议（"遍历所有字段 + 只支持基础类型 + 不能跨就抛转换错误"）的结论：
+- 方向采纳（拷贝档的正解），但**"不能跨就整体抛转换错误"改掉**——核心字段 name/message/stack 永不失败，
+  额外字段逐字段 best-effort + `untransferred` 清单，避免"一个 Proxy 字段把最有用的信息打没"。
+- 性能：只在错误路径跑，抓栈比属性遍历贵 1~2 个数量级；风险来自病态输入（深链/环/大数组/getter），
+  必须有界（深度/节点/字节上限 + 环检测 + 不触发 getter）。
+- 同线程 ShadowRealm 的"活代理"（`ObjectCrossWrapper`）可行但不用于错误对象（寿命 + `instanceof Error` 为假）。

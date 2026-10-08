@@ -14,6 +14,7 @@
 - [ ] 涉及 GDExtension 生命周期 / 跨库共享 / DLL 拆分？读 [architecture-constraints.md](./architecture-constraints.md)
 - [ ] 调用 godot-cpp API？读 [godot-cpp-usage.md](./godot-cpp-usage.md)（`_` 前缀虚函数、`godot::` 类型、子模块只读）
 - [ ] 修改导出符号或公共头前，先用 LSP 查全部引用点
+- [ ] 要把 JS 异常跨环境/隔离区上报（worker / ShadowRealm / 定时器）？读 [cross-isolate-errors.md](./cross-isolate-errors.md)
 
 ## 质量检查
 

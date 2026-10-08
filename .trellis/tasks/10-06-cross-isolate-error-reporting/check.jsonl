@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/10-06-cross-isolate-error-reporting/design.md", "reason": "对照验收：崩溃先行修复、字段复制有界性、onerror 形态一致"}
+{"file": ".trellis/spec/godotjs-ext/test/doctest.md", "reason": "验收命令与判定"}

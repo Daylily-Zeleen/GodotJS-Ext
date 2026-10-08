@@ -1196,6 +1196,22 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
         helper_env['LIBS'] = [File(os.path.join(helper_dir, helper_link_target))]
         if jsb_platform == "macos":
             helper_env.Append(LINKFLAGS=["-Wl,-rpath,@loader_path"])
+    if jsb_platform == "windows" and is_msvc_toolchain:
+        # 启动器 exe 必须用**与主库不同名**的 PDB：两者同名（`bin/<platform>/godotjs-ext.pdb`）时，
+        # 后链接的 exe 会把主库的符号覆盖掉 —— 结果是主库（被 Godot 加载的那个）在崩溃回溯里全是
+        # "couldn't map PC to fn name"。只有 node 腿才构建这个 exe，所以这个坑只在 node 腿出现。
+        # NOTE 与主库的 `/DEBUG:FULL` 一致：这个判定只看 toolchain（不随 target 变），所以 release 下
+        #      同样会为启动器产出 PDB（主库本来也是这样；不想产出 PDB 是另一件事，需单独按
+        #      `debug_symbols`/target 收敛，别在这一处单独处理）。
+        # NOTE 非 MSVC（MinGW/clang-cl 配 mingw 头）走不到这里：与 make_target_env 用同一个 toolchain 判定，
+        #      MinGW 根本没有 PDB 的概念。
+        helper_pdb = os.path.join(helper_dir, helper_name + ".pdb")  # 例如 bin/windows/godotjs-ext.exe.pdb
+        library_pdb = os.path.join(helper_dir, "godotjs-ext.pdb")
+        if helper_pdb == library_pdb:
+            # helper_name 约定含扩展名（"godotjs-ext.exe"）；万一哪天变了，这里必须重新命名，
+            # 否则又会静默覆盖主库符号。
+            helper_pdb = os.path.join(helper_dir, "godotjs-ext-launcher.pdb")
+        helper_env.Append(LINKFLAGS=["/PDB:" + helper_pdb])
     helper = helper_env.Program(os.path.join(helper_dir, helper_name), [helper_main])
     # The helper links the main shared library by name from helper_dir, so that
     # library must exist in helper_dir before the link runs. Without this the
