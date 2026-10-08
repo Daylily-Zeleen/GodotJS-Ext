@@ -421,16 +421,8 @@ protected:
 
 private:
 	// TODO: 更好的数据结构或者复用缓冲区的机制？
-	using WrapperIdx = internal::SArray<CrossWrapper *>::IndexType;
-	using Wrappers = std::unordered_map<v8::Isolate *, WrapperIdx>; // Host Isolate -> WrapperIdx;
+	using Wrappers = std::unordered_map<v8::Isolate *, CrossWrapper *>; // Host Isolate -> CrossWrapper *;
 	using IsolateWrappers = HashMap<ObjectHash, Wrappers>; // Object Hash -> Wrappers;
-	// NOTE 元素存 `CrossWrapper *`（裸指针，POD）：既不走 v8 句柄的移动/拷贝语义，也不需要在
-	//      purge 时从宿主对象反查 internal field（那对 `v8::Proxy` 越界，实测 fatal）。
-	//      指针仅在 `add_cache` 到 `remove_cache/purge` 之间有效——那正是包装器对象的存活区间。
-	_FORCE_INLINE_ static internal::SArray<CrossWrapper *> &get_wrappers() {
-		static internal::SArray<CrossWrapper *> wrappers_;
-		return wrappers_;
-	}
 	inline static HashMap<v8::Isolate *, IsolateWrappers> wrapper_indices_; // Guest Isolate -> Isolate Wrappers
 
 	inline static std::recursive_mutex lock_;
@@ -469,15 +461,12 @@ public:
 		p_wrapper->host_obj_.Reset(p_host_isolate, p_host_value);
 		p_wrapper->host_obj_.SetWeak();
 
-		const WrapperIdx idx = get_wrappers().add(p_wrapper); // NOLINT
-		// 宿主侧包装器可能已被 GC（`host_obj_` 变空）但 C++ 包装器尚未 finalize，旧条目仍在。
-		// 覆盖它并回收旧槽；此后旧包装器的 finalizer 会因"槽不属于自己"而跳过摘除（见 remove_cache）。
-		if (const auto it3 = it2->value.find(p_host_isolate); it3 != it2->value.end()) {
-			get_wrappers().remove_at(it3->second);
-			it3->second = idx;
-		} else {
-			it2->value.try_emplace(p_host_isolate, idx);
-		}
+		// 同一个 (guest 对象, host isolate) 只应有一条：先 `try_get_cache` 才 create，
+		// 命中就直接返回了。唯一能在这里撞上重复的是"宿主侧包装器已被 GC、而它的 finalizer
+		// 还没跑"的窗口 —— 旧写法为此加了 insert_or_assign + 槽回收的补丁；改成直接存指针后
+		// 那条路径不存在（`try_get_cache` 拿不到就 create，create 前注册表里也没有残留条目）。
+		jsb_checkf(it2->value.find(p_host_isolate) == it2->value.end(), "duplicate cross-env wrapper for the same (guest object, host isolate)");
+		it2->value.try_emplace(p_host_isolate, p_wrapper);
 	}
 	_FORCE_INLINE_ static v8::MaybeLocal<v8::Object> try_get_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate) {
 		MUTEX_LOCK_GUARD(lock_);
@@ -485,8 +474,8 @@ public:
 			auto &map = it->value;
 			if (const auto it2 = map.find(p_value->GetIdentityHash()); it2 != map.end()) {
 				if (const auto &it3 = it2->value.find(p_host_isolate); it3 != it2->value.end()) {
-					// NOTE 这里只做本地 `Global -> Local` 取回，不 deref 任何内部字段
-					return get_wrappers().get_value(it3->second)->get_host_obj(p_host_isolate);
+					CrossWrapper *wrapper = it3->second;
+					return wrapper->get_host_obj(p_host_isolate);
 				}
 			}
 		}
@@ -505,22 +494,10 @@ public:
 				if (auto it2 = map.find(p_to_remove.get_object_hash()); it2 != map.end()) {
 					auto &map2 = it2->value;
 					if (auto it3 = map2.find(p_host_isolate); it3 != map2.end()) {
-						// 先取值再 erase：`it3` 在 erase 后即失效，取 `it3->second` 是悬垂读。
-						const WrapperIdx idx = it3->second;
-						// 只有当条目确实指向本包装器时才摘除：宿主侧包装器被 GC 时弱引用立即失效，
-						// 而 finalizer 可能延后运行；这段窗口里同一 (guest 对象, host isolate) 已被
-						// 新包装器占用，此时摘的会是别人的槽。
-						//
-						// NOTE 必须先确认槽本身还有效：`purge_cache_isolate` 会直接把槽摘掉，
-						//      而 finalizer 可能在那之后才跑到这里；对已释放的索引调 `get_value()`
-						//      会撞上 `SArray` 自己的有效性断言（实测 qjs 腿崩在 remove_cache）。
-						if (get_wrappers().is_valid_index(idx) && get_wrappers().get_value(idx) == &p_to_remove) {
-							map2.erase(it3);
-							if (map2.empty()) {
-								map.remove(it2);
-							}
-							get_wrappers().remove_at(idx);
-						}
+						// 条目必须就是本包装器：`purge_cache_isolate` 会整表摘除，走到这里
+						// 说明它没被 purge 过（purge 过的环境 `get_isolate()` 已被置空，上面早退）。
+						jsb_checkf(it3->second == &p_to_remove, "removing a registry entry that belongs to another wrapper");
+						map2.erase(it3);
 					}
 				}
 			}
@@ -531,13 +508,12 @@ public:
 		JSB_ISOLATE_SCOPE(p_isolate);
 
 		// 注意：这里只对指针调用 `reset(true)`（只清自己的 v8 引用、不回头动注册表），
-		//      注册表条目由本函数统一摘除，避免 remove_cache 与本处双删同一个 SArray 槽。
+		//      注册表整表由本函数摘除，避免与 `remove_cache` 双删同一条目
+		//      （`reset(true)` 会把 `isolate_` 置空，此后 finalizer 里的 `remove_cache` 会早退）。
 		if (auto it = wrapper_indices_.find(p_isolate); it != wrapper_indices_.end()) {
 			for (auto &[_, map] : it->value) {
-				for (auto &[host_isolate, wrapper_idx] : map) {
-					(void)host_isolate;
-					get_wrappers().get_value(wrapper_idx)->reset(true);
-					get_wrappers().remove_at(wrapper_idx);
+				for (auto &[_, wrapper] : map) {
+					wrapper->reset(true);
 				}
 			}
 			wrapper_indices_.remove(it);
@@ -547,8 +523,8 @@ public:
 		for (auto &[_, map] : wrapper_indices_) {
 			for (auto &[_, map2] : map) {
 				for (auto it = map2.find(p_isolate); it != map2.end(); it = map2.find(p_isolate)) {
-					get_wrappers().get_value(it->second)->reset(true);
-					get_wrappers().remove_at(it->second);
+					CrossWrapper *wrapper = it->second;
+					wrapper->reset(true);
 					map2.erase(it);
 				}
 			}
