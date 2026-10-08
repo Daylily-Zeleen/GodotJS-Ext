@@ -218,7 +218,7 @@ private:
 	using CacheType = std::unordered_map<SymbolGlobalHash, Container>; // , SymbolGlobal::hasher, SymbolGlobal::equaler>;
 
 private:
-	static CacheType cache_;
+	inline static CacheType cache_;
 
 	static void clear_cache(const v8::WeakCallbackInfo<SymbolGlobalHash> &data) {
 		SymbolGlobalHash hash = *data.GetParameter();
@@ -260,7 +260,7 @@ private:
 		cache_[to_symbol.hash()].emplace(p_from_isolate, std::forward<SymbolGlobal &&>(from_symbol));
 	}
 
-	static std::unordered_map<v8::Isolate *, TStrongRef<v8::Function>> key_for_funcs;
+	inline static std::unordered_map<v8::Isolate *, TStrongRef<v8::Function>> key_for_funcs;
 	/**
 	 * NOTE: 工具函数不创建句柄作用域
 	 * @brief 获取全局注册 Symbol 的键名，若未注册则返回空字符串
@@ -388,80 +388,187 @@ public:
 	}
 };
 
-SymbolCrossUtils::CacheType SymbolCrossUtils::cache_{};
-std::unordered_map<v8::Isolate *, TStrongRef<v8::Function>> SymbolCrossUtils::key_for_funcs;
+class CrossWrapper : public CustomNativeBase {
+	v8::Global<v8::Object> value_; // guest 侧对象（弱）
+	// host 侧包装器（函数包装 / Proxy）。注册表必须缓存它——`try_get_cache` 是"同一 guest 对象
+	// 在同一个 host isolate 里已经包过就复用"，而复用的是 host 侧那个包装器，不是 guest 对象本身。
+	v8::Global<v8::Object> host_obj_; // 弱，属 p_host_isolate
+	v8::Isolate *isolate_;
 
-struct WrapperIdentity {
-	uintptr_t guest_isolate;
-	int guest_value;
+	// 本包装器的宿主 isolate（注册表里 `Wrappers` 的键）。finalizer 只拿得到 host 环境，
+	// 而"谁调用了 reset"不一定等于宿主 —— 例如 `wrap_cross_env_value` 里那条
+	// "传送到其他环境？" 分支会用**第三方 isolate** 去 reset 一个属于别人的包装器。
+	v8::Isolate *host_isolate_;
 
-	WrapperIdentity(v8::Isolate *p_guest_isolate, const v8::Local<v8::Object> &p_guest_value) {
-		guest_isolate = reinterpret_cast<uintptr_t>(p_guest_isolate);
-		guest_value = p_guest_value->GetIdentityHash();
+	// guest 对象的 identity hash，**创建时记录**。
+	// `remove_cache` 需要在 finalizer 里按 hash 找到注册表条目；如果那时才去
+	// `get_obj(host)->GetIdentityHash()`，会在宿主 isolate/上下文已不可用时碰 v8 句柄
+	// （quickjs 腿实测：`Global::Get` -> `push_copy` 报错 -> 崩溃处理器重入 -> 死循环）。
+	using ObjectHash = decltype(v8::Local<v8::Object>()->GetIdentityHash());
+	ObjectHash object_hash_;
+
+protected:
+	CrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate)
+			: value_(p_isolate, p_value), isolate_(p_isolate), host_isolate_(p_host_isolate),
+			  object_hash_(p_value->GetIdentityHash()) {
+		value_.SetWeak();
 	}
 
-	size_t hash() const {
-		size_t ret{};
-		ret |= guest_value;
-		ret <<= sizeof(guest_value) * 8;
-		ret ^= guest_isolate;
+private:
+	// TODO: 更好的数据结构或者复用缓冲区的机制？
+	using WrapperIdx = internal::SArray<CrossWrapper *>::IndexType;
+	using Wrappers = std::unordered_map<v8::Isolate *, WrapperIdx>; // Host Isolate -> WrapperIdx;
+	using IsolateWrappers = HashMap<ObjectHash, Wrappers>; // Object Hash -> Wrappers;
+	// NOTE 元素存 `CrossWrapper *`（裸指针，POD）：既不走 v8 句柄的移动/拷贝语义，也不需要在
+	//      purge 时从宿主对象反查 internal field（那对 `v8::Proxy` 越界，实测 fatal）。
+	//      指针仅在 `add_cache` 到 `remove_cache/purge` 之间有效——那正是包装器对象的存活区间。
+	_FORCE_INLINE_ static internal::SArray<CrossWrapper *> &get_wrappers() {
+		static internal::SArray<CrossWrapper *> wrappers_;
+		return wrappers_;
+	}
+	inline static HashMap<v8::Isolate *, IsolateWrappers> wrapper_indices_; // Guest Isolate -> Isolate Wrappers
+
+	inline static std::recursive_mutex lock_;
+	inline static std::unordered_map<v8::Isolate *, TStrongRef<v8::Name>> flag_symbols_; // TODO: TStrongRef 换 v8::Global
+
+public:
+	_FORCE_INLINE_ void reset(bool p_reset_only = false) {
+		if (isolate_ && !p_reset_only) {
+			remove_cache(*this, host_isolate_);
+		}
+		value_.Reset();
+		host_obj_.Reset();
+		isolate_ = nullptr;
+	}
+
+	_FORCE_INLINE_ v8::MaybeLocal<v8::Object> get_host_obj(v8::Isolate *p_host_isolate) const {
+		return host_obj_.Get(p_host_isolate);
+	}
+
+	/** guest 对象的 identity hash（创建时记录，见 `object_hash_`）。 */
+	_FORCE_INLINE_ ObjectHash get_object_hash() const { return object_hash_; }
+
+	_FORCE_INLINE_ static void add_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate, CrossWrapper *p_wrapper, const v8::Local<v8::Object> &p_host_value) {
+		MUTEX_LOCK_GUARD(lock_);
+		auto it = wrapper_indices_.find(p_isolate);
+		if (it == wrapper_indices_.end()) {
+			it = wrapper_indices_.insert(p_isolate, IsolateWrappers());
+		}
+		auto &isolate_wrappers = it->value;
+
+		auto it2 = isolate_wrappers.find(p_value->GetIdentityHash());
+		if (it2 == isolate_wrappers.end()) {
+			it2 = isolate_wrappers.insert(p_value->GetIdentityHash(), {});
+		}
+
+		p_wrapper->host_obj_.Reset(p_host_isolate, p_host_value);
+		p_wrapper->host_obj_.SetWeak();
+
+		const WrapperIdx idx = get_wrappers().add(p_wrapper); // NOLINT
+		// 宿主侧包装器可能已被 GC（`host_obj_` 变空）但 C++ 包装器尚未 finalize，旧条目仍在。
+		// 覆盖它并回收旧槽；此后旧包装器的 finalizer 会因"槽不属于自己"而跳过摘除（见 remove_cache）。
+		if (const auto it3 = it2->value.find(p_host_isolate); it3 != it2->value.end()) {
+			get_wrappers().remove_at(it3->second);
+			it3->second = idx;
+		} else {
+			it2->value.try_emplace(p_host_isolate, idx);
+		}
+	}
+	_FORCE_INLINE_ static v8::MaybeLocal<v8::Object> try_get_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate) {
+		MUTEX_LOCK_GUARD(lock_);
+		if (const auto it = wrapper_indices_.find(p_isolate); it != wrapper_indices_.end()) {
+			auto &map = it->value;
+			if (const auto it2 = map.find(p_value->GetIdentityHash()); it2 != map.end()) {
+				if (const auto &it3 = it2->value.find(p_host_isolate); it3 != it2->value.end()) {
+					// NOTE 这里只做本地 `Global -> Local` 取回，不 deref 任何内部字段
+					return get_wrappers().get_value(it3->second)->get_host_obj(p_host_isolate);
+				}
+			}
+		}
+		return {};
+	}
+	_FORCE_INLINE_ static void remove_cache(const CrossWrapper &p_to_remove, v8::Isolate *p_host_isolate) {
+		MUTEX_LOCK_GUARD(lock_);
+		if (v8::Isolate *isolate = p_to_remove.get_isolate()) {
+			// NOTE 不能断言 `p_host_isolate == isolate`：这里传进来的是**宿主** isolate，
+			//      而 `get_isolate()` 返回的是包装器持有的 guest isolate，两者本来就不同；
+			//      调用方必须传宿主 isolate（`reset()` 传 `host_isolate_`，finalizer 传 host 环境的）。
+			if (auto it = wrapper_indices_.find(isolate); it != wrapper_indices_.end()) {
+				auto &map = it->value;
+				// NOTE 用创建时记下的 identity hash，**不要**在这里 `get_obj(...)->GetIdentityHash()`：
+				//      finalizer 跑在 GC 回调里，宿主 isolate 可能已不可用（见 `object_hash_` 的说明）。
+				if (auto it2 = map.find(p_to_remove.get_object_hash()); it2 != map.end()) {
+					auto &map2 = it2->value;
+					if (auto it3 = map2.find(p_host_isolate); it3 != map2.end()) {
+						// 先取值再 erase：`it3` 在 erase 后即失效，取 `it3->second` 是悬垂读。
+						const WrapperIdx idx = it3->second;
+						// 只有当条目确实指向本包装器时才摘除：宿主侧包装器被 GC 时弱引用立即失效，
+						// 而 finalizer 可能延后运行；这段窗口里同一 (guest 对象, host isolate) 已被
+						// 新包装器占用，此时摘的会是别人的槽。
+						//
+						// NOTE 必须先确认槽本身还有效：`purge_cache_isolate` 会直接把槽摘掉，
+						//      而 finalizer 可能在那之后才跑到这里；对已释放的索引调 `get_value()`
+						//      会撞上 `SArray` 自己的有效性断言（实测 qjs 腿崩在 remove_cache）。
+						if (get_wrappers().is_valid_index(idx) && get_wrappers().get_value(idx) == &p_to_remove) {
+							map2.erase(it3);
+							if (map2.empty()) {
+								map.remove(it2);
+							}
+							get_wrappers().remove_at(idx);
+						}
+					}
+				}
+			}
+		}
+	}
+	_FORCE_INLINE_ static void purge_cache_isolate(v8::Isolate *p_isolate) {
+		MUTEX_LOCK_GUARD(lock_);
+		JSB_ISOLATE_SCOPE(p_isolate);
+
+		// 注意：这里只对指针调用 `reset(true)`（只清自己的 v8 引用、不回头动注册表），
+		//      注册表条目由本函数统一摘除，避免 remove_cache 与本处双删同一个 SArray 槽。
+		if (auto it = wrapper_indices_.find(p_isolate); it != wrapper_indices_.end()) {
+			for (auto &[_, map] : it->value) {
+				for (auto &[host_isolate, wrapper_idx] : map) {
+					(void)host_isolate;
+					get_wrappers().get_value(wrapper_idx)->reset(true);
+					get_wrappers().remove_at(wrapper_idx);
+				}
+			}
+			wrapper_indices_.remove(it);
+		}
+
+		// 其它 guest isolate 指向本 isolate（作为宿主）的包装器：同样先清引用、再摘索引
+		for (auto &[_, map] : wrapper_indices_) {
+			for (auto &[_, map2] : map) {
+				for (auto it = map2.find(p_isolate); it != map2.end(); it = map2.find(p_isolate)) {
+					get_wrappers().get_value(it->second)->reset(true);
+					get_wrappers().remove_at(it->second);
+					map2.erase(it);
+				}
+			}
+		}
+	}
+
+	template <typename T>
+	_FORCE_INLINE_ bool get_obj(v8::Isolate *p_caller, v8::Local<T> &r_obj) const {
+		r_obj = value_.Get(isolate_).As<T>();
+		if (unlikely(r_obj.IsEmpty())) {
+			jsb_throw(p_caller, "Try to access a dead wrapper, its ShadowRealm is gone.");
+			return false;
+		}
+		return true;
+	}
+
+	_FORCE_INLINE_ v8::Local<v8::Object> get_obj(v8::Isolate *p_caller) const {
+		v8::Local<v8::Object> ret;
+		get_obj(p_caller, ret);
 		return ret;
 	}
 
-	bool operator==(const WrapperIdentity &p_other) const {
-		return guest_value == p_other.guest_value && guest_isolate == p_other.guest_isolate;
-	}
-};
-
-class CrossWrapper : public CustomNativeBase {
-protected:
-	v8::Isolate *isolate_;
-	TStrongRef<v8::Object> value_;
-
-	CrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value) : isolate_(p_isolate), value_(p_isolate, p_value) {
-	}
-
-private:
-	struct WrapperIdentityHash {
-		size_t operator()(const WrapperIdentity &k) const {
-			return k.hash();
-		}
-	};
-
-	struct WrapperIdentityEqual {
-		bool operator()(const WrapperIdentity &lhs, const WrapperIdentity &rhs) const {
-			return lhs == rhs;
-		}
-	};
-
-private:
-	static std::unordered_multimap<WrapperIdentity, TWeakRef<v8::Object>, WrapperIdentityHash, WrapperIdentityEqual> wrapper_cache_;
-	static std::recursive_mutex lock_;
-	static std::unordered_map<v8::Isolate *, TStrongRef<v8::Name>> flag_symbols_;
+	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return isolate_; }
 
 public:
-	static void add_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate, const v8::Local<v8::Object> &p_wrapper) {
-		MUTEX_LOCK_GUARD(lock_);
-		wrapper_cache_.emplace(
-				WrapperIdentity{ p_isolate, p_value },
-				TWeakRef<v8::Object>{ p_host_isolate, p_wrapper });
-	}
-	static v8::MaybeLocal<v8::Object> try_get_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate) {
-		MUTEX_LOCK_GUARD(lock_);
-		auto it = wrapper_cache_.find(WrapperIdentity{ p_isolate, p_value });
-		if (it == wrapper_cache_.end()) {
-			return {};
-		}
-		return it->second.object_.Get(p_host_isolate);
-	}
-	static void remove_cache(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value) {
-		MUTEX_LOCK_GUARD(lock_);
-		wrapper_cache_.erase(WrapperIdentity{ p_isolate, p_value });
-	}
-
-public:
-	v8::Isolate *get_isolate() const { return isolate_; }
-	v8::Local<v8::Object> get_raw_value() const { return value_.object_.Get(isolate_); }
 	static const TStrongRef<v8::Name> &get_flag_symbol(v8::Isolate *p_isolate) {
 		MUTEX_LOCK_GUARD(lock_);
 
@@ -482,18 +589,10 @@ public:
 	}
 };
 
-std::unordered_map<v8::Isolate *, TStrongRef<v8::Name>> CrossWrapper::flag_symbols_;
-std::unordered_multimap<WrapperIdentity, TWeakRef<v8::Object>, CrossWrapper::WrapperIdentityHash, CrossWrapper::WrapperIdentityEqual> CrossWrapper::wrapper_cache_{};
-std::recursive_mutex CrossWrapper::lock_;
-
 class FunctionCrossWrapper : public CrossWrapper {
 private:
-	FunctionCrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Function> &p_function) : CrossWrapper(p_isolate, p_function) {}
-
-public:
-	v8::Local<v8::Function> get_function() const {
-		return value_.object_.Get(isolate_).As<v8::Function>();
-	}
+	FunctionCrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Function> &p_function, v8::Isolate *p_caller_isolate)
+			: CrossWrapper(p_isolate, p_function, p_caller_isolate) {}
 
 public:
 	/** NOTE: 不创建句柄作用域，将在 p_host_env 中创建对象 */
@@ -520,7 +619,7 @@ public:
 		const v8::Context::Scope context_scope(context);
 		const v8::Local<v8::Object> data = class_info->clazz.NewInstance(context);
 
-		FunctionCrossWrapper *ptr = memnew(FunctionCrossWrapper(p_guest_isolate, p_function));
+		FunctionCrossWrapper *ptr = memnew(FunctionCrossWrapper(p_guest_isolate, p_function, isolate));
 		const NativeObjectID handle = p_host_env->bind_js_owned_pointer(class_id, NativeClassType::Custom, ptr, data);
 		jsb_check(handle);
 
@@ -530,7 +629,7 @@ public:
 		wrapper.As<v8::Object>()->Set(context, symbol.object_.Get(isolate), data).Check();
 		// TODO: Freeze 或 proxy, 防止被篡改
 
-		add_cache(p_guest_isolate, p_function, isolate, wrapper);
+		add_cache(p_guest_isolate, p_function, isolate, ptr, wrapper.As<v8::Object>());
 		return wrapper;
 	}
 
@@ -541,6 +640,8 @@ public:
 		JSB_ISOLATE_SCOPE(host_isolate);
 
 		const FunctionCrossWrapper *wrapper = (const FunctionCrossWrapper *)(info.Data().As<v8::Object>()->GetAlignedPointerFromInternalField(IF_Pointer));
+		v8::Local<v8::Function> function;
+		if (unlikely(!wrapper->get_obj(host_isolate, function))) return;
 
 		v8::Isolate *guest_isolate = wrapper->get_isolate();
 		const v8::HandleScope handle_scope1(guest_isolate);
@@ -559,7 +660,6 @@ public:
 			memnew_placement(&args[i], LocalValue(wrap_cross_env_value(guest_env, host_isolate, info[i]))); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
 		}
 
-		const v8::Local<v8::Function> function = wrapper->get_function();
 		const v8::Local<v8::Context> guest_context = guest_env->get_context();
 		const v8::Context::Scope context_scope(guest_context);
 
@@ -591,13 +691,10 @@ public:
 		}
 	}
 
-	static void finalizer(Environment *, void *pointer, FinalizationType /* p_finalize */) {
+	static void finalizer(Environment *p_host_env, void *pointer, FinalizationType /* p_finalize */) {
 		FunctionCrossWrapper *self = (FunctionCrossWrapper *)pointer;
 
-		v8::Isolate *isolate = self->get_isolate();
-		const v8::HandleScope handle_scope(isolate);
-		JSB_ISOLATE_SCOPE(isolate);
-		remove_cache(isolate, self->get_raw_value());
+		remove_cache(*self, p_host_env->get_isolate());
 
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "deleting FunctionCrossWrapper.");
 		memdelete(self);
@@ -606,10 +703,8 @@ public:
 
 class ObjectCrossWrapper : public CrossWrapper {
 private:
-	ObjectCrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_obj) : CrossWrapper(p_isolate, p_obj) {}
-
-public:
-	v8::Local<v8::Object> get_object() const { return value_.object_.Get(isolate_).As<v8::Object>(); }
+	ObjectCrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_obj, v8::Isolate *p_caller_isolate)
+			: CrossWrapper(p_isolate, p_obj, p_caller_isolate) {}
 
 private:
 	/** NOTE: 工具函数不创建句柄作用域，将在 p_to_isolate 中创建对象 */
@@ -650,7 +745,7 @@ public:
 		const NativeClassInfoPtr class_info = p_host_env->find_native_class(class_name, &class_id);
 		const v8::Local<v8::Object> wrapper = class_info->clazz.NewInstance(context);
 
-		ObjectCrossWrapper *ptr = memnew(ObjectCrossWrapper(p_guest_isolate, p_guest_obj));
+		ObjectCrossWrapper *ptr = memnew(ObjectCrossWrapper(p_guest_isolate, p_guest_obj, isolate));
 		const NativeObjectID handle = p_host_env->bind_js_owned_pointer(class_id, NativeClassType::Custom, ptr, wrapper);
 		jsb_check(handle);
 
@@ -675,7 +770,7 @@ public:
 
 		v8::Local<v8::Proxy> proxy = v8::Proxy::New(context, wrapper, handler).ToLocalChecked();
 
-		add_cache(p_guest_isolate, p_guest_obj, isolate, proxy);
+		add_cache(p_guest_isolate, p_guest_obj, isolate, ptr, proxy.As<v8::Object>());
 		return proxy;
 	}
 
@@ -697,9 +792,12 @@ public:
 		} else {
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
-
 			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
+
+			v8::Local<v8::Object> guest_object;
+			if (unlikely(!wrapper->get_obj(isolate, guest_object))) return;
+
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
 				info.GetReturnValue().Set(v8::Boolean::New(isolate, true));
@@ -709,7 +807,6 @@ public:
 			const v8::Local<v8::Context> guest_context = Environment::wrap(guest_isolate)->get_context();
 			const v8::Context::Scope context_scope1(guest_context);
 
-			const v8::Local<v8::Object> guest_object = wrapper->get_object();
 			const bool result = guest_object->HasOwnProperty(guest_context, transferred_key).ToChecked();
 
 			info.GetReturnValue().Set(v8::Boolean::New(isolate, result));
@@ -733,9 +830,12 @@ public:
 		} else {
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
-
 			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
+
+			v8::Local<v8::Object> guest_object;
+			if (unlikely(!wrapper->get_obj(isolate, guest_object))) return;
+
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
 				info.GetReturnValue().Set(v8::Undefined(isolate));
@@ -743,7 +843,7 @@ public:
 			}
 
 			const v8::Local<v8::Context> guest_context = Environment::wrap(guest_isolate)->get_context();
-			const v8::Local<v8::Object> guest_object = wrapper->get_object();
+			const v8::Context::Scope context_scope1(guest_context);
 
 			const v8::Local<v8::Value> value = guest_object->Get(guest_context, transferred_key).ToLocalChecked();
 			const v8::Local<v8::Value> result = wrap_cross_env_value(Environment::wrap(isolate), guest_isolate, value); /** NOTE: 将在 isolate 中创建对象 */
@@ -769,9 +869,12 @@ public:
 		} else {
 			const ObjectCrossWrapper *wrapper = (const ObjectCrossWrapper *)(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			v8::Isolate *guest_isolate = wrapper->get_isolate();
-
 			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate); // 为 guest_isolate 创建句柄作用域，后续的工具函数调用将在其中创建对象
+
+			v8::Local<v8::Object> guest_object;
+			if (unlikely(!wrapper->get_obj(isolate, guest_object))) return;
+
 			const v8::Local<v8::Name> transferred_key = transfer_key(isolate, key, guest_isolate);
 			if (transferred_key.IsEmpty()) {
 				return;
@@ -781,7 +884,6 @@ public:
 			const v8::Local<v8::Context> guest_context = guest_env->get_context();
 			const v8::Context::Scope context_scope1(guest_context);
 
-			const v8::Local<v8::Object> guest_object = wrapper->get_object();
 			v8::Local<v8::Value> wrapped = wrap_cross_env_value(guest_env, isolate, value); /** NOTE: 将在 guest_env(guest_isolate) 中创建对象 */
 			guest_object->Set(guest_context, transferred_key, wrapped).Check();
 		}
@@ -808,12 +910,10 @@ public:
 		}
 	}
 
-	static void finalizer(Environment *, void *pointer, FinalizationType /* p_finalize */) {
+	static void finalizer(Environment *p_host_env, void *pointer, FinalizationType /* p_finalize */) {
 		ObjectCrossWrapper *self = (ObjectCrossWrapper *)pointer;
-		v8::Isolate *isolate = self->get_isolate();
-		JSB_ISOLATE_SCOPE(isolate);
-		const v8::HandleScope handle_scope(isolate);
-		remove_cache(isolate, self->get_raw_value());
+
+		remove_cache(*self, p_host_env->get_isolate());
 
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "deleting ObjectCrossWrapper.");
 		memdelete(self);
@@ -848,9 +948,11 @@ static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env,
 			jsb_check(type == NativeClassType::Custom);
 			const CrossWrapper *wrapper = static_cast<CrossWrapper *>(obj->GetAlignedPointerFromInternalField(IF_Pointer));
 			if (wrapper->get_isolate() == host_isolate) {
-				return wrapper->get_raw_value(); // 返回到原始环境
+				return wrapper->get_obj(host_isolate); // 返回到原始环境
+			} else if (v8::Local<v8::Object> obj; wrapper->get_obj(host_isolate, obj)) {
+				return wrap_cross_env_value(p_host_env, wrapper->get_isolate(), obj); // 传送到其他环境？
 			} else {
-				return wrap_cross_env_value(p_host_env, wrapper->get_isolate(), wrapper->get_raw_value()); // 传送到其他环境？
+				return {};
 			}
 		}
 
@@ -867,9 +969,11 @@ static inline v8::Local<v8::Value> wrap_cross_env_value(Environment *p_host_env,
 			jsb_check(type == NativeClassType::Custom);
 			const CrossWrapper *wrapper = static_cast<CrossWrapper *>(target->GetAlignedPointerFromInternalField(IF_Pointer));
 			if (wrapper->get_isolate() == host_isolate) {
-				return wrapper->get_raw_value(); // 返回到原始环境
+				return wrapper->get_obj(host_isolate); // 返回到原始环境
+			} else if (v8::Local<v8::Object> obj; wrapper->get_obj(host_isolate, obj)) {
+				return wrap_cross_env_value(p_host_env, wrapper->get_isolate(), obj); // 传送到其他环境？
 			} else {
-				return wrap_cross_env_value(p_host_env, wrapper->get_isolate(), wrapper->get_raw_value()); // 传送到其他环境？
+				return {};
 			}
 		}
 
@@ -1087,6 +1191,7 @@ protected:
 			}
 
 			env_->dispose();
+			CrossWrapper::purge_cache_isolate(isolate);
 			env_.reset();
 
 			JSB_SHADOW_REALM_LOG(VeryVerbose, "ShadowRealm exited: %d", id_);

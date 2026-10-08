@@ -37,8 +37,12 @@
 
 namespace jsb::internal {
 //NOTE some types (like std::function) are not supported because copy/move on resizing is not implemented for now.
-template <typename T, typename IndexType = Index64, typename TAllocator = AnsiAllocator>
+template <typename T, typename IndexType_ = Index64, typename TAllocator = AnsiAllocator>
 class SArray {
+public:
+	using IndexType = IndexType_;
+
+private:
 	using RevisionType = typename IndexType::RevisionType;
 	using ElementTypeTypedef = std::remove_pointer_t<T>;
 

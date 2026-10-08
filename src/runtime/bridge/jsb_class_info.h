@@ -48,8 +48,6 @@ typedef void (*FinalizerFunc)(Environment *, void *, FinalizationType);
  * Typically,get `CustomNativeBase*` from js object's internal field use `dynamic_cast<>()` to cast to child class.
  */
 class CustomNativeBase {
-public:
-	virtual ~CustomNativeBase() = default;
 };
 
 namespace NativeClassType {
