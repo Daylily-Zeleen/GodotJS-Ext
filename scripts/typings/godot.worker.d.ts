@@ -39,8 +39,11 @@ declare module "godot.worker" {
         onready?: () => void;
         onmessage?: (message: any) => void;
 
-        //TODO not implemented yet
-        onerror?: (error: any) => void;
+        /**
+         * worker 侧的错误（入口脚本加载失败 / `onmessage` 抛错 / 定时器回调抛错）。
+         * 参数是宿主 realm 重建出来的值：对象异常是 `Error`，原始值异常原样送达。
+         */
+        onerror?: (error: import("godot-jsb").JsbThrownValue) => void;
     }
 
     // only available in worker scripts

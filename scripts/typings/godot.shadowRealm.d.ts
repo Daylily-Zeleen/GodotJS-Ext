@@ -59,8 +59,8 @@ declare module "godot.shadowRealm" {
 
         terminate(): void;
 
-        //TODO not implemented yet
-        onerror?: (error: any) => void;
+        /** 与 `JSWorker.onerror` 同一形态（对象异常是 `Error`，原始值异常原样送达）。 */
+        onerror?: (error: import("godot-jsb").JsbThrownValue) => void;
     }
 
     // 仅能在 TransferableShadowRealm 中访问

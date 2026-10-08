@@ -9,6 +9,7 @@ import {
 	Message,
 	MessageType,
 	PlainMessage,
+	ThrowMessage,
 	TransferType,
 } from './messaging';
 import { TEST_FAILURE_SENTINEL_PREFIX } from '../test-status';
@@ -124,6 +125,11 @@ const messageParent = JSWorkerParent ?? shadowModule?.ShadowRealmParent;
 
 if (messageParent) {
 	messageParent.onmessage = (rawMessage: Message) => {
+		// A requested `onmessage-throw` must leave the handler as an UNCAUGHT
+		// exception: the runtime's own TryCatch then forwards it to the host's
+		// `onerror`. Throwing inside the try/catch below would also post a
+		// PeerError envelope first, so the throw is deferred until after it.
+		let deferredThrow: unknown = null;
 		try {
 			if (!rawMessage || typeof rawMessage !== 'object') {
 				fail('received malformed peer request');
@@ -389,6 +395,27 @@ if (messageParent) {
 				case MessageType.PeerError:
 					fail(`unexpected peer error envelope: ${message.message}`);
 					break;
+
+				case MessageType.Throw: {
+					const throwMessage = message as ThrowMessage;
+					if (throwMessage.action === 'timer-throw') {
+						// The environment's own timer pump drives this; its uncaught
+						// exception is forwarded to the host's `onerror`.
+						setTimeout(() => {
+							throw new Error('peer timer throw');
+						}, 0);
+						break;
+					}
+					if (throwMessage.action !== 'onmessage-throw') {
+						fail(`unexpected throw action: ${String(throwMessage.action)}`);
+					}
+					const thrownError = new Error('peer throw');
+					// A function cannot cross the isolate; it must show up in the
+					// untransferred list instead of being copied.
+					(thrownError as Error & { fn?: unknown }).fn = () => {};
+					deferredThrow = thrownError;
+					break;
+				}
 			}
 		} catch (error) {
 			messageParent.postMessage({
@@ -396,6 +423,10 @@ if (messageParent) {
 				message: formatUnknownError(error),
 			});
 			throw error;
+		}
+
+		if (deferredThrow !== null) {
+			throw deferredThrow;
 		}
 	};
 }

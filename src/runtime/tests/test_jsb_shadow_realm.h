@@ -142,4 +142,337 @@ globalThis.__instance_id = globalThis.__realm.evaluate(`
 	static_cast<Node *>(obj)->queue_free(); // 释放测试对象
 }
 
+// 回归（修复前会 trap）：guest isolate 里的异常必须变成调用方（host）realm 里的 Error，
+// 而不是崩溃、也不是把 undefined 交给调用方。修复前 `evaluate` 用 `ToLocalChecked()` 取
+// `Script::Compile`/`Run` 的返回值，而异常时它们返回空 MaybeLocal -> `jsb_check` 触发 trap。
+TEST_CASE("[runtime] [jsb] ShadowRealm: an exception from evaluate becomes a host-realm Error") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__throw_realm = new JSShadowRealm();
+globalThis.__throw_probe = (function () {
+	try {
+		globalThis.__throw_realm.evaluate(`(function () { throw new Error("boom"); })()`);
+		return "NO-THROW";
+	} catch (e) {
+		return (e instanceof Error ? "Error:" : "NotError:") + (e && e.message ? e.message : String(e));
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__throw_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	// 调用方拿到的是 host realm 的 Error，文本里带着 guest 的原始信息
+	CHECK(text.begins_with("Error:"));
+	CHECK(text.contains("boom"));
+}
+
+// 回归：`importValueSync` 失败时要在调用方 realm 抛 Error（以前抛的是字符串，没有 stack、instanceof 不成立）。
+TEST_CASE("[runtime] [jsb] ShadowRealm: importValueSync failure throws a host-realm Error") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__import_realm = new JSShadowRealm();
+globalThis.__import_probe = (function () {
+	try {
+		globalThis.__import_realm.importValueSync("res://__no_such_module__", "x");
+		return "NO-THROW";
+	} catch (e) {
+		return (e instanceof Error ? "Error:" : "NotError:") + (e && e.message ? e.message : String(e));
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__import_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.begins_with("Error:"));
+}
+
+// 回归：`importValue`（异步 API）失败时要用 Error 去 reject（以前是字符串，而且是"同步抛 + reject"双重报错）。
+TEST_CASE("[runtime] [jsb] ShadowRealm: importValue rejects a host-realm Error") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__reject_realm = new JSShadowRealm();
+globalThis.__reject_probe = "PENDING";
+globalThis.__reject_realm.importValue("res://__no_such_module__", "x").then(
+	() => { globalThis.__reject_probe = "RESOLVED"; },
+	(e) => { globalThis.__reject_probe = (e instanceof Error ? "Error:" : "NotError:") + (e && e.message ? e.message : String(e)); });
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	// promise 的 then/catch 是微任务：手动跑一次 checkpoint
+	isolate->PerformMicrotaskCheckpoint();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__reject_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.begins_with("Error:"));
+}
+
+// 回归：跨隔离区的错误带上 name/message/stack 与可携带的自定义字段；
+// 带不走的字段路径进未携带清单（挂在 `Symbol.for("jsb.untransferred")` 上）。
+TEST_CASE("[runtime] [jsb] ShadowRealm: the error record carries fields and lists what it could not") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__record_realm = new JSShadowRealm();
+globalThis.__record_probe = (function () {
+	try {
+		globalThis.__record_realm.evaluate(`
+(function () {
+	const e = new Error("with-fields");
+	e.code = 42;
+	e.text = "carried";
+	e.flag = true;
+	e.detail = { a: "x", b: [1, 2] };
+	e.plain = { obj: 1 };
+	e.fn = function () {};
+	const inner = new Error("inner-cause");
+	inner.tip = "t";
+	e.cause = inner;
+	throw e;
+})()`);
+		return "NO-THROW";
+	} catch (e) {
+		const lost = e[Symbol.for("jsb.untransferred")];
+		return JSON.stringify({
+			isError: e instanceof Error,
+			name: e.name,
+			message: e.message,
+			hasStack: typeof e.stack === "string" && e.stack.length > 0,
+			code: e.code,
+			text: e.text,
+			flag: e.flag,
+			detail: typeof e.detail,
+			plain: typeof e.plain,
+			causeIsError: e.cause instanceof Error,
+			causeMessage: e.cause && e.cause.message,
+			causeTip: e.cause && e.cause.tip,
+			lost: Array.isArray(lost) ? lost.slice().sort() : null
+		});
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__record_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("isError":true)"));
+	CHECK(text.contains(R"("message":"with-fields")"));
+	CHECK(text.contains(R"("hasStack":true)"));
+	// 只搬 JS 基础类型
+	CHECK(text.contains(R"("code":42)"));
+	CHECK(text.contains(R"("text":"carried")"));
+	CHECK(text.contains(R"("flag":true)"));
+	// 数组 / 普通对象 / 函数一律不搬运，只登记路径（由用户自己显式转换）
+	CHECK(text.contains(R"("detail":"undefined")"));
+	CHECK(text.contains(R"("plain":"undefined")"));
+	CHECK(text.contains(R"(["detail","fn","plain"])"));
+	// cause 是 Error 才递归带上它的字段
+	CHECK(text.contains(R"("causeIsError":true)"));
+	CHECK(text.contains(R"("causeMessage":"inner-cause")"));
+	CHECK(text.contains(R"("causeTip":"t")"));
+}
+
+// 回归（有界性）：错误记录的采集不能触发 getter、不能被环/深链/大数组拖垮，未携带清单本身也要有上限。
+TEST_CASE("[runtime] [jsb] ShadowRealm: the error record is bounded and never runs getters") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__bound_realm = new JSShadowRealm();
+globalThis.__cap_realm = new JSShadowRealm();
+globalThis.__getter_calls = 0;
+
+// 例 1：getter 不被触发；环、深链、大数组不失控
+globalThis.__bound_probe = (function () {
+	try {
+		globalThis.__bound_realm.evaluate(`
+(function () {
+	const e = new Error("bounded");
+	Object.defineProperty(e, "lazy", { get: () => { globalThis.__getter_calls++; return 1; }, enumerable: true, configurable: true });
+	const cyclic = {}; cyclic.self = cyclic; e.cycle = cyclic;
+	let deep = {}; const root = deep;
+	for (let i = 0; i < 64; ++i) { deep.next = {}; deep = deep.next; }
+	e.deep = root;
+	e.big = new Array(100000).fill(1);
+	throw e;
+})()`);
+		return "NO-THROW";
+	} catch (e) {
+		const lost = (e[Symbol.for("jsb.untransferred")] || []);
+		return JSON.stringify({
+			isError: e instanceof Error,
+			getterCalls: globalThis.__getter_calls,
+			lostHasLazy: lost.indexOf("lazy") >= 0,
+			lostHasCycle: lost.some((x) => String(x).indexOf("cycle") === 0),
+			lostHasDeep: lost.some((x) => String(x).indexOf("deep") === 0)
+		});
+	}
+})();
+
+// 例 2：未携带清单本身有上限（200 个函数字段 -> 64 条 + 一个 "..." 标记）
+globalThis.__cap_probe = (function () {
+	try {
+		globalThis.__cap_realm.evaluate(`
+(function () {
+	const e = new Error("cap");
+	for (let i = 0; i < 200; ++i) { e["fn" + i] = function () {}; }
+	throw e;
+})()`);
+		return "NO-THROW";
+	} catch (e) {
+		const lost = (e[Symbol.for("jsb.untransferred")] || []);
+		return JSON.stringify({ lostCount: lost.length, hasMarker: lost.indexOf("...") >= 0 });
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__bound_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("isError":true)"));
+	CHECK(text.contains(R"("getterCalls":0)")); // accessor 一律不读
+	CHECK(text.contains(R"("lostHasLazy":true)"));
+	CHECK(text.contains(R"("lostHasCycle":true)"));
+	CHECK(text.contains(R"("lostHasDeep":true)"));
+
+	v8::Local<v8::Value> cap_probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__cap_probe")).ToLocal(&cap_probe));
+	REQUIRE(cap_probe->IsString());
+	const String cap_text = jsb::impl::Helper::to_string(isolate, cap_probe.As<v8::String>());
+	CHECK(cap_text.contains(R"("lostCount":65)"));
+	CHECK(cap_text.contains(R"("hasMarker":true)"));
+}
+
+// 回归：`throw` 不一定是 Error —— 原始值异常要按原样送达，不能被包装成 Error。
+TEST_CASE("[runtime] [jsb] ShadowRealm: a primitive thrown value is delivered as-is") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__prim_realm = new JSShadowRealm();
+globalThis.__prim_probe = (function () {
+	try {
+		globalThis.__prim_realm.evaluate(`(function () { throw "primitive-boom"; })()`);
+		return "NO-THROW";
+	} catch (e) {
+		return JSON.stringify({ type: typeof e, value: String(e), isError: e instanceof Error });
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__prim_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("type":"string")"));
+	CHECK(text.contains(R"("value":"primitive-boom")"));
+	CHECK(text.contains(R"("isError":false)")); // 没有被包装成 Error
+}
+
+// 回归：同一 guest 对象在**同一个宿主环境**里二次传给宿主时，必须复用同一个宿主侧包装器
+// （`CrossWrapper::try_get_cache` 的命中路径），而不是每次新建一个。
+//
+// 这条断言针对一个真实修过的语义错：注册表里存的是 `CrossWrapper *`，但取回时曾写成
+// `get_obj(p_host_isolate)` —— 那是**guest 对象**，而缓存语义要求返回**宿主侧包装器**
+// （函数包装 / `ObjectCrossWrapper` 的 Proxy）。已加 `host_obj_`（宿主侧弱句柄）修正。
+//
+// 断言方式：让 guest 把同一个对象返回两次，宿主侧比较两个包装器 `===`。取消复用（每次都新建
+// Proxy）时 `same` 会变 false —— 即这条断言能真正区分"命中缓存"与"每次都新建"。
+TEST_CASE("[runtime] [jsb] ShadowRealm: a guest object is wrapped once per host isolate (cache reuse)") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__reuse_realm = new JSShadowRealm();
+// NOTE `evaluate` 把源码包成 `(function() { return (%s); })()`，因此**每个参数必须是单表达式**
+//      （赋值表达式可以，`globalThis.x = ...;` 这种带分号的语句不行 —— 实测 err=36 / ERR_PARSE_ERROR）。
+//      下面这次赋值把同一个 guest 对象挂到 guest 的 globalThis 上，供后续两次取用。
+globalThis.__reuse_realm.evaluate(`globalThis.__shared = { marker: "shared-obj" }`);
+globalThis.__reuse_probe = JSON.stringify({
+	// 同一个 guest 对象连续两次传出来：必须命中缓存 -> 同一个宿主包装器
+	same: globalThis.__reuse_realm.evaluate(`globalThis.__shared`) === globalThis.__reuse_realm.evaluate(`globalThis.__shared`),
+	// 不同 guest 对象不能相等（防止"一律返回同一个对象"这种退化实现蒙对）
+	diff: globalThis.__reuse_realm.evaluate(`globalThis.__shared`) === globalThis.__reuse_realm.evaluate(`({ marker: "other" })`),
+	// guest 侧自读（不经宿主 Proxy）
+	guestRead: String(globalThis.__reuse_realm.evaluate(`globalThis.__shared.marker`)),
+	// 宿主侧经 Proxy 读同一字段：走 `proxy_get` -> `transfer_key` -> `_transfer_string`。
+	// 回归意义：`_transfer_string` 曾把键写成带尾随 NUL 的字符串（V8 的 `WriteUtf8`
+	// 返回值含 NUL、而 shim 不含，代码把它当显式长度传给了 `NewFromUtf8`），
+	// 于是 guest 侧按键取属性永远 miss —— 这条断言就是那个 bug 的哨兵。
+	hostRead: String(globalThis.__reuse_realm.evaluate(`globalThis.__shared`).marker)
+});
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__reuse_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("same":true)")); // 命中缓存：同一个宿主包装器
+	CHECK(text.contains(R"("diff":false)")); // 不同 guest 对象仍是不同包装器
+	CHECK(text.contains(R"("guestRead":"shared-obj")")); // guest 对象本身可用
+	CHECK(text.contains(R"("hostRead":"shared-obj")")); // 宿主经 Proxy 读到 guest 字段（键转移不带尾随 NUL）
+}
+
 } //namespace jsb::tests

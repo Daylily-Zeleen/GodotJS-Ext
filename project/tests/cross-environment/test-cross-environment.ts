@@ -1,5 +1,6 @@
 import { Engine, GDictionary, instance_from_id, is_instance_id_valid, Node, Object as GodotObject, OS, PackedScene, Performance, Resource, ResourceLoader, Time, Vector2, weakref, WeakRef as GodotWeakRef } from 'godot';
 import { JSWorker } from 'godot.worker';
+import { untransferred } from 'godot-jsb';
 
 /**
  * A 64-bit alias is `int64` -- `number | bigint` when the build has BigInt, a
@@ -28,6 +29,8 @@ import {
 	ObjectTransferMessage,
 	MessageType,
 	PlainMessage,
+	ThrowAction,
+	ThrowMessage,
 	TransferType,
 } from './messaging';
 import type { Numeric64 } from '../test-status';
@@ -339,6 +342,9 @@ export default class TestCrossEnvironment extends Node {
 				}
 			}
 			const objectTransferCases = ['owned', 'native-owned', 'refcounted', 'persistent'];
+			// Scenarios 1/4 (onmessage throw) and 2/5 (timer throw) run on every
+			// backend; each backend supplies its own isolated peer.
+			const errorReportingActions: readonly ThrowAction[] = ['onmessage-throw', 'timer-throw'];
 			if (selectedCase !== undefined && !objectTransferCases.includes(selectedCase)) fail(`unknown object-transfer case: ${selectedCase}`);
 			const backends: readonly CrossEnvironmentBackend[] = selectedBackend ? [selectedBackend] : ['worker', 'shadow'];
 			for (const backend of backends) {
@@ -350,6 +356,17 @@ export default class TestCrossEnvironment extends Node {
 					console.log(`[cross-environment-test] object-transfer:${scenario}:${backend}:done`);
 				}
 				if (!selectedCase) {
+					for (const action of errorReportingActions) {
+						console.log(`[cross-environment-test] error-reporting:${action}:${backend}:start`);
+						await this.runPeerErrorReporting(backend, action);
+						console.log(`[cross-environment-test] error-reporting:${action}:${backend}:done`);
+					}
+					// Scenario 3 is worker-only; see runWorkerStartupLoadFailure's NOTE.
+					if (backend === 'worker') {
+						console.log('[cross-environment-test] error-reporting:startup-load-failure:worker:start');
+						await this.runWorkerStartupLoadFailure();
+						console.log('[cross-environment-test] error-reporting:startup-load-failure:worker:done');
+					}
 					for (let session = 1; session <= 3; session++) {
 						console.log(`[cross-environment-test] ${backend}:session:${String(session)}:start`);
 						await this.runSession(backend, session);
@@ -385,6 +402,104 @@ export default class TestCrossEnvironment extends Node {
 			worker.terminate();
 			throw error;
 		}
+	}
+
+	/**
+	 * Scenarios 1/2/4/5: a peer-side exception must reach the host's `onerror`
+	 * as a reconstructed `Error` (not a string, not a raw record). Driven by the
+	 * shared backend matrix, so worker and transferable shadow realm take the
+	 * exact same path.
+	 */
+	private async runPeerErrorReporting(backend: CrossEnvironmentBackend, action: ThrowAction): Promise<void> {
+		const peer = await this.createPeer(backend);
+		const expectedSnippet = action === 'onmessage-throw' ? 'peer throw' : 'peer timer throw';
+		await new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => {
+				peer.terminate();
+				reject(new Error(`peer error reporting timed out (${backend}/${action})`));
+			}, ROUND_TRIP_TIMEOUT_MS);
+
+			peer.onmessage = (response: Message) => {
+				if (!response || typeof response !== 'object' || response instanceof GDictionary) return;
+				if (response.type === MessageType.PeerError) {
+					clearTimeout(timeout);
+					peer.terminate();
+					reject(new Error(`peer reported a PeerError envelope instead of throwing (${backend}/${action}): ${response.message}`));
+				}
+			};
+
+			peer.onerror = (error: unknown) => {
+				clearTimeout(timeout);
+				try {
+					if (!(error instanceof Error)) {
+						fail(`onerror did not receive an Error (${backend}/${action}): ${typeof error}`);
+					}
+					if (!error.message.includes(expectedSnippet)) {
+						fail(`unexpected onerror message (${backend}/${action}): ${error.message}`);
+					}
+					if (action === 'onmessage-throw') {
+						// The throw carries a function-valued own property; the runtime
+						// cannot copy it, so it must be listed as untransferred instead.
+						const lost = error[untransferred];
+						if (!Array.isArray(lost) || !lost.includes('fn')) {
+							fail(`untransferred list missing 'fn' (${backend}): ${JSON.stringify(lost)}`);
+						}
+					}
+					resolve();
+				} catch (assertionError) {
+					reject(assertionError);
+				} finally {
+					peer.terminate();
+				}
+			};
+
+			const message: ThrowMessage = { type: MessageType.Throw, action };
+			peer.postMessage(message);
+		});
+	}
+
+	/**
+	 * Scenario 3 (worker-only): the startup script throws while loading.
+	 *
+	 * NOTE This one is deliberately outside the shared backend matrix. Only the
+	 * worker path synthesises the dedicated "failed to load the worker script"
+	 * message (the worker environment is unusable after the failure, so master
+	 * supplies the text). A transferable shadow realm's startup-script failure
+	 * takes a different code path and cannot express the `onready`-must-not-fire
+	 * contract, so it is driven directly with `JSWorker` here.
+	 */
+	private runWorkerStartupLoadFailure(): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const worker = new JSWorker('tests/cross-environment/peer-fails-on-load');
+			let readyFired = false;
+			const timeout = setTimeout(() => {
+				worker.terminate();
+				reject(new Error('worker onerror timed out (startup load failure)'));
+			}, WORKER_READY_TIMEOUT_MS);
+			worker.onready = () => {
+				readyFired = true;
+			};
+			worker.onerror = (error: unknown) => {
+				clearTimeout(timeout);
+				try {
+					if (readyFired) {
+						fail('onready fired for a worker script that failed to load');
+					}
+					if (!(error instanceof Error)) {
+						fail(`onerror did not receive an Error (startup load failure): ${typeof error}`);
+					}
+					if (!error.message.includes('failed to load the worker script')) {
+						fail(`unexpected onerror message (startup load failure): ${error.message}`);
+					}
+					resolve();
+				} catch (assertionError) {
+					reject(assertionError);
+				}
+				// NOTE deliberately no terminate() here: the worker thread already
+				// exited after the startup failure, and terminating a terminated
+				// worker crashes today (pre-existing issue, out of scope).
+			};
+		});
 	}
 
 	private objectTransferRequest(peer: CrossEnvironmentPeer, message: ObjectTransferMessage): Promise<ObjectTransferMessage> {

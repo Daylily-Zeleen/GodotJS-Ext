@@ -63,6 +63,7 @@ export enum MessageType {
 	Plain = 'plain',
 	PeerError = 'peerError',
 	ObjectTransfer = 'object-transfer',
+	Throw = 'throw',
 }
 
 export enum TransferType {
@@ -94,6 +95,14 @@ export type PeerErrorMessage = {
 	message: string;
 };
 
+export type ThrowAction = 'onmessage-throw' | 'timer-throw';
+
+/** Deliberately make the peer throw so the host's `onerror` can be exercised. */
+export type ThrowMessage = {
+	type: MessageType.Throw;
+	action: ThrowAction;
+};
+
 export type ObjectTransferAction = 'hold' | 'return' | 'control' | 'singleton';
 
 export type ObjectTransferMessage = {
@@ -109,7 +118,7 @@ export type ObjectTransferMessage = {
 	singletonName?: string;
 };
 
-export type Message = FullPayloadMessage | DictionaryMessage | PlainMessage | PeerErrorMessage | ObjectTransferMessage;
+export type Message = FullPayloadMessage | DictionaryMessage | PlainMessage | PeerErrorMessage | ObjectTransferMessage | ThrowMessage;
 
 export function buildGodotTransferList(
 	values: readonly GAny[]
