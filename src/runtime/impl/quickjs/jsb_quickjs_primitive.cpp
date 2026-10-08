@@ -164,19 +164,29 @@ int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_re
 	}
 
 	const int available = (int)len;
-	const int to_write = (length < 0 || length > available) ? available : length;
-	if (to_write > 0) {
-		memcpy(buffer, chars, to_write);
+	// NOTE 与真 V8 的 `String::WriteUtf8` 对齐：写入**至多 `length` 字节**、**总是**补上结尾 NUL，
+	//      返回值是"已写入字节数**含** NUL"。原来的实现在这一点上与 V8 不一致（不写 NUL、
+	//      返回不含 NUL 的长度），调用方按 V8 语义使用时就会拿到带/不带 NUL 的错误长度。
+	//      参考：`_transfer_string` 曾因此在 v8 腿上把 "marker" 传成 "marker\0"。
+	const int max_total = length < 0 ? available + 1 : length;
+	if (max_total <= 0) {
+		JS_FreeCString(ctx, chars);
+		return 0;
 	}
+	const int text_len = available < max_total - 1 ? available : max_total - 1;
+	if (text_len > 0) {
+		memcpy(buffer, chars, text_len);
+	}
+	buffer[text_len] = '\0';
 
 	JS_FreeCString(ctx, chars);
 
 	if (nchars_ref) {
 		// QuickJS returns byte length; for pure ASCII they're the same.
 		// For non-ASCII we'd need to count codepoints, but this is good enough for our use cases.
-		*nchars_ref = to_write;
+		*nchars_ref = text_len;
 	}
-	return to_write;
+	return text_len + 1;
 }
 
 Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {

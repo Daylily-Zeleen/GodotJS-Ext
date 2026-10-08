@@ -168,6 +168,36 @@ TEST_CASE("[runtime] [jsb] quickjs strict equality matches JS") {
 	JS_FreeContext(ctx);
 	JS_FreeRuntime(rt);
 }
+// 回归：well-known symbol 查询在 quickjs shim 里曾返回悬垂句柄（函数内局部 `HandleScope` 把返回值槽
+//       连同所有权一起释放），并且对"借用的 Symbol 构造器槽"多做了 `JS_FreeValue`（引用计数欠账）。
+//       两者都只在反复查询后才显形，所以这里连续查 256 次并要求身份恒定。
+TEST_CASE("[runtime] [jsb] quickjs well-known symbols stay stable and owned") {
+	GodotJSScriptLanguageIniter initer;
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+
+	const v8::Local<v8::Symbol> iterator = v8::Symbol::GetIterator(isolate);
+	const v8::Local<v8::Symbol> to_primitive = v8::Symbol::GetToPrimitive(isolate);
+	REQUIRE(!iterator.IsEmpty());
+	REQUIRE(!to_primitive.IsEmpty());
+	const int iterator_hash = iterator->GetIdentityHash();
+	const int to_primitive_hash = to_primitive->GetIdentityHash();
+	CHECK(iterator_hash != 0);
+	CHECK(to_primitive_hash != 0);
+	CHECK(iterator_hash != to_primitive_hash);
+
+	for (int i = 0; i < 256; ++i) {
+		const v8::Local<v8::Symbol> again_iterator = v8::Symbol::GetIterator(isolate);
+		const v8::Local<v8::Symbol> again_to_primitive = v8::Symbol::GetToPrimitive(isolate);
+		REQUIRE(!again_iterator.IsEmpty());
+		REQUIRE(!again_to_primitive.IsEmpty());
+		CHECK(again_iterator->GetIdentityHash() == iterator_hash);
+		CHECK(again_to_primitive->GetIdentityHash() == to_primitive_hash);
+	}
+}
+
 #endif // JSB_WITH_QUICKJS
 
 } //namespace jsb::tests

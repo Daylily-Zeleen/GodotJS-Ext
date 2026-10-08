@@ -66,21 +66,27 @@ static v8::Local<v8::String> _transfer_string(v8::Isolate *p_from_isolate, const
 	v8::Local<v8::String> to_str;
 
 	// QuickJS 没有UTF16相关的公开转换接口，统一使用 UTF8
+	// NOTE `WriteUtf8` 按真 V8 的契约使用：返回值是"已写入字节数**含**结尾 NUL"，
+	//      且它总是补 NUL。这里把它写进 buffer 后，直接用**含 NUL 的返回值**当
+	//      `NewFromUtf8` 的长度 —— 该长度正好等于字符串的字节数 + 1，与 `strlen(buffer)` 等价，
+	//      而各腿的 shim 已统一到这一语义（见 impl/*/jsb_*_primitive.cpp 的 WriteUtf8）。
 	const size_t max_utf8_length = p_from_str->Length() * 3 + 1; // QuickJS 又没有UTF8长度的获取结构，真尼玛拧巴
 	if (max_utf8_length <= 256) {
 		char buffer[257];
-		int len = p_from_str->WriteUtf8(p_from_isolate, buffer, 257);
+		const int len = p_from_str->WriteUtf8(p_from_isolate, buffer, 257);
+		jsb_check(len >= 1);
 
 		JSB_ISOLATE_SCOPE(p_to_isolate);
-		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len).ToLocalChecked();
+		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len - 1).ToLocalChecked();
 	} else {
 		const int buffer_len = max_utf8_length + 1;
 		char *buffer = memnew_arr(char, buffer_len);
 		memset(buffer, 0, buffer_len);
-		int len = p_from_str->WriteUtf8(p_from_isolate, buffer, buffer_len);
+		const int len = p_from_str->WriteUtf8(p_from_isolate, buffer, buffer_len);
+		jsb_check(len >= 1);
 
 		JSB_ISOLATE_SCOPE(p_from_isolate);
-		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len).ToLocalChecked();
+		to_str = v8::String::NewFromUtf8(p_to_isolate, buffer, v8::NewStringType::kNormal, len - 1).ToLocalChecked();
 
 		memdelete_arr(buffer);
 	}

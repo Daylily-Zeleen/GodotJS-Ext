@@ -238,12 +238,25 @@ int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_re
 		if (nchars_ref) {
 			*nchars_ref = (int)len;
 		}
-		const int to_write = (length < 0 || length > (int)len) ? (int)len : length;
-		if (to_write > 0) {
-			JSStringGetUTF8CString(str, buffer, to_write + 1);
+		// NOTE 与真 V8 的 `String::WriteUtf8` 对齐：至多写 `length` 字节、总是补结尾 NUL、
+		//      返回"已写入字节数**含** NUL"。`JSStringGetUTF8CString` 写的是"文本 + NUL"，
+		//      所以 buffer 至少要留 `text_len + 1` 字节；`max_total` 保证不越界。
+		const int max_total = length < 0 ? (int)len + 1 : length;
+		if (max_total <= 0) {
+			JSStringRelease(str);
+			return 0;
+		}
+		const int text_len = (int)len < max_total - 1 ? (int)len : max_total - 1;
+		if (text_len > 0) {
+			JSStringGetUTF8CString(str, buffer, text_len + 1);
+		} else {
+			buffer[0] = '\0';
 		}
 		JSStringRelease(str);
-		return to_write;
+		if (nchars_ref) {
+			*nchars_ref = text_len;
+		}
+		return text_len + 1;
 	}
 	return 0;
 }

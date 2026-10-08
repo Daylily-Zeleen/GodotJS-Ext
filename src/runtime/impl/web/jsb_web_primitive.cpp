@@ -160,19 +160,27 @@ int String::WriteUtf8(Isolate *isolate, char *buffer, int length, int *nchars_re
 	}
 
 	const int available = (int)len;
-	const int to_write = (length < 0 || length > available) ? available : length;
-	if (to_write > 0) {
-		memcpy(buffer, chars, to_write);
+	// NOTE 与真 V8 的 `String::WriteUtf8` 对齐：至多写 `length` 字节、总是补结尾 NUL、
+	//      返回"已写入字节数**含** NUL"（见 quickjs shim 的同一说明）。
+	const int max_total = length < 0 ? available + 1 : length;
+	if (max_total <= 0) {
+		jsbi_free(chars);
+		return 0;
 	}
+	const int text_len = available < max_total - 1 ? available : max_total - 1;
+	if (text_len > 0) {
+		memcpy(buffer, chars, text_len);
+	}
+	buffer[text_len] = '\0';
 
 	jsbi_free(chars);
 
 	if (nchars_ref) {
 		// QuickJS returns byte length; for pure ASCII they're the same.
 		// For non-ASCII we'd need to count codepoints, but this is good enough for our use cases.
-		*nchars_ref = to_write;
+		*nchars_ref = text_len;
 	}
-	return to_write;
+	return text_len + 1;
 }
 
 Local<String> String::NewFromUtf8Literal(Isolate *isolate, const char *literal, NewStringType type, int length) {
