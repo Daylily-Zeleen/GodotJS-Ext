@@ -29,65 +29,11 @@
 // SEVERITY_* macro pollution, see jsb_node_pch.h).
 #include <uv.h>
 
-#include "jsb_environment.h"
 #include "jsb_node_bridge.h"
 #include "jsb_node_console_hook.h"
 #include "jsb_node_global_init.h"
-
-#include "bridge/jsb_error_record.h"
-
+#include "jsb_node_helper.h"
 namespace jsb::impl {
-namespace {
-
-/**
- * node 未捕获异常钩子的回调（C++ 实现，不往 globalThis 暴露任何东西）。
- *
- * node 环境下 JSB 自己的 `timer_manager_` 不被驱动（`Environment::update` 走 node 事件循环），
- * node 自己的 `setTimeout`/`setInterval`/`setImmediate`/IO 回调里的未捕获异常默认是"打印 + 退出"。
- * worker / transferable shadow realm 的这类异常要和其它腿一致，送到宿主 `onerror`。
- *
- * **这里只暂存，不跑 JS**：本回调位于 node 自身的异步上下文作用域内，直接 capture/forward
- * 会打乱 node 的异步上下文栈，随后 `AsyncHooks::pop_async_context` 抛
- * `async hook stack has become corrupted`（node 24 `src/env.cc:165` / `:1908`）并结束进程。
- * 采集与转发放在下一帧的 `Environment::update()` -> `Environment::flush_uncaught_exception()`。
- *
- * 钩子只装在"有转发目标"的环境上（worker / transferable shadow realm）；主环境不装，
- * 完整保留 node 自己的未捕获异常处理（打印 + 退出）。
- */
-void _node_uncaught_exception(const v8::FunctionCallbackInfo<v8::Value> &info) {
-	v8::Isolate *isolate = info.GetIsolate();
-	if (info.Length() <= 0) {
-		return;
-	}
-	Environment *env = Environment::wrap(isolate);
-	if (env == nullptr || !env->has_error_forward_target()) {
-		return;
-	}
-	env->stash_uncaught_exception(isolate, info[0]);
-}
-
-/** 用 C++ 回调调 node 官方入口 `process.setUncaughtExceptionCaptureCallback`（每个 node::Environment 一份） */
-void _node_uncaught_install(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context) {
-	v8::Local<v8::Value> process_val;
-	if (!p_context->Global()->Get(p_context, Helper::new_string_ascii(p_isolate, "process")).ToLocal(&process_val)
-			|| !process_val->IsObject()) {
-		return;
-	}
-	v8::Local<v8::Value> install_val;
-	if (!process_val.As<v8::Object>()->Get(p_context, Helper::new_string_ascii(p_isolate, "setUncaughtExceptionCaptureCallback")).ToLocal(&install_val)
-			|| !install_val->IsFunction()) {
-		JSB_LOG(Warning, "node: process.setUncaughtExceptionCaptureCallback is unavailable, uncaught exceptions keep the node default handling.");
-		return;
-	}
-	v8::Local<v8::Value> callback;
-	if (!v8::Function::New(p_context, &_node_uncaught_exception).ToLocal(&callback)) {
-		return;
-	}
-	v8::Local<v8::Value> argv[] = { callback };
-	install_val.As<v8::Function>()->Call(p_context, process_val, 1, argv);
-}
-
-} //namespace
 NodeRuntime::NodeRuntime() {
 	allocator_ = node::ArrayBufferAllocator::Create();
 	jsb_check(allocator_);
@@ -175,13 +121,10 @@ NodeRuntime::NodeRuntime() {
 		jsb::impl::console_hook_ensure(isolate_, get_node_context());
 	}
 
-	// 装 node 未捕获异常钩子：node 自己分发的异步回调里的未捕获异常，按环境决定去路
-	//（worker / transferable shadow realm -> 宿主 onerror；主环境 -> node 默认行为）。
-	// 每个 Environment 有各自的 node::Environment，所以在构造函数里按环境安装即可。
-	{
-		// 钩子**不在这里装**：只对"有错误转发目标"的环境安装，见
-		// `Environment::_ensure_node_uncaught_hook()`（主环境保持 node 默认行为）。
-	}
+	// NOTE 未捕获异常钩子**不在这里装**：node 自己分发的异步回调里的未捕获异常要送到宿主
+	//      `onerror`，但只有 worker / transferable shadow realm 才有接收者，因此由
+	//      `Environment::set_master_env_info()` 在登记宿主信息时安装
+	//      （主环境保持 node 默认行为）。
 #endif
 }
 
@@ -360,10 +303,13 @@ v8::Global<v8::Value> NodeRuntime::NodeRequire(const v8::Local<v8::String> &p_mo
 	return ret;
 }
 
-void NodeRuntime::install_uncaught_exception_callback() {
+void NodeRuntime::install_uncaught_exception_callback(v8::FunctionCallback p_callback) {
+	JSB_ISOLATE_SCOPE(isolate_);
+	v8::HandleScope handle_scope(isolate_);
+
 	v8::Local<v8::Context> context = get_node_context();
 	v8::Local<v8::Value> process_val;
-	if (!context ->Global()->Get(context, Helper::new_string_ascii(isolate_, "process")).ToLocal(&process_val)
+	if (!context->Global()->Get(context, Helper::new_string_ascii(isolate_, "process")).ToLocal(&process_val)
 			|| !process_val->IsObject()) {
 		return;
 	}
@@ -374,7 +320,7 @@ void NodeRuntime::install_uncaught_exception_callback() {
 		return;
 	}
 	v8::Local<v8::Value> callback;
-	if (!v8::Function::New(context, &_node_uncaught_exception).ToLocal(&callback)) {
+	if (!v8::Function::New(context, p_callback).ToLocal(&callback)) {
 		return;
 	}
 	v8::Local<v8::Value> argv[] = { callback };

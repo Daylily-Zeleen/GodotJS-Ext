@@ -401,10 +401,9 @@ public:
 			params.initial_script_slots = JSB_WORKER_INITIAL_SCRIPT_SLOTS;
 			params.thread_id = ThreadEx::get_caller_id();
 			params.type = Environment::Type::Worker;
-			params.master_token = impl->get_token();
-			params.master_handle = impl->get_handle();
 
 			const std::shared_ptr<Environment> env = std::make_shared<Environment>(params);
+			env->set_master_env_info(impl->get_token(), impl->get_handle());
 			impl->env_ = env;
 			env->init();
 

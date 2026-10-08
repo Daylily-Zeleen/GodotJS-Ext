@@ -7,3 +7,4 @@
 2026-10-08 §18 修 _transfer_string 尾随 NUL（V8 WriteUtf8 含 NUL vs shim 不含）-> hostRead 断言；teeth check 通过；node/v8/qjs doctest+smoke 全绿。
 2026-10-08 §18 更正：改为统一 quickjs/jsc/web 的 String::WriteUtf8 到 V8 语义（含 NUL 的返回值），调用点按 V8 契约使用；撤销调用点补丁。qjs teeth check：旧语义下该用例直接崩溃。
 2026-10-09 AsyncHooks 真根因：capture callback 位于 node 自身 async 上下文作用域内，回调里跑 JS 会打乱栈 -> pop_async_context 断言。最终修法=回调只暂存 + 下一帧 update 里 capture/forward，且只对有转发目标的环境装钩子。40/40 全绿（修前 2/40）。已折叠进 9c633b2 转发提交。
+2026-10-09 步骤19：复核用户重构（统一 set_master_env_info 路径 + NodeRuntime 回调参数化 + constexpr 转发资格），清掉两处残留（空块/旧成员名注释），提交 4a560e5；node 构建 rc=0、doctest 绿、smoke 30/30；7 个提交逐个 node 构建全 OK。

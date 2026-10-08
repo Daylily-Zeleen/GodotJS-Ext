@@ -308,19 +308,11 @@ Environment::Environment(const CreateParams &p_params)
 	else if (p_params.type == Type::Shadow) flags_ |= EF_Shadow;
 	else if (p_params.type == Type::ShadowRealm) flags_ |= EF_ShadowRealm;
 
-	master_token_ = p_params.master_token;
-	master_handle_ = p_params.master_handle;
-
 #if JSB_WITH_NODE
 	node_runtime_ = memnew(jsb::impl::NodeRuntime);
 	// in node mode the isolate is created by the node runtime
 	// (node::NewIsolate with the per-isolate uv loop)
 	v8::Isolate *__isolate__ = get_isolate();
-	// worker 这类"构造时就带转发目标"的环境在这里装钩子；shadow realm 的 handle 要等宿主绑定
-	//（`set_error_forward_target` 会补装）。
-	if (p_params.master_token != nullptr && p_params.master_handle) {
-		_ensure_node_uncaught_hook();
-	}
 #else
 	__isolate__ = v8::Isolate::New(create_params);
 #endif
@@ -395,7 +387,6 @@ Environment::Environment(const CreateParams &p_params)
 		}
 	}
 }
-
 
 // no JS code should be executed in the destructor.
 Environment::~Environment() {
@@ -796,7 +787,7 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				const v8::Local<v8::Value> error = jsb::error_record::make_error(isolate, p_context, "failed to load the worker script (see the worker log for the path)");
 				jsb_check(!error.IsEmpty());
 				v8::Local<v8::Value> argv[] = { error };
-				callback.As<v8::Function>()->Call(p_context, v8::Undefined(isolate), 1, argv);
+				callback.As<v8::Function>()->Call(p_context, v8::Undefined(isolate), 1, argv).ToLocalChecked();
 			} else {
 				invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message, true);
 			}
@@ -808,11 +799,10 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 }
 #endif
 
-
 void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &p_record) {
 	// 只有 worker / shadow realm 环境登记了转发目标（宿主侧有 `onerror` 接收者）；
 	// 主环境没有全局错误钩子，维持"只进日志"。
-	if (master_token_ == nullptr || !master_handle_) {
+	if (!has_master_env_info()) {
 		return;
 	}
 #if !JSB_WITH_WEB
@@ -828,32 +818,29 @@ void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &
 	if (data.first == nullptr) {
 		return;
 	}
-	master->post_message(Message(Message::TYPE_ERROR, master_handle_, Buffer::steal(data.first, data.second)));
+	master->post_message(Message(Message::TYPE_ERROR, handle_in_master_env_, Buffer::steal(data.first, data.second)));
 #endif
 }
 
 #if JSB_WITH_NODE
-void Environment::_ensure_node_uncaught_hook() {
-	if (node_uncaught_hook_installed_) {
+void Environment::stash_uncaught_exception(const v8::FunctionCallbackInfo<v8::Value> &info) {
+	if (info.Length() <= 0) {
 		return;
 	}
-	node_uncaught_hook_installed_ = true;
-	jsb_check(node_runtime_ != nullptr);
-	v8::Isolate *isolate = get_isolate();
-	JSB_ISOLATE_SCOPE(isolate);
-	v8::HandleScope handle_scope(isolate);
-	node_runtime_->install_uncaught_exception_callback();
-}
-
-void Environment::stash_uncaught_exception(v8::Isolate *p_isolate, const v8::Local<v8::Value> &p_exception) {
-	const std::lock_guard<std::recursive_mutex> lock(uncaught_mutex_);
-	if (p_exception.IsEmpty()) {
+	v8::Isolate *isolate = info.GetIsolate();
+	Environment *env = wrap(isolate);
+	if (env == nullptr || !env->has_master_env_info()) {
 		return;
 	}
-	StashedException &slot = uncaught_[uncaught_write_];
-	slot.value.Reset(p_isolate, p_exception); /** NOTE 强引用：回调返回后异常值只剩这一份 */
+	v8::Local<v8::Value> exception = info[0];
+	if (exception.IsEmpty()) {
+		return;
+	}
+	const std::lock_guard<std::recursive_mutex> lock(env->uncaught_mutex_);
+	StashedException &slot = env->uncaught_[env->uncaught_write_];
+	slot.value.Reset(isolate, exception); /** NOTE 强引用：回调返回后异常值只剩这一份 */
 	slot.valid = true;
-	uncaught_write_ = (uncaught_write_ + 1) & 1; // 交给下一帧处理，指针留给 update 读
+	env->uncaught_write_ = (env->uncaught_write_ + 1) & 1; // 交给下一帧处理，指针留给 update 读
 }
 
 void Environment::flush_uncaught_exception() {
@@ -875,7 +862,7 @@ void Environment::flush_uncaught_exception() {
 				return;
 			}
 		}
-		if (!has_error_forward_target()) {
+		if (!has_master_env_info()) {
 			continue; // 没有接收者：与主环境"只进日志"的语义一致，直接丢弃
 		}
 		// 这里已经离开 node 的 capture callback 作用域，可以安全地跑 JS。
@@ -893,6 +880,17 @@ void Environment::flush_uncaught_exception() {
 	}
 }
 #endif
+
+void Environment::set_master_env_info(void *p_master_token, NativeObjectID p_handle_in_master_env) {
+	jsb_checkf(master_token_ == nullptr && !handle_in_master_env_, "Can only set master info once.");
+	master_token_ = p_master_token;
+	handle_in_master_env_ = p_handle_in_master_env;
+#if JSB_WITH_NODE
+	if (node_runtime_) {
+		node_runtime_->install_uncaught_exception_callback(&stash_uncaught_exception);
+	}
+#endif // JSB_WITH_NODE
+}
 
 std::shared_ptr<Environment> Environment::_access(void *p_runtime) {
 	return EnvironmentStore::get_shared().access(p_runtime);

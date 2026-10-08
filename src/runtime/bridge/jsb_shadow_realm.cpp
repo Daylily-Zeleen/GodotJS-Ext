@@ -415,8 +415,7 @@ class CrossWrapper : public CustomNativeBase {
 
 protected:
 	CrossWrapper(v8::Isolate *p_isolate, const v8::Local<v8::Object> &p_value, v8::Isolate *p_host_isolate)
-			: value_(p_isolate, p_value), isolate_(p_isolate), host_isolate_(p_host_isolate),
-			  object_hash_(p_value->GetIdentityHash()) {
+			: value_(p_isolate, p_value), isolate_(p_isolate), host_isolate_(p_host_isolate), object_hash_(p_value->GetIdentityHash()) {
 		value_.SetWeak();
 	}
 
@@ -1030,8 +1029,8 @@ struct ShadowRealmCreateParams {
 };
 #	pragma endregion CrossWrapper
 
+class TransferableShadowRealmImpl;
 #	pragma region ShadownRealm
-
 class ShadowRealmImpl {
 	ShadowRealmID id_{};
 	internal::Index32 id_in_master_{};
@@ -1054,7 +1053,7 @@ protected:
 	static std::recursive_mutex lock_;
 
 protected:
-	template <typename ShadowRealmType>
+	template <typename ShadowRealmType, bool can_forward_error = std::is_same_v<ShadowRealmType, TransferableShadowRealmImpl>>
 		requires std::is_convertible_v<ShadowRealmType *, ShadowRealmImpl *>
 	static void constructor(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		v8::Isolate *isolate = info.GetIsolate();
@@ -1091,12 +1090,9 @@ protected:
 			const NativeObjectID handle = env->bind_js_owned_pointer(class_id, NativeClassType::Shadow, realm, self);
 			jsb_check(handle);
 			realm->handle_ = handle;
-			if (realm->forwards_errors_to_host()) {
-				// realm 的 handle 只有宿主绑定之后才知道，所以不能走 `CreateParams`：
-				// 在这里补登记转发目标，让 realm 里定时器回调的异常也走 TYPE_ERROR -> 宿主 `onerror`
-				realm->env_->set_error_forward_target(realm->get_token(), handle);
+			if constexpr (can_forward_error) {
+				realm->env_->set_master_env_info(realm->get_token(), realm->get_handle());
 			}
-
 		} else {
 			get_shadow_realm_list().remove_at(id);
 			realm->id_ = ShadowRealmID::none();
@@ -1152,11 +1148,6 @@ public:
 		id_in_master_ = p_master->add_shadow_env(env_);
 		return true;
 	}
-
-	// protected:
-	/** 是否把本 realm 内的异常（目前是定时器回调）转发给宿主的 `onerror`。
-	 *  只有 Transferable 形态有 `onerror`；普通 realm 转发过去只会在宿主侧报 "onerror is not a function"。 */
-	virtual bool forwards_errors_to_host() const { return false; }
 
 	_FORCE_INLINE_ ShadowRealmID get_id() const { return id_; }
 
@@ -1712,9 +1703,6 @@ protected:
 
 public:
 	TransferableShadowRealmImpl(Environment *p_master) : ShadowRealmImpl(p_master) {}
-
-	bool forwards_errors_to_host() const override { return true; }
-
 	~TransferableShadowRealmImpl() {
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "TransferableShadowRealm destroyed: %d", get_id());
 	}

@@ -54,10 +54,11 @@
 #endif // JSB_WITH_DEBUGGER
 
 #include <compat/thread.h>
-#include <mutex>
 #include <cstddef>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
+#include <mutex>
+
 // get v8 string value from string name cache with the given name
 #define jsb_name(env, name) (env)->get_string_value(jsb_string_name(name))
 
@@ -204,9 +205,6 @@ private:
 		v8::Global<v8::Value> value;
 		bool valid = false;
 	};
-	/** 只对"有转发目标"的环境安装 node 未捕获异常钩子（见 `set_error_forward_target`）。 */
-	void _ensure_node_uncaught_hook();
-	bool node_uncaught_hook_installed_ = false;
 
 	std::recursive_mutex uncaught_mutex_;
 	StashedException uncaught_[2]; // 双缓冲：回调和 update 分别持有不同的槽，避免互相踩
@@ -268,10 +266,10 @@ private:
 	// EnvironmentFlags
 	uint32_t flags_ = EF_None;
 
-	/** 只有 worker / shadow realm 环境才会登记：指向 master 环境，以及本环境在 master 中的对象 handle
-	 *  （错误转发用；外部只能通过 `has_error_forward_target()` / `set_error_forward_target()` 访问）。 */
+	// 宿主环境的 token
 	void *master_token_ = nullptr;
-	NativeObjectID master_handle_ = {};
+	// 在宿主环境中的 Object ID
+	NativeObjectID handle_in_master_env_ = {};
 
 #if JSB_WITH_DEBUGGER
 	JavaScriptDebugger debugger_;
@@ -330,12 +328,6 @@ public:
 
 		ThreadEx::ID thread_id = 0;
 		Type type = Type::Default;
-
-		// 仅 worker / shadow realm 环境使用：错误要转发给哪个 master、以及本环境在 master 中的对象 handle
-		// （两边各自的定时器回调抛错时用；realm 的 handle 要等宿主绑定完才知道，见
-		//  `Environment::set_error_forward_target`）
-		void *master_token = nullptr;
-		NativeObjectID master_handle = {};
 	};
 
 	class ExecutionDeferredScope {
@@ -544,7 +536,7 @@ public:
 
 	/**
 	 * 把本环境（worker 或 shadow realm）里的错误转发给它的 master：master 的 `onerror` 会收到重建的 Error。
-	 * 宿主侧由 `Message::TYPE_ERROR` 派发，`master_handle_` 决定回调落在哪个对象上。
+	 * 宿主侧由 `Message::TYPE_ERROR` 派发，`handle_in_master_env_` 决定回调落在哪个对象上。
 	 */
 	void forward_error_to_master(const jsb::error_record::ErrorRecord &p_record);
 
@@ -558,24 +550,14 @@ public:
 	 * `AsyncHooks::pop_async_context` 会抛 `async hook stack has become corrupted` 并结束进程
 	 * （node 24 `src/env.cc:165` / `:1908`）。
 	 */
-	void stash_uncaught_exception(v8::Isolate *p_isolate, const v8::Local<v8::Value> &p_exception);
+	static void stash_uncaught_exception(const v8::FunctionCallbackInfo<v8::Value> &info);
 
 	/** 处理 `stash_uncaught_exception` 暂存的异常（在 `update()` 的 node 分支里调用）。 */
 	void flush_uncaught_exception();
 #endif
 
-	/** 是否登记了错误转发目标（worker / transferable shadow realm 环境）。 */
-	_FORCE_INLINE_ bool has_error_forward_target() const { return master_token_ != nullptr && master_handle_; }
-
-	/** 运行期补登记转发目标（shadow realm 的 handle 由宿主在环境创建之后才绑定）。 */
-	void set_error_forward_target(void *p_master_token, NativeObjectID p_master_handle) {
-		master_token_ = p_master_token;
-		master_handle_ = p_master_handle;
-#if JSB_WITH_NODE
-		// node 腿的未捕获异常钩子只装在有转发目标的环境上（主环境保留 node 默认的打印+退出）。
-		_ensure_node_uncaught_hook();
-#endif
-	}
+	_FORCE_INLINE_ bool has_master_env_info() const { return master_token_ != nullptr && handle_in_master_env_; }
+	void set_master_env_info(void *p_master_token, NativeObjectID p_handle_in_master_env);
 	_FORCE_INLINE_ bool is_shadow_realm() const { return (flags_ & EF_ShadowRealm) != 0; }
 
 	// Which kind of realm this environment is. Derived from the same flags the

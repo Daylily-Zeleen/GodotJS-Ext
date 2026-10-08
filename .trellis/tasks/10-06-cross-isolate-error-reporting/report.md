@@ -896,3 +896,33 @@ cache-reuse 用例直接 **CRASH**（`test case CRASHED: Unhandled SEH exception
 `v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`。
 要真正在 guest 存活期内主动回收包装器（而不是等到 purge 兜底），得先解决 terminate 路径上
 guest isolate 仍被线程 entered 的问题。
+
+## 步骤 19：用户重构——宿主信息路径统一（2026-10-09）
+
+用户重新调整了实现，我复核后提交为 `4a560e5`（独立提交，只动 6 个文件）。
+
+### 统一前后的差异
+| 方面 | 之前 | 之后 |
+|---|---|---|
+| 宿主信息写入 | worker 走 `CreateParams.master_token/master_handle`；realm 走 `set_error_forward_target()`（宿主绑定 handle 之后补登记） | 两边都走 **`Environment::set_master_env_info(master_token, handle_in_master_env)`**，并在其中 `jsb_checkf` "只能设置一次" |
+| realm 是否转发 | 虚函数 `forwards_errors_to_host()`（只有 Transferable 覆写为 true） | `if constexpr (can_forward_error = is_same_v<ShadowRealmType, TransferableShadowRealmImpl>)` —— 编译期即可判定 |
+| 钩子安装 | `Environment::_ensure_node_uncaught_hook()` + 自记 `node_uncaught_hook_installed_` | 并入 `set_master_env_info()`：登记宿主信息时顺带装钩子 |
+| 钩子回调 | `NodeRuntime` 硬编码指向 `_jsb_uncaught_exception`（C++ static 里再取 `Environment::wrap`） | `NodeRuntime::install_uncaught_exception_callback(v8::FunctionCallback)` 收回调；`Environment::stash_uncaught_exception` 改为 **static**，直接作为回调传入 |
+| 命名 | `master_handle_` / `master_token_` | `handle_in_master_env_` / `master_token_` |
+
+**效果**：`NodeRuntime` 回归"纯 v8/node 助手"，不再知道错误上报的存在；worker 与 realm 的宿主信息只有一条路径；realm 的转发资格由类型推导，不再需要虚函数。
+
+### 复核中顺手清掉的两处重构残留（我改的，随同一提交入档）
+1. `jsb_node_runtime.cpp` ctor 里留着一个**空的花括号块** + 指向已删除符号 `Environment::_ensure_node_uncaught_hook()` 的注释 → 改成说明"钩子在 `set_master_env_info()` 里装"。
+2. `jsb_environment.h` 的 `forward_error_to_master` 文档仍写旧成员名 `master_handle_` → 改为 `handle_in_master_env_`。
+
+### 复核中被确认**不是**问题的两点（避免误判）
+- `call().ToLocalChecked()`：仓库约定允许（仅 `impl::` 命名空间禁用 `MaybeLocal::FromMaybe`），如 `jsb_shadow_realm.cpp:587` 先例。
+- `#if JSB_WITH_NODE` 内的成员在非 node 腿不声明：`set_master_env_info` 里那行也被 `#if JSB_WITH_NODE` 包着，一致。
+
+### 本轮门禁（按用户要求只跑 node）
+```
+node build rc=0 → doctest SUCCESS → 项目 smoke 连续 30 次 全 COMPLETED（无 async-stack、无卡住）
+逐提交（7 个）单独 node 构建：全部 build=0
+error-reporting 用例：6 个 start 全部跑到（worker + shadow 双后端）
+```
