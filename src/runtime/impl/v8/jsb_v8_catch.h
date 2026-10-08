@@ -49,6 +49,9 @@ public:
 
 	bool has_caught() const { return try_catch_.HasCaught(); }
 
+	/** 异常值本身（跨隔离区错误记录用）。 */
+	v8::Local<v8::Value> get_exception_value() const { return try_catch_.Exception(); }
+
 	void get_message(godot::String *r_message, godot::String *r_stacktrace = nullptr) const {
 		const v8::Local<v8::Message> message = try_catch_.Message();
 		if (message.IsEmpty()) {

@@ -30,6 +30,7 @@
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_callable.h"
 #include "jsb_class_info.h"
+#include "jsb_error_record.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
 
@@ -572,6 +573,11 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 		// (see JSB_WITH_BIGINT in jsb.config.h). Mirrors how BINDING_MODE
 		// lets one scene cover every binding leg.
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BIGINT_FOR_64BIT"), v8::Boolean::New(isolate, JSB_WITH_BIGINT != 0)).Check();
+		// 跨隔离区错误里"未能携带的字段路径"清单所用的 symbol 键（`Symbol.for("jsb.untransferred")`）。
+		// 用注册表 symbol：目标 realm 能本地算出同一个、用户也能用同一个键读回，且不与用户自定义字段冲突。
+		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "untransferred"),
+				v8::Symbol::For(isolate, impl::Helper::new_string_ascii(isolate, jsb::error_record::kSymbolKey)))
+				.Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else

@@ -31,6 +31,9 @@
 
 namespace v8 {
 class Isolate;
+class Value;
+template <typename T>
+class Local;
 }
 
 namespace jsb::impl {
@@ -45,5 +48,9 @@ public:
 
 	bool has_caught() const;
 	void get_message(godot::String *r_message, godot::String *r_stacktrace = nullptr) const;
+
+	/** 异常值本身（跨隔离区错误记录用）。必须在 `has_caught()` 之后、`get_message()` 之前取：
+	 *  `get_message()` 会消费/清空该槽。 */
+	v8::Local<v8::Value> get_exception_value() const;
 };
 } //namespace jsb::impl

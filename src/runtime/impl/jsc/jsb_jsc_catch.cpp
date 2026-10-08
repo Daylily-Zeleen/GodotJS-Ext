@@ -34,6 +34,10 @@ bool TryCatch::has_caught() const {
 	return isolate_->_HasError();
 }
 
+v8::Local<v8::Value> TryCatch::get_exception_value() const {
+	return v8::Local<v8::Value>(v8::Data(isolate_, jsb::impl::StackPos::Exception));
+}
+
 void TryCatch::get_message(String *r_message, String *r_stacktrace) const {
 	const JSContextRef ctx = isolate_->ctx();
 	const JSValueRef ex = isolate_->_GetError();

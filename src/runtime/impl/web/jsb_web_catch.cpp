@@ -34,6 +34,10 @@ bool TryCatch::has_caught() const {
 	return jsbi_HasError(isolate_->rt());
 }
 
+v8::Local<v8::Value> TryCatch::get_exception_value() const {
+	return v8::Local<v8::Value>(v8::Data(isolate_, jsb::impl::StackBase::Error));
+}
+
 void TryCatch::get_message(String *r_message, String *r_stacktrace) const {
 	const JSRuntime ctx = isolate_->rt();
 	jsb_check(!jsbi_IsNullOrUndefined(ctx, StackBase::Error));

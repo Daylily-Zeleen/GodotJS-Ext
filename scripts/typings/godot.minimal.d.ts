@@ -54,6 +54,30 @@ declare module "godot-jsb" {
      */
     const BIGINT_FOR_64BIT: boolean;
 
+    /**
+     * `Symbol.for("jsb.untransferred")`：跨隔离区错误（worker / ShadowRealm / 定时器）里
+     * **未能携带**的字段路径清单所用 symbol 键。重建出来的 Error 上可用 `e[untransferred]` 读到，
+     * 例如 `["detail","fn"]`；清单被截断时最后一项是 `"..."`。
+     *
+     * 只有 **JS 基础类型**（string / number / boolean / null / undefined）会被搬运；数组、普通对象、
+     * 函数、symbol、BigInt、Godot 类型都不会跟过来，需要你自己在发送侧显式转换后再挂到 Error 上。
+     */
+    const untransferred: unique symbol;
+
+    /**
+     * 跨隔离区错误的回调参数（`JSWorker.onerror` / `TransferableJSShadowRealm.onerror`）：
+     * 对象异常会被**重建为 Error**（`name`/`message`/`stack` 与可携带的自定义字段都在）；
+     * 原始值异常（`throw "boom"` / `throw 42`）按原样送达。
+     */
+    type JsbThrownValue = Error | string | number | boolean | bigint | null | undefined;
+
+    declare global {
+        interface Error {
+            /** 未能跨隔离区携带的字段路径（见 `untransferred`） */
+            [untransferred]?: string[];
+        }
+    }
+
     /** version of GodotJS */
     const version: string;
 

@@ -33,6 +33,7 @@
 #	include "jsb_buffer.h"
 #	include "jsb_class_info.h"
 #	include "jsb_environment.h"
+#	include "jsb_error_record.h"
 #	include "jsb_object_handle.h"
 #	include "jsb_ref.h"
 #	include "jsb_type_convert.h"
@@ -1207,6 +1208,39 @@ public:
 		}
 	}
 
+	/**
+	 * 在 p_context 所属 realm 里抛出 p_value。
+	 *
+	 * NOTE 这里**不用**各腿 shim 的 `Isolate::ThrowException(value)`：jsc/quickjs 的实现会把值"寄存"到
+	 *      `TryCatch` 用的内部槽（`set_stack_steal(StackPos::Exception, ...)`），之后任何 `has_caught()`
+	 *      都会读到脏状态 —— quickjs 直接 `jsb_checkf` 断言 "stack.exception is dirty"，并触发错误打印风暴。
+	 *      按 JS 语义抛出（让该 realm 自己 `throw`）只留下正常的 pending exception，槽位保持干净。
+	 */
+	static void _throw_value_in_realm(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_value) {
+		const v8::Local<v8::String> source = impl::Helper::new_string(p_isolate, "(function (e) { throw e; })");
+		v8::Local<v8::Script> script;
+		if (!v8::Script::Compile(p_context, source).ToLocal(&script)) {
+			return;
+		}
+		v8::Local<v8::Value> func_value;
+		if (!script->Run(p_context).ToLocal(&func_value) || !func_value->IsFunction()) {
+			return;
+		}
+		v8::Local<v8::Value> argv[] = { p_value };
+		func_value.As<v8::Function>()->Call(p_context, v8::Undefined(p_isolate), 1, argv);
+	}
+
+	/**
+	 * 抛出跨隔离区错误的最终形态：能拿到目标 realm 的 Error 对象就抛它，否则退回抛字符串。
+	 */
+	static void _throw_realm_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error) {
+		if (p_error.IsEmpty()) {
+			jsb_throw(p_isolate, p_message);
+			return;
+		}
+		_throw_value_in_realm(p_isolate, p_context, p_error);
+	}
+
 	static void evaluate(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
 		v8::Isolate *host_isolate = info.GetIsolate();
@@ -1225,7 +1259,13 @@ public:
 			return;
 		}
 
+		const v8::Local<v8::Context> host_context = info.GetIsolate()->GetCurrentContext();
 		String wrapped_source;
+		String guest_error;
+		// NOTE 不能用 guest_error 是否为空来判断是否出错：quickjs 的 `get_message()` 对非 Error 的
+		//      抛出值不填 message（原始值异常就是这种），照它判断会把异常整个吞掉、`evaluate()` 静默返回。
+		bool guest_failed = false;
+		std::pair<uint8_t *, size_t> guest_record{ nullptr, 0 };
 		{
 			if (info.Length() <= 0 || !info[0]->IsString()) {
 				jsb_throw(host_isolate, "bad argument: require a string.");
@@ -1247,21 +1287,56 @@ public:
 
 			impl::TryCatch try_catch(guest_isolate);
 
-			v8::Local<v8::String> func_source = impl::Helper::new_string(guest_isolate, wrapped_source);
-			v8::Local<v8::Script> script = v8::Script::Compile(guest_context, func_source).ToLocalChecked();
-			v8::Local<v8::Value> result = script->Run(guest_context).ToLocalChecked();
+			const CharString source_utf8 = wrapped_source.utf8();
+			v8::Local<v8::Value> result;
+			// NOTE 走 `impl::Helper::compile_function`（各腿统一的 eval 实现，异常会留给 TryCatch）：
+			//      quickjs 的 `Script::Run` 会把异常当 "trivial" 丢掉（`MarkExceptionAsTrivial`），
+			//      那样 `has_caught()` 永远是 false、也拿不到 guest 的错误信息。
+			const bool evaluated = impl::Helper::compile_function(guest_context, source_utf8.get_data(), source_utf8.length(), "<shadow-realm>").ToLocal(&result);
+			// NOTE `has_caught()` 是一次性语义（quickjs 会把异常从引擎搬进内部槽，重复调用会断言），
+			//      所以只调一次并把结果存下来复用。
+			const bool caught = try_catch.has_caught();
+			if (evaluated && !caught) {
+				const v8::HandleScope handle_scope(host_isolate);
+				JSB_ISOLATE_SCOPE(host_isolate); /** NOTE: 将在 host_env 中创建对象 */
+				Environment *host_env = Environment::wrap(host_isolate);
+				v8::Local<v8::Value> wrapped_result = wrap_cross_env_value(host_env, guest_isolate, result);
 
-			if (try_catch.has_caught()) {
-				jsb_throw(guest_isolate, BridgeHelper::get_exception(try_catch));
-				return;
+				info.GetReturnValue().Set(wrapped_result);
+			} else {
+				// 异常对象不能跨 isolate 传（跨 isolate 使用 Local/Global 是未定义行为）：
+				// 先在 guest realm 里采集为纯数据记录并序列化，回到调用方 isolate 再重建。
+				if (caught) {
+					// NOTE `get_exception_value()` 必须在 `get_message()` 之前取：后者会消费异常槽
+					const v8::Local<v8::Value> exception = try_catch.get_exception_value();
+					guest_record = jsb::error_record::serialize(guest_isolate, guest_context, jsb::error_record::capture(guest_isolate, guest_context, exception));
+					guest_error = BridgeHelper::get_exception(try_catch);
+					guest_failed = true;
+				} else {
+					guest_error = String("failed to evaluate the source in the shadow realm");
+					guest_failed = true;
+				}
 			}
-
-			const v8::HandleScope handle_scope(host_isolate);
-			JSB_ISOLATE_SCOPE(host_isolate); /** NOTE: 将在 host_env 中创建对象 */
-			Environment *host_env = Environment::wrap(host_isolate);
-			v8::Local<v8::Value> wrapped_result = wrap_cross_env_value(host_env, guest_isolate, result);
-
-			info.GetReturnValue().Set(wrapped_result);
+		}
+		if (guest_failed) {
+			// 在调用方 realm 重建 Error：优先用错误记录（带 name/stack/额外字段），失败退回只带文本
+			if (guest_error.is_empty()) {
+				guest_error = String("uncaught value from the shadow realm");
+			}
+			v8::Local<v8::Value> error;
+			if (guest_record.first != nullptr) {
+				const jsb::error_record::ErrorRecord record = jsb::error_record::deserialize(host_isolate, host_context, guest_record.first, guest_record.second);
+				if (!record.name.is_empty() || !record.message.is_empty() || record.is_primitive) {
+					error = jsb::error_record::rebuild(host_isolate, host_context, record);
+				}
+				impl::Helper::free(guest_record.first); // 与 `ValueSerializer::Release` 的分配器配对
+				guest_record.first = nullptr;
+			}
+			if (error.IsEmpty()) {
+				error = jsb::error_record::make_error(host_isolate, host_context, guest_error);
+			}
+			_throw_realm_error(host_isolate, host_context, guest_error, error);
+			return;
 		}
 	}
 
@@ -1312,8 +1387,12 @@ public:
 		String err_msg;
 		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		if (result.IsEmpty()) {
-			jsb_throw(isolate, err_msg);
-			resolver->Reject(context, impl::Helper::new_string(isolate, err_msg)).Check();
+			// 这是异步 API：失败要 reject，而不是在同步返回路径上抛（现在 Promise 已经是返回值了）
+			v8::Local<v8::Value> reason = jsb::error_record::make_error(isolate, context, err_msg);
+			if (reason.IsEmpty()) {
+				reason = impl::Helper::new_string(isolate, err_msg);
+			}
+			resolver->Reject(context, reason).Check();
 		} else {
 			resolver->Resolve(context, result).Check();
 		}
