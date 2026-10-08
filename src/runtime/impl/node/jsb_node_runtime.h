@@ -45,6 +45,10 @@ public:
 	_FORCE_INLINE_ v8::Isolate *get_isolate() const { return isolate_; }
 	_FORCE_INLINE_ v8::Local<v8::Context> get_node_context() const { return node_context_.Get(isolate_); }
 
+	// 安装 node 未捕获异常钩子（只对 worker / transferable shadow realm 环境调用）：
+	// node 不再按"未捕获异常"处理它们，而是交给 `_node_uncaught_exception` 暂存后转发到宿主 `onerror`。
+	void install_uncaught_exception_callback();
+
 private:
 	// generate the bootstrap script (a small CommonJS-style glue that wires
 	// 'godot' module, res:// aware fs and process.dlopen, and console redirect)

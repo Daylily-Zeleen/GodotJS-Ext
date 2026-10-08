@@ -33,6 +33,7 @@
 #include "jsb_builtins.h"
 #include "jsb_class_register.h"
 #include "jsb_compat.h"
+#include "jsb_error_record.h"
 #include "jsb_godot_module_loader.h"
 #include "jsb_object_bindings.h"
 #include "jsb_ref.h"
@@ -307,11 +308,19 @@ Environment::Environment(const CreateParams &p_params)
 	else if (p_params.type == Type::Shadow) flags_ |= EF_Shadow;
 	else if (p_params.type == Type::ShadowRealm) flags_ |= EF_ShadowRealm;
 
+	master_token_ = p_params.master_token;
+	master_handle_ = p_params.master_handle;
+
 #if JSB_WITH_NODE
 	node_runtime_ = memnew(jsb::impl::NodeRuntime);
 	// in node mode the isolate is created by the node runtime
 	// (node::NewIsolate with the per-isolate uv loop)
 	v8::Isolate *__isolate__ = get_isolate();
+	// worker 这类"构造时就带转发目标"的环境在这里装钩子；shadow realm 的 handle 要等宿主绑定
+	//（`set_error_forward_target` 会补装）。
+	if (p_params.master_token != nullptr && p_params.master_handle) {
+		_ensure_node_uncaught_hook();
+	}
 #else
 	__isolate__ = v8::Isolate::New(create_params);
 #endif
@@ -386,6 +395,7 @@ Environment::Environment(const CreateParams &p_params)
 		}
 	}
 }
+
 
 // no JS code should be executed in the destructor.
 Environment::~Environment() {
@@ -522,6 +532,10 @@ void Environment::update(uint64_t p_delta_msecs) {
 	// in node mode timers, IO and microtasks are driven by node's uv loop.
 	// pump it once per engine frame (like gode's spin_loop).
 	node_runtime_->PumpEventLoop();
+
+	// node 的未捕获异常在 capture callback 里只做了暂存（见 stash_uncaught_exception）：
+	// 在这里（引擎帧、node 的 async 作用域之外）再做 capture/forward，避免打乱 node 的异步栈。
+	flush_uncaught_exception();
 #else
 #	if JSB_WITH_ESSENTIALS
 	const bool timers_ready = timer_manager_.tick(p_delta_msecs);
@@ -529,8 +543,9 @@ void Environment::update(uint64_t p_delta_msecs) {
 		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 
-		//TODO be able to handle the uncaught exceptions in env (instead of being swallowed in the timer invocation).
-		//     we need to forward it to onerror (if the current env is the master of a worker)
+		// 定时器回调里的未捕获异常：`JavaScriptTimerAction` 已经捕获并打日志，
+		// worker / shadow realm 环境还会把它转发给 master 的 `onerror`（见 `Environment::forward_error_to_master`）。
+		// 主环境没有接收者（没有全局错误钩子），维持"只进日志"。
 		if (timer_manager_.invoke_timers(isolate)) {
 			notify_microtasks_run();
 		}
@@ -681,7 +696,7 @@ void Environment::notify_script_reloaded(const Ref<GodotJSScript> &p_script) {
 }
 
 #if !JSB_WITH_WEB
-void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message) {
+void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message, bool p_rebuild_error) {
 	v8::Isolate *isolate = p_env->get_isolate();
 
 	v8::Local<v8::Value> value;
@@ -717,6 +732,16 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			JSB_LOG(Error, "failed to parse message value");
 			return;
 		}
+		if (p_rebuild_error) {
+			// `TYPE_ERROR` 的 payload 是"错误记录"：在本地 realm 重建成 Error / 还原原始值
+			const jsb::error_record::ErrorRecord record = jsb::error_record::deserialize(isolate, p_context, p_message->get_buffer().ptr(), p_message->get_buffer().size());
+			if (!record.name.is_empty() || !record.message.is_empty() || record.is_primitive) {
+				const v8::Local<v8::Value> error = jsb::error_record::rebuild(isolate, p_context, record);
+				if (!error.IsEmpty()) {
+					value = error;
+				}
+			}
+		}
 	}
 
 	const impl::TryCatch try_catch(isolate);
@@ -748,14 +773,14 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				JSB_LOG(Error, "onmessage is not a function");
 				return;
 			}
-			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message);
+			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message, false);
 			break;
 		case Message::TYPE_READY: {
 			if (!obj->Get(p_context, jsb_name(this, onready)).ToLocal(&callback) || !callback->IsFunction()) {
 				JSB_LOG(Error, "onready is not a function");
 				return;
 			}
-			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), nullptr);
+			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), nullptr, false);
 			break;
 		}
 		case Message::TYPE_ERROR:
@@ -763,11 +788,108 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				JSB_LOG(Error, "onerror is not a function");
 				return;
 			}
-			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message);
+			if (p_message.get_buffer().size() == 0) {
+				// 空 payload：worker 侧做不出错误记录（例如入口脚本加载失败、环境已不可用），
+				// 这里按 worker 的脚本路径补出文案
+				// NOTE 不在这里反查 worker 的脚本路径：消息里带的是对象 handle，与 `WorkerID` 是两套索引；
+				//      路径在 worker 侧日志里（`failed to load the worker script: <path>`）
+				const v8::Local<v8::Value> error = jsb::error_record::make_error(isolate, p_context, "failed to load the worker script (see the worker log for the path)");
+				jsb_check(!error.IsEmpty());
+				v8::Local<v8::Value> argv[] = { error };
+				callback.As<v8::Function>()->Call(p_context, v8::Undefined(isolate), 1, argv);
+			} else {
+				invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message, true);
+			}
 			break;
 		default:
 			JSB_LOG(Error, "unknown message type %d", p_message.get_type());
 			return;
+	}
+}
+#endif
+
+
+void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &p_record) {
+	// 只有 worker / shadow realm 环境登记了转发目标（宿主侧有 `onerror` 接收者）；
+	// 主环境没有全局错误钩子，维持"只进日志"。
+	if (master_token_ == nullptr || !master_handle_) {
+		return;
+	}
+#if !JSB_WITH_WEB
+	const std::shared_ptr<Environment> master = _access(master_token_);
+	if (!master) {
+		return;
+	}
+	v8::Isolate *isolate = get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	const v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
+	const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(isolate, context, p_record);
+	if (data.first == nullptr) {
+		return;
+	}
+	master->post_message(Message(Message::TYPE_ERROR, master_handle_, Buffer::steal(data.first, data.second)));
+#endif
+}
+
+#if JSB_WITH_NODE
+void Environment::_ensure_node_uncaught_hook() {
+	if (node_uncaught_hook_installed_) {
+		return;
+	}
+	node_uncaught_hook_installed_ = true;
+	jsb_check(node_runtime_ != nullptr);
+	v8::Isolate *isolate = get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	node_runtime_->install_uncaught_exception_callback();
+}
+
+void Environment::stash_uncaught_exception(v8::Isolate *p_isolate, const v8::Local<v8::Value> &p_exception) {
+	const std::lock_guard<std::recursive_mutex> lock(uncaught_mutex_);
+	if (p_exception.IsEmpty()) {
+		return;
+	}
+	StashedException &slot = uncaught_[uncaught_write_];
+	slot.value.Reset(p_isolate, p_exception); /** NOTE 强引用：回调返回后异常值只剩这一份 */
+	slot.valid = true;
+	uncaught_write_ = (uncaught_write_ + 1) & 1; // 交给下一帧处理，指针留给 update 读
+}
+
+void Environment::flush_uncaught_exception() {
+	for (;;) {
+		v8::Global<v8::Value> value;
+		v8::Isolate *isolate = get_isolate();
+		{
+			const std::lock_guard<std::recursive_mutex> lock(uncaught_mutex_);
+			bool found = false;
+			for (StashedException &slot : uncaught_) {
+				if (slot.valid) {
+					value = std::move(slot.value);
+					slot.valid = false;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				return;
+			}
+		}
+		if (!has_error_forward_target()) {
+			continue; // 没有接收者：与主环境"只进日志"的语义一致，直接丢弃
+		}
+		// 这里已经离开 node 的 capture callback 作用域，可以安全地跑 JS。
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = get_context();
+		const v8::Context::Scope context_scope(context);
+		const v8::Local<v8::Value> exception = value.Get(isolate);
+		if (exception.IsEmpty()) {
+			continue;
+		}
+		const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, exception);
+		JSB_LOG(Error, "uncaught error %s", record.message);
+		forward_error_to_master(record);
 	}
 }
 #endif

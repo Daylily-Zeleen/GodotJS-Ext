@@ -28,6 +28,7 @@
 #include "jsb_timer_action.h"
 #include "jsb_bridge_helper.h"
 #include "jsb_environment.h"
+#include "jsb_error_record.h"
 
 namespace jsb {
 void JavaScriptTimerAction::operator()(v8::Isolate *isolate) {
@@ -69,7 +70,14 @@ void JavaScriptTimerAction::operator()(v8::Isolate *isolate) {
 	jsb_unused(result);
 #endif
 	if (try_catch.has_caught()) {
+		// NOTE quickjs 的异常槽是栈槽别名：必须在 `get_message()`（会消费它）之前采集为记录
+		const v8::Local<v8::Value> exception = try_catch.get_exception_value();
+		const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, exception);
 		JSB_LOG(Error, "timer error %s", BridgeHelper::get_exception(try_catch));
+		// worker / transferable shadow realm 环境：定时器回调里的异常同样要送到宿主的 `onerror`
+		if (Environment *env = Environment::wrap(isolate)) {
+			env->forward_error_to_master(record);
+		}
 	}
 }
 } //namespace jsb

@@ -37,7 +37,7 @@
 #	include "jsb_object_handle.h"
 #	include "jsb_ref.h"
 #	include "jsb_type_convert.h"
-#	include "jsb_worker.h"
+#	include "jsb_cross_isolate_util.h"
 
 #	define JSB_SHADOW_REALM_LOG(Severity, Format, ...) JSB_LOG_IMPL(ShadowRealm, Severity, Format, ##__VA_ARGS__)
 #	define JSB_SHADOW_REALM_MODULE_NAME "godot.shadowRealm"
@@ -981,6 +981,12 @@ protected:
 			const NativeObjectID handle = env->bind_js_owned_pointer(class_id, NativeClassType::Shadow, realm, self);
 			jsb_check(handle);
 			realm->handle_ = handle;
+			if (realm->forwards_errors_to_host()) {
+				// realm 的 handle 只有宿主绑定之后才知道，所以不能走 `CreateParams`：
+				// 在这里补登记转发目标，让 realm 里定时器回调的异常也走 TYPE_ERROR -> 宿主 `onerror`
+				realm->env_->set_error_forward_target(realm->get_token(), handle);
+			}
+
 		} else {
 			get_shadow_realm_list().remove_at(id);
 			realm->id_ = ShadowRealmID::none();
@@ -1038,6 +1044,10 @@ public:
 	}
 
 	// protected:
+	/** 是否把本 realm 内的异常（目前是定时器回调）转发给宿主的 `onerror`。
+	 *  只有 Transferable 形态有 `onerror`；普通 realm 转发过去只会在宿主侧报 "onerror is not a function"。 */
+	virtual bool forwards_errors_to_host() const { return false; }
+
 	_FORCE_INLINE_ ShadowRealmID get_id() const { return id_; }
 
 	_FORCE_INLINE_ NativeObjectID get_handle() const { return handle_; }
@@ -1591,6 +1601,9 @@ protected:
 
 public:
 	TransferableShadowRealmImpl(Environment *p_master) : ShadowRealmImpl(p_master) {}
+
+	bool forwards_errors_to_host() const override { return true; }
+
 	~TransferableShadowRealmImpl() {
 		JSB_SHADOW_REALM_LOG(VeryVerbose, "TransferableShadowRealm destroyed: %d", get_id());
 	}
@@ -1627,7 +1640,7 @@ private:
 			return { nullptr, 0 };
 		}
 
-		if (!Worker::parse_transfer_list(isolate, context, from_env, info, transfers)) {
+		if (!cross_isolate::parse_transfer_list(isolate, context, from_env, info, transfers)) {
 			return { nullptr, 0 };
 		}
 
@@ -1727,7 +1740,12 @@ private:
 		const v8::MaybeLocal<v8::Value> rval = call->Call(context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
+			// NOTE quickjs 的异常槽是栈槽别名：必须在 `get_message()`（会消费它）之前采集为记录
+			const v8::Local<v8::Value> exception = try_catch.get_exception_value();
+			const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, exception);
 			JSB_SHADOW_REALM_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			// 与 worker 一致：宿主侧的 `onerror` 要收到重建的 Error
+			_post_error_to_host(isolate, context, get_id(), record);
 		}
 	}
 
@@ -1759,6 +1777,29 @@ private:
 		JSB_ISOLATE_SCOPE(isolate);
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
 		ShadowRealmImpl::_terminate(shadow_realm_id);
+	}
+
+	// shadowRealm -> master：把异常作为"错误记录"发给 master（host 侧复用已有的 TYPE_ERROR -> onerror 通路）
+	static void _post_error_to_host(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ShadowRealmID p_id, const jsb::error_record::ErrorRecord &p_record) {
+		NativeObjectID handle;
+		void *token_ptr = nullptr;
+		if (!try_get_shadow_env(p_id, handle, token_ptr)) {
+			return;
+		}
+		const std::shared_ptr<Environment> master = Environment::_access(token_ptr);
+		if (!master) {
+			return;
+		}
+		const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(p_isolate, p_context, p_record);
+		if (data.first == nullptr) {
+			return;
+		}
+		// NOTE 走 `post_message`（异步）而不是 `handle_message`（同步）：同步投递会把宿主的 `onerror`
+		//      插在 realm 的 onmessage 帧里执行，用户在 `onerror` 里调 `terminate()` 就会在帧内销毁
+		//      自己的 isolate（实测 fatal: "Fatal error in v8::Isolate::Dispose()"）。
+#	if !JSB_WITH_WEB
+		master->post_message(Message(Message::TYPE_ERROR, handle, Buffer::steal(data.first, data.second)));
+#	endif
 	}
 
 	// transferableShadowRealm -> master (run in shadowRealm env)

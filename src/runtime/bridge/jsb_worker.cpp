@@ -33,12 +33,15 @@
 #include "jsb.config.h"
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
+#include "jsb_error_record.h"
 #include "jsb_thread_safe_for_nodes_scope.h"
 #include "jsb_type_convert.h"
-#include <godot_cpp/classes/time.hpp>
+
+#include "jsb_cross_isolate_util.h"
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/thread.hpp>
+#include <godot_cpp/classes/time.hpp>
 
 // On macOS (LP64) `uintptr_t` is `unsigned long`, which godot-cpp has no GetTypeInfo specialization for.
 // Use `uint64_t` there (equivalent to `uintptr_t` on the other supported platforms).
@@ -69,45 +72,6 @@ v8::Local<v8::Value> restore_transfer_markers_impl(
 		const v8::Local<v8::Value> &value,
 		const std::vector<TransferData> &transfers);
 #endif
-
-static void insert_transfer_variant(
-		Environment *from_env,
-		internal::ReferentialVariantMap<TransferData> &transfers,
-		const Variant &variant) {
-	if (transfers.getptr(variant)) {
-		return;
-	}
-
-	TransferData transfer_data;
-	from_env->prepare_transfer_out(NativeObjectID::none(), transfers.size(), variant, transfer_data);
-	transfers.insert(variant, transfer_data);
-}
-
-/** NOTE:
-	我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
-	不应该提供一个不完备的功能，应该由用户自己处理转移对象，
-*/
-// static void append_node_descendants_for_transfer(
-// 		Environment *from_env,
-// 		internal::ReferentialVariantMap<TransferData> &transfers,
-// 		const Node *node) {
-// 	if (!node) {
-// 		return;
-// 	}
-
-// 	const int child_count = node->get_child_count();
-// 	for (int i = 0; i < child_count; i++) {
-// 		Node *child = node->get_child(i);
-// 		if (!child) {
-// 			continue;
-// 		}
-
-// 		Variant child_variant = child;
-// 		insert_transfer_variant(from_env, transfers, child_variant);
-// 		append_node_descendants_for_transfer(from_env, transfers, child);
-// 	}
-// }
-
 } //namespace
 
 #if JSB_WITH_WEB
@@ -116,6 +80,41 @@ constexpr int kPostMessageFailed = -1;
 // constexpr int kPostMessageSuccess = 0;
 constexpr int kPostMessageNativeTransfersUnused = 1;
 #endif
+
+#if !JSB_WITH_WEB
+/**
+ * 把 worker 侧的异常/错误采集为记录，作为 `TYPE_ERROR` 消息发给 master。
+ * master 侧（`Environment::_on_worker_message`）会用同一记录重建 Error 再交给 `onerror`，
+ * 与 ShadowRealm 的错误形态一致。
+ *
+ * 记录必须由调用方在**异常槽被消费之前**采集好（quickjs 的 `TryCatch` 是栈槽别名：
+ * `get_message()` 会清空它，之后再碰那个 `Local` 就是野指针）。
+ * NOTE 所有 v8 句柄都必须在本函数的 HandleScope 内创建（在外面建字符串会 fatal：
+ *      "Cannot create a handle without a HandleScope"）。
+ */
+static void _post_error_to_master(Environment *p_worker_env, const std::shared_ptr<Environment> &p_master, NativeObjectID p_handle, const jsb::error_record::ErrorRecord &p_record) {
+	if (!p_master) {
+		return;
+	}
+	v8::Isolate *isolate = p_worker_env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	const v8::HandleScope handle_scope(isolate);
+	// NOTE 先把可能残留的 pending exception 收掉：各腿在"异常未处理"时执行 JS（编译/调用）都是非法的
+	//      （v8 会 CHECK 失败；quickjs 会断言）。加载失败这一路正是带着 pending exception 进来的。
+	{
+		const impl::TryCatch pending(isolate);
+		if (pending.has_caught()) {
+			pending.get_message(nullptr, nullptr); // 丢弃：调用方已把失败原因作为文本传进来了
+		}
+	}
+	const v8::Local<v8::Context> context = p_worker_env->get_context();
+	const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(isolate, context, p_record);
+	if (data.first == nullptr) {
+		return;
+	}
+	p_master->post_message(Message(Message::TYPE_ERROR, p_handle, Buffer::steal(data.first, data.second)));
+}
+#endif // !JSB_WITH_WEB
 
 class WorkerImpl;
 
@@ -156,6 +155,8 @@ public:
 	_FORCE_INLINE_ NativeObjectID get_handle() const { return handle_; }
 
 	_FORCE_INLINE_ void *get_token() const { return token_; }
+
+	_FORCE_INLINE_ const String &get_path() const { return path_; }
 
 	_FORCE_INLINE_ ThreadEx::ID get_thread_id() const { return thread_id_; } // OS::get_singleton()->get_thread_caller_id(); }
 
@@ -400,6 +401,8 @@ public:
 			params.initial_script_slots = JSB_WORKER_INITIAL_SCRIPT_SLOTS;
 			params.thread_id = ThreadEx::get_caller_id();
 			params.type = Environment::Type::Worker;
+			params.master_token = impl->get_token();
+			params.master_handle = impl->get_handle();
 
 			const std::shared_ptr<Environment> env = std::make_shared<Environment>(params);
 			impl->env_ = env;
@@ -446,7 +449,19 @@ public:
 						.Check();
 			}
 
-			if (env->load(impl->path_) == OK) {
+			const Error load_result = env->load(impl->path_);
+			if (load_result != OK) {
+				// 入口脚本加载/执行失败：master 只会一直等 `onready`，所以主动通知。
+				// NOTE 这里**不能**在 worker 环境里跑 JS 去构造错误记录（刚失败的环境会崩），
+				//      所以只发一个空 payload 的 `TYPE_ERROR`，具体文案由 master 侧按 worker 脚本路径补出。
+				JSB_WORKER_LOG(Error, "failed to load the worker script: %s", impl->path_);
+#if !JSB_WITH_WEB
+				if (const std::shared_ptr<Environment> master = Environment::_access(impl->get_token())) {
+					master->post_message(Message(Message::TYPE_ERROR, impl->get_handle()));
+				}
+#endif
+			}
+			if (load_result == OK) {
 				// notify master
 				impl->_on_ready();
 
@@ -568,7 +583,11 @@ private:
 		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
+			// NOTE quickjs 的异常槽是栈槽别名：必须在 `get_message()`（会消费它）之前采集为记录
+			const v8::Local<v8::Value> exception = try_catch.get_exception_value();
+			const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, p_context, exception);
 			JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			_post_error_to_master(worker_env, Environment::_access(token_), handle_, record);
 		}
 	}
 #endif
@@ -645,7 +664,7 @@ private:
 
 		internal::ReferentialVariantMap<TransferData> transfer_map;
 
-		if (!Worker::parse_transfer_list(isolate, context, from_env, info, transfer_map)) {
+		if (!cross_isolate::parse_transfer_list(isolate, context, from_env, info, transfer_map)) {
 			return;
 		}
 
@@ -1066,7 +1085,7 @@ void Worker::post_message(const v8::FunctionCallbackInfo<v8::Value> &info) {
 	}
 
 	internal::ReferentialVariantMap<TransferData> transfer_map;
-	if (!parse_transfer_list(isolate, context, from_env, info, transfer_map)) {
+	if (!cross_isolate::parse_transfer_list(isolate, context, from_env, info, transfer_map)) {
 		return;
 	}
 
@@ -1411,87 +1430,6 @@ v8::Local<v8::Value> web_restore_transfer_markers_impl(
 #endif
 } //namespace
 
-bool Worker::parse_transfer_list(
-		v8::Isolate *isolate,
-		const v8::Local<v8::Context> &context,
-		Environment *from_env,
-		const v8::FunctionCallbackInfo<v8::Value> &info,
-		internal::ReferentialVariantMap<TransferData> &transfers) {
-	std::vector<Variant> explicit_node_transfers;
-
-	if (info.Length() <= 1 || info[1]->IsUndefined()) {
-		return true; // no transfer list, not an error
-	}
-
-	v8::Local<v8::Value> transfer_arg = info[1];
-
-	if (!transfer_arg->IsArray() && !transfer_arg->IsObject()) {
-		jsb_throw(isolate, "transfer list must be an array");
-		return false;
-	}
-
-	if (transfer_arg->IsArray()) {
-		v8::Local<v8::Array> transfer_array = transfer_arg.As<v8::Array>();
-
-		for (uint32_t i = 0, len = transfer_array->Length(); i < len; i++) {
-			v8::HandleScope transfer_item_scope(isolate);
-			v8::Local<v8::Value> item = transfer_array->Get(context, i).ToLocalChecked();
-
-			if (!item->IsObject()) {
-				// JS primitive, no underlying Variant exists to transfer. Since JS primitives are automatically
-				// coerced to variants, it's more consistent if we permit (but ignore) them.
-				continue;
-			}
-
-			Variant variant;
-
-			if (!TypeConvert::js_to_gd_var(isolate, context, item.As<v8::Object>(), variant)) {
-				jsb_throw(isolate, "transfer list must contain Godot object/variant types only");
-				return false;
-			}
-
-			insert_transfer_variant(from_env, transfers, variant);
-			explicit_node_transfers.push_back(variant);
-		}
-	} else {
-		Variant transfer_var;
-
-		if (!TypeConvert::js_to_gd_var(isolate, context, transfer_arg.As<v8::Object>(), Variant::Type::ARRAY, transfer_var)) {
-			jsb_throw(isolate, "transfer list must be an array");
-			return false;
-		}
-
-		if (transfer_var.get_type() != Variant::ARRAY) {
-			jsb_throw(isolate, "transfer list must be an array");
-			return false;
-		}
-
-		Array transfer_arr = transfer_var;
-
-		for (int i = 0, size = transfer_arr.size(); i < size; i++) {
-			Variant &variant = transfer_arr[i];
-			insert_transfer_variant(from_env, transfers, variant);
-			explicit_node_transfers.push_back(variant);
-		}
-	}
-
-	/** NOTE:
-		我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
-		不应该提供一个不完备的功能，应该由用户自己处理转移对象，
-	*/
-	// for (const Variant &explicit_transfer : explicit_node_transfers) {
-	// 	if (explicit_transfer.get_type() == Variant::OBJECT) {
-	// 		Object *object = explicit_transfer;
-
-	// 		if (const Node *node = Object::cast_to<Node>(object)) {
-	// 			append_node_descendants_for_transfer(from_env, transfers, node);
-	// 		}
-	// 	}
-	// }
-
-	return true;
-}
-
 #if JSB_WITH_WEB
 v8::Local<v8::Value> Worker::web_restore_transfer_markers(
 		v8::Isolate *isolate,
@@ -1513,7 +1451,7 @@ std::pair<uint8_t *, size_t> Worker::handle_post_message(const v8::FunctionCallb
 		return { nullptr, 0 };
 	}
 
-	if (!parse_transfer_list(isolate, context, from_env, info, transfers)) {
+	if (!cross_isolate::parse_transfer_list(isolate, context, from_env, info, transfers)) {
 		return { nullptr, 0 };
 	}
 
