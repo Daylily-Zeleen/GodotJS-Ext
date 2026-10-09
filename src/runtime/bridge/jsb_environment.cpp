@@ -799,7 +799,26 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 }
 #endif
 
-void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &p_record) {
+void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
+	// 没有接收者就到此为止：**连 capture 都不做**（点1）。capture 要逐字段读属性，没接收者时纯属浪费。
+	if (!has_master_env_info()) {
+		return;
+	}
+	if (p_exception.IsEmpty()) {
+		return;
+	}
+	v8::Isolate *isolate = get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	// NOTE 在进入本方法的 isolate scope 之后 capture：本方法可能在另一种 isolate 的作用域里被调用
+	//      （例如 realm 的宿主 isolate 里），capture 必须在本环境的 isolate 下做。
+	const v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
+	const v8::Context::Scope context_scope(context);
+	const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, p_exception);
+	forward_error_to_master(record, p_mode);
+}
+
+void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &p_record, ErrorForwardMode p_mode) {
 	// 只有 worker / shadow realm 环境登记了转发目标（宿主侧有 `onerror` 接收者）；
 	// 主环境没有全局错误钩子，维持"只进日志"。
 	if (!has_master_env_info()) {
@@ -814,11 +833,21 @@ void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &
 	JSB_ISOLATE_SCOPE(isolate);
 	const v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = get_context();
+	const v8::Context::Scope context_scope(context);
 	const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(isolate, context, p_record);
 	if (data.first == nullptr) {
 		return;
 	}
-	master->post_message(Message(Message::TYPE_ERROR, handle_in_master_env_, Buffer::steal(data.first, data.second)));
+	Message message(Message::TYPE_ERROR, handle_in_master_env_, Buffer::steal(data.first, data.second));
+	if (p_mode == ErrorForwardMode::Sync) {
+		// NOTE 同步投递会把宿主的 `onerror` 插进来源侧的 JS 帧里执行。来源侧**必须**是那种
+		//      "调用方本来就持有本环境、且帧内的 `terminate()` 已被 `ShadowRealmImpl::ins_refcount_`
+		//      挡住"的场景，否则用户在 `onerror` 里销毁来源环境会在帧内析构自己的 isolate
+		//      （实测 `v8::Isolate::Deinitialize(): Deinitializing the isolate that is entered by a thread`）。
+		master->handle_message(std::move(message));
+	} else {
+		master->post_message(std::move(message));
+	}
 #endif
 }
 
@@ -874,9 +903,9 @@ void Environment::flush_uncaught_exception() {
 		if (exception.IsEmpty()) {
 			continue;
 		}
-		const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, exception);
-		JSB_LOG(Error, "uncaught error %s", record.message);
-		forward_error_to_master(record);
+		JSB_LOG(Error, "uncaught error %s", impl::Helper::to_string(isolate, exception));
+		// 统一入口自己判接收者、capture；node 未捕获异常只暂存、下一帧再转发（异步档）
+		forward_error_to_master(exception, ErrorForwardMode::Async);
 	}
 }
 #endif
@@ -1616,7 +1645,6 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	// no exception should be thrown if module loaded successfully
 	if (try_catch_run.has_caught()) {
 		JSB_LOG(Warning, "something went wrong on loading '%s'\n%s", p_name, BridgeHelper::get_exception(try_catch_run));
-		// TODO: 向宿主环境推送异常
 		return ERR_COMPILATION_FAILED;
 	}
 	return OK;

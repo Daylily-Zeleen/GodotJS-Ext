@@ -534,11 +534,33 @@ public:
 	_FORCE_INLINE_ bool is_shadow() const { return (flags_ & EF_Shadow) != 0; }
 	_FORCE_INLINE_ bool is_worker() const { return (flags_ & EF_Worker) != 0; }
 
+	/** 跨环境错误转发的投递档位（点2：同一套接口的两个档位）。 */
+	enum class ErrorForwardMode : uint8_t {
+		/** 同步：在调用帧内把宿主的 `onerror` 跑完。只给"来源侧本来就是同步入口"的场景
+		 *  （如 shadow realm 的 `onmessage`、同步 `evaluate`），此时 realm 与宿主同线程同栈。
+		 *  NOTE 帧内调用方必须持有 `ShadowRealmImpl::ins_refcount_`（帧内 `terminate()` 不得就地销毁）。 */
+		Sync,
+		/** 异步：把错误排进宿主的 inbox，由宿主下一帧 `update()` 派发。
+		 *  来源是另一线程（worker）或"捕完就没栈了"的回调（定时器）时必须用它。 */
+		Async,
+	};
+
 	/**
 	 * 把本环境（worker 或 shadow realm）里的错误转发给它的 master：master 的 `onerror` 会收到重建的 Error。
-	 * 宿主侧由 `Message::TYPE_ERROR` 派发，`handle_in_master_env_` 决定回调落在哪个对象上。
+	 *
+	 * 统一的转发入口：**传异常值本身**，由本方法自己判有没有接收者、要不要 capture、走哪一档投递。
+	 * 调用方不再各自判接收者 / capture（点1/点2）。
+	 * NOTE 调用方仍需在调用之后用 `BridgeHelper::get_exception(try_catch)` 打日志——
+	 *      quickjs 的异常槽要靠 `get_message()` 才清空，不消费会让下一次 `has_caught()` 断言失败。
+	 * @param p_exception 本环境里的异常值（`TryCatch::get_exception_value()`）。
 	 */
-	void forward_error_to_master(const jsb::error_record::ErrorRecord &p_record);
+	void forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode = ErrorForwardMode::Async);
+
+	/**
+	 * 同上，但直接传**已采集好的记录**：给"异常槽已经不在了"的场景用
+	 * （worker 入口脚本加载失败时异常由 `Environment::load` 采集，`Local` 早已出作用域）。
+	 */
+	void forward_error_to_master(const jsb::error_record::ErrorRecord &p_record, ErrorForwardMode p_mode = ErrorForwardMode::Async);
 
 #if JSB_WITH_NODE
 	/**

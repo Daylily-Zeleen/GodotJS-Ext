@@ -1,0 +1,29 @@
+{
+  "id": "isinuse-exit-fatal",
+  "name": "isinuse-exit-fatal",
+  "title": "Exit-time `Check failed: node->IsInUse()` (undiagnosed)",
+  "description": "On process shutdown (after the doctest summary), V8 GlobalHandles occasionally CHECK-fails with `node->IsInUse()`. Reproduction ~1/5, rc stays 0, pre-existing (baseline logs predate the cross-isolate error work). Likely a script-language / notify-queue shutdown race. Independent of task 10-06.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": "godotjs-ext",
+  "priority": "P3",
+  "creator": "忘忧の-Daylily_Zeleen",
+  "assignee": "忘忧の-Daylily_Zeleen",
+  "createdAt": "2026-10-09",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src/runtime/weaver/jsb_script_instance.cpp",
+    "src/runtime/weaver/jsb_script_language.cpp"
+  ],
+  "notes": "See report.md for reproduction steps and excluded causes.",
+  "meta": {}
+}

@@ -33,7 +33,6 @@
 #include "jsb.config.h"
 #include "jsb_buffer.h"
 #include "jsb_environment.h"
-#include "jsb_error_record.h"
 #include "jsb_thread_safe_for_nodes_scope.h"
 #include "jsb_type_convert.h"
 
@@ -80,41 +79,6 @@ constexpr int kPostMessageFailed = -1;
 // constexpr int kPostMessageSuccess = 0;
 constexpr int kPostMessageNativeTransfersUnused = 1;
 #endif
-
-#if !JSB_WITH_WEB
-/**
- * 把 worker 侧的异常/错误采集为记录，作为 `TYPE_ERROR` 消息发给 master。
- * master 侧（`Environment::_on_worker_message`）会用同一记录重建 Error 再交给 `onerror`，
- * 与 ShadowRealm 的错误形态一致。
- *
- * 记录必须由调用方在**异常槽被消费之前**采集好（quickjs 的 `TryCatch` 是栈槽别名：
- * `get_message()` 会清空它，之后再碰那个 `Local` 就是野指针）。
- * NOTE 所有 v8 句柄都必须在本函数的 HandleScope 内创建（在外面建字符串会 fatal：
- *      "Cannot create a handle without a HandleScope"）。
- */
-static void _post_error_to_master(Environment *p_worker_env, const std::shared_ptr<Environment> &p_master, NativeObjectID p_handle, const jsb::error_record::ErrorRecord &p_record) {
-	if (!p_master) {
-		return;
-	}
-	v8::Isolate *isolate = p_worker_env->get_isolate();
-	JSB_ISOLATE_SCOPE(isolate);
-	const v8::HandleScope handle_scope(isolate);
-	// NOTE 先把可能残留的 pending exception 收掉：各腿在"异常未处理"时执行 JS（编译/调用）都是非法的
-	//      （v8 会 CHECK 失败；quickjs 会断言）。加载失败这一路正是带着 pending exception 进来的。
-	{
-		const impl::TryCatch pending(isolate);
-		if (pending.has_caught()) {
-			pending.get_message(nullptr, nullptr); // 丢弃：调用方已把失败原因作为文本传进来了
-		}
-	}
-	const v8::Local<v8::Context> context = p_worker_env->get_context();
-	const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(isolate, context, p_record);
-	if (data.first == nullptr) {
-		return;
-	}
-	p_master->post_message(Message(Message::TYPE_ERROR, p_handle, Buffer::steal(data.first, data.second)));
-}
-#endif // !JSB_WITH_WEB
 
 class WorkerImpl;
 
@@ -450,15 +414,19 @@ public:
 
 			const Error load_result = env->load(impl->path_);
 			if (load_result != OK) {
-				// 入口脚本加载/执行失败：master 只会一直等 `onready`，所以主动通知。
-				// NOTE 这里**不能**在 worker 环境里跑 JS 去构造错误记录（刚失败的环境会崩），
-				//      所以只发一个空 payload 的 `TYPE_ERROR`，具体文案由 master 侧按 worker 脚本路径补出。
-				JSB_WORKER_LOG(Error, "failed to load the worker script: %s", impl->path_);
 #if !JSB_WITH_WEB
-				if (const std::shared_ptr<Environment> master = Environment::_access(impl->get_token())) {
-					master->post_message(Message(Message::TYPE_ERROR, impl->get_handle()));
+				{
+					// NOTE `load()` 返回时它内部的作用域已析构，这里必须自己开一个作用域再建字符串句柄
+					//      （否则 `Fatal error in v8::HandleScope::CreateHandle(): Cannot create a handle without a HandleScope`）。
+					v8::Isolate *isolate = env->get_isolate();
+					JSB_ISOLATE_SCOPE(isolate);
+					const v8::HandleScope handle_scope(isolate);
+					env->forward_error_to_master(
+							jsb::impl::Helper::new_string(isolate, vformat("failed to load the worker script: %s", impl->path_)),
+							Environment::ErrorForwardMode::Async);
 				}
 #endif
+				JSB_WORKER_LOG(Error, "failed to load the worker script: %s", impl->path_);
 			}
 			if (load_result == OK) {
 				// notify master
@@ -582,11 +550,8 @@ private:
 		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
-			// NOTE quickjs 的异常槽是栈槽别名：必须在 `get_message()`（会消费它）之前采集为记录
-			const v8::Local<v8::Value> exception = try_catch.get_exception_value();
-			const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, p_context, exception);
+			worker_env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Async);
 			JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
-			_post_error_to_master(worker_env, Environment::_access(token_), handle_, record);
 		}
 	}
 #endif

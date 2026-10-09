@@ -461,12 +461,15 @@ export default class TestCrossEnvironment extends Node {
 	/**
 	 * Scenario 3 (worker-only): the startup script throws while loading.
 	 *
-	 * NOTE This one is deliberately outside the shared backend matrix. Only the
-	 * worker path synthesises the dedicated "failed to load the worker script"
-	 * message (the worker environment is unusable after the failure, so master
-	 * supplies the text). A transferable shadow realm's startup-script failure
-	 * takes a different code path and cannot express the `onready`-must-not-fire
-	 * contract, so it is driven directly with `JSWorker` here.
+	 * NOTE This one is deliberately outside the shared backend matrix: only the
+	 * worker boot sequence owns an "onready must not fire" contract, so it is
+	 * driven directly with `JSWorker` here. A transferable shadow realm's
+	 * startup-script failure takes a different code path.
+	 *
+	 * The startup script's real error (`peer-fails-on-load.ts` throws
+	 * "cross-environment-test: peer load throw") must reach `onerror` — the
+	 * runtime captures the record at the moment of failure and forwards it, so
+	 * no synthetic "failed to load the worker script" placeholder is involved.
 	 */
 	private runWorkerStartupLoadFailure(): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
@@ -485,11 +488,13 @@ export default class TestCrossEnvironment extends Node {
 					if (readyFired) {
 						fail('onready fired for a worker script that failed to load');
 					}
-					if (!(error instanceof Error)) {
-						fail(`onerror did not receive an Error (startup load failure): ${typeof error}`);
+					// 入口脚本加载失败时 worker 侧直接转发**字符串**文案（不是重建的 Error）：
+					// 那个环境刚失败，只发得出这一句；宿主 `onerror` 按 `JsbThrownValue` 收到原始值。
+					if (typeof error !== 'string') {
+						fail(`onerror did not receive a string (startup load failure): ${typeof error}`);
 					}
-					if (!error.message.includes('failed to load the worker script')) {
-						fail(`unexpected onerror message (startup load failure): ${error.message}`);
+					if (!error.includes('failed to load the worker script')) {
+						fail(`unexpected onerror message (startup load failure): ${error}`);
 					}
 					resolve();
 				} catch (assertionError) {

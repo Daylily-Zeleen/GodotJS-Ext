@@ -955,3 +955,148 @@ target 上（Proxy 持有 target，两者同生共死）。这样构造函数拿
 
 **验证**：doctest **91/91 SUCCESS**；30 次全场景 smoke + 15 次 cross-environment 单场景
 全绿；注册表两条断言（"duplicate wrapper" / "registry entry belongs to another wrapper"）未触发。
+
+## §21 转发接口重构（本轮）
+
+### 现状（证据）
+| 路径 | 现状 | 问题 |
+|---|---|---|
+| worker `onmessage` 抛错 | `jsb_worker.cpp:95` 的 static `_post_error_to_master` | 与 `forward_error_to_master` 重复 |
+| realm `onmessage` 抛错 | `jsb_shadow_realm.cpp:1841` 的 `_post_error_to_host` | 又一份重复；且同步语义被做成异步 |
+| 定时器抛错 | `jsb_timer_action.cpp:73-80`：先 `capture` 才 `forward_error_to_master` | 顺序反了（点1） |
+| 入口脚本 load 失败 | worker 手发空 payload；realm 什么都不发；`load` 只 `JSB_LOG(Warning)` + `return ERR_COMPILATION_FAILED`（TODO 在 `:1619`） | 各走各的（点5） |
+| `importValueSync` | `jsb_shadow_realm.cpp:1512` 只 `jsb_throw(isolate, err_msg)`（字符串） | 应抛重建的 Error（点4e） |
+
+### 关键事实
+- worker / transferable realm 环境**都已**调 `set_master_env_info`（`jsb_worker.cpp:406`、`jsb_shadow_realm.cpp:1053`），
+  所以那两份 helper 是纯粹的重复。
+- realm 跑在**调用方线程**（`params.thread_id = ThreadEx::get_caller_id()`，`jsb_shadow_realm.cpp:1078`）；
+  realm 的普通 `postMessage`→host 走的是**同步** `handle_message`（`:1890`）。
+- 同步投递有源码级警告（`jsb_shadow_realm.cpp:1855`）：同步 `handle_message` 会把宿主 `onerror`
+  插进 realm 的 `onmessage` 帧里，用户在回调里 `terminate()` 会在帧内销毁自己的 isolate。
+  现有跨环境测试**正是**在 `onerror` 里调 `peer.terminate()`（`test-cross-environment.ts:447`）。
+- `Environment::dispose()` 只是置 `EF_PreDispose` + 拆 context，**析构（free isolate）才 fatal**
+  （`jsb_environment.cpp:461`）。
+- `ExecutionDeferredScope` 只 defer"类 post-bind"，**不阻止 JS 重入**（`jsb_environment.h:333`）。
+
+### 决策
+1. 统一入口放 `Environment` 上：`forward_error_to_master_sync / _async`，共享一个
+   `_forward_error_to_master(record, mode)`（点2）。
+2. `Environment::load` 增 `ErrorRecord *r_error` 出参：**capture 仍由调用方在 `has_caught()` 后做**
+   （不做跨腿定制），`load` 只负责把"失败/成功"和 TryCatch 交给调用方（点5 的可实现内核）。
+3. 点3 用 **`ShadowRealmImpl::ins_refcount_`**：帧内（`_enter_frame`/`_exit_frame`）`terminate()`
+   只标记、不就地销毁；帧退出时若已在帧内 terminate 过就立即销毁。理由：不借助 V8 不支持的
+   "同步抛异常再让用户 terminate"的时序，也不依赖 `ExecutionDeferredScope`。
+
+## §22 转发接口重构（本轮·实做完成）
+
+### 改了什么
+- `Environment`：`forward_error_to_master` 拆成**异常值**与**记录**两个重载（`jsb_environment.{h,cpp}`）。
+  值重载内部才 `has_master_env_info()`（点1：无接收者连 capture 都不做）+ `capture` + `Context::Scope`，
+  再委托记录重载按 `ErrorForwardMode::{Sync,Async}` 投递（Sync=`handle_message`，Async=`post_message`）。
+  > 用户要求：三个调用点不得各自判接收者/ capture —— 现在它们只把 `try_catch.get_exception_value()` 交出来。
+- 三个调用点全部改走统一入口，删掉重复 helper：
+  - 删 `jsb_worker.cpp` 的 static `_post_error_to_master`；定时器、worker、realm 一律一行转发。
+  - 删 `jsb_shadow_realm.cpp` 的 `_post_error_to_host`（realm 的 `onmessage` 改**同步档**）。
+- 日志仍在调用点：quickjs 的异常槽靠 `get_message()` 清空，不消费会让下一次 `has_caught()` 断言。
+- 点3：`ShadowRealmImpl` 加 `ins_refcount_` / `terminated_in_frame_` + `FrameScope`；`_terminate` 帧内只标记，
+  退帧时 `_destroy(id)` 补销毁；`_on_message` 与 `evaluate` 进帧时挂 `FrameScope`。
+- 点5：`Environment::load(name, r_module, r_error)` 增 `ErrorRecord*` 出参（在异常槽还热时 capture）；
+  worker 入口脚本加载失败改为转发**脚本真实 Error**（记录拿不到才退回空 payload）。
+- 点4(e)：`_importValue` 改为回传 `ErrorRecord`；`importValueSync` 抛**重建的 Error**（不再是字符串）；
+  `importValue` 保持 reject，但拒绝原因同形态（重建的 Error）。
+- 更新 `project/tests/cross-environment/test-cross-environment.ts`：入口脚本加载失败断言从
+  "合成文案 failed to load the worker script" 改为脚本真实错误 "peer load throw"（点5 的契约随之变化）。
+
+### 实测
+- node 构建 rc=0；doctest **91/91 passed**。
+- CrossEnvironment 场景 `rc=0`，5 个 error-reporting 场景全 `:done`（onmessage-throw worker/shadow、
+  timer-throw worker/shadow、startup-load-failure），**无 Fatal、无断言失败**。
+
+### 过程中修掉的两个真问题（都是本轮引入后实测暴露的）
+1. **`forward_error_to_master` 缺 `v8::Context::Scope`**：capture/serialize 要 `Object::New`/`Set`/`new_string`，
+   只有 `Isolate::Scope` 时崩在 `record_to_js` 的 `payload->Set`（SIGSEGV）。定时器路径掩盖了它
+   （`flush_uncaught_exception` 已建好 context scope），worker 入口加载失败这条新路径才暴露。
+2. **同步转发 + 帧内 `terminate()` 的销毁 fatal**（用户点3 的症状）已复现：
+   `FATAL ERROR: v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`
+   （栈：`_on_message` → 宿主 `onerror` → `terminate` → `_terminate` → `finish` → `env_->dispose()`）。
+   `FrameScope` 延迟销毁修复后场景不再崩。
+
+### 遗留 / 注意
+- 转译产物 `project/.godot/godotjs_ext/` 是 `tsc`(outDir) 产物，改 `.ts` 后需 `cd project && tsc` 重新生成
+  （headless 跑 editor 插件缺失，不会自动转译）。本轮误删过一次该目录，已用 `tsc` 重建。
+- 规范 `.trellis/spec/godotjs-ext/cpp/cross-isolate-errors.md` 已更新：硬约束 2（同步/异步两档）、
+  12（FrameScope）、13（统一入口判接收者+capture）、14（context scope）、`onerror` 契约表、检查单。
+
+
+## §23 纠正：load 不该把记录交回调用方再转一手
+
+- 问题：`Environment::load` 把异常采集进 `r_error` 交回，worker 再调 `env->forward_error_to_master(record)` —— 
+  同一个 env、绕一圈，毫无意义（用户指出）。
+- 改法：`load` 自己判——`r_error != nullptr` 才采集交回（唯一用例：realm 的 `importValue(Sync)` 要在
+  **调用方 realm** 重建 Error 再抛/拒，属本地投递）；否则由 `load` 自己 `forward_error_to_master(exception)`。
+  worker 侧因此回到 `env->load(path)`，并删掉转发调用与空 payload 兜底。
+- 顺带推翻 spec 旧硬约束 6 的前提（"加载失败后 worker 环境已损坏、只能发空 payload"）：实测不成立，
+  已改为记录真实错误；前提是转发入口自带 `v8::Context::Scope`（硬约束 14）。
+- 实测：node 构建 rc=0、doctest 91/91、CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal。
+
+## §24 回退：去掉 load 的错误出参，importValue 系列回到字符串
+
+- 用户要求：`Environment::load` 的第 3 个出参去掉；`_importValue` 改回原来的**字符串**错误信息出参。
+- 结果：`load(name, r_module)`——失败时**自己** `forward_error_to_master(exception)`（不再回传记录）；
+  `_importValue(..., String &r_error_msg)` 回到 HEAD 形态；`importValue` reject 用 `make_error(err_msg)`、
+  `importValueSync` 用 `jsb_throw(isolate, err_msg)`——两者都回到 HEAD。
+- realm 的 `jsb::error_record::` 只剩 HEAD 原样的两处角色：`evaluate` 的跨 realm 搬运（1435/1451/1453/1459）、
+  `importValue` reject 的 `make_error`（1514）。**未新增依赖**（`jsb_error_record.h` 本就 include，HEAD 也在用）。
+- 实测澄清（推翻我先前的读法）：`jsb_throw` 在这条 node/v8 腿**抛的是 `Error` 对象**
+  （`typeof=object isErr=true ctor=Error`），不是字符串；故已提交的 `importValueSync` 断言
+  （`e instanceof Error` + `begins_with("Error:")`）在回退后仍成立，无需改测试。
+- 实测：node 构建 rc=0；doctest **91/91**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal。
+
+## §25 复查用户对 Environment::load 的改动 —— 发现并修掉 2 个问题（未提交，等确认）
+
+用户改法：`if (has_master_env_info()) forward_error_to_master(exc, is_worker() ? Async : Sync);`
+
+判为**有问题**，实测复现（transferable realm 探针）：
+1. **双报**：非 worker 且登记了宿主的只有 **transferable realm**，而 realm 的 `load` 也会被 `importValue(Sync)` 触发。
+   于是 `importValueSync` 失败**既**同步抛（正确）、**又**把宿主 `onerror` 触发（多余）。
+   实测 `{"onerrorFired":true,"threw":true}`。
+2. **崩溃**：同步转发把 `onerror` 插入 `importValueSync` 帧内，而该帧**没有** `ins_refcount_`（只有 `_on_message`/`evaluate` 有）。
+   用户在 `onerror` 里 `terminate()` 就就地销毁正在跑的 isolate：
+   `FATAL ERROR: v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`
+   （栈：`onerror` → `terminate` → `_terminate` → `_destroy` → `finish` → `env_.reset()`）。
+   实测 rc=134。
+
+**修法**：把守卫从 `has_master_env_info()` 改成 `is_worker()`（并去掉 `Sync` 档，worker 一律 Async）——
+只有 worker 入口脚本加载失败才在这里转发。realm 的 `load` 失败由调用方处理：
+`importValue(Sync)` 同步抛/拒、startup script 在构造函数抛 "Create ShadowRealm failed"。
+
+**实测（修后）**：IVSYNC 探针 `{onerrorFired:false, threw:true}`、IVTERM 探针 `{...,terminated:false,threw:true}` 不崩；
+删探针后 node 构建 rc=0、doctest **91/91**、CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal。
+
+> 按「条件提交授权」：复查发现问题并已修，**停下等确认**，本轮不提交。
+
+## §26 用户去掉 load 转发、worker 直接发字符串 —— 复查 + IsInUse 溯源
+
+### 复查结论
+**问题 A（已修）**：worker 侧 `new_string(vformat(...))` 在 `load()` 返回后建句柄，而 `load()` 的作用域已析构 →
+`Fatal error in v8::HandleScope::CreateHandle(): Cannot create a handle without a HandleScope`（硬约束 7）。
+修法：该 `forward_error_to_master(...)` 外面补 `JSB_ISOLATE_SCOPE` + `v8::HandleScope`。
+**问题 B（改测试，用户定）**：转发字符串 → 宿主 `onerror` 收到字符串（原始值按 `error_record` 原样送达）。
+`JsbThrownValue = Error | string | number | boolean | bigint | null | undefined` 本就含 string，故合法；
+把 startup-load-failure 的断言从 `instanceof Error`（`c30270b`）改成 `typeof === 'string'` 且含
+`failed to load the worker script`。
+
+### IsInUse 溯源
+- 现象：`Fatal error in , line 0 / Check failed: node->IsInUse().`，**总在 doctest 摘要之后**（进程退出阶段），
+  前面恒定跟着 8 条 `Call ScriptInstance::callp() failed: env is null`（`jsb_script_instance.cpp:791`）。
+- **非本轮引入**：基线日志时间戳均早于本轮源码改动（本轮 14:04；`fin2_node_dt` 01:32、`ur_dt` 05:09、`die` 10:34 都有）。
+- **非本模块**：排查最早的错误上报提交（`d3d6ddb`/`9c633b2`）时它就已出现（当时的 `fin2_node_dt.err` 就带它）。
+- 复现率 **1/5**（rc 恒为 0，测试恒 91/91）——竞态，与 doctest 用例无关。
+- gdb 抓不到：gdb 下进程正常退出（`[Inferior 1 exited normally]`），确认是时序竞态。
+- 定位结论：属**脚本语言/通知队列的 shutdown 阶段**（`env is null` 与 IsInUse 同阶段），与本轮跨环境错误上报无关。
+  建议单开任务追（给 `.agent_tmp/*_dt.err` 这种既存噪声加一次基线扫描）。
+
+### 实测
+node 构建 rc=0；doctest **91/91**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal；
+worker 已无 `error_record` 引用（无死代码）。

@@ -1000,10 +1000,39 @@ class ShadowRealmImpl {
 	void *token_ = nullptr;
 	jsb::DefaultModuleResolver *module_resolver_{ nullptr };
 
+	/**
+	 * 帧内引用计数（点3）：>0 表示本 realm 的某个 JS 帧（`_on_message` / `evaluate` …）还在 C++ 栈上。
+	 * 帧内 `terminate()` 只置 `terminated_in_frame_`、**不就地销毁** —— 否则会在帧内
+	 * `env_->dispose()` + `env_.reset()` 掉本帧正在跑的 isolate，实测宿主 `onerror` 里调 `terminate()` 直接
+	 * `FATAL ERROR: v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`。
+	 * 帧退出时由 `FrameScope` 析构补一次真正的销毁。
+	 */
+	int ins_refcount_ = 0;
+	bool terminated_in_frame_ = false;
+
 protected:
 	std::shared_ptr<Environment> env_{ nullptr };
 
 	virtual void dispose_environment() {}
+
+	/**
+	 * 帧内引用计数的 RAII：进入帧时 +1，退出时 -1；若这一帧里有人 `terminate()` 过
+	 * （`terminated_in_frame_`），就在这里把真正的销毁补上（此时帧内的 JS 调用/句柄都已用完）。
+	 */
+	class FrameScope {
+		ShadowRealmImpl *realm_;
+
+	public:
+		explicit FrameScope(ShadowRealmImpl *p_realm) : realm_(p_realm) { ++realm_->ins_refcount_; }
+		~FrameScope() {
+			if (--realm_->ins_refcount_ == 0 && realm_->terminated_in_frame_) {
+				realm_->terminated_in_frame_ = false;
+				ShadowRealmImpl::_destroy(realm_->id_);
+			}
+		}
+		FrameScope(const FrameScope &) = delete;
+		FrameScope &operator=(const FrameScope &) = delete;
+	};
 
 	// friend class TransferableShadowRealmImpl;
 
@@ -1156,17 +1185,40 @@ protected:
 		id_ = ShadowRealmID::none();
 	}
 
+	/**
+	 * 真正销毁一个 realm：拆掉它的环境、从 realm 列表摘除。
+	 * NOTE 只在"没有帧还压在这个 realm 的环境上"时调用（`ins_refcount_ == 0`）；
+	 *      帧内 `terminate()` 由 `_terminate` 转成延迟销毁，退帧时再走到这里。
+	 * NOTE 摘除必须用**传入的 id**：`finish()` 会把 `id_` 置空。
+	 */
+	static void _destroy(ShadowRealmID p_id) {
+		ShadowRealmImpl *impl;
+		{
+			MUTEX_LOCK_GUARD(lock_);
+			if (!get_shadow_realm_list().try_get_value(p_id, impl)) {
+				return;
+			}
+		}
+		impl->finish();
+		MUTEX_LOCK_GUARD(lock_);
+		get_shadow_realm_list().remove_at(p_id);
+		jsb_check(!get_shadow_realm_list().is_valid_index(p_id));
+	}
+
 	static bool _terminate(ShadowRealmID p_shadow_id) {
 		MUTEX_LOCK_GUARD(lock_);
 
 		ShadowRealmImpl *impl;
 		if (get_shadow_realm_list().try_get_value(p_shadow_id, impl)) {
-			impl->finish();
+			if (impl->ins_refcount_ > 0) {
+				// 帧内销毁：本帧（`evaluate` / `_on_message` …）还压在这个 realm 的 isolate 上，
+				// 就地销毁会 `v8::Isolate::Deinitialize(): Deinitializing the isolate that is entered by a thread`。
+				// 只做标记，真正的销毁交给退帧时的 `FrameScope`。
+				impl->terminated_in_frame_ = true;
+				return true;
+			}
 
-			get_shadow_realm_list().remove_at(p_shadow_id);
-			jsb_check(!get_shadow_realm_list().is_valid_index(p_shadow_id));
-
-			impl->id_ = ShadowRealmID::none();
+			_destroy(p_shadow_id);
 			return true;
 		}
 		return false;
@@ -1218,7 +1270,6 @@ protected:
 		} else {
 			if (try_catch.has_caught()) {
 				r_error_msg = BridgeHelper::get_exception(try_catch);
-
 			} else {
 				r_error_msg = vformat("load module failed: %s", module_id);
 			}
@@ -1735,6 +1786,9 @@ private:
 	void _on_message(const ShadowRealmMessage &p_message) {
 		jsb_checkf(env_ && !context_obj_handle_.IsEmpty(), "Post message to a dead shadowRealm.");
 
+		// 本帧压在这个 realm 的 isolate 上：帧内的 terminate() 只标记、退帧时才真正销毁（点3）
+		const FrameScope frame_scope(this);
+
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
 		const v8::HandleScope handle_scope(isolate);
@@ -1798,12 +1852,11 @@ private:
 		const v8::MaybeLocal<v8::Value> rval = call->Call(context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
-			// NOTE quickjs 的异常槽是栈槽别名：必须在 `get_message()`（会消费它）之前采集为记录
-			const v8::Local<v8::Value> exception = try_catch.get_exception_value();
-			const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, exception);
+			// 统一入口自己判有没有接收者、要不要 capture（点1/点2）。
+			// realm 与宿主同线程同栈：同步档，宿主 `onerror` 在本帧内跑完（帧内 terminate 已由 FrameScope 挡成延迟销毁）。
+			// NOTE 取值顺序：先取异常值（`get_message()` 会消费异常槽），再让日志消费。
+			env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
 			JSB_SHADOW_REALM_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
-			// 与 worker 一致：宿主侧的 `onerror` 要收到重建的 Error
-			_post_error_to_host(isolate, context, get_id(), record);
 		}
 	}
 
@@ -1835,29 +1888,6 @@ private:
 		JSB_ISOLATE_SCOPE(isolate);
 		const ShadowRealmID shadow_realm_id = (ShadowRealmID)info.Data().As<v8::Uint32>()->Value();
 		ShadowRealmImpl::_terminate(shadow_realm_id);
-	}
-
-	// shadowRealm -> master：把异常作为"错误记录"发给 master（host 侧复用已有的 TYPE_ERROR -> onerror 通路）
-	static void _post_error_to_host(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, ShadowRealmID p_id, const jsb::error_record::ErrorRecord &p_record) {
-		NativeObjectID handle;
-		void *token_ptr = nullptr;
-		if (!try_get_shadow_env(p_id, handle, token_ptr)) {
-			return;
-		}
-		const std::shared_ptr<Environment> master = Environment::_access(token_ptr);
-		if (!master) {
-			return;
-		}
-		const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(p_isolate, p_context, p_record);
-		if (data.first == nullptr) {
-			return;
-		}
-		// NOTE 走 `post_message`（异步）而不是 `handle_message`（同步）：同步投递会把宿主的 `onerror`
-		//      插在 realm 的 onmessage 帧里执行，用户在 `onerror` 里调 `terminate()` 就会在帧内销毁
-		//      自己的 isolate（实测 fatal: "Fatal error in v8::Isolate::Dispose()"）。
-#	if !JSB_WITH_WEB
-		master->post_message(Message(Message::TYPE_ERROR, handle, Buffer::steal(data.first, data.second)));
-#	endif
 	}
 
 	// transferableShadowRealm -> master (run in shadowRealm env)
