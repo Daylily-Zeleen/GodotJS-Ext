@@ -33,7 +33,6 @@
 #	include "jsb_buffer.h"
 #	include "jsb_class_info.h"
 #	include "jsb_environment.h"
-#	include "jsb_error_record.h"
 #	include "jsb_object_handle.h"
 #	include "jsb_ref.h"
 #	include "jsb_type_convert.h"
@@ -1018,6 +1017,11 @@ protected:
 	/**
 	 * 帧内引用计数的 RAII：进入帧时 +1，退出时 -1；若这一帧里有人 `terminate()` 过
 	 * （`terminated_in_frame_`），就在这里把真正的销毁补上（此时帧内的 JS 调用/句柄都已用完）。
+	 *
+	 * 每个会执行 guest 代码、且可能同步转发给宿主（宿主 `onerror` 里用户可能 `terminate()`）的入口
+	 * 都要挂一个：`_on_message` / `evaluate` / `importValue` / `importValueSync`。
+	 * NOTE 本对象析构时 `realm_` 可能被销毁，所以**析构点之后不得再使用 `realm_`**（把它放在
+	 *      最后一次使用 realm 之后的函数作用域即可）。
 	 */
 	class FrameScope {
 		ShadowRealmImpl *realm_;
@@ -1330,39 +1334,6 @@ public:
 		}
 	}
 
-	/**
-	 * 在 p_context 所属 realm 里抛出 p_value。
-	 *
-	 * NOTE 这里**不用**各腿 shim 的 `Isolate::ThrowException(value)`：jsc/quickjs 的实现会把值"寄存"到
-	 *      `TryCatch` 用的内部槽（`set_stack_steal(StackPos::Exception, ...)`），之后任何 `has_caught()`
-	 *      都会读到脏状态 —— quickjs 直接 `jsb_checkf` 断言 "stack.exception is dirty"，并触发错误打印风暴。
-	 *      按 JS 语义抛出（让该 realm 自己 `throw`）只留下正常的 pending exception，槽位保持干净。
-	 */
-	static void _throw_value_in_realm(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_value) {
-		const v8::Local<v8::String> source = impl::Helper::new_string(p_isolate, "(function (e) { throw e; })");
-		v8::Local<v8::Script> script;
-		if (!v8::Script::Compile(p_context, source).ToLocal(&script)) {
-			return;
-		}
-		v8::Local<v8::Value> func_value;
-		if (!script->Run(p_context).ToLocal(&func_value) || !func_value->IsFunction()) {
-			return;
-		}
-		v8::Local<v8::Value> argv[] = { p_value };
-		func_value.As<v8::Function>()->Call(p_context, v8::Undefined(p_isolate), 1, argv);
-	}
-
-	/**
-	 * 抛出跨隔离区错误的最终形态：能拿到目标 realm 的 Error 对象就抛它，否则退回抛字符串。
-	 */
-	static void _throw_realm_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error) {
-		if (p_error.IsEmpty()) {
-			jsb_throw(p_isolate, p_message);
-			return;
-		}
-		_throw_value_in_realm(p_isolate, p_context, p_error);
-	}
-
 	static void evaluate(const v8::FunctionCallbackInfo<v8::Value> &info) {
 		// MUTEX_LOCK_GUARD(lock_);
 		v8::Isolate *host_isolate = info.GetIsolate();
@@ -1383,11 +1354,6 @@ public:
 
 		const v8::Local<v8::Context> host_context = info.GetIsolate()->GetCurrentContext();
 		String wrapped_source;
-		String guest_error;
-		// NOTE 不能用 guest_error 是否为空来判断是否出错：quickjs 的 `get_message()` 对非 Error 的
-		//      抛出值不填 message（原始值异常就是这种），照它判断会把异常整个吞掉、`evaluate()` 静默返回。
-		bool guest_failed = false;
-		std::pair<uint8_t *, size_t> guest_record{ nullptr, 0 };
 		{
 			if (info.Length() <= 0 || !info[0]->IsString()) {
 				jsb_throw(host_isolate, "bad argument: require a string.");
@@ -1400,6 +1366,10 @@ public:
 		}
 
 		{
+			// 帧保护：guest 代码执行期间（含其异常同步转发到宿主 `onerror`）用户可能 `terminate()`。
+			// NOTE 这个块的作用域就是"帧"，它比函数体短——`realm` 在块外不再使用，销毁可安全发生在这里。
+			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+
 			v8::Isolate *guest_isolate = realm->env_->get_isolate();
 			JSB_ISOLATE_SCOPE(guest_isolate);
 			const v8::HandleScope handle_scope1(guest_isolate);
@@ -1426,39 +1396,23 @@ public:
 
 				info.GetReturnValue().Set(wrapped_result);
 			} else {
-				// 异常对象不能跨 isolate 传（跨 isolate 使用 Local/Global 是未定义行为）：
-				// 先在 guest realm 里采集为纯数据记录并序列化，回到调用方 isolate 再重建。
+				// guest 抛了（或没产出值）：把异常值交给 cross_isolate，在本块内（源作用域）完成采集，
+				// 转到调用方 realm 重建成 Error 并抛出。realm 侧不接触记录/重建细节。
+				// NOTE `get_exception_value()` 必须在 `get_message()` 之前取：后者会消费异常槽。
+				v8::Local<v8::Value> exception;
+				String guest_error;
 				if (caught) {
-					// NOTE `get_exception_value()` 必须在 `get_message()` 之前取：后者会消费异常槽
-					const v8::Local<v8::Value> exception = try_catch.get_exception_value();
-					guest_record = jsb::error_record::serialize(guest_isolate, guest_context, jsb::error_record::capture(guest_isolate, guest_context, exception));
+					exception = try_catch.get_exception_value();
 					guest_error = BridgeHelper::get_exception(try_catch);
-					guest_failed = true;
 				} else {
 					guest_error = String("failed to evaluate the source in the shadow realm");
-					guest_failed = true;
 				}
-			}
-		}
-		if (guest_failed) {
-			// 在调用方 realm 重建 Error：优先用错误记录（带 name/stack/额外字段），失败退回只带文本
-			if (guest_error.is_empty()) {
-				guest_error = String("uncaught value from the shadow realm");
-			}
-			v8::Local<v8::Value> error;
-			if (guest_record.first != nullptr) {
-				const jsb::error_record::ErrorRecord record = jsb::error_record::deserialize(host_isolate, host_context, guest_record.first, guest_record.second);
-				if (!record.name.is_empty() || !record.message.is_empty() || record.is_primitive) {
-					error = jsb::error_record::rebuild(host_isolate, host_context, record);
+				if (guest_error.is_empty()) {
+					guest_error = String("uncaught value from the shadow realm");
 				}
-				impl::Helper::free(guest_record.first); // 与 `ValueSerializer::Release` 的分配器配对
-				guest_record.first = nullptr;
+				cross_isolate::throw_cross_isolate_error(host_isolate, host_context, exception, guest_error);
+				return;
 			}
-			if (error.IsEmpty()) {
-				error = jsb::error_record::make_error(host_isolate, host_context, guest_error);
-			}
-			_throw_realm_error(host_isolate, host_context, guest_error, error);
-			return;
 		}
 	}
 
@@ -1507,10 +1461,15 @@ public:
 
 		v8::Local<v8::String> specifier = info[0].As<v8::String>(); // ModuleID
 		String err_msg;
-		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
+		v8::Local<v8::Value> result;
+		{
+			// 帧保护：与 `importValueSync` 同理，帧内的 terminate() 必须延迟销毁，`realm` 此后不再使用。
+			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+			result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
+		}
 		if (result.IsEmpty()) {
 			// 这是异步 API：失败要 reject，而不是在同步返回路径上抛（现在 Promise 已经是返回值了）
-			v8::Local<v8::Value> reason = jsb::error_record::make_error(isolate, context, err_msg);
+			v8::Local<v8::Value> reason = cross_isolate::make_error(isolate, context, err_msg);
 			if (reason.IsEmpty()) {
 				reason = impl::Helper::new_string(isolate, err_msg);
 			}
@@ -1558,7 +1517,13 @@ public:
 
 		v8::Local<v8::String> specifier = info[0].As<v8::String>(); // ModuleID
 		String err_msg;
-		v8::Local<v8::Value> result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
+		v8::Local<v8::Value> result;
+		{
+			// 帧保护：guest 代码执行期间用户可能在本帧内 `terminate()`（例如捕获同步异常后立刻销毁 realm），
+			// 这里必须把销毁延迟到本帧结束，`realm` 此后不再使用。
+			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+			result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
+		}
 		if (result.IsEmpty()) {
 			jsb_throw(isolate, err_msg);
 		} else {

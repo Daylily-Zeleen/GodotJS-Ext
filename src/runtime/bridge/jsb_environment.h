@@ -68,9 +68,6 @@
 class GodotJSScript;
 namespace jsb {
 
-namespace error_record {
-struct ErrorRecord;
-}
 enum : uint32_t { kIsolateEmbedderData = 0,
 };
 enum : uint32_t { kContextEmbedderData = 0,
@@ -555,12 +552,6 @@ public:
 	 * @param p_exception 本环境里的异常值（`TryCatch::get_exception_value()`）。
 	 */
 	void forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode = ErrorForwardMode::Async);
-
-	/**
-	 * 同上，但直接传**已采集好的记录**：给"异常槽已经不在了"的场景用
-	 * （worker 入口脚本加载失败时异常由 `Environment::load` 采集，`Local` 早已出作用域）。
-	 */
-	void forward_error_to_master(const jsb::error_record::ErrorRecord &p_record, ErrorForwardMode p_mode = ErrorForwardMode::Async);
 
 #if JSB_WITH_NODE
 	/**

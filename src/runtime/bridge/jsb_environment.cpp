@@ -33,7 +33,7 @@
 #include "jsb_builtins.h"
 #include "jsb_class_register.h"
 #include "jsb_compat.h"
-#include "jsb_error_record.h"
+#include "jsb_cross_isolate_util.h"
 #include "jsb_godot_module_loader.h"
 #include "jsb_object_bindings.h"
 #include "jsb_ref.h"
@@ -534,9 +534,6 @@ void Environment::update(uint64_t p_delta_msecs) {
 		JSB_ISOLATE_SCOPE(isolate);
 		v8::HandleScope handle_scope(isolate);
 
-		// 定时器回调里的未捕获异常：`JavaScriptTimerAction` 已经捕获并打日志，
-		// worker / shadow realm 环境还会把它转发给 master 的 `onerror`（见 `Environment::forward_error_to_master`）。
-		// 主环境没有接收者（没有全局错误钩子），维持"只进日志"。
 		if (timer_manager_.invoke_timers(isolate)) {
 			notify_microtasks_run();
 		}
@@ -724,13 +721,10 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			return;
 		}
 		if (p_rebuild_error) {
-			// `TYPE_ERROR` 的 payload 是"错误记录"：在本地 realm 重建成 Error / 还原原始值
-			const jsb::error_record::ErrorRecord record = jsb::error_record::deserialize(isolate, p_context, p_message->get_buffer().ptr(), p_message->get_buffer().size());
-			if (!record.name.is_empty() || !record.message.is_empty() || record.is_primitive) {
-				const v8::Local<v8::Value> error = jsb::error_record::rebuild(isolate, p_context, record);
-				if (!error.IsEmpty()) {
-					value = error;
-				}
+			// `TYPE_ERROR` 的 payload 是"错误记录"：由 cross_isolate 在本地 realm 重建成 Error / 还原原始值
+			const v8::Local<v8::Value> rebuilt = cross_isolate::rebuild_error_from_bytes(isolate, p_context, p_message->get_buffer().ptr(), p_message->get_buffer().size());
+			if (!rebuilt.IsEmpty()) {
+				value = rebuilt;
 			}
 		}
 	}
@@ -784,7 +778,7 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				// 这里按 worker 的脚本路径补出文案
 				// NOTE 不在这里反查 worker 的脚本路径：消息里带的是对象 handle，与 `WorkerID` 是两套索引；
 				//      路径在 worker 侧日志里（`failed to load the worker script: <path>`）
-				const v8::Local<v8::Value> error = jsb::error_record::make_error(isolate, p_context, "failed to load the worker script (see the worker log for the path)");
+				const v8::Local<v8::Value> error = cross_isolate::make_error(isolate, p_context, "failed to load the worker script (see the worker log for the path)");
 				jsb_check(!error.IsEmpty());
 				v8::Local<v8::Value> argv[] = { error };
 				callback.As<v8::Function>()->Call(p_context, v8::Undefined(isolate), 1, argv).ToLocalChecked();
@@ -800,28 +794,8 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 #endif
 
 void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
-	// 没有接收者就到此为止：**连 capture 都不做**（点1）。capture 要逐字段读属性，没接收者时纯属浪费。
-	if (!has_master_env_info()) {
-		return;
-	}
-	if (p_exception.IsEmpty()) {
-		return;
-	}
-	v8::Isolate *isolate = get_isolate();
-	JSB_ISOLATE_SCOPE(isolate);
-	// NOTE 在进入本方法的 isolate scope 之后 capture：本方法可能在另一种 isolate 的作用域里被调用
-	//      （例如 realm 的宿主 isolate 里），capture 必须在本环境的 isolate 下做。
-	const v8::HandleScope handle_scope(isolate);
-	const v8::Local<v8::Context> context = get_context();
-	const v8::Context::Scope context_scope(context);
-	const jsb::error_record::ErrorRecord record = jsb::error_record::capture(isolate, context, p_exception);
-	forward_error_to_master(record, p_mode);
-}
-
-void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &p_record, ErrorForwardMode p_mode) {
-	// 只有 worker / shadow realm 环境登记了转发目标（宿主侧有 `onerror` 接收者）；
-	// 主环境没有全局错误钩子，维持"只进日志"。
-	if (!has_master_env_info()) {
+	// 没有接收者就到此为止：**连采集都不做**（点1）。采集要逐字段读属性，没接收者时纯属浪费。
+	if (!has_master_env_info() || p_exception.IsEmpty()) {
 		return;
 	}
 #if !JSB_WITH_WEB
@@ -831,10 +805,13 @@ void Environment::forward_error_to_master(const jsb::error_record::ErrorRecord &
 	}
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
+	// NOTE 在进入本方法的 isolate scope 之后采集：本方法可能在另一种 isolate 的作用域里被调用
+	//      （例如 realm 的宿主 isolate 里），采集必须在本环境的 isolate 下做。
 	const v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = get_context();
 	const v8::Context::Scope context_scope(context);
-	const std::pair<uint8_t *, size_t> data = jsb::error_record::serialize(isolate, context, p_record);
+	// 采集+序列化由 cross_isolate 负责，Environment 不直接接触记录层。
+	const std::pair<uint8_t *, size_t> data = cross_isolate::serialize_exception(isolate, context, p_exception);
 	if (data.first == nullptr) {
 		return;
 	}

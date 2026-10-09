@@ -23,7 +23,7 @@
 4. **`has_caught()` 是一次性语义**（jsc/quickjs/web）：只能调一次，结果存下来复用；
    重复调用在 quickjs 上直接 `jsb_checkf` 断言（"stack.exception is dirty"），并会触发错误打印风暴。
 5. **不要用 `Isolate::ThrowException(value)` 抛跨边界错误**（jsc/quickjs 会把值"寄存"进 TryCatch 的槽，
-   之后任何 `has_caught()` 都会读到脏状态）。要抛值就按 JS 语义抛（见 `_throw_value_in_realm`）。
+   之后任何 `has_caught()` 都会读到脏状态）。要抛值就按 JS 语义抛（见 `jsb::cross_isolate::throw_error`）。
 6. **`Environment::load` 自己转发加载失败**：它是 `Environment` 成员，本身就持有宿主信息，所以失败时
    直接 `forward_error_to_master(exception)`（入口脚本加载失败即此路）：`load` 在异常槽还热时把脚本真实
    Error 发给宿主 `onerror`。
@@ -62,10 +62,27 @@
     时 `_terminate()` **只置 `terminated_in_frame_` 标记、不就地销毁**；退帧时 `FrameScope` 析构补真正的
     `_destroy(id)`。否则帧内（宿主 `onerror` 里）`terminate()` 会 `env_->dispose()` + `env_.reset()` 掉
     本帧正在跑的 isolate（硬约束 2 的 fatal）。`_destroy` 要用**传入的 id** 摘除，因为 `finish()` 会清空 `id_`。
+    **每个会执行 guest 代码、且可能同步转发给宿主的入口都要挂 `FrameScope`**：`_on_message` / `evaluate` /
+    `importValue` / `importValueSync`（用户可以在任何一处捕获异常后立刻 `terminate()`）。
+    NOTE `FrameScope` 析构时会销毁 realm，所以**析构点之后不得再使用 `realm`**；`evaluate` 里把它放在
+    guest 执行的那个块作用域内（块比函数体短，块外的 host 重建不再碰 realm）。
 13. **统一转发入口内部才做"判接收者 + capture"**（`forward_error_to_master(const v8::Local<v8::Value>&)`）。
     调用方只把 `TryCatch::get_exception_value()` 交出去，不要各自 `has_error_receiver()`/`capture()`。
     调用方仍要在调用**之后**用 `get_exception()` 打日志：quickjs 的异常槽靠 `get_message()` 清空，
     不消费会让下一次 `has_caught()` 命中 `jsb_checkf("stack.exception is dirty")`。
+    **跨环境"采集→重建→抛出"封在 `jsb_cross_isolate`**（`jsb_cross_isolate_util.{h,cpp}`，命名空间
+    `jsb::cross_isolate`）。对外只有三个入口，调用方**看不到记录/载体类型**：
+    - `throw_cross_isolate_error(target_isolate, target_context, exception_value, fallback)`：
+      在**源作用域内**调用，内部完成 `capture(源) → rebuild(目标) → throw(目标)`；
+    - `make_error(isolate, context, message)`：造一个 `Error`（如 `importValue` 的 reject）；
+    - `throw_error(isolate, context, message, error)`：按 JS 语义抛出（`(function(e){throw e;})`，
+      不用 `Isolate::ThrowException`，以免污染 TryCatch 槽）。
+    载体 `internal::CrossIsolateException`、`internal::rebuild_error` 是**内部实现**。
+    NOTE `capture` 必须用 `Isolate::TryGetCurrent()` 取源 isolate（各腿 shim 只有 `TryGetCurrent`，
+    没有 `GetCurrent`）。shadow realm 的 `evaluate`/`importValue` **只留干净调用点**（各一句），
+    `jsb_shadow_realm.cpp` 不再 include `jsb_error_record.h`；本地 `_throw_value_in_realm`/`_throw_realm_error`
+    已删除。`internal::rebuild_error` **不能**自带 `HandleScope`：返回值要交给调用方，开在函数内会悬垂
+    （实测崩在 `v8::internal::LookupIterator::GetRootForNonJSReceiver`）。
 14. **转发入口里必须自带 `v8::Context::Scope`**。`forward_error_to_master` 会进入本环境的 isolate，
     而 `capture`/`serialize` 内部要 `Object::New`/`Set`/`new_string`——这些需要**当前 context**。
     只在 `Isolate::Scope` 下、没有 context scope 时实测崩在 `record_to_js` 的 `payload->Set`（SIGSEGV）。

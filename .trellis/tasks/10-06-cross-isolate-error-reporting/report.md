@@ -1100,3 +1100,103 @@ target 上（Proxy 持有 target，两者同生共死）。这样构造函数拿
 ### 实测
 node 构建 rc=0；doctest **91/91**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal；
 worker 已无 `error_record` 引用（无死代码）。
+
+## §27 提交 + FrameScope 全覆盖 + error_record 彻底移出 realm
+
+### 提交
+`3980975 refactor(jsb): route cross-isolate errors through one environment entry point`（10 文件）。
+`third/quickjs-ng` 是 submodule（构建产物导致脏），不入库。
+新建任务 `10-09-isinuse-exit-fatal`（含复现步骤、已排除项）并随该提交入库。
+
+### FrameScope 全覆盖（用户点2）
+`evaluate`（guest 块）/ `importValue` / `importValueSync` 各挂 `FrameScope`——用户可在 importValue 抛同步异常后
+立刻 `terminate()`，不挂就会在帧内即时销毁 isolate（硬约束 12 的 fatal）。
+约束：`FrameScope` 析构即可能销毁 realm，**析构点后不得再用 `realm`**——`evaluate` 把它收进 guest 执行块
+（块比函数体短），`importValue(Sync)` 收进 `_importValue` 调用那一小段。
+
+### error_record 彻底移出 realm（用户点3）
+`Environment` 新增：`class CrossRealmError`（move-only，内部 `uint8_t*`/`size`，析构 `impl::Helper::free`）、
+`capture_cross_realm_error(exception)`、`rebuild_cross_realm_error(carrier, fallback_msg)`；
+记录版 `forward_error_to_master(record, mode)` 降为 **private**。
+- `jsb_shadow_realm.cpp` 现在**零** `jsb::error_record` 引用，`#include "jsb_error_record.h"` 已删。
+- `evaluate`：guest `capture_cross_realm_error` → host `rebuild_cross_realm_error`；
+  `importValue` reject：`rebuild_cross_realm_error(CrossRealmError(), err_msg)`。
+
+### 过程中修掉的一个真 bug（我引入的）
+`rebuild_cross_realm_error` 起先自带 `HandleScope` → 返回的 `Local` 随函数返回悬垂，
+实测崩在 `v8::internal::LookupIterator::GetRootForNonJSReceiver`（doctest 68/67 fail 1）。
+去掉函数内 `HandleScope`（由调用方提供）后修复。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；CrossEnvironment 场景 rc=0、两后端 object-transfer 与
+5/5 error-reporting 场景全 done、无 Fatal；`jsb_shadow_realm.cpp` 无 error_record 引用。
+
+## §28 跨隔离区抛出封装进 jsb_cross_isolate（用户定案：甲）
+
+用户定：`evaluate`/`importValue(Sync)` 的错误按 design 是**抛给调用方**（非转发），但功能要**封装在
+`jsb_cross_isolate` 里**，shadowRealm 只留干净调用点——不要"捕获什么重建什么"都写在 realm 里。
+
+- 新增（`jsb_cross_isolate_util.{h,cpp}`，命名空间 `jsb::cross_isolate`）：
+  - `class CrossIsolateException`：move-only 载体（内部缓冲，析构 `impl::Helper::free`）+ 静态 `capture()`。
+  - `rebuild_error(isolate, context, carrier, fallback_msg)`：在目标 realm 重建（记录优先，否则 make_error）。
+  - `throw_error(isolate, context, message, error)` / `throw_cross_isolate_error(target, carrier, msg)`：
+    按 JS 语义抛（`(function(e){throw e;})`，不用 `Isolate::ThrowException` 以免污染 TryCatch 槽）。
+- 删除上一轮放进 `Environment` 的 `CrossRealmError` / `capture_cross_realm_error` / `rebuild_cross_realm_error`。
+- 删除 realm 的本地 `_throw_value_in_realm` / `_throw_realm_error`（并入 cross_isolate）。
+- realm 现在只剩干净调用点：
+  - `evaluate`：`guest_record = CrossIsolateException::capture(guest...)`；失败时
+    `throw_cross_isolate_error(host_isolate, host_context, guest_record, guest_error)`。
+  - `importValue` reject：`rebuild_error(isolate, context, CrossIsolateException(), err_msg)`。
+  - `jsb_shadow_realm.cpp` 零 `jsb::error_record`、零 include。
+- 过程中两次编译修正：`capture` 改静态成员（friend 未生效）；`rebuild_error` 需 friend（读载体私有成员）。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、无 Fatal。
+
+### 未完成（待定）
+用户先前指出 **node 的 `stash_uncaught_exception` 只处理了异步、未处理同步**（`flush_uncaught_exception`
+恒用 `Async`；而 transferable realm 与宿主机同线程，应可同步）。此处尚未改，等确认口径后再动。
+
+## §29 cross_isolate 收成"直接传异常值"（用户复查：realm 仍在处理）
+
+用户复查 §28：realm 里还留着 `CrossIsolateException guest_record` 声明 + `capture()` 调用 +
+`guest_failed` 编排，不算干净——**直接把 exception value 传过去**，别在 shadow realm 里处理。
+
+- `jsb_cross_isolate` 对外只留三个入口（调用方看不到记录/载体类型）：
+  - `throw_cross_isolate_error(target_isolate, target_context, exception_value, fallback)`——在源作用域内调用，
+    内部 `capture(源) → rebuild(目标) → throw(目标)`；
+  - `make_error(isolate, context, message)`；
+  - `throw_error(isolate, context, message, error)`。
+- 载体 `CrossIsolateException`、`rebuild_error` 降为 `cross_isolate::internal`；
+  `capture` 用 `Isolate::TryGetCurrent()`（各腿 shim 无 `GetCurrent`）。
+- realm 现在只剩两句：`cross_isolate::throw_cross_isolate_error(host_isolate, host_context, exception, guest_error)`
+  与 `cross_isolate::make_error(isolate, context, err_msg)`（reject）。删掉 `guest_record`/`guest_failed`。
+
+### 实测
+node 构建 rc=0（首次遇 `LNK1102 内存不足`，重跑通过）；doctest **91/91 SUCCESS**；
+CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、0 Fatal/FAILED。
+
+## §30 error_record 收归 jsb_cross_isolate（Environment 不再直接使用）
+
+用户要求：`error_record` 的功能封装进 `jsb_cross_isolate`，**Environment 也不直接使用**。
+
+- `jsb_cross_isolate` 对外扩为 4 个纯函数 + 1 个常量访问器（都不暴露记录类型）：
+  - `serialize_exception(isolate, context, exception) -> {uint8_t*, size_t}`（采集+序列化，所有权交调用方）
+  - `rebuild_error_from_bytes(isolate, context, data, size)`（本地重建；空/无效记录返回空）
+  - `make_error(isolate, context, message)`
+  - `throw_error(isolate, context, message, error)`
+  - `throw_cross_isolate_error(target_isolate, target_context, exception, fallback)`
+  - `untransferred_symbol_key()`（给 `jsb_bridge_module_loader.cpp` 暴露 symbol 键用）
+- `Environment`：删除私有的"记录版" `forward_error_to_master`（与值版合并，内部改调
+  `cross_isolate::serialize_exception`）；接收侧 `_on_worker_message` 改调 `rebuild_error_from_bytes`
+  与 `make_error`；删 `#include "jsb_error_record.h"` 与头文件里的 `ErrorRecord` 前向声明。
+- `jsb_bridge_module_loader.cpp` 改调 `cross_isolate::untransferred_symbol_key()`。
+
+**结果**：`grep -rln jsb_error_record.h src/` 现在只剩 **owner(`jsb_cross_isolate_util.cpp`) + 自身(`jsb_error_record.cpp`)**；
+`jsb_environment.{h,cpp}` 与 `jsb_shadow_realm.cpp` 均零 `error_record` 引用。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、0 Fatal/FAILED。
+
+### 仍未做
+node `stash_uncaught_exception` 的"同步档"（用户此前点出，等口径）。

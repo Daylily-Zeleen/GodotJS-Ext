@@ -19,6 +19,41 @@ _FORCE_INLINE_ static void insert_transfer_variant(
 }
 } //namespace internal
 
+/**
+ * 把一个 isolate 里的异常搬成与 isolate 无关的字节（记录 → 序列化）。跨 isolate 只能搬纯数据，
+ * 异常的 `Local` 离开源 isolate 即失效，所以中间必须过一层记录缓冲。
+ * NOTE 调用方必须已处于**源** isolate/context 的作用域内（本函数不自带作用域）。失败返回 `{nullptr, 0}`；
+ *      缓冲所有权交给调用方，用 `impl::Helper::free` 释放。
+ */
+std::pair<uint8_t *, size_t> serialize_exception(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_exception);
+
+/**
+ * 在目标 realm 里从 {@link serialize_exception} 的字节重建错误值（记录 → 本 realm 的 `Error` /
+ * 原样还原原始值）。NOTE 调用方必须已处于**目标** isolate/context 的作用域内；返回空表示记录为空/无效。
+ */
+v8::Local<v8::Value> rebuild_error_from_bytes(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const uint8_t *p_data, size_t p_size);
+
+/** 在 `p_isolate`/`p_context` 里造一个 `Error`。 */
+v8::Local<v8::Value> make_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message);
+
+/**
+ * 重建 Error 上"未携带字段清单"所用的注册表 symbol 键（宿主脚本用 `Symbol.for(...)` 读回）。
+ * 只为把 `error_record` 收在这个模块里（`jsb_bridge_module_loader.cpp` 需要把这个键暴露给 JS）。
+ */
+const char *untransferred_symbol_key();
+
+/**
+ * 按 JS 语义在 `p_isolate`/`p_context` 里抛出：`p_error` 非空就抛它，否则按 `p_message` 抛。
+ * NOTE 不用各腿的 `Isolate::ThrowException(value)`（会把值寄存进 TryCatch 槽，污染后续 `has_caught()`）。
+ */
+void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error);
+
+/**
+ * 把**当前** isolate/context 里的 `p_exception` 搬到 `p_target_isolate`/`p_target_context` 并抛出，一步到位。
+ * 调用点在源作用域内把异常值交出来即可（如 shadow realm 的 `evaluate`）。
+ */
+void throw_cross_isolate_error(v8::Isolate *p_target_isolate, const v8::Local<v8::Context> &p_target_context, const v8::Local<v8::Value> &p_exception, const String &p_fallback_message);
+
 // shared master -> worker/shadowRealm postMessage transfer-list parsing.
 // Worker and TransferableShadowRealm both send Godot objects over postMessage,
 // so the side-channel variant/object transfer list must be parsed identically.
