@@ -1616,6 +1616,7 @@ Error Environment::load(const String &p_name, JavaScriptModule **r_module) {
 	// no exception should be thrown if module loaded successfully
 	if (try_catch_run.has_caught()) {
 		JSB_LOG(Warning, "something went wrong on loading '%s'\n%s", p_name, BridgeHelper::get_exception(try_catch_run));
+		// TODO: 向宿主环境推送异常
 		return ERR_COMPILATION_FAILED;
 	}
 	return OK;

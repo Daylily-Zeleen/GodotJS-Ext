@@ -926,3 +926,32 @@ node build rc=0 → doctest SUCCESS → 项目 smoke 连续 30 次 全 COMPLETED
 逐提交（7 个）单独 node 构建：全部 build=0
 error-reporting 用例：6 个 start 全部跑到（worker + shadow 双后端）
 ```
+
+## 步骤 20：宿主句柄改由构造函数持有（用户改动 + 我修的时序缺陷）2026-10-09
+
+### 改动
+`CrossWrapper` 的宿主侧句柄从"在 `add_cache` 里补登"改为"**构造函数**就持有"：
+`CrossWrapper(guest_isolate, source, host_isolate, host_value)`，`FunctionCrossWrapper` /
+`ObjectCrossWrapper` 的 ctor 同步加参；`add_cache` 因此**不再需要** `p_host_value` 参数。
+
+### 复核中发现的时序缺陷（已修，我的部分）
+`ObjectCrossWrapper::create` 里，构造函数收到的是 **proxy 的 target**（`wrapper`），而
+`create` **返回给宿主**的是 **Proxy**。这不是等价替换：
+
+- `wrap_cross_env_value` 判断"这个宿主侧对象是不是已有的跨环境包装器"用的是
+  `obj->HasOwnProperty(FlagSymbol)`；
+- 对 `ObjectCrossWrapper`，该 symbol 由 **Proxy 的 `has`/`get` trap** 应答
+  （`proxy_has` 对 symbol 直接返回 true，**不查 target**）；
+- 于是把 target 当成宿主侧对象存进去后，缓存复用**永远查不中** → 同一个 guest 对象
+  每次导出都新建一个 Proxy。
+
+**实测**：改完当下 doctest 挂在回归用例的 `hostRead` 断言上
+（`test_jsb_shadow_realm.h(475): text.contains("hostRead":"shared-obj") values: false`）——
+"宿主经 Proxy 读 guest 字段"拿不到值，正是"没命中缓存、包装器不是同一个"的表现。
+
+**修法**：`ObjectCrossWrapper::create` 里**先建 Proxy，再用它构造包装器**；finalizer 仍绑在
+target 上（Proxy 持有 target，两者同生共死）。这样构造函数拿到的就是"要交给宿主的那个对象"，
+`add_cache` 也不必再传宿主对象。
+
+**验证**：doctest **91/91 SUCCESS**；30 次全场景 smoke + 15 次 cross-environment 单场景
+全绿；注册表两条断言（"duplicate wrapper" / "registry entry belongs to another wrapper"）未触发。
