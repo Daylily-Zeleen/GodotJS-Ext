@@ -271,7 +271,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 			}
 			const v8::Local<v8::Object> self = p_jval.As<v8::Object>();
 
-			if (!TypeConvert::is_object(self)) {
+			if (!TypeConvert::is_object(self, NativeClassType::GodotObject)) {
 				break;
 			}
 
@@ -555,11 +555,11 @@ bool TypeConvert::gd_obj_to_js(v8::Isolate *isolate, const v8::Local<v8::Context
 		// class_info ptr will be invalid after escape()
 		// to avoid possible side effects during `NewInstance`
 		r_jval = class_info.escape()->clazz.NewInstance(context);
-		jsb_check(TypeConvert::is_object(r_jval));
 
 		// the lifecycle will be managed by javascript runtime, DO NOT DELETE it externally
 		NativeObjectID obj_id = environment->bind_godot_object(class_id, p_godot_obj, r_jval.As<v8::Object>());
 		jsb_check(obj_id);
+		jsb_check(TypeConvert::is_object(r_jval, NativeClassType::GodotObject));
 		return true;
 	}
 	JSB_LOG(Error, "failed to expose godot class '%s'", class_name);
@@ -697,7 +697,7 @@ bool TypeConvert::can_convert_strict(v8::Isolate *isolate, const v8::Local<v8::C
 		case Variant::OBJECT: {
 			if (!p_val->IsObject()) return false;
 			const v8::Local<v8::Object> self = p_val.As<v8::Object>();
-			if (!TypeConvert::is_object(self)) return false;
+			if (!TypeConvert::is_object(self, NativeClassType::GodotObject)) return false;
 
 			//NOTE dead object is now treated as null, so we don't need to check it here anymore
 			return true;
@@ -787,8 +787,7 @@ bool TypeConvert::js_to_gd_obj(v8::Isolate *isolate, const v8::Local<v8::Context
 
 	// return false if strict type check fails
 	const v8::Local<v8::Object> self = p_jval.As<v8::Object>();
-	if (!TypeConvert::is_object(self)
-			|| (NativeClassType::Type)(uintptr_t)self->GetAlignedPointerFromInternalField(IF_ClassType) != NativeClassType::GodotObject) {
+	if (!TypeConvert::is_object(self, NativeClassType::GodotObject)) {
 		return false;
 	}
 
