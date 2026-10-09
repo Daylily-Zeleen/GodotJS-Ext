@@ -42,7 +42,7 @@ String BridgeHelper::stringify(v8::Isolate *isolate, const v8::Local<v8::Value> 
 			const String type_name = Variant::get_type_name(variant->get_type());
 			return jsb_format("[%s %s]", type_name, variant->operator String());
 		}
-		if (TypeConvert::is_object(self)) {
+		if (TypeConvert::is_object(self, NativeClassType::GodotObject)) {
 			void *pointer = self->GetAlignedPointerFromInternalField(IF_Pointer);
 			const NativeClassInfo *class_info = environment->find_object_class(pointer);
 			if (jsb_unlikely(!class_info)) {
