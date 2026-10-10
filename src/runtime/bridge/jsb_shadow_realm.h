@@ -28,11 +28,16 @@
 #include "jsb_bridge_pch.h"
 namespace jsb {
 
+class Environment;
+
 class ShadowRealm {
 public:
 	static void register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_self);
 	// release all shadow_realms, call from main thread (GodotJSScriptLanguage::finish)
 	static void finish_all();
+
+	/** 推进一个 realm 环境的 `update`：帧保护只对 realm 有意义（只有 realm 会被它自己 JS 帧内的 `terminate()` 销毁）。 */
+	static void update_env(Environment *p_env, uint64_t p_delta_msecs);
 };
 
 } //namespace jsb

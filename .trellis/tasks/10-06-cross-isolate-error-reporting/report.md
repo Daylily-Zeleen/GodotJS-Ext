@@ -1478,3 +1478,138 @@ jsb_check(TypeConvert::is_object(r_jval) && class_info->type == NativeClassType:
 → 实测 doctest 在 `RefCounted objects`(test_jsb_any_runtime.h:538)、场景在启动时 SIGSEGV。修法：在 `escape()`
 **之前**取 `const NativeClassType::Type class_type = class_info->type;`，或 `escape()` 后用 `get_native_class(class_id)` 重取。
 （本轮为验证自己的改动，仍临时把该行换成旧形式跑完测试，随后已逐字还原：`git diff jsb_type_convert.cpp` 无差异。）
+
+## §40 提交 + Node 路径同步投递 + 定时器同步档
+
+### 1. 提交
+`01d3a92 refactor(jsb): own cross-isolate errors inside jsb_cross_isolate`（含合并、Message 按指针持 payload、
+各腿 `throw_value`、typings/tests/spec）。submodule 未动。
+
+### 2. 投递处的线程闸（新增）
+`forward_error_to_master`：`Sync` 档只在 `master->thread_id_ == ThreadEx::get_caller_id()` 时就地 `handle_message`，
+否则退回 `post_message`（跨线程跑宿主的 JS 是 UB）。
+
+### 3. Node 路径的同步档（已实现且**实测通过**）
+- 先在钩子里做同步投递 → **实测崩**：`AsyncHooks::FailWithCorruptedAsyncStack`（`RunTimers` ← `PumpEventLoop`
+  ← `Environment::update`），进程当场退出、场景只跑到 26/41。原因：钩子在 node 的 timer 回调**异步作用域内部**。
+- 正确位置是原注释早就写明的那个点：**`PumpEventLoop()` 之后**（本帧、node 的 async 作用域之外）。
+  于是钩子恢复为"只暂存"，把 `flush_uncaught_exception` 的投递改成 `ErrorForwardMode::Sync`。
+- 实测：doctest 92/92；场景 rc=0、41 done、0 fail —— 其中 `error-reporting:timer-throw:shadow`
+  （正是先前崩掉的那个场景）现在带同步档跑过 ✔
+
+### 4. `JavaScriptTimerAction` 同步档
+`jsb_timer_action.cpp` 改 `Sync`（跨线程由上面的闸降级）。**注意**：node 腿 `bind_timer_if_missing` 检测到 node
+自带 `setTimeout` 就不再装 JSB 自己的定时器，所以这条路径**在 node 腿不会被走到** → 本轮无法实测，需非 node 腿验证。
+
+### 实测汇总
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；CrossEnvironment 场景 **rc=0、41 done、0 fail**。
+
+## §41 帧保护泛化到 Environment（用户选的 B，已实现）
+
+### 结论性的关键发现
+"安全点"(B) 在这份代码里天然存在：**主环境 `update()` 里那个 `shadow_env_list_` 循环会调每个 realm 的
+`update()`**（`jsb_environment.cpp:584-601`），所以"帧 = 一次 `update()` 派发"，深度归零点**正好**是
+"该环境这一轮派发已整体返回"的点。于是 B 不需要给每条收尾路径加早退，只需要把帧边界画在整个派发单元上。
+
+### 改动
+- `Environment`：`frame_depth_` + `FrameScope`（进入 +1，退到 0 时 `drain_deferred()`）
+  + `is_frame_active()` + `destroy_or_defer(fn, ctx)`（帧内登记、无帧立即执行）+ `drain_deferred()`。
+- `Environment::update()` 开头挂 `FrameScope`（整轮派发算一帧，覆盖 node 的 uv 循环 / 未捕获钩子 / JSB 定时器）。
+- `Environment::dispose()` 开头 `jsb_check(frame_depth_ == 0)` —— 把"帧内销毁"从静默 UAF 变成一句 dev 断言。
+- realm 侧：删掉 `ins_refcount_` / `terminated_in_frame_` / 内建 `FrameScope`；`_terminate()` 改查
+  `env_->is_frame_active()` → `destroy_or_defer(&_destroy_by_id, id)`；4 个帧站点改用 `Environment::FrameScope`。
+- **只覆盖同线程请求**（注释与 spec 都写明）；跨线程销毁（主线程 terminate worker）仍走 interrupt + 线程退出。
+- 未合并 `ExecutionDeferredScope`/`_execution_deferred`（那会让 class post-bind 在更多场合被推迟，行为面更大，
+  单独一轮做更稳）。
+
+### 实测
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；CrossEnvironment 场景 **rc=0、41 done、0 fail**；
+`dispose()` 的帧断言**未触发**；"A Thread object is being destroyed without its completion" 告警从崩溃那轮的一片变成 **0**。
+
+## §42 帧位置调整（用户要求）：update 不挂帧，只在必要点挂
+
+用户指出"update 的 FrameScope 绝大多数情况不必须"→ 去掉，改在必要点挂。落地后形状：
+
+- **`Environment::update()` 不挂帧**；新增一行（结尾）`drain_deferred()`（空判空，不是 RAII）。
+- **update 内部的 sink 挂"只计数"帧** `FrameScope(env, false)`：node 未捕获钩子的补做点（`flush_uncaught_exception`）、
+  JSB 定时器回调（`JavaScriptTimerAction::operator()`）。它们不自己补做——因为此刻定时器管理器还在迭代、
+  `update()` 还有尾巴，就地销毁会跑在已 dispose 的环境上。
+- **宿主直调入口照旧挂边界帧** `FrameScope(env)`（默认参数）：`_on_message` / `evaluate` / `importValue` /
+  `importValueSync`——它们退出后宿主不再碰本环境，所以由帧自己补做（也是"帧内 terminate 立刻生效"的语义所在）。
+- 于是"帧"= 进入本环境跑 JS；"补做点"= 该帧所属派发单元的真正结束处。两者解耦。
+
+### 实测
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**；
+`dispose()` 帧断言未触发；线程未 wait 告警 **0**。
+
+### 仍未覆盖（旧实现同样没有）
+不经过 `update()` 与那 4 个宿主入口的 JS 入口（引擎反过来调环境里的脚本实例方法 `Environment::call_function`/`_call`、
+`eval_source`、模块加载）没有帧；`dispose()` 的断言是它们的兜底。
+
+## §43 切回形状 A（用户定案）
+
+去掉 §42 的"只计数帧 + update 结尾 drain"那套，回到"帧 = 派发单元、退到最外层帧补做"：
+
+- `FrameScope` 去掉第二个参数 `boundary_`（形状 A 下所有帧都是边界），退到深度 0 时 `drain_deferred()`。
+- 挂载点收敛为 **5 处**：`Environment::update()` 开头 + 4 个宿主直调入口（`_on_message` / `evaluate` /
+  `importValue` / `importValueSync`）。
+- `jsb_environment.cpp` 的 node 未捕获钩子补做点、`jsb_timer_action.cpp` 的定时器回调：**不再挂帧**
+  （它们都在 `update()` 的帧里）；`update()` 结尾也不再需要 drain。
+- 附带收益：`update()` 一挂帧，它内部的其它 sink（inbox drain / 微任务检查点 / `exec_async_calls`）也被覆盖到。
+
+### 实测
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**；帧断言未触发；线程告警 0。
+
+## §44 `destroy_or_defer` 支持多次调用 + 修掉"terminate 后再调用 = 段错误"
+
+### 1. 多次调用（用户指出"暴露出去就不该只允许一次"）
+原实现是单槽 `(fn, ctx)`、重复请求"最后一次为准"，前面的静默丢弃 ✗。改为
+`std::vector<Pair<void(*)(void*), void*>> deferred_destroys_`：
+- 帧内登记，**相同 `(fn, ctx)` 去重**（销毁类请求重复执行没有意义）；
+- `drain_deferred()` 先 `swap` 出来再跑，回调里再请求销毁不会破坏迭代（此时无帧 → 立即执行）。
+
+### 2. 新增回归测试：宿主侧 `terminate()` 必须**立即**生效
+`ShadowRealm: terminate from the host takes effect immediately`：宿主里 `realm.terminate()` 之后再 `realm.evaluate()`
+必须干净地抛 `Call on an invalid shadow realm`（不是崩、也不是照常执行），且再 `terminate()` 一次幂等。
+
+**这条测试测出一个既有 bug**：`terminate()` 之后再调任何 realm 入口 → **SIGSEGV**。原因：入口守卫只查
+`realm == nullptr`，没查 `id_` 是否还有效；`finish()` 已经把 `env_` 置空、`id_` 清掉 → 后面解空指针。
+已修：5 处入口统一加 `!ShadowRealmImpl::is_valid(realm->get_id())`（用 `get_id()`，`id_` 是 private）。
+
+### 3. "update 里挂帧会不会让非 error 路径的 terminate 变慢"
+不会——帧是**每环境**的：宿主侧 `terminate()`（场景测试里 `peer.terminate()` 那种，在**别的环境**的 JS 里调）
+打不到该 realm 的帧 → `frame_depth_ == 0` → **仍然立即销毁** ✔（第 2 条测试钉住了这个语义）。
+只有"在该环境**自己**的 JS 里调 terminate"才延迟到本轮 update 结束；那条路径以前是**就地销毁已进入的
+isolate**（fatal / 崩溃），延迟是修复。
+
+### 实测
+node 构建 rc=0；doctest **93/93、1209 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**；帧断言未触发；线程告警 0。
+
+## §45 容器换 LocalVector + 帧只挂在 realm 专用更新入口
+
+1. `deferred_destroys_`：`std::vector` → **`LocalVector<Pair<void(*)(void*), void*>>`**。
+   - godot-cpp 的 `LocalVector` 没 `swap` → `drain_deferred()` 用"拷贝出来 + `clear()`"取出待办（罕见路径）。
+   - `Set` 能编译（`hashfuncs.hpp:187` 有 `Pair` 的 hash）但迭代是**哈希序**，销毁请求的顺序不可控 → 不用。
+   - `Vector<>`（COW）可行但同样没 swap，且"拷贝 + clear"可能触发 detach 拷贝 → 不如 LocalVector 直白。
+2. `Environment::update()` 里的 `FrameScope` 已移除；新增 **`ShadowRealm::update_env(Environment*, uint64_t)`**
+   （`jsb_shadow_realm.h/.cpp`）内部建帧再调 `Environment::update()`，shadow 循环改调它。
+   理由：只有 realm 环境会被它自己 JS 帧内的 `terminate()` 销毁；主环境不可被销毁、worker 走跨线程 interrupt
+   → 这一帧只该 realm 付。覆盖等价：realm 的 JS 只有"自己的 update"与"宿主直调"两类入口，后者 4 处已各有帧。
+
+### 实测
+node 构建 rc=0；doctest **93/93、1209 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**；帧断言未触发；线程告警 0。
+
+## §46 `drain_deferred()` 去掉拷贝（用户问：为什么不用移动）
+
+用户问得对：`LocalVector` 有移动构造（`local_vector.hpp:352`）与移动赋值（`:374`），`std::move` 本来就能用。
+但这里**连移动都不需要**：
+
+- `drain_deferred()` 只在 `frame_depth_ == 0` 时被调用（`~FrameScope` 深度归零那条路，函数内也有断言）；
+- 唯一的写入者 `destroy_or_defer` 在这个深度下是**立即执行**、不会往容器里追加；没有别的代码碰它
+  ⇒**遍历期间容器是冻结的**，直接遍历 + 事后 `clear()` 即可，零拷贝零移动零额外分配。
+
+（我原来的"拷贝一份以防回调里再登记"是在防一件按设计不可能发生的事。若将来允许 drain 期间的请求也走延迟，
+就必须改回快照——那时再用移动。）
+
+### 实测
+node 构建 rc=0；doctest **93/93、1209 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**。

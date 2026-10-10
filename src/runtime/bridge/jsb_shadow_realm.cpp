@@ -999,44 +999,10 @@ class ShadowRealmImpl {
 	void *token_ = nullptr;
 	jsb::DefaultModuleResolver *module_resolver_{ nullptr };
 
-	/**
-	 * 帧内引用计数（点3）：>0 表示本 realm 的某个 JS 帧（`_on_message` / `evaluate` …）还在 C++ 栈上。
-	 * 帧内 `terminate()` 只置 `terminated_in_frame_`、**不就地销毁** —— 否则会在帧内
-	 * `env_->dispose()` + `env_.reset()` 掉本帧正在跑的 isolate，实测宿主 `onerror` 里调 `terminate()` 直接
-	 * `FATAL ERROR: v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`。
-	 * 帧退出时由 `FrameScope` 析构补一次真正的销毁。
-	 */
-	int ins_refcount_ = 0;
-	bool terminated_in_frame_ = false;
-
 protected:
 	std::shared_ptr<Environment> env_{ nullptr };
 
 	virtual void dispose_environment() {}
-
-	/**
-	 * 帧内引用计数的 RAII：进入帧时 +1，退出时 -1；若这一帧里有人 `terminate()` 过
-	 * （`terminated_in_frame_`），就在这里把真正的销毁补上（此时帧内的 JS 调用/句柄都已用完）。
-	 *
-	 * 每个会执行 guest 代码、且可能同步转发给宿主（宿主 `onerror` 里用户可能 `terminate()`）的入口
-	 * 都要挂一个：`_on_message` / `evaluate` / `importValue` / `importValueSync`。
-	 * NOTE 本对象析构时 `realm_` 可能被销毁，所以**析构点之后不得再使用 `realm_`**（把它放在
-	 *      最后一次使用 realm 之后的函数作用域即可）。
-	 */
-	class FrameScope {
-		ShadowRealmImpl *realm_;
-
-	public:
-		explicit FrameScope(ShadowRealmImpl *p_realm) : realm_(p_realm) { ++realm_->ins_refcount_; }
-		~FrameScope() {
-			if (--realm_->ins_refcount_ == 0 && realm_->terminated_in_frame_) {
-				realm_->terminated_in_frame_ = false;
-				ShadowRealmImpl::_destroy(realm_->id_);
-			}
-		}
-		FrameScope(const FrameScope &) = delete;
-		FrameScope &operator=(const FrameScope &) = delete;
-	};
 
 	// friend class TransferableShadowRealmImpl;
 
@@ -1189,10 +1155,15 @@ protected:
 		id_ = ShadowRealmID::none();
 	}
 
+	/** 延迟销毁的回调体：帧内 `terminate()` 登记它，退到最外层帧时执行。 */
+	static void _destroy_by_id(void *p_context) {
+		_destroy(ShadowRealmID((uint32_t)(uintptr_t)p_context));
+	}
+
 	/**
 	 * 真正销毁一个 realm：拆掉它的环境、从 realm 列表摘除。
-	 * NOTE 只在"没有帧还压在这个 realm 的环境上"时调用（`ins_refcount_ == 0`）；
-	 *      帧内 `terminate()` 由 `_terminate` 转成延迟销毁，退帧时再走到这里。
+	 * NOTE 只在"没有帧还压在这个 realm 的环境上"时调用（`env_->is_frame_active() == false`）；
+	 *      帧内 `terminate()` 转成 `Environment::destroy_or_defer`，由退帧时补做。
 	 * NOTE 摘除必须用**传入的 id**：`finish()` 会把 `id_` 置空。
 	 */
 	static void _destroy(ShadowRealmID p_id) {
@@ -1214,11 +1185,10 @@ protected:
 
 		ShadowRealmImpl *impl;
 		if (get_shadow_realm_list().try_get_value(p_shadow_id, impl)) {
-			if (impl->ins_refcount_ > 0) {
-				// 帧内销毁：本帧（`evaluate` / `_on_message` …）还压在这个 realm 的 isolate 上，
-				// 就地销毁会 `v8::Isolate::Deinitialize(): Deinitializing the isolate that is entered by a thread`。
-				// 只做标记，真正的销毁交给退帧时的 `FrameScope`。
-				impl->terminated_in_frame_ = true;
+			if (impl->env_ && impl->env_->is_frame_active()) {
+				// 帧内销毁：本环境的 JS 帧还压在栈上，就地销毁会 `v8::Isolate::Deinitialize():
+				// Deinitializing the isolate that is entered by a thread`。登记，退到最外层帧再补做。
+				impl->env_->destroy_or_defer(&ShadowRealmImpl::_destroy_by_id, (void *)(uintptr_t)*p_shadow_id);
 				return true;
 			}
 
@@ -1311,7 +1281,8 @@ public:
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (realm == nullptr) {
+		if (realm == nullptr || !ShadowRealmImpl::is_valid(realm->get_id())) {
+			// 已 `terminate()`（`finish()` 把 `env_` 置空、`id_` 清掉）之后再调这里必须干净地报错，不能解空指针。
 			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
@@ -1347,7 +1318,8 @@ public:
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (realm == nullptr) {
+		if (realm == nullptr || !ShadowRealmImpl::is_valid(realm->get_id())) {
+			// 已 `terminate()`（`finish()` 把 `env_` 置空、`id_` 清掉）之后再调这里必须干净地报错，不能解空指针。
 			jsb_throw(host_isolate, "Call on an invalid shadow realm");
 			return;
 		}
@@ -1368,7 +1340,7 @@ public:
 		{
 			// 帧保护：guest 代码执行期间（含其异常同步转发到宿主 `onerror`）用户可能 `terminate()`。
 			// NOTE 这个块的作用域就是"帧"，它比函数体短——`realm` 在块外不再使用，销毁可安全发生在这里。
-			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+			const Environment::FrameScope frame_scope(realm->env_.get());
 
 			v8::Isolate *guest_isolate = realm->env_->get_isolate();
 			JSB_ISOLATE_SCOPE(guest_isolate);
@@ -1429,7 +1401,8 @@ public:
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (realm == nullptr) {
+		if (realm == nullptr || !ShadowRealmImpl::is_valid(realm->get_id())) {
+			// 已 `terminate()`（`finish()` 把 `env_` 置空、`id_` 清掉）之后再调这里必须干净地报错，不能解空指针。
 			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
@@ -1464,7 +1437,7 @@ public:
 		v8::Local<v8::Value> result;
 		{
 			// 帧保护：与 `importValueSync` 同理，帧内的 terminate() 必须延迟销毁，`realm` 此后不再使用。
-			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+			const Environment::FrameScope frame_scope(realm->env_.get());
 			result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		}
 		if (result.IsEmpty()) {
@@ -1492,7 +1465,8 @@ public:
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (realm == nullptr) {
+		if (realm == nullptr || !ShadowRealmImpl::is_valid(realm->get_id())) {
+			// 已 `terminate()`（`finish()` 把 `env_` 置空、`id_` 清掉）之后再调这里必须干净地报错，不能解空指针。
 			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
@@ -1521,7 +1495,7 @@ public:
 		{
 			// 帧保护：guest 代码执行期间用户可能在本帧内 `terminate()`（例如捕获同步异常后立刻销毁 realm），
 			// 这里必须把销毁延迟到本帧结束，`realm` 此后不再使用。
-			const FrameScope frame_scope(const_cast<ShadowRealmImpl *>(realm));
+			const Environment::FrameScope frame_scope(realm->env_.get());
 			result = _importValue(env, realm, specifier, value_name.As<v8::String>(), err_msg);
 		}
 		if (result.IsEmpty()) {
@@ -1752,7 +1726,7 @@ private:
 		jsb_checkf(env_ && !context_obj_handle_.IsEmpty(), "Post message to a dead shadowRealm.");
 
 		// 本帧压在这个 realm 的 isolate 上：帧内的 terminate() 只标记、退帧时才真正销毁（点3）
-		const FrameScope frame_scope(this);
+		const Environment::FrameScope frame_scope(env_.get());
 
 		v8::Isolate *isolate = env_->get_isolate();
 		JSB_ISOLATE_SCOPE(isolate);
@@ -1905,7 +1879,8 @@ public:
 		}
 
 		const ShadowRealmImpl *realm = (ShadowRealmImpl *)self->GetAlignedPointerFromInternalField(IF_Pointer);
-		if (realm == nullptr) {
+		if (realm == nullptr || !ShadowRealmImpl::is_valid(realm->get_id())) {
+			// 已 `terminate()`（`finish()` 把 `env_` 置空、`id_` 清掉）之后再调这里必须干净地报错，不能解空指针。
 			jsb_throw(isolate, "Call on an invalid shadow realm");
 			return;
 		}
@@ -1978,6 +1953,13 @@ public:
 #	pragma endregion TransferableShadowRealm
 
 #	pragma region ShadowRealm
+void ShadowRealm::update_env(Environment *p_env, uint64_t p_delta_msecs) {
+	// 帧内 `terminate()` 只登记，退帧时（这一轮 update 结束）再补做销毁：此刻定时器管理器已迭代完、
+	// `update()` 的尾巴也跑完了。主环境不可被销毁、worker 是跨线程 interrupt，都不需要这一帧。
+	const Environment::FrameScope frame_scope(p_env);
+	p_env->update(p_delta_msecs);
+}
+
 void ShadowRealm::finish_all() {
 	ShadowRealmImpl::finish_all();
 	SymbolCrossUtils::clean();

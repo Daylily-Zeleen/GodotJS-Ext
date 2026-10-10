@@ -461,6 +461,7 @@ void Environment::init() {
 }
 
 void Environment::dispose() {
+	jsb_check(frame_depth_ == 0); // 帧内销毁 = 不变量被破坏（应走 `destroy_or_defer`）
 	JSB_LOG(Verbose, "disposing Environment %s", (uintptr_t)id());
 
 	flags_ |= EF_PreDispose;
@@ -591,7 +592,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 		const internal::Index32 next_id = shadow_env_list_.get_next_index(shadow_env_id);
 
 		if (const std::shared_ptr<Environment> realm = weak_realm.lock()) {
-			realm->update(p_delta_msecs);
+			ShadowRealm::update_env(realm.get(), p_delta_msecs);
 		} else {
 			JSB_LOG(Error, "A shadow environment is no longer valid, it will be removed from the list.");
 			shadow_env_list_.remove_at_checked(shadow_env_id);
@@ -801,8 +802,9 @@ void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exceptio
 	const v8::Local<v8::Context> context = get_context();
 	const v8::Context::Scope context_scope(context);
 	Message message(Message::TYPE_ERROR, handle_in_master_env_, cross_isolate::capture_error(this, p_exception));
-	if (p_mode == ErrorForwardMode::Sync) {
-		// 同步投递会把宿主的 `onerror` 插进来源侧的 JS 帧里执行：来源侧必须保证帧内销毁自己不会析构 isolate。
+	// 同线程才能同步投递：跨线程宿主走 `handle_message` 会把宿主的 JS 跑到本线程上。
+	if (p_mode == ErrorForwardMode::Sync && master->thread_id_ == ThreadEx::get_caller_id()) {
+		// 帧内把宿主的 `onerror` 跑完；来源侧须保证帧内销毁自己不会析构 isolate（见 spec）。
 		master->handle_message(std::move(message));
 	} else {
 		master->post_message(std::move(message));
@@ -824,6 +826,7 @@ void Environment::stash_uncaught_exception(const v8::FunctionCallbackInfo<v8::Va
 	if (exception.IsEmpty()) {
 		return;
 	}
+	// 落在别的线程（node 的 uv 线程池）：只能暂存，等本环境 `update()` 里再处理。
 	const std::lock_guard<std::recursive_mutex> lock(env->uncaught_mutex_);
 	StashedException &slot = env->uncaught_[env->uncaught_write_];
 	slot.value.Reset(isolate, exception); /** NOTE 强引用：回调返回后异常值只剩这一份 */
@@ -863,8 +866,9 @@ void Environment::flush_uncaught_exception() {
 			continue;
 		}
 		JSB_LOG(Error, "uncaught error %s", impl::Helper::to_string(isolate, exception));
-		// 统一入口自己判接收者、capture；node 未捕获异常只暂存、下一帧再转发（异步档）
-		forward_error_to_master(exception, ErrorForwardMode::Async);
+		// 同步档：本点已在 node 的 async 作用域之外（`PumpEventLoop` 之后），宿主同线程就能在本帧把
+		// `onerror` 跑完；跨线程宿主由投递闸自动降级为排队。（在钩子里同步跑会打乱 node 的异步栈。）
+		forward_error_to_master(exception, ErrorForwardMode::Sync);
 	}
 }
 #endif
@@ -1533,6 +1537,34 @@ void Environment::_execute_class_post_bind(const StringName &p_class_name, const
 	v8::MaybeLocal<v8::Value> rval = post_bind->Call(context, v8::Undefined(get_isolate()), std::size(argv), argv);
 	jsb_unused(rval);
 	jsb_check(rval.ToLocalChecked()->IsUndefined());
+}
+
+void Environment::destroy_or_defer(void (*p_fn)(void *), void *p_context) {
+	if (p_fn == nullptr) {
+		return;
+	}
+	if (frame_depth_ <= 0) {
+		p_fn(p_context);
+		return;
+	}
+	// 帧内：登记（去重），退到最外层帧时补做。
+	for (const Pair<void (*)(void *), void *> &item : deferred_destroys_) {
+		if (item.first == p_fn && item.second == p_context) {
+			return;
+		}
+	}
+	deferred_destroys_.push_back({ p_fn, p_context });
+}
+
+void Environment::drain_deferred() {
+	jsb_check(frame_depth_ == 0);
+	if (deferred_destroys_.is_empty()) {
+		return;
+	}
+	for (const Pair<void (*)(void *), void *> &item : deferred_destroys_) {
+		item.first(item.second);
+	}
+	deferred_destroys_.clear();
 }
 
 void Environment::_execute_deferred() {

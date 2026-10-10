@@ -395,6 +395,50 @@ globalThis.__cap_probe = (function () {
 	CHECK(cap_text.contains(R"("hasMarker":true)"));
 }
 
+// 回归：宿主侧 `terminate()`（在别的环境里调）必须**立即**生效——帧保护只针对"本环境自己的 JS 帧"。
+TEST_CASE("[runtime] [jsb] ShadowRealm: terminate from the host takes effect immediately") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__term_probe = (function () {
+	const realm = new JSShadowRealm();
+	realm.evaluate("1 + 1");
+	const hasTerminate = typeof realm.terminate;
+	realm.terminate();
+	let after = "no-throw";
+	try {
+		after = "value:" + String(realm.evaluate("1 + 1"));
+	} catch (e) {
+		after = "throw:" + String(e && e.message);
+	}
+	let second = "ok";
+	try {
+		realm.terminate();
+	} catch (e) {
+		second = "throw:" + String(e && e.message);
+	}
+	return JSON.stringify({ hasTerminate, after, second });
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__term_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("hasTerminate":"function")"));
+	CHECK(text.contains(R"("after":"throw:)")); // 已终止：再 evaluate 必须干净地抛（不是崩、也不是照常执行）
+	CHECK(text.contains("Call on an invalid shadow realm"));
+	CHECK(text.contains(R"("second":"ok")")); // 再 terminate 一次是幂等的
+}
+
 // 回归：`console.log(err)` 不能崩（`stringify` 只把 `GodotObject` 当绑定对象），且 `cause` 懒物化仍可用。
 TEST_CASE("[runtime] [jsb] ShadowRealm: logging a CrossEnvError is safe") {
 	GodotJSScriptLanguageIniter initer;

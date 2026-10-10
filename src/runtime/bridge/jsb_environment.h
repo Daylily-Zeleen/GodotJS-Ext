@@ -234,6 +234,12 @@ private:
 
 	bool _execution_deferred = false;
 
+	// 帧深度：>0 表示本环境的一次 JS 派发（一次 `update()` / 一次宿主直调）还压在 C++ 栈上。
+	// 帧内不允许就地销毁本环境（见 `destroy_or_defer`）。
+	int frame_depth_ = 0;
+	// 帧内登记下来的销毁请求：退到最外层帧时按登记顺序补做；相同 (fn, ctx) 去重。
+	LocalVector<Pair<void (*)(void *), void *>> deferred_destroys_;
+
 	// in certain contexts (such as cross-worker deserialization) we may encounter a class and bind it lazily as
 	// per usual. However, we're unable to execute JavaScript mid-deserialization. Instead we need to keep track of
 	// pending class post bind classes and execute them when it's safe to do so.
@@ -326,6 +332,38 @@ public:
 		ThreadEx::ID thread_id = 0;
 		Type type = Type::Default;
 	};
+
+	/**
+	 * 帧作用域：本环境的一次派发（`update()` 或宿主直调入口）还压在 C++ 栈上，帧内 `terminate()` 只登记。
+	 * 退到最外层帧（深度归零）时补做被登记的销毁 —— 此刻本环境这一轮该做的都做完了。
+	 * 挂载点：`Environment::update()`（它套住了内部的定时器 / 未捕获钩子等 sink）+ 宿主直调入口
+	 * （`_on_message` / `evaluate` / `importValue(Sync)`，它们不经过 `update()`）。
+	 * NOTE 帧声明点之后不得再使用本环境（或其 owner）。
+	 */
+	class FrameScope {
+		Environment *env_;
+
+	public:
+		explicit FrameScope(Environment *p_env) : env_(p_env) {
+			if (env_ != nullptr) {
+				++env_->frame_depth_;
+			}
+		}
+		~FrameScope() {
+			if (env_ != nullptr && --env_->frame_depth_ == 0) {
+				env_->drain_deferred();
+			}
+		}
+		FrameScope(const FrameScope &) = delete;
+		FrameScope &operator=(const FrameScope &) = delete;
+	};
+
+	_FORCE_INLINE_ bool is_frame_active() const { return frame_depth_ > 0; }
+
+	/** 请求销毁本环境：帧内只登记（退到最外层帧时按登记顺序补做），没帧则立即执行 `p_fn(p_context)`。
+	 *  可多次调用；相同 `(p_fn, p_context)` 只登记一次（销毁类请求重复执行没有意义）。
+	 *  NOTE 只覆盖**同线程**请求；跨线程销毁（主线程 terminate worker）仍走各自的 interrupt + 线程退出路径。 */
+	void destroy_or_defer(void (*p_fn)(void *), void *p_context);
 
 	class ExecutionDeferredScope {
 		Environment *env_;
@@ -533,12 +571,10 @@ public:
 
 	/** 跨环境错误转发的投递档位（点2：同一套接口的两个档位）。 */
 	enum class ErrorForwardMode : uint8_t {
-		/** 同步：在调用帧内把宿主的 `onerror` 跑完。只给"来源侧本来就是同步入口"的场景
-		 *  （如 shadow realm 的 `onmessage`、同步 `evaluate`），此时 realm 与宿主同线程同栈。
-		 *  NOTE 帧内调用方必须持有 `ShadowRealmImpl::ins_refcount_`（帧内 `terminate()` 不得就地销毁）。 */
+		/** 同步：**宿主与本环境同线程时**在调用帧内把宿主的 `onerror` 跑完；跨线程自动降级为排队。
+		 *  NOTE 帧内调用方必须保证帧内销毁自己不会析构 isolate（见 spec 的 sync 约束）。 */
 		Sync,
-		/** 异步：把错误排进宿主的 inbox，由宿主下一帧 `update()` 派发。
-		 *  来源是另一线程（worker）或"捕完就没栈了"的回调（定时器）时必须用它。 */
+		/** 异步：总是排进宿主的 inbox，由宿主下一帧 `update()` 派发。 */
 		Async,
 	};
 
@@ -826,6 +862,7 @@ private:
 
 	void _execute_class_post_bind(const StringName &p_class_name, const v8::Local<v8::Function> &p_class);
 	void _execute_deferred();
+	void drain_deferred();
 
 	Variant _call(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Function> &p_func, const v8::Local<v8::Value> &p_self, const Variant **p_args, int p_argcount, GDExtensionCallError &r_error);
 

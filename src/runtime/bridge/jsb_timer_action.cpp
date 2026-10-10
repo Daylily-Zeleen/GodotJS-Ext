@@ -70,7 +70,7 @@ void JavaScriptTimerAction::operator()(v8::Isolate *isolate) {
 #endif
 	if (try_catch.has_caught()) {
 		if (Environment *env = Environment::wrap(isolate)) {
-			env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Async);
+			env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
 		}
 		JSB_LOG(Error, "timer error %s", BridgeHelper::get_exception(try_catch));
 	}

@@ -15,7 +15,7 @@
      "捕完异常就返回、栈随即消失"的回调（定时器）。worker 与 master 不同线程，同步投递是跨线程调 JS，非法。
    - **同步**（`handle_message`）：来源与宿主**同线程同栈**时（shadow realm 的 `onmessage`/同步 `evaluate`）。
      同步投递会把宿主的 `onerror` 插进来源侧的 JS 帧里执行——所以**必须**由来源侧的帧内引用计数兜住：
-     `ShadowRealmImpl::ins_refcount_ > 0` 时 `terminate()` 只做标记、退帧时才真正销毁
+     `Environment::is_frame_active()` 为真时 `terminate()` 只登记、退到最外层帧时才真正销毁
      （见硬约束 12）。没有这层保护时，用户在 `onerror` 里 `terminate()` 会实测
      `FATAL ERROR: v8::Isolate::Deinitialize() Deinitializing the isolate that is entered by a thread`。
 3. **`TryCatch` 的取值顺序**：`has_caught()` → `get_exception_value()` → `get_message()`。
@@ -58,13 +58,20 @@
     purge 时对每个指针调 `reset(true)`（只清自身 v8 引用，不动注册表），**注册表条目由 purge 统一摘除**，
     避免与 `remove_cache` 双删同一 `SArray` 槽。注意 `unordered_map::erase(it)` 之后不能再读 `it->second`
     （迭代器失效，实测为悬垂读），要先把 `WrapperIdx` 取出来再 erase。
-12. **realm 的 JS 帧必须用 `ShadowRealmImpl::FrameScope` 兜住销毁**。帧内引用计数 `ins_refcount_ > 0`
-    时 `_terminate()` **只置 `terminated_in_frame_` 标记、不就地销毁**；退帧时 `FrameScope` 析构补真正的
+12. **环境级帧保护（`Environment::FrameScope`）**。`frame_depth_ > 0` 表示本环境的一次派发
+    （`update()` / 宿主直调入口）还压在栈上；此时 `_terminate()` 走 `Environment::destroy_or_defer()`（可多次调用，
+    多次登记按顺序补做、相同 `(fn, ctx)` 去重），
+    **只登记、不就地销毁**；退到最外层帧（深度归零，即这一轮派发整体结束）时 `drain_deferred()` 补真正的
     `_destroy(id)`。否则帧内（宿主 `onerror` 里）`terminate()` 会 `env_->dispose()` + `env_.reset()` 掉
     本帧正在跑的 isolate（硬约束 2 的 fatal）。`_destroy` 要用**传入的 id** 摘除，因为 `finish()` 会清空 `id_`。
-    **每个会执行 guest 代码、且可能同步转发给宿主的入口都要挂 `FrameScope`**：`_on_message` / `evaluate` /
-    `importValue` / `importValueSync`（用户可以在任何一处捕获异常后立刻 `terminate()`）。
-    NOTE `FrameScope` 析构时会销毁 realm，所以**析构点之后不得再使用 `realm`**；`evaluate` 里把它放在
+    **帧 = 一次派发单元**，只挂在 5 个入口：**`ShadowRealm::update_env()`**（realm 专用更新入口，内部建帧
+    再调 `Environment::update()`；它套住了内部定时器 / node 未捕获钩子等 sink）与 4 个**宿主直调**入口
+    （`_on_message` / `evaluate` / `importValue` / `importValueSync`）。`Environment::update()` 本身**不建帧**：
+    主环境不可被销毁、worker 的 terminate 是跨线程走 interrupt + 线程退出，都不需要付这一帧。
+    退到最外层帧（深度归零）时 `drain_deferred()` 补做销毁：此刻定时器管理器已迭代完、`update()` 的尾巴也已跑完，
+    因此不会出现"收尾代码跑在已 dispose 的环境上"。多次请求按登记顺序补做、相同 `(fn, ctx)` 去重
+    （容器用 `LocalVector<Pair<fn, ctx>>`：有序、空时不上堆、无 COW；不要用 `Set`——迭代是哈希序，顺序不可控）。
+    NOTE 退帧时可能真的销毁本环境，所以**帧声明点之后不得再使用本环境/其 owner**；`evaluate` 里把它放在
     guest 执行的那个块作用域内（块比函数体短，块外的 host 重建不再碰 realm）。
 13. **统一转发入口内部才做"判接收者 + capture"**（`forward_error_to_master(const v8::Local<v8::Value>&)`）。
     调用方只把 `TryCatch::get_exception_value()` 交出去，不要各自 `has_error_receiver()`/`capture()`。
@@ -157,7 +164,9 @@ ErrorRecord = { name, message, stack, source_realm, extra, untransferred, cause 
 | `JSShadowRealm.importValue` | Promise reject（一个 `Error`；未处理的 reject 由 `PromiseRejectCallback_` 记日志，不会继续抛） |
 | `JSWorker.onerror` | 异步：worker 侧发 `TYPE_ERROR`，宿主重建为 `CrossEnvError` |
 | `TransferableJSShadowRealm.onerror` | **同步**（realm 与宿主同线程同栈）：`forward_error_to_master(..., Sync)`，回调在本帧内跑完 |
-| worker / transferable shadow realm 里的定时器回调异常 | **异步**：worker 与 realm 都走 `forward_error_to_master(..., Async)`，下一帧由宿主 `update()` 派发 |
+| 定时器回调异常（`JavaScriptTimerAction`） | **同步档**：`forward_error_to_master(..., Sync)`；宿主跨线程时由投递闸自动降级为排队。NOTE node 腿不装 JSB 的 `setTimeout`（node 自带的优先），这条在 node 腿不走 |
+| node 未捕获异常（`process.setUncaughtExceptionCaptureCallback`） | **本帧稍后的同步档**：钩子里只暂存，在 `PumpEventLoop()` **之后**（node 的 async 作用域之外）才 capture + `Sync` 投递；钩子内直接同步跑宿主的 `onerror` 会打乱 node 的异步栈（实测 `AsyncHooks::FailWithCorruptedAsyncStack` → 进程退出） |
+| ~~worker / transferable shadow realm 里的定时器回调异常~~（历史行） | ~~**异步**：worker 与 realm 都走 `forward_error_to_master(..., Async)`，下一帧由宿主 `update()` 派发 |
 | worker 入口脚本加载失败 | 异步：worker 侧直接 `forward_error_to_master(字符串文案)`（它自己当时做不出记录）；宿主侧仍包成 `CrossEnvError`，那串文案落在 `cause` |
 | 原始值异常（`throw "boom"` / `42` / `null` / `undefined`） | 任意入口都**包成 `CrossEnvError`**，本体原样放进 `cause`，`message` 取 `String(cause)` |
 | 主环境、普通 shadow realm 的定时器回调异常 | 只进日志（前者的 realm 没有 `onerror` 接收者，后者没有全局错误钩子） |
@@ -165,10 +174,10 @@ ErrorRecord = { name, message, stack, source_realm, extra, untransferred, cause 
 ## 写新代码时的检查单
 
 - [ ] 跨边界错误走"记录 → 复制 → 重建"，没有把 `Local/Global` 带过界
-- [ ] 调用统一入口 `forward_error_to_master(exception, mode)`：`mode` 与来源侧线程/栈语义相符（跨线程=Async）；
+- [ ] 调用统一入口 `forward_error_to_master(exception, mode)`：`Sync` 档只在宿主**同线程**时才会就地投递（跨线程自动降级为排队）；
       不要在调用点自己 `has_error_receiver()`/`capture()`
 - [ ] 转发入口内部有 `v8::Context::Scope`（capture/serialize 要建对象）；用异常值入口时**在入 isolate 作用域后再 capture**
-- [ ] 来源侧是同步帧时，帧内 `terminate()` 被 `ShadowRealmImpl::FrameScope` 兜住（延迟销毁）
+- [ ] 来源侧是同步帧时，帧内 `terminate()` 被 `Environment::FrameScope` 兜住（延迟销毁）；`Environment::dispose()` 的 `jsb_check(frame_depth_ == 0)` 必须不触发
 - [ ] `TryCatch` 取值顺序正确，且 `has_caught()` 只调一次；调用转发后仍用 `get_exception()` 清异常槽（否则 quickjs 脏槽）
 - [ ] 新增的 JS 侧采集/重建脚本有界（深度/节点/字符串/清单上限）
 - [ ] 目标 realm 拿到的是 `CrossEnvError`（`extends Error`，`instanceof` 成立），源异常在 `cause`、未携带字段在 `untransferred`
