@@ -54,29 +54,6 @@ declare module "godot-jsb" {
      */
     const BIGINT_FOR_64BIT: boolean;
 
-    /**
-     * `Symbol.for("jsb.untransferred")`：跨隔离区错误（worker / ShadowRealm / 定时器）里
-     * **未能携带**的字段路径清单所用 symbol 键。重建出来的 Error 上可用 `e[untransferred]` 读到，
-     * 例如 `["detail","fn"]`；清单被截断时最后一项是 `"..."`。
-     *
-     * 只有 **JS 基础类型**（string / number / boolean / null / undefined）会被搬运；数组、普通对象、
-     * 函数、symbol、BigInt、Godot 类型都不会跟过来，需要你自己在发送侧显式转换后再挂到 Error 上。
-     */
-    const untransferred: unique symbol;
-
-    /**
-     * 跨隔离区错误的回调参数（`JSWorker.onerror` / `TransferableJSShadowRealm.onerror`）：
-     * 对象异常会被**重建为 Error**（`name`/`message`/`stack` 与可携带的自定义字段都在）；
-     * 原始值异常（`throw "boom"` / `throw 42`）按原样送达。
-     */
-    type JsbThrownValue = Error | string | number | boolean | bigint | null | undefined;
-
-    declare global {
-        interface Error {
-            /** 未能跨隔离区携带的字段路径（见 `untransferred`） */
-            [untransferred]?: string[];
-        }
-    }
 
     /** version of GodotJS */
     const version: string;
@@ -422,3 +399,21 @@ declare function clearTimeout(id: number | undefined): void;
 declare function setInterval(handler: () => void, timeout?: number, ...arguments: any[]): number;
 /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/setTimeout) */
 declare function setTimeout(handler: () => void, timeout?: number, ...arguments: any[]): number;
+
+/**
+ * 跨隔离区错误的包装类型：**凡是穿过隔离区的错误都是它**
+ * （`JSWorker.onerror` / `TransferableJSShadowRealm.onerror` / `JSShadowRealm.evaluate` 等）。
+ *
+ * 它本身**只表示"有异常从别的环境抛出来了"**，源环境里抛出的那个东西在 `cause` 里
+ * （`throw "boom"` 这类原始值异常也包一层，`cause` 就是那个原始值）。
+ *
+ * 只有 **JS 基础类型**（string / number / boolean / null / undefined）会被搬运；数组、普通对象、
+ * 函数、symbol、BigInt、Godot 类型都不会跟过来，需要你自己在发送侧显式转换后再挂到 Error 上。
+ */
+declare class CrossEnvError extends Error {
+    /** `message` 形如 `"worker: <cause>"`（前缀标出错误来自哪种环境）； */
+    /** 源异常里**未能携带**的字段路径清单，例如 `["detail","fn"]`；截断时最后一项是 `"..."` */
+    readonly untransferred: readonly string[];
+    /** 在本地 realm 重建出来的**源异常本体**（原始值异常就是那个原始值本身） */
+    readonly cause: unknown;
+}

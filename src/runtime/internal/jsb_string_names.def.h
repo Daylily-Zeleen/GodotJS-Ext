@@ -91,6 +91,8 @@ DEF(postMessage)
 DEF(transfer)
 DEF(close)
 
+DEF(CrossEnvError)
+
 #if JSB_SHADOW_REALM_ENABLED
 DEF(FunctionCrossWrapper)
 DEF(ObjectCrossWrapper)

@@ -819,7 +819,7 @@ public:
 
 private:
 #if !JSB_WITH_WEB
-	void _on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message);
+	void _on_worker_message(const v8::Local<v8::Context> &p_context, Message &p_message);
 #endif
 
 	void _rebind(v8::Isolate *isolate, const v8::Local<v8::Context> context, Object *p_this, ScriptClassID p_class_id);

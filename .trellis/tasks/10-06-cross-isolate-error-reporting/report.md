@@ -1200,3 +1200,281 @@ node 构建 rc=0；doctest **91/91 SUCCESS**；CrossEnvironment 场景 rc=0、5/
 
 ### 仍未做
 node `stash_uncaught_exception` 的"同步档"（用户此前点出，等口径）。
+
+## §31 CrossEnvError 包装类（真类，注册进 globalThis）
+
+用户定案：真类、`globalThis`、由 `jsb_cross_isolate` 注册；message 用第二种形式；`untransferred` 特例携带。
+
+### 形状
+- `class CrossEnvError extends Error`，由 `jsb_cross_isolate::ensure_cross_env_error()` 在**目标 realm** 里
+  按需注册到 `globalThis`（C++ 侧 eval 一段 snippet，不碰 TS bundle/codegen）。
+  取不到（用户删了）→ `rebuild_error_from_bytes` 回退返回源异常本体。
+- wrapper：`message = "<realm>: <cause.message>"`、`cause` = 重建后的源异常、`sourceRealm` =
+  `"worker" | "shadowRealm"`、`untransferred` = 纯字段（symbol 已删除）。
+- `extends Error` ⇒ `instanceof Error` 仍成立。
+- **原始值异常不包装**（`throw "boom"` 按原样送达；它没有字段/清单可带），这是保留的既有契约。
+- 源异常自身的字段（name/message/stack/extra/内层 cause）都在 `cause` 上。
+
+### 改动面
+- `jsb_error_record.{h,cpp}`：`ErrorRecord` 加 `source_realm`；payload 加 `sourceRealm` 键；
+  `capture_error_fields` 特例：own `untransferred` 是字符串数组时**并进记录**（跨多层时不丢）；
+  `rebuild` 去掉 `Symbol.for(kSymbolKey)`；删除 `kSymbolKey`。
+- `jsb_cross_isolate_util.{h,cpp}`：`serialize_exception` 记录来源环境类型；`rebuild_error_from_bytes`
+  改为构建 wrapper；新增 `ensure_cross_env_error`；删除 `untransferred_symbol_key`。
+- `jsb_bridge_module_loader.cpp`：删除 `untransferred` symbol 暴露。
+- `scripts/typings/godot.minimal.d.ts`：删 symbol，加全局 `declare class CrossEnvError`，
+  `JsbThrownValue` 加入 `CrossEnvError`。
+- 测试：`test_jsb_shadow_realm.h`（record 两个用例改读 `e.cause` / `e.untransferred`）、
+  `test-cross-environment.ts`（`error instanceof CrossEnvError` + `error.untransferred`）。
+
+### 过程中修掉的两个问题
+1. `ensure_cross_env_error` 的 IIFE 少 `return`，`script->Run` 返回 `undefined` → 不是函数 → 一直回退成普通 Error
+   （doctest 一度 89/91）。补 `return globalThis.CrossEnvError;` 后修复。
+2. `tsc` 报 `Cannot find name 'CrossEnvError'`：`project/typings/` 是**未跟踪的生成产物**（由内嵌预设安装，
+   headless 不跑安装步骤）；同步 `scripts/typings/*.d.ts` 过去后编译通过。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；CrossEnvironment 场景 rc=0、5/5 error-reporting 场景 done、0 Fatal/FAILED。
+
+### 仍未做
+- node `stash_uncaught_exception` 的"同步档"（等口径）。
+- 未提交（HEAD 仍是 `4a29d1e`；用户只授权提交那一次）。
+
+## §32 用户纠错：`ensure_cross_env_error` 从 `globalThis` 反取构造函数 = 错
+
+用户指出（对的）：`globalThis.CrossEnvError` 是**暴露给用户**用的（`instanceof` / 使用），
+C++ **不能**从那里反取构造函数——用户改了/删了就会坏，而且那等于让用户数据当权威。
+另外用户定案：跨隔离区**一律**用这个类型包起来（原始值也一样），`JsbThrownValue` 该删。
+
+### 改法
+1. `Environment` 新增 `v8::Global<v8::Function> cross_env_error_ctor_`（+ 访问器；dispose 里 `Reset`）。
+2. `ensure_cross_env_error(Environment*)`：**类定义写在 C++ 里**，构造出来的构造函数 **C++ 自己持有**
+   （缓存进 Environment）；同时 `globalThis.CrossEnvError = ...` 只作**用户暴露**。不再读 `globalThis`。
+3. 新增 `make_cross_env_error(env, message, cause, sourceRealm, untransferred)`，`rebuild_error_from_bytes`
+   与 worker 空 payload 分支都用它 —— **一律包装**。
+4. 原始值异常：去掉 `if (record.is_primitive) return cause;`，本体放进 `cause`，`message = "<realm>: " + String(cause)`。
+5. `throw_cross_isolate_error` 的退化分支（序列化都失败）也包成 `CrossEnvError`（建不出类才退回普通 `Error`）。
+6. 类型：删 `JsbThrownValue`；`JSWorker.onerror` / `TransferableJSShadowRealm.onerror` 参数改 `CrossEnvError`。
+   `scripts/typings/*` 与 `project/typings/*` 同步。
+
+### 测试更新
+- doctest：`ShadowRealm: a primitive thrown value is wrapped with the primitive in cause`
+  （断言 `isCrossEnv:true` / `sourceRealm:"shadowRealm"` / `message:"shadowRealm: primitive-boom"` / `causeType:"string"`）。
+- 场景：`error-reporting:startup-load-failure` 断言改为 `error instanceof CrossEnvError` + `error.cause` 含文案。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；`tsc --noEmit` rc=0；CrossEnvironment 场景 rc=0、0 FAIL、
+`startup-load-failure:worker:done`。
+NOTE 场景首次失败：改了 `.ts` 但没 emit（`project/.godot/godotjs_ext/` 才是运行产物），跑 `npx tsc` 后通过。
+
+### 仍未做
+- node `stash_uncaught_exception` 的"同步档"（等口径）。
+- 未提交（HEAD 仍是 `4a29d1e`）。
+
+## §33 删掉 `CrossEnvError.sourceRealm`（用户选 A）
+
+理由（用户问"必要性"，我答：路由上零必要性）：接收方与来源 **1:1** ——`set_master_env_info(master_token,
+handle_in_master_env)` 给每个子环境只登记一个接收对象，`forward_error_to_master` 只发给它；所以
+`worker.onerror` / `realm.onerror` 由"哪个回调在跑"就确定来源，`sourceRealm` 是把同一信息存了第二遍。
+
+保留 `message` 前缀（`"worker: <cause>"`），所以**源环境标记仍要过 payload**：
+- 删：wrapper 上的 `sourceRealm` 属性、`make_cross_env_error` 的 `p_source_realm` 参数、两处 typings 的
+  `readonly sourceRealm`、两处 doctest 探针/断言里的 `sourceRealm`。
+- 留：`ErrorRecord::source_realm`（**内部字段**，只用来拼 message 前缀）；payload 键改名
+  `kKeySourceRealm` → `kKeyRealm`，避免和已删的用户属性同名混淆。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**；`npx tsc`（emit）无错；CrossEnvironment 场景 rc=0、41 done、0 FAIL。
+
+### 仍未做
+- node `stash_uncaught_exception` 的"同步档"。
+- 未提交（HEAD 仍是 `4a29d1e`）。
+
+## §34 用户纠错：`CrossEnvError` 必须是**原生类**（ClassBuilder），不许在内嵌 JS 里定义
+
+用户指出（对的）：仓库有 `impl::ClassBuilder`，正式代码里不该嵌 JS 源码；内嵌 JS 只该出现在测试里。
+
+### 改法
+- `Environment::cross_env_error_ctor_`（`v8::Global<v8::Function>`）→ **`impl::Class cross_env_error_class_`**
+  （持类模板，避免只留函数、模板 Global 被释放的隐患）；访问器改 `get_cross_env_error_class()`。
+- `ensure_cross_env_error(Environment*)`：`impl::ClassBuilder::New<0>(isolate, "CrossEnvError", &_cross_env_error_constructor, 0)`
+  → `Build()`；构造函数是 **C++ 回调**，只落 `name = "CrossEnvError"` 与 `message`（`class_payload` 传 0：
+  不注册进环境类表，没有实例绑定/析构需求）。
+- `extends Error`：`CrossEnvError.prototype` 的 proto 接到目标 realm 的 `Error.prototype`
+  （`Object::SetPrototype`，四条腿都实现了；等价于 JS `class X extends Error {}` 对原型链做的事）。
+- `stack`：原生构造函数不走 `Error` 的构造语义，包装错误自带不了栈 → `make_cross_env_error` 把
+  **源异常的 `stack`** 复制到包装错误上（指向用户代码，比在 runtime 内部现抓一条更有用，且零额外分配）。
+- 保留：类仍挂到 `globalThis.CrossEnvError`（**只给用户**）；C++ 用自己的引用，不从 globalThis 反取。
+
+### 实测
+node 构建 rc=0；doctest **91/91 SUCCESS**（`instanceof Error` / `name === "CrossEnvError"` / `message` 前缀 /
+`hasStack` / `untransferred` 全过）；CrossEnvironment 场景 rc=0、41 done、0 FAIL。
+
+### 遗留（本轮未动，需用户定）
+`jsb_cross_isolate_util.cpp` 里的 `throw_value_in_context()` 仍用内嵌 JS（`"(function (e) { throw e; })"`）。
+原因：各腿 shim 的 `Isolate::ThrowException(value)` 在 quickjs（`set_stack_steal(StackPos::Exception, ...)`
++ `jsb_checkf(IsNotErrorThrown(...))`）会污染 `TryCatch` 槽并触发断言/错误风暴；jsc 的 `_ThrowError` 也写同一个槽。
+正解是给四条腿各加一个干净的 `Helper::throw_value`（v8 `ThrowException` / quickjs `JS_Throw` /
+jsc `_ThrowError` / web 对应接口），但**只有 v8 能本轮实测**，其余三腿改 throw 路径我无法验证 → 等用户决定。
+
+## §35 A 落地：原生类 + 记录直传 + `cause` 懒物化（用户选 A）
+
+### 用户纠错（都对）
+1. 「CrossEnvError 没有内部字段你怎么拿它调用 C++ 功能」——对：要做 C++ 侧功能就得有 per-instance 状态。
+2. 「为什么 bind_js_owned_pointer 会崩」——**实测会崩**（见下），且我先前的"不会崩"分析是错的。
+3. 「抄 ObjectCrossWrapper 的作业」——主体照抄（`add_native_class(Custom)` + `ClassBuilder::New<IF_ObjectFieldCount>`
+   + `bind_js_owned_pointer` + `class_info->finalizer`），但**有一处它没踩、我们必踩**：`ObjectCrossWrapper` 是
+   **Proxy**（代理自身 0 个内部字段），所以逃过了 `BridgeHelper::stringify` 的 `is_object` 分支。
+
+### 实测出来的崩溃（先前的落雷猜测被证实）
+新增 doctest「logging a CrossEnvError is safe」，里面一句 `console.log(e)`：
+```
+ERROR: FATAL: Condition "!(class_info->type == NativeClassType::GodotObject)" is true.
+   at: jsb::BridgeHelper::stringify (src\runtime\bridge\jsb_bridge_helper.cpp:52)
+CrashHandlerException: Program crashed    ← SEH
+```
+即：**2 个内部字段 → `TypeConvert::is_object()` 为真 → `find_object_class()` 命中 → `jsb_check(type == GodotObject)` 崩。**
+`console.log(err)` 是用户最基本的操作，所以这条必须修。
+
+### 改动
+1. `Message` 加 **C++ 侧信道** `set_error_record/has_error_record/get_error_record`（`ErrorRecord` 直接随消息搬）。
+   删掉 `error_record::serialize/deserialize/record_to_js/record_from_js` + `kErrorPayloadKey` + `kKeyRealm`（全成死码）。
+2. `forward_error_to_master`：`capture_exception()` 后 `message.set_error_record(...)`，不再走 `ValueSerializer`
+   （原先 transfers 恒空，序列化器在本路径上只"产字节"）。
+3. `_on_worker_message`（改收 `Message&`）：直接从消息取记录物化；顺带**去掉了 `invoke_worker_callback_from_message`
+   里那次"反序列化成 JS 对象随即被覆盖"的浪费**（并删掉多余的 `p_rebuild_error` 参数）。
+4. `cross_isolate::register_cross_env_error(env)` 在 `Environment::init()` 里注册原生类（类 id 存
+   `Environment::cross_env_error_class_id_`）；构造函数 + `cause` 原型访问器都是 C++；`globalThis.CrossEnvError`
+   仍只作**用户暴露**，C++ 走类表拿自己的那份。
+5. **部分懒**：`name/message/stack/untransferred` 直接落；`cause` 是原型访问器，首访才 `rebuild` 并
+   `DefineOwnProperty` 缓存（**不能用 `Set`**：无 setter 的访问器会让 `[[Set]]` 静默失败，实测
+   `hasOwnProperty("cause")` 仍为 false）。
+6. `stack` 采集的唯一例外：v8 里 `stack` 是实例上的 **accessor**，只读描述符采不到 → 兜底在 `TryCatch` 里真读一次。
+   （这同时修了 `record.stack` 在 v8 上**一直为空**的老问题；现在带的是**源栈**，`console.log` 打出来就是源帧。）
+
+### 顺带修的两处既有 bug（都在 `CrossEnvError` 的必经之路上）
+- `BridgeHelper::stringify`（`jsb_bridge_helper.cpp:52`）：非 `GodotObject` 类不再断言，落到 JS `ToString`。
+  （`Worker` / `Shadow` 实例被 `console.log` 本来也会崩。）
+- `js_to_gd_var(Variant::OBJECT)`（`jsb_type_convert.cpp`）：加 `IF_ClassType == GodotObject` 闸（与 `js_to_gd_obj` 一致）。
+  不加的话 `bind_js_owned_pointer` 登记的指针会让 `verify_object()` 为真 → 把内部记录指针当 `Object*` 交出去 = **野指针**。
+
+### 实测
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；`console.log(err)` 打的是**源栈**且不再崩；CrossEnvironment
+场景 **rc=0、41 done、0 fail**。
+
+### 仍未做 / 未验
+- `throw_value_in_context()` 的内嵌 JS 仍在（各腿 shim `Isolate::ThrowException(value)` 有毛病，正解是四条腿各加
+  `Helper::throw_value`；本轮只能实测 v8）。
+- 只有 v8 实测；`register_cross_env_error` / finalizer / `Property` 访问器在 jsc/quickjs/web 上未验。
+- 未提交（HEAD 仍是 `4a29d1e`）。
+
+## §36 用户纠错：修错地方了 —— 不该在 `stringify` 里补分支，该把"判定"改成类型感知
+
+用户指出（对的）：`CrossEnvError` 不是 Godot 类型，凭什么走给 Godot 类型准备的 `BridgeHelper::stringify` 分支？
+而且我既然在里面 `return impl::Helper::to_string(...)`，那函数**末尾本来就有一句**同样的 return —— 多补一个分支是废话。
+根因是**判定太宽**：`TypeConvert::is_object(obj)` 只看 `InternalFieldCount()`，于是 2 个内部字段的
+`CrossEnvError` 被当成 Godot 绑定对象。同一个文件里就有类型感知的重载 `is_object(obj, NativeClassType::Type)`。
+
+### 改法（内部字段保留：用户明确说"就是用内部字段"）
+- `BridgeHelper::stringify`：`is_object(self)` → **`is_object(self, NativeClassType::GodotObject)`**；
+  删掉我上一轮加的重复 `return impl::Helper::to_string(...)`。非 GodotObject 自然落到末尾的 return。
+- `js_to_gd_var(Variant::OBJECT)`：`is_object(self)` → **`is_object(self, NativeClassType::GodotObject)`**，
+  不满足就 `break`（与"传普通 JS 对象给 Object 参数"同等对待：转换失败），**不**返回 `null`。
+
+### 实测
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；`console.log(err)` 输出源栈 + name/message 且不崩；
+CrossEnvironment 场景 rc=0、41 done、0 fail。
+
+## §37 用户自查后改 `BridgeHelper::stringify` → 实测不崩 → 单文件提交
+
+用户自己把 `stringify` 的判定改成类型感知（`is_object(self)` → `is_object(self, NativeClassType::GodotObject)`），
+要求"不崩就单独提交这个单文件修复"。
+
+### 实测（关键：把当初崩的三个场景全测了）
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| `console.log(new JSShadowRealm())` | FATAL `!(class_info->type == GodotObject)` → SEH 崩 | `JSShadowRealm {}` ✔ |
+| `console.log(new JSWorker(...))` | 同上 → 崩 | `JSWorker {}` ✔ |
+| `console.log(new JSShadowRealm(), new JSWorker(...))` 数组 | — | `[ JSShadowRealm {}, JSWorker {} ]` ✔ |
+| `console.log(CrossEnvError)` | 同上 → 崩 | 源栈 + `{ name:'CrossEnvError', message:'shadowRealm: log-me' }` ✔ |
+
+doctest **92/92、1196 断言 SUCCESS**；CrossEnvironment 场景 **rc=0、41 done、0 fail**；探针已全删（`[PROBE]` 残留 0）。
+
+### 提交
+`5e48552 fix(jsb): only route Godot objects into the bound-object path in stringify`
+—— **单文件、1 行**（`src/runtime/bridge/jsb_bridge_helper.cpp`），未 push。其余改动照旧留在工作区。
+
+### 仍未决
+`jsb_type_convert.cpp` 的 `Variant::OBJECT` 分支仍是 HEAD 的宽松判定（`is_object(self)` + `verify_object()`）：
+`CrossEnvError` 的指针在 `object_db_` 里 → 若用户把它传给一个 `Object` 类型的 Godot 参数，会拿到
+`(Object*)record_ptr`（野指针）。**仅静态推演，未复现**；对策三选一（改那一行 / 给 `CrossEnvError` 用 3 个内部字段 /
+先搁置）——等用户定。另：`throw_value_in_context()` 的内嵌 JS 仍在；非 v8 腿未验。
+
+## §38 `throw_value_in_context()` 去掉内嵌 JS → 各腿 `Helper::throw_value`
+
+### 改动
+- 删掉 bridge 里的 `internal::throw_value_in_context`（那段 `"(function (e) { throw e; })"`）。
+  `cross_isolate::throw_error()` 改调 `impl::Helper::throw_value(isolate, context, value)`。
+  **bridge 里已无 `Script::Compile`**（内嵌 JS 清零）。
+- 各腿实现（依据都写在注释里）：
+  - **v8**：`isolate->ThrowException(value)` —— 原生 pending exception，不碰任何 JSB 槽。
+  - **jsc**：`isolate->ThrowException(value)`。**这是等价替换**（硬证据：`jsb_jsc_function.cpp` 的
+    `Function::Call` 失败路径就是 `isolate_->_ThrowError(error)`，即内嵌 JS 跑出的异常也落到同一个
+    `_ThrowError`；而 `TryCatch::has_caught()`/`get_exception_value()` 读的就是 `StackPos::Exception`）。
+  - **quickjs**：`JS_Throw(ctx, JS_DupValue(ctx, value))` —— 只设引擎 pending exception，**不写**
+    `StackPos::Exception` 槽。不能借道 `Isolate::ThrowException`：它多一次 `set_stack_steal`，会让之后任何
+    `TryCatch::try_catch()` 撞 `jsb_checkf("stack.exception is dirty")`（该断言在
+    `jsb_quickjs_isolate.h:274`）。
+  - **web**：`jsbi_*` 互操作没有"抛任意值"的原语（只有 `jsbi_ThrowError(message)`）。按用户要求**带上实际值的文本**：
+    `to_string(isolate, value)` 拼进文案（另加 dev 断言让"被调用"暴露）。该路径在 web 上不可达
+    （`JSB_SHADOW_REALM_ENABLED == 0`）。
+
+### 实测（node / v8 腿）
+node 构建 rc=0；doctest **92/92、1196 断言 SUCCESS**；CrossEnvironment 场景 **rc=0、41 done、0 fail**。
+覆盖了 `evaluate` 同步抛（本改动的核心路径）、`importValueSync`、原始值包装、`console.log(err)`、
+worker/realm 的 onerror 投递。
+
+### ⚠️ 验证受阻：用户提交 `43078a7` 的新断言在 dev 下恒假
+`jsb_type_convert.cpp:558`：`jsb_check(TypeConvert::is_object(r_jval, NativeClassType::GodotObject));`
+在 `clazz.NewInstance(context)` **之后**、`bind_godot_object(...)` **之前** —— 而 `IF_ClassType` 正是
+`bind_godot_object` → `bind_pointer` 才写进内部字段的；`NewInstance` 出来的新对象该字段为 0，
+所以这个断言在 dev build 下**必然失败**：
+- doctest：`test cases: 14 | 1 failed`，在 "RefCounted objects" 崩（`gd_obj_to_js`）；
+- CrossEnvironment 场景：**rc=3、0 个场景**，启动即崩。
+修法（二选一）：断言改成查 `class_info->type == NativeClassType::GodotObject`（在 `NewInstance` 之前就能查），
+或把这行移到 `bind_godot_object` 之后。
+本轮为验证自己的改动，**临时**把那行换回改动前的 `jsb_check(TypeConvert::is_object(r_jval));` 跑完测试后
+**已逐字还原**（`git diff src/runtime/bridge/jsb_type_convert.cpp` 相对 HEAD 无差异），并重编。
+
+## §39 按用户要求重做：Message 按指针持 payload + 记录并进 cross_isolate + 注释瘦身
+
+### 改动
+- `jsb_message.h`：`MessageRawData` 基类（非纯虚、`= default` 析构）+ `unique_ptr<MessageRawData> raw_data_`；
+  **任意消息不再背 64B 记录**（只有错误路径才分配）。去掉 `jsb_error_record.h` 这个 include。
+- **`jsb_error_record.{h,cpp}` 删除**，全部并进 `jsb_cross_isolate_util.cpp`：`ErrorRecord`（含 `capture`/`rebuild`/各 helper）
+  与 `CrossEnvErrorImpl` 都在**匿名 namespace** 里；头文件只剩 6 个函数（`register_` / `capture_error` /
+  `take_error` / `make_error` / `throw_error` / `throw_cross_isolate_error`）+ 原有的 `parse_transfer_list`。
+  `ErrorRecord` 类型不再对外出现。
+- `Environment` 侧不再需要记录层：`forward_error_to_master` 一句
+  `Message message(Message::TYPE_ERROR, handle, cross_isolate::capture_error(this, p_exception));`；
+  `_on_worker_message` 的 `TYPE_ERROR` 分支一句 `cross_isolate::take_error(this, p_message, kFallback)`。
+- 注释瘦身：实现里只留必要的一行；把"调查过程"的长篇说明删掉（细节留在本 spec）。
+
+### 过程中修掉的两个问题
+1. **分配/释放不配对**（我合并时引入）：`capture()` 用 `std::make_unique`（CRT `new`）而 finalizer 用 `memdelete`
+   → doctest 在 "an exception from evaluate" 直接静默死（rc=116）。统一成 `new`/`delete` 后恢复。
+2. **`source_realm` 丢失**：我把它从 `capture()` 挪到了 `capture_error()`，同步路径（`throw_cross_isolate_error`
+   直接调 `capture()`）就没前缀了 → doctest 两处 `message` 断言失败。挪回 `capture()` 后恢复。
+
+### 实测（node / v8）
+doctest **92/92、1196 断言 SUCCESS**；CrossEnvironment 场景 **rc=0、41 done、0 fail**。
+
+### ⚠️ 你提交里 `jsb_type_convert.cpp:558` 的断言现在是 **SIGSEGV**（dev）
+```cpp
+r_jval = class_info.escape()->clazz.NewInstance(context);
+jsb_check(TypeConvert::is_object(r_jval) && class_info->type == NativeClassType::GodotObject);   // ← class_info 已失效
+```
+上一行注释自己写着 "class_info ptr will be invalid after escape()"，所以这里 `class_info->type` 是解悬垂指针
+→ 实测 doctest 在 `RefCounted objects`(test_jsb_any_runtime.h:538)、场景在启动时 SIGSEGV。修法：在 `escape()`
+**之前**取 `const NativeClassType::Type class_type = class_info->type;`，或 `escape()` 后用 `get_native_class(class_id)` 重取。
+（本轮为验证自己的改动，仍临时把该行换成旧形式跑完测试，随后已逐字还原：`git diff jsb_type_convert.cpp` 无差异。）

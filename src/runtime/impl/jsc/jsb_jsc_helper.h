@@ -162,6 +162,12 @@ public:
 		isolate->throw_error(message);
 	}
 
+	/** 按 JS 语义抛出一个值：jsc 的 pending exception 就是 `StackPos::Exception` 槽（`_ThrowError`）。 */
+	_FORCE_INLINE_ static void throw_value(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &value) {
+		jsb_unused(context);
+		isolate->ThrowException(value);
+	}
+
 	_FORCE_INLINE_ static void get_statistics(v8::Isolate *isolate, Vector<CustomField> &p_fields) {
 	}
 

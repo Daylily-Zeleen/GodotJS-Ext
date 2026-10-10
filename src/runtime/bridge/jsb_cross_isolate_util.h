@@ -19,39 +19,22 @@ _FORCE_INLINE_ static void insert_transfer_variant(
 }
 } //namespace internal
 
-/**
- * 把一个 isolate 里的异常搬成与 isolate 无关的字节（记录 → 序列化）。跨 isolate 只能搬纯数据，
- * 异常的 `Local` 离开源 isolate 即失效，所以中间必须过一层记录缓冲。
- * NOTE 调用方必须已处于**源** isolate/context 的作用域内（本函数不自带作用域）。失败返回 `{nullptr, 0}`；
- *      缓冲所有权交给调用方，用 `impl::Helper::free` 释放。
- */
-std::pair<uint8_t *, size_t> serialize_exception(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Value> &p_exception);
+/** 注册 `CrossEnvError` 类（`Environment::init()` 调用）。 */
+void register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_global);
 
-/**
- * 在目标 realm 里从 {@link serialize_exception} 的字节重建错误值（记录 → 本 realm 的 `Error` /
- * 原样还原原始值）。NOTE 调用方必须已处于**目标** isolate/context 的作用域内；返回空表示记录为空/无效。
- */
-v8::Local<v8::Value> rebuild_error_from_bytes(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const uint8_t *p_data, size_t p_size);
+/** 采集 `p_exception` 成消息附加数据（`TYPE_ERROR`）。调用方须处在**源** env 作用域内、异常还热着。 */
+std::unique_ptr<MessageRawData> capture_error(Environment *p_env, const v8::Local<v8::Value> &p_exception);
 
-/** 在 `p_isolate`/`p_context` 里造一个 `Error`。 */
+/** 取出 `p_message` 里的错误物化成 `CrossEnvError`；没有记录时用 `p_fallback_message` 造一个（`TYPE_ERROR`）。 */
+v8::Local<v8::Value> take_error(Environment *p_env, Message &p_message, const String &p_fallback_message);
+
+/** 本 realm 自己的失败：一个普通 `Error`。 */
 v8::Local<v8::Value> make_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message);
 
-/**
- * 重建 Error 上"未携带字段清单"所用的注册表 symbol 键（宿主脚本用 `Symbol.for(...)` 读回）。
- * 只为把 `error_record` 收在这个模块里（`jsb_bridge_module_loader.cpp` 需要把这个键暴露给 JS）。
- */
-const char *untransferred_symbol_key();
-
-/**
- * 按 JS 语义在 `p_isolate`/`p_context` 里抛出：`p_error` 非空就抛它，否则按 `p_message` 抛。
- * NOTE 不用各腿的 `Isolate::ThrowException(value)`（会把值寄存进 TryCatch 槽，污染后续 `has_caught()`）。
- */
+/** 抛出一个值（`p_error` 为空则按 `p_message` 抛）。 */
 void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error);
 
-/**
- * 把**当前** isolate/context 里的 `p_exception` 搬到 `p_target_isolate`/`p_target_context` 并抛出，一步到位。
- * 调用点在源作用域内把异常值交出来即可（如 shadow realm 的 `evaluate`）。
- */
+/** 把当前源作用域里的异常搬到目标 realm 抛出。 */
 void throw_cross_isolate_error(v8::Isolate *p_target_isolate, const v8::Local<v8::Context> &p_target_context, const v8::Local<v8::Value> &p_exception, const String &p_fallback_message);
 
 // shared master -> worker/shadowRealm postMessage transfer-list parsing.
@@ -121,20 +104,7 @@ inline bool parse_transfer_list(
 		}
 	}
 
-	/** NOTE:
-		我们无法为用户收集所有内嵌的 godot 对象，他们可能嵌套在 Array, Dictioanry, 子节点，非 godot 属性，meta data，静态变量...等等
-		不应该提供一个不完备的功能，应该由用户自己处理转移对象，
-	*/
-	// for (const Variant &explicit_transfer : explicit_node_transfers) {
-	// 	if (explicit_transfer.get_type() == Variant::OBJECT) {
-	// 		Object *object = explicit_transfer;
-
-	// 		if (const Node *node = Object::cast_to<Node>(object)) {
-	// 			append_node_descendants_for_transfer(from_env, transfers, node);
-	// 		}
-	// 	}
-	// }
-
+	// 只搬用户显式列出的东西：内嵌的 Godot 对象（数组/字典/子节点/自定义属性里）不替用户递归收集。
 	return true;
 }
 } //namespace jsb::cross_isolate

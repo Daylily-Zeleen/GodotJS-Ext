@@ -1,7 +1,7 @@
 # 跨隔离区错误上报（worker / ShadowRealm / 定时器）
 
 > 适用：任何要把 JS 异常从"一个环境/隔离区"送到"另一个"的改动。
-> 实现：`src/runtime/bridge/jsb_error_record.h/.cpp`（记录 ↔ 重建），接线在
+> 实现：全在 `src/runtime/bridge/jsb_cross_isolate_util.cpp`（记录结构、采集、重建、`CrossEnvError` 类均为**文件内私有**），接线在
 > `jsb_shadow_realm.cpp` / `jsb_worker.cpp` / `jsb_environment.cpp` / `jsb_timer_action.cpp`。
 
 ## 硬约束
@@ -80,7 +80,7 @@
     载体 `internal::CrossIsolateException`、`internal::rebuild_error` 是**内部实现**。
     NOTE `capture` 必须用 `Isolate::TryGetCurrent()` 取源 isolate（各腿 shim 只有 `TryGetCurrent`，
     没有 `GetCurrent`）。shadow realm 的 `evaluate`/`importValue` **只留干净调用点**（各一句），
-    `jsb_shadow_realm.cpp` 不再 include `jsb_error_record.h`；本地 `_throw_value_in_realm`/`_throw_realm_error`
+    `jsb_shadow_realm.cpp` 不再 include `jsb_error_record.h`（已删除）；本地 `_throw_value_in_realm`/`_throw_realm_error`
     已删除。`internal::rebuild_error` **不能**自带 `HandleScope`：返回值要交给调用方，开在函数内会悬垂
     （实测崩在 `v8::internal::LookupIterator::GetRootForNonJSReceiver`）。
 14. **转发入口里必须自带 `v8::Context::Scope`**。`forward_error_to_master` 会进入本环境的 isolate，
@@ -91,10 +91,11 @@
 ## 错误记录的形态
 
 ```
-ErrorRecord = { name, message, stack, extra, untransferred, cause }
+ErrorRecord = { name, message, stack, source_realm, extra, untransferred, cause }
 ```
 
-- 采集在 **C++ 侧**（`jsb::error_record::capture`，`GetOwnPropertyDescriptor` 遍历，**不触发 getter**）。
+- 采集在 **C++ 侧**（文件内 `capture()`，`GetOwnPropertyDescriptor` 遍历，**不触发 getter**；
+  唯一例外是 `stack`，见下）。
 - **只搬 Error 自己的字段 + JS 基础类型**：`name` / `message` / `stack`、`cause`（是 Error 就递归其字段）、
   以及 string / number / boolean / null / undefined。数组、普通对象、函数、symbol、BigInt、
   Godot 类型（`Object` / `Array` / `Dictionary` / ...）**一律不搬**，只把路径登记进 `untransferred`——
@@ -105,10 +106,45 @@ ErrorRecord = { name, message, stack, extra, untransferred, cause }
 - **有界**：深度 8 / 节点 4096 / 字符串 64K；未携带清单本身也有上限（64 条 + 一个 `"..."` 标记），
   否则一个 10 万元素的数组会把 payload 反过来撑爆。
 - `cause` 只在"Error 形态"（有自有 `stack` 或 `message`）时才递归；普通对象 cause 不搬（同上，用户自己转）。
-- 带不走的字段路径写进 `untransferred`，在重建的 Error 上挂到 **`Symbol.for("jsb.untransferred")`**
-  （用注册表 symbol：目标 realm 能本地重算、用户也能用同一个键读回，且不与用户字段冲突）。
-- 接收侧是**目标 realm 重建的 `Error`**（`instanceof Error` 成立），`name`/`message`/`stack`/`extra`/`cause` 照抄；
-  但 `throw "boom"` / `throw 42` 这类**原始值异常按原样送达**（不包装成 `Error`），`cause` 为 `Dictionary` 时递归重建。
+- **搬运：记录是纯 C++ 数据，直接随 `Message` 搬，不过序列化器。** `ErrorRecord` 里只有 String /
+  PackedStringArray / **只含基础类型的** Dictionary / 递归 record，所以 作为 `Message` 的附加数据（`MessageRawData` 派生）直接带走
+  （`forward_error_to_master` 建消息时 `transfers` 恒空 —— 这里的 `ValueSerializer` 从没承担过任何搬运语义）。
+  **采集必须热着做**（异常 `Local` 随源帧消失；异步投递时源环境可能已被阻塞/结束；跨 isolate 存 `Global` 是 UB），
+  能懒的只有采集之后的**重建**。
+- 带不走的字段路径写进 `untransferred`。**凡是穿过隔离区的错误一律物化成 `CrossEnvError`**（`extends Error`）：
+  它是**原生类**，由 `cross_isolate::register_cross_env_error()` 在 `Environment::init()` 里用
+  `add_native_class(NativeClassType::Custom)` + `impl::ClassBuilder` 注册（按 `jsb_string_name(CrossEnvError)` 从类表反查，不留 Environment 成员）；
+  **不允许**用内嵌 JS 源码定义它。实例带 `IF_ObjectFieldCount` 个内部字段，里面用 `bind_js_owned_pointer`
+  挂记录指针（GC 时由类 finalizer 释放；分配/释放统一 `new`/`delete`，别混 `memnew`/`memdelete`）。
+- **字段是"部分懒"的**：`name` / `message` / `stack` / `untransferred` 直接落（记录里就是现成的 String / String[]，
+  零重建）；只有 **`cause` 懒物化** —— 原型上一个访问器，首次读才 `rebuild()` 并把结果
+  `DefineOwnProperty` 成自有属性缓存。所以"只想知道有没有异常 / 只打日志"不会重建整棵 cause 树。
+  `message` = `"<realm>: <cause 的文本>"`、`untransferred` = 纯字段（**不再用 symbol**）。
+  **不挂 `sourceRealm` 属性**：接收方（`worker.onerror` / `realm.onerror`）与来源是 1:1 的
+  （`set_master_env_info` 只登记一个接收对象），来源由"哪个回调在跑"就能确定；源环境标记只作为记录里的
+  **内部字段**用于拼 `message` 前缀。`instanceof Error` 仍成立（`CrossEnvError.prototype` 的 proto 接到
+  `Error.prototype`，等价于 JS `class X extends Error {}` 对原型链做的事）。
+  NOTE 缓存那一步必须用 `DefineOwnProperty`：原型上这个访问器**只有 getter**，`Set` 走 JS `[[Set]]` 遇到
+  "无 setter 的访问器"会**静默失败**，自有属性建不出来（实测 `hasOwnProperty("cause")` 仍为 false）。
+- **`stack` 采集的唯一例外**：v8 里 `stack` 是实例上的 **accessor**（栈惰性格式化），只读描述符采不到它 →
+  兜底在 `TryCatch` 里真读一次（用户自定义的 `stack` getter 抛错也不影响采集）。这样记录里带的是**源栈**。
+- **`CrossEnvError` 有 2 个内部字段，所以"是不是 Godot 绑定对象"的判定必须是类型感知的**：
+  用 `TypeConvert::is_object(obj, NativeClassType::GodotObject)`，**不要**用只看 `InternalFieldCount()` 的
+  `is_object(obj)` —— 后者会把 `Custom` / `Worker` / `Shadow`（含 `CrossEnvError`）也当成 Godot 绑定对象。
+  两处必须用类型感知判定（都是既有 bug，`CrossEnvError` 只是第一个被用户正常操作的 `Custom` 实例）：
+  1. `BridgeHelper::stringify`（`console.log(err)` 走它）：用宽松判定会把错误对象拖进"Godot 绑定对象"分支，
+     撞上 `jsb_check(type == GodotObject)` → **实测直接崩**（SEH）。改类型感知后自然落到函数末尾那句
+     `impl::Helper::to_string`（**不要再加一个重复的 return**）。
+     （`ObjectCrossWrapper` 之所以没踩到，是因为它是 Proxy、代理自身 0 个内部字段。）
+  2. `js_to_gd_var(Variant::OBJECT)`：`bind_js_owned_pointer` 会把指针登记进 `object_db_`，`verify_object()`
+     因此为真，用宽松判定就会把内部指针当 `Object*` 交出去（**野指针**）。改类型感知后 `break`，
+     与普通 JS 对象同等对待（转换失败），不返回 `null`。
+- 接收侧是**目标 realm 物化出的 `CrossEnvError`**，`cause`（懒重建）是源异常本体（`instanceof Error` 成立），
+  `name`/`message`/`stack`/`extra` 照抄；**原始值异常（`throw "boom"` / `42` / `null` / `undefined`）同样包一层**，
+- 接收侧是**目标 realm 重建的 `CrossEnvError`**，`cause` 是重建出的源异常本体（`instanceof Error` 成立），
+  `name`/`message`/`stack`/`extra` 照抄；**原始值异常（`throw "boom"` / `42` / `null` / `undefined`）同样包一层**，
+  本体原样放进 `cause`（`message` 取 `String(cause)`），不再原样送达顶层。`cause` 为 `Dictionary` 时递归重建。
+  目标 realm 里建不出类（用户把 `CrossEnvError` 删了等）时**回退**交出本体，不吞异常。
 - **不能用"文案是否为空"判断有没有出错**：quickjs 的 `get_message()` 对非 `Error` 抛出值不填 message，
   照它判断会把原始值异常整个吞掉、`evaluate()` 静默返回（实测 `NO-THROW`）。判断依据只能是 `has_caught()`。
 
@@ -116,13 +152,14 @@ ErrorRecord = { name, message, stack, extra, untransferred, cause }
 
 | 入口 | 错误怎么送达 |
 |---|---|
-| `JSShadowRealm.evaluate` / `importValueSync` | 同步抛（重建的 Error，带 name/stack/额外字段） |
-| `JSShadowRealm.importValue` | Promise reject（重建的 Error；未处理的 reject 由 `PromiseRejectCallback_` 记日志，不会继续抛） |
-| `JSWorker.onerror` | 异步：worker 侧发 `TYPE_ERROR`，宿主重建 |
+| `JSShadowRealm.evaluate`（对象异常） | **同步抛** `CrossEnvError`：源异常在 `cause`，`message = "<shadowRealm>: <cause.message>"` |
+| `JSShadowRealm.importValueSync` | **同步抛**一个只带文本的 `Error`（`jsb_throw(err_msg)`；`_importValue` 只回字符串） |
+| `JSShadowRealm.importValue` | Promise reject（一个 `Error`；未处理的 reject 由 `PromiseRejectCallback_` 记日志，不会继续抛） |
+| `JSWorker.onerror` | 异步：worker 侧发 `TYPE_ERROR`，宿主重建为 `CrossEnvError` |
 | `TransferableJSShadowRealm.onerror` | **同步**（realm 与宿主同线程同栈）：`forward_error_to_master(..., Sync)`，回调在本帧内跑完 |
-| worker / transferable shadow realm 里的定时器回调异常 | **异步**（定时器回调捕完异常就返回、栈随即消失）：worker 与 realm 都走 `forward_error_to_master(..., Async)`，下一帧由宿主 `update()` 派发 |
-| worker 入口脚本加载失败 | 异步：`Environment::load` 在异常槽还热时采集记录，经统一入口发给宿主 `onerror`（拿到的是脚本真实 Error，失败时才退回空 payload） |
-| transferable realm 的 `importValue(Sync)` 加载失败 | 用 `load` 回传的记录在调用方 realm 重建 Error（同步抛 / reject），不再是字符串 |
+| worker / transferable shadow realm 里的定时器回调异常 | **异步**：worker 与 realm 都走 `forward_error_to_master(..., Async)`，下一帧由宿主 `update()` 派发 |
+| worker 入口脚本加载失败 | 异步：worker 侧直接 `forward_error_to_master(字符串文案)`（它自己当时做不出记录）；宿主侧仍包成 `CrossEnvError`，那串文案落在 `cause` |
+| 原始值异常（`throw "boom"` / `42` / `null` / `undefined`） | 任意入口都**包成 `CrossEnvError`**，本体原样放进 `cause`，`message` 取 `String(cause)` |
 | 主环境、普通 shadow realm 的定时器回调异常 | 只进日志（前者的 realm 没有 `onerror` 接收者，后者没有全局错误钩子） |
 
 ## 写新代码时的检查单
@@ -134,6 +171,6 @@ ErrorRecord = { name, message, stack, extra, untransferred, cause }
 - [ ] 来源侧是同步帧时，帧内 `terminate()` 被 `ShadowRealmImpl::FrameScope` 兜住（延迟销毁）
 - [ ] `TryCatch` 取值顺序正确，且 `has_caught()` 只调一次；调用转发后仍用 `get_exception()` 清异常槽（否则 quickjs 脏槽）
 - [ ] 新增的 JS 侧采集/重建脚本有界（深度/节点/字符串/清单上限）
-- [ ] 目标 realm 拿到的是 `Error`（`instanceof` 成立），未携带字段能从 `Symbol.for("jsb.untransferred")` 读到
+- [ ] 目标 realm 拿到的是 `CrossEnvError`（`extends Error`，`instanceof` 成立），源异常在 `cause`、未携带字段在 `untransferred`
 - [ ] 记录里只有 Error 字段 + JS 基础类型，没有把 Godot 类型/数组/对象偷偷搬过去
 - [ ] 有对应用例：错误确实到达回调/抛出点（不是"只打了日志"）

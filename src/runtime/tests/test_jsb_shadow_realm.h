@@ -238,7 +238,7 @@ globalThis.__reject_realm.importValue("res://__no_such_module__", "x").then(
 }
 
 // 回归：跨隔离区的错误带上 name/message/stack 与可携带的自定义字段；
-// 带不走的字段路径进未携带清单（挂在 `Symbol.for("jsb.untransferred")` 上）。
+// 带不走的字段路径进包裹错误的未携带清单（`CrossEnvError.untransferred`）。
 TEST_CASE("[runtime] [jsb] ShadowRealm: the error record carries fields and lists what it could not") {
 	GodotJSScriptLanguageIniter initer;
 	Error err;
@@ -263,20 +263,22 @@ globalThis.__record_probe = (function () {
 })()`);
 		return "NO-THROW";
 	} catch (e) {
-		const lost = e[Symbol.for("jsb.untransferred")];
+		// `e` 是 CrossEnvError 包装（只表示"从别的 realm 抛了出来"），源异常在 `e.cause`
+		const src = e && e.cause;
+		const lost = e && e.untransferred;
 		return JSON.stringify({
 			isError: e instanceof Error,
-			name: e.name,
+			isCrossEnv: e.name === "CrossEnvError",
 			message: e.message,
 			hasStack: typeof e.stack === "string" && e.stack.length > 0,
-			code: e.code,
-			text: e.text,
-			flag: e.flag,
-			detail: typeof e.detail,
-			plain: typeof e.plain,
-			causeIsError: e.cause instanceof Error,
-			causeMessage: e.cause && e.cause.message,
-			causeTip: e.cause && e.cause.tip,
+			causeIsError: src instanceof Error,
+			causeMessage: src && src.message,
+			code: src ? src.code : null,
+			text: src ? src.text : null,
+			flag: src ? src.flag : null,
+			detail: typeof (src ? src.detail : undefined),
+			plain: typeof (src ? src.plain : undefined),
+			causeTip: src && src.cause && src.cause.tip,
 			lost: Array.isArray(lost) ? lost.slice().sort() : null
 		});
 	}
@@ -294,9 +296,13 @@ globalThis.__record_probe = (function () {
 	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__record_probe")).ToLocal(&probe));
 	REQUIRE(probe->IsString());
 	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
-	CHECK(text.contains(R"("isError":true)"));
-	CHECK(text.contains(R"("message":"with-fields")"));
+	CHECK(text.contains(R"("isError":true)"));      // CrossEnvError extends Error
+	CHECK(text.contains(R"("isCrossEnv":true)"));
+	CHECK(text.contains(R"("message":"shadowRealm: with-fields")")); // message = "<realm>: <cause.message>"
 	CHECK(text.contains(R"("hasStack":true)"));
+	// 源异常重建成 wrapper 的 cause：字段都在那儿
+	CHECK(text.contains(R"("causeIsError":true)"));
+	CHECK(text.contains(R"("causeMessage":"with-fields")"));
 	// 只搬 JS 基础类型
 	CHECK(text.contains(R"("code":42)"));
 	CHECK(text.contains(R"("text":"carried")"));
@@ -304,10 +310,8 @@ globalThis.__record_probe = (function () {
 	// 数组 / 普通对象 / 函数一律不搬运，只登记路径（由用户自己显式转换）
 	CHECK(text.contains(R"("detail":"undefined")"));
 	CHECK(text.contains(R"("plain":"undefined")"));
-	CHECK(text.contains(R"(["detail","fn","plain"])"));
-	// cause 是 Error 才递归带上它的字段
-	CHECK(text.contains(R"("causeIsError":true)"));
-	CHECK(text.contains(R"("causeMessage":"inner-cause")"));
+	CHECK(text.contains(R"(["detail","fn","plain"])"));      // wrapper.untransferred
+	// 源异常自己的 cause 也递归重建了
 	CHECK(text.contains(R"("causeTip":"t")"));
 }
 
@@ -337,7 +341,7 @@ globalThis.__bound_probe = (function () {
 })()`);
 		return "NO-THROW";
 	} catch (e) {
-		const lost = (e[Symbol.for("jsb.untransferred")] || []);
+		const lost = (e.untransferred || []);
 		return JSON.stringify({
 			isError: e instanceof Error,
 			getterCalls: globalThis.__getter_calls,
@@ -359,7 +363,7 @@ globalThis.__cap_probe = (function () {
 })()`);
 		return "NO-THROW";
 	} catch (e) {
-		const lost = (e[Symbol.for("jsb.untransferred")] || []);
+		const lost = (e.untransferred || []);
 		return JSON.stringify({ lostCount: lost.length, hasMarker: lost.indexOf("...") >= 0 });
 	}
 })();
@@ -391,8 +395,51 @@ globalThis.__cap_probe = (function () {
 	CHECK(cap_text.contains(R"("hasMarker":true)"));
 }
 
-// 回归：`throw` 不一定是 Error —— 原始值异常要按原样送达，不能被包装成 Error。
-TEST_CASE("[runtime] [jsb] ShadowRealm: a primitive thrown value is delivered as-is") {
+// 回归：`console.log(err)` 不能崩（`stringify` 只把 `GodotObject` 当绑定对象），且 `cause` 懒物化仍可用。
+TEST_CASE("[runtime] [jsb] ShadowRealm: logging a CrossEnvError is safe") {
+	GodotJSScriptLanguageIniter initer;
+	Error err;
+	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
+const { JSShadowRealm } = require("godot.shadowRealm");
+globalThis.__log_realm = new JSShadowRealm();
+globalThis.__log_probe = (function () {
+	try {
+		globalThis.__log_realm.evaluate(`(function () { throw new Error("log-me"); })()`);
+		return "NO-THROW";
+	} catch (e) {
+		console.log(e); // 关键：走 BridgeHelper::stringify（非 GodotObject 原生类不能在那里断言）
+		const cause = e.cause; // 首次访问：懒物化
+		return JSON.stringify({
+			isError: e instanceof Error,
+			isCrossEnv: e instanceof CrossEnvError,
+			name: e.name,
+			causeMessage: cause && cause.message,
+			hasOwnCause: Object.prototype.hasOwnProperty.call(e, "cause"),
+		});
+	}
+})();
+)--",
+			err);
+	REQUIRE(err == OK);
+
+	jsb::Environment *env = GodotJSScriptLanguage::get_singleton()->get_environment().get();
+	REQUIRE(env != nullptr);
+	JSB_TESTS_EXECUTION_SCOPE(env);
+	v8::Isolate *isolate = env->get_isolate();
+	v8::Local<v8::Context> context = env->get_context();
+	v8::Local<v8::Value> probe;
+	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__log_probe")).ToLocal(&probe));
+	REQUIRE(probe->IsString());
+	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
+	CHECK(text.contains(R"("isError":true)"));
+	CHECK(text.contains(R"("isCrossEnv":true)"));
+	CHECK(text.contains(R"("name":"CrossEnvError")"));
+	CHECK(text.contains(R"("causeMessage":"log-me")"));
+	CHECK(text.contains(R"("hasOwnCause":true)")); // 首次读 `cause` 后变成自有属性（懒物化缓存）
+}
+
+// 回归：原始值异常也包成 CrossEnvError，本体塞进 `cause`。
+TEST_CASE("[runtime] [jsb] ShadowRealm: a primitive thrown value is wrapped with the primitive in cause") {
 	GodotJSScriptLanguageIniter initer;
 	Error err;
 	GodotJSScriptLanguage::get_singleton()->eval_source(R"--(
@@ -403,7 +450,13 @@ globalThis.__prim_probe = (function () {
 		globalThis.__prim_realm.evaluate(`(function () { throw "primitive-boom"; })()`);
 		return "NO-THROW";
 	} catch (e) {
-		return JSON.stringify({ type: typeof e, value: String(e), isError: e instanceof Error });
+		return JSON.stringify({
+			isCrossEnv: e instanceof CrossEnvError,
+			isError: e instanceof Error,
+			message: e.message,
+			causeType: typeof e.cause,
+			causeValue: String(e.cause),
+		});
 	}
 })();
 )--",
@@ -419,9 +472,11 @@ globalThis.__prim_probe = (function () {
 	REQUIRE(context->Global()->Get(context, jsb::impl::Helper::new_string(isolate, "__prim_probe")).ToLocal(&probe));
 	REQUIRE(probe->IsString());
 	const String text = jsb::impl::Helper::to_string(isolate, probe.As<v8::String>());
-	CHECK(text.contains(R"("type":"string")"));
-	CHECK(text.contains(R"("value":"primitive-boom")"));
-	CHECK(text.contains(R"("isError":false)")); // 没有被包装成 Error
+	CHECK(text.contains(R"("isCrossEnv":true)"));
+	CHECK(text.contains(R"("isError":true)"));
+	CHECK(text.contains(R"("message":"shadowRealm: primitive-boom")"));
+	CHECK(text.contains(R"("causeType":"string")"));
+	CHECK(text.contains(R"("causeValue":"primitive-boom")"));
 }
 
 // 回归：同一 guest 对象在**同一个宿主环境**里二次传给宿主时，必须复用同一个宿主侧包装器

@@ -183,6 +183,12 @@ public:
 		isolate->throw_error(message);
 	}
 
+	/** 按 JS 语义抛出一个值：只设引擎 pending exception，不写 `StackPos::Exception` 槽（否则 `try_catch()` 会撞脏断言）。 */
+	_FORCE_INLINE_ static void throw_value(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &value) {
+		jsb_unused(context);
+		JS_Throw(isolate->ctx(), JS_DupValue(isolate->ctx(), (JSValue)value));
+	}
+
 	_FORCE_INLINE_ static void get_statistics(v8::Isolate *isolate, Vector<CustomField> &p_fields) {
 		JSMemoryUsage usage;
 		JS_ComputeMemoryUsage(isolate->rt(), &usage);

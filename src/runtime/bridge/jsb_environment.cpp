@@ -375,6 +375,8 @@ Environment::Environment(const CreateParams &p_params)
 #endif // JSB_SHADOW_REALM_ENABLED
 			Worker::register_(context, global);
 			Essentials::register_(context, global);
+			// 跨隔离区错误的包装类（worker / shadow realm / 定时器 的错误都靠它送达宿主）
+			cross_isolate::register_(context, global);
 			register_primitive_bindings(this);
 		}
 
@@ -553,7 +555,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 			const v8::Local<v8::Context> context = get_context();
 			v8::Context::Scope context_scope(context);
 
-			for (const Message &message : messages) {
+			for (Message &message : messages) {
 				v8::HandleScope message_handle_scope(isolate);
 				_on_worker_message(context, message);
 			}
@@ -684,7 +686,7 @@ void Environment::notify_script_reloaded(const Ref<GodotJSScript> &p_script) {
 }
 
 #if !JSB_WITH_WEB
-void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message, bool p_rebuild_error) {
+void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message) {
 	v8::Isolate *isolate = p_env->get_isolate();
 
 	v8::Local<v8::Value> value;
@@ -720,13 +722,6 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			JSB_LOG(Error, "failed to parse message value");
 			return;
 		}
-		if (p_rebuild_error) {
-			// `TYPE_ERROR` 的 payload 是"错误记录"：由 cross_isolate 在本地 realm 重建成 Error / 还原原始值
-			const v8::Local<v8::Value> rebuilt = cross_isolate::rebuild_error_from_bytes(isolate, p_context, p_message->get_buffer().ptr(), p_message->get_buffer().size());
-			if (!rebuilt.IsEmpty()) {
-				value = rebuilt;
-			}
-		}
 	}
 
 	const impl::TryCatch try_catch(isolate);
@@ -739,7 +734,7 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 	}
 }
 
-void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, const Message &p_message) {
+void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, Message &p_message) {
 	jsb_check(p_message.get_id());
 	ObjectHandleConstPtr handle = object_db_.try_get_object(p_message.get_id());
 	if (!handle) {
@@ -758,14 +753,14 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				JSB_LOG(Error, "onmessage is not a function");
 				return;
 			}
-			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message, false);
+			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message);
 			break;
 		case Message::TYPE_READY: {
 			if (!obj->Get(p_context, jsb_name(this, onready)).ToLocal(&callback) || !callback->IsFunction()) {
 				JSB_LOG(Error, "onready is not a function");
 				return;
 			}
-			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), nullptr, false);
+			invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), nullptr);
 			break;
 		}
 		case Message::TYPE_ERROR:
@@ -773,17 +768,13 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 				JSB_LOG(Error, "onerror is not a function");
 				return;
 			}
-			if (p_message.get_buffer().size() == 0) {
-				// 空 payload：worker 侧做不出错误记录（例如入口脚本加载失败、环境已不可用），
-				// 这里按 worker 的脚本路径补出文案
-				// NOTE 不在这里反查 worker 的脚本路径：消息里带的是对象 handle，与 `WorkerID` 是两套索引；
-				//      路径在 worker 侧日志里（`failed to load the worker script: <path>`）
-				const v8::Local<v8::Value> error = cross_isolate::make_error(isolate, p_context, "failed to load the worker script (see the worker log for the path)");
+			{
+				// worker 的脚本路径不在这里反查：路径在 worker 侧日志里。
+				static const char kFallback[] = "failed to load the worker script (see the worker log for the path)";
+				const v8::Local<v8::Value> error = cross_isolate::take_error(this, p_message, kFallback);
 				jsb_check(!error.IsEmpty());
 				v8::Local<v8::Value> argv[] = { error };
 				callback.As<v8::Function>()->Call(p_context, v8::Undefined(isolate), 1, argv).ToLocalChecked();
-			} else {
-				invoke_worker_callback_from_message(this, p_context, callback.As<v8::Function>(), &p_message, true);
 			}
 			break;
 		default:
@@ -794,7 +785,7 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, co
 #endif
 
 void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
-	// 没有接收者就到此为止：**连采集都不做**（点1）。采集要逐字段读属性，没接收者时纯属浪费。
+	// 没有接收者就不采集（采集要逐字段读属性）。
 	if (!has_master_env_info() || p_exception.IsEmpty()) {
 		return;
 	}
@@ -805,22 +796,13 @@ void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exceptio
 	}
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
-	// NOTE 在进入本方法的 isolate scope 之后采集：本方法可能在另一种 isolate 的作用域里被调用
-	//      （例如 realm 的宿主 isolate 里），采集必须在本环境的 isolate 下做。
+	// 必须在本环境的 isolate 作用域内采集（调用方可能处于另一种 isolate 的作用域里）。
 	const v8::HandleScope handle_scope(isolate);
 	const v8::Local<v8::Context> context = get_context();
 	const v8::Context::Scope context_scope(context);
-	// 采集+序列化由 cross_isolate 负责，Environment 不直接接触记录层。
-	const std::pair<uint8_t *, size_t> data = cross_isolate::serialize_exception(isolate, context, p_exception);
-	if (data.first == nullptr) {
-		return;
-	}
-	Message message(Message::TYPE_ERROR, handle_in_master_env_, Buffer::steal(data.first, data.second));
+	Message message(Message::TYPE_ERROR, handle_in_master_env_, cross_isolate::capture_error(this, p_exception));
 	if (p_mode == ErrorForwardMode::Sync) {
-		// NOTE 同步投递会把宿主的 `onerror` 插进来源侧的 JS 帧里执行。来源侧**必须**是那种
-		//      "调用方本来就持有本环境、且帧内的 `terminate()` 已被 `ShadowRealmImpl::ins_refcount_`
-		//      挡住"的场景，否则用户在 `onerror` 里销毁来源环境会在帧内析构自己的 isolate
-		//      （实测 `v8::Isolate::Deinitialize(): Deinitializing the isolate that is entered by a thread`）。
+		// 同步投递会把宿主的 `onerror` 插进来源侧的 JS 帧里执行：来源侧必须保证帧内销毁自己不会析构 isolate。
 		master->handle_message(std::move(message));
 	} else {
 		master->post_message(std::move(message));

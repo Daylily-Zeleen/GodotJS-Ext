@@ -30,7 +30,6 @@
 #include "internal/jsb_runtime_settings.h"
 #include "jsb_callable.h"
 #include "jsb_class_info.h"
-#include "jsb_cross_isolate_util.h"
 #include "jsb_object_bindings.h"
 #include "jsb_type_convert.h"
 
@@ -562,22 +561,8 @@ bool BridgeModuleLoader::load(Environment *p_env, JavaScriptModule &p_module) {
 				"dynamic"
 #endif
 				;
-		// Exported for the benchmark harness (`BINDING_MODE` in godot-jsb) and for
-		// `misc/bench_matrix.py`, which reads it back as BENCH_JSON.bindingMode to
-		// prove which leg produced a run. Commit 56306d5 ("regvert: f77d049")
-		// dropped this Set() while keeping the variable, leaving the bench gate
-		// unable to identify a leg.
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BINDING_MODE"), impl::Helper::new_string_ascii(isolate, binding_mode)).Check();
-		// Runtime-visible so a single integration scenario can assert both
-		// positions of the 64-bit output switch without being rebuilt per mode
-		// (see JSB_WITH_BIGINT in jsb.config.h). Mirrors how BINDING_MODE
-		// lets one scene cover every binding leg.
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "BIGINT_FOR_64BIT"), v8::Boolean::New(isolate, JSB_WITH_BIGINT != 0)).Check();
-		// 跨隔离区错误里"未能携带的字段路径"清单所用的 symbol 键（`Symbol.for("jsb.untransferred")`）。
-		// 用注册表 symbol：目标 realm 能本地算出同一个、用户也能用同一个键读回，且不与用户自定义字段冲突。
-		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "untransferred"),
-				v8::Symbol::For(isolate, impl::Helper::new_string_ascii(isolate, jsb::cross_isolate::untransferred_symbol_key())))
-				.Check();
 #ifdef DEV_ENABLED
 		jsb_obj->Set(context, impl::Helper::new_string_ascii(isolate, "DEV_ENABLED"), v8::Boolean::New(isolate, true)).Check();
 #else

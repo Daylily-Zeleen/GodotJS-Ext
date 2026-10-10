@@ -26,7 +26,7 @@
  */
 
 declare module "godot.worker" {
-    import { GAny, GArray, Object as GObject } from "godot";
+    import { GAny, GArray } from "godot";
 
     class JSWorker {
         constructor(path: string);
@@ -41,9 +41,9 @@ declare module "godot.worker" {
 
         /**
          * worker 侧的错误（入口脚本加载失败 / `onmessage` 抛错 / 定时器回调抛错）。
-         * 参数是宿主 realm 重建出来的值：对象异常是 `Error`，原始值异常原样送达。
+         * 跨隔离区错误一律是 `CrossEnvError`（具体异常在 `cause`）。
          */
-        onerror?: (error: import("godot-jsb").JsbThrownValue) => void;
+        onerror?: (error: CrossEnvError) => void;
     }
 
     // only available in worker scripts

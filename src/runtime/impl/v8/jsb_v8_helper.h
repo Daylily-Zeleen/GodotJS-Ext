@@ -300,6 +300,12 @@ public:
 		isolate->ThrowError(new_string(isolate, message));
 	}
 
+	/** 按 JS 语义抛出一个值（原生方式，不编 JS）。 */
+	_FORCE_INLINE_ static void throw_value(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &value) {
+		jsb_unused(context);
+		isolate->ThrowException(value);
+	}
+
 	_FORCE_INLINE_ static void free(uint8_t *data) {
 		::free(data);
 	}

@@ -1,6 +1,5 @@
 import { Engine, GDictionary, instance_from_id, is_instance_id_valid, Node, Object as GodotObject, OS, PackedScene, Performance, Resource, ResourceLoader, Time, Vector2, weakref, WeakRef as GodotWeakRef } from 'godot';
 import { JSWorker } from 'godot.worker';
-import { untransferred } from 'godot-jsb';
 
 /**
  * A 64-bit alias is `int64` -- `number | bigint` when the build has BigInt, a
@@ -434,13 +433,17 @@ export default class TestCrossEnvironment extends Node {
 					if (!(error instanceof Error)) {
 						fail(`onerror did not receive an Error (${backend}/${action}): ${typeof error}`);
 					}
+					// 对象异常现在包装成全局的 CrossEnvError（extends Error，源异常在 cause）
+					if (!(error instanceof CrossEnvError)) {
+						fail(`onerror did not receive a CrossEnvError (${backend}/${action}): ${error.constructor?.name}`);
+					}
 					if (!error.message.includes(expectedSnippet)) {
 						fail(`unexpected onerror message (${backend}/${action}): ${error.message}`);
 					}
 					if (action === 'onmessage-throw') {
 						// The throw carries a function-valued own property; the runtime
 						// cannot copy it, so it must be listed as untransferred instead.
-						const lost = error[untransferred];
+						const lost = error.untransferred; // CrossEnvError: 清单挂在包装上，源异常在 error.cause
 						if (!Array.isArray(lost) || !lost.includes('fn')) {
 							fail(`untransferred list missing 'fn' (${backend}): ${JSON.stringify(lost)}`);
 						}
@@ -488,13 +491,13 @@ export default class TestCrossEnvironment extends Node {
 					if (readyFired) {
 						fail('onready fired for a worker script that failed to load');
 					}
-					// 入口脚本加载失败时 worker 侧直接转发**字符串**文案（不是重建的 Error）：
-					// 那个环境刚失败，只发得出这一句；宿主 `onerror` 按 `JsbThrownValue` 收到原始值。
-					if (typeof error !== 'string') {
-						fail(`onerror did not receive a string (startup load failure): ${typeof error}`);
+					// 入口脚本加载失败时 worker 侧只发得出字符串文案，宿主侧包成 CrossEnvError 后落在 cause 上。
+					if (!(error instanceof CrossEnvError)) {
+						fail(`onerror did not receive a CrossEnvError (startup load failure): ${typeof error}`);
 					}
-					if (!error.includes('failed to load the worker script')) {
-						fail(`unexpected onerror message (startup load failure): ${error}`);
+					const cause = error.cause;
+					if (typeof cause !== 'string' || !cause.includes('failed to load the worker script')) {
+						fail(`unexpected onerror cause (startup load failure): ${String(cause)}`);
 					}
 					resolve();
 				} catch (assertionError) {

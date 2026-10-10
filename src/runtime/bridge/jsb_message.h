@@ -47,6 +47,11 @@ struct TransferData {
 	~TransferData() = default;
 };
 
+/** 消息的附加数据基类（不是每条消息都带数据，所以 `Message` 按指针持有）。具体类型由生产者定义。 */
+struct MessageRawData {
+	virtual ~MessageRawData() = default;
+};
+
 struct Message {
 public:
 	enum Type {
@@ -58,7 +63,7 @@ public:
 		// worker message
 		TYPE_MESSAGE,
 
-		//TODO worker error (NOT IMPLEMENTED YET)
+		// worker error：payload 是错误记录（`MessageRawData`），不是普通 onmessage 数据
 		TYPE_ERROR,
 	};
 
@@ -74,6 +79,9 @@ public:
 	Message(Type p_type, NativeObjectID p_id, Buffer &&p_buffer = Buffer(), std::vector<TransferData> &&p_transfers = std::vector<TransferData>())
 			: type_(p_type), id_(p_id), buffer_(std::move(p_buffer)), transfers(std::move(p_transfers)) {
 	}
+	Message(Type p_type, NativeObjectID p_id, std::unique_ptr<MessageRawData> p_raw_data)
+			: type_(p_type), id_(p_id), raw_data_(std::move(p_raw_data)) {
+	}
 
 	// object id of worker object in master env
 	NativeObjectID get_id() const { return id_; }
@@ -84,11 +92,14 @@ public:
 
 	const std::vector<TransferData> &get_transfers() const { return transfers; }
 
+	std::unique_ptr<MessageRawData> take_rawdata() { return std::move(raw_data_); }
+
 private:
 	Type type_;
 	NativeObjectID id_;
 	Buffer buffer_;
 	std::vector<TransferData> transfers;
+	std::unique_ptr<MessageRawData> raw_data_;
 };
 
 } //namespace jsb

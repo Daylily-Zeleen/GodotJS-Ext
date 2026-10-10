@@ -162,6 +162,14 @@ public:
 		isolate->throw_error(message);
 	}
 
+	/** web 腿没有"抛任意值"的互操作原语：抛 message Error 并带上值的文本（该路径在 web 上不可达）。 */
+	_FORCE_INLINE_ static void throw_value(v8::Isolate *isolate, const v8::Local<v8::Context> &context, const v8::Local<v8::Value> &value) {
+		jsb_unused(context);
+		const String value_text = to_string(isolate, value);
+		jsb_checkf(false, "throw_value is not implemented on the web leg (no value-throw primitive in the interop); value: %s", value_text);
+		isolate->throw_error(String("throw_value is not implemented on the web leg; value: ") + value_text);
+	}
+
 	_FORCE_INLINE_ static void get_statistics(v8::Isolate *isolate, Vector<CustomField> &p_fields) {
 		struct
 		{
