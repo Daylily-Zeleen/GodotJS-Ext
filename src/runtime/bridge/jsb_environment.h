@@ -586,8 +586,11 @@ public:
 	 * NOTE 调用方仍需在调用之后用 `BridgeHelper::get_exception(try_catch)` 打日志——
 	 *      quickjs 的异常槽要靠 `get_message()` 才清空，不消费会让下一次 `has_caught()` 断言失败。
 	 * @param p_exception 本环境里的异常值（`TryCatch::get_exception_value()`）。
+	 * @return 真正转发了（有接收者并已投递）返回 true；没有接收者 / 异常为空 / master 已失效返回 false。
+	 *         调用方可据此避免重复输出：已转发时宿主 `onerror` 已经拿到错误，来源侧不必再打一条日志。
+	 *         NOTE 返回 false 时调用方照旧要消费异常槽（见上）。
 	 */
-	void forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode = ErrorForwardMode::Async);
+	bool forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode = ErrorForwardMode::Async);
 
 #if JSB_WITH_NODE
 	/**

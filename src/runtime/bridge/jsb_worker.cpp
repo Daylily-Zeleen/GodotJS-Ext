@@ -414,6 +414,7 @@ public:
 
 			const Error load_result = env->load(impl->path_);
 			if (load_result != OK) {
+				bool forwarded = false;
 #if !JSB_WITH_WEB
 				{
 					// NOTE `load()` 返回时它内部的作用域已析构，这里必须自己开一个作用域再建字符串句柄
@@ -421,12 +422,15 @@ public:
 					v8::Isolate *isolate = env->get_isolate();
 					JSB_ISOLATE_SCOPE(isolate);
 					const v8::HandleScope handle_scope(isolate);
-					env->forward_error_to_master(
+					forwarded = env->forward_error_to_master(
 							jsb::impl::Helper::new_string(isolate, vformat("failed to load the worker script: %s", impl->path_)),
 							Environment::ErrorForwardMode::Async);
 				}
 #endif
-				JSB_WORKER_LOG(Error, "failed to load the worker script: %s", impl->path_);
+				// 已转发时宿主 `onerror` 会拿到错误，来源侧不再重复输出。
+				if (!forwarded) {
+					JSB_WORKER_LOG(Error, "failed to load the worker script: %s", impl->path_);
+				}
 			}
 			if (load_result == OK) {
 				// notify master
@@ -550,8 +554,12 @@ private:
 		const v8::MaybeLocal<v8::Value> rval = call->Call(p_context, v8::Undefined(isolate), 1, &value);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
-			worker_env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Async);
-			JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			const bool forwarded = worker_env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Async);
+			// 仍要消费异常槽（quickjs/jsc 靠 `get_message()` 清空），只是已转发时不再重复输出日志。
+			const String message = BridgeHelper::get_exception(try_catch);
+			if (!forwarded) {
+				JSB_WORKER_LOG(Error, "%s", message);
+			}
 		}
 	}
 #endif

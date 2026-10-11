@@ -1798,3 +1798,31 @@ qjs / qjs-classic / jsc **0 行**。node 原生 dump（`Node.js v…` / `node:in
   **行首 `Uncaught` 0 行**。
 
 **遗留**：机制仍在（仅日志外观）；用户脚本加载失败时控制台仍会出现该裸行，现已在 known-issues 记录。
+
+---
+
+## §52 已转发即不再重复输出日志（未提交）
+
+**改动**：`Environment::forward_error_to_master()` 返回 `bool`（真正投递=true；无接收者/异常空/master 失效=false）。
+四处转发点改为**先转发、已转发则跳过 `JSB_LOG`**：
+
+| 文件 | 位置 | 日志 |
+|---|---|---|
+| `jsb_timer_action.cpp` | `JavaScriptTimerAction::operator()` | `timer error %s` |
+| `jsb_shadow_realm.cpp` | `ShadowRealmImpl::_on_message` | `JSB_SHADOW_REALM_LOG` |
+| `jsb_worker.cpp` | `_on_message`（onmessage） | `JSB_WORKER_LOG` |
+| `jsb_worker.cpp` | `_run`（启动加载失败） | `JSB_WORKER_LOG` |
+| `jsb_environment.cpp` | `flush_uncaught_exception`（node 钩子） | `uncaught error %s` |
+
+**关键约束**：quickjs / jsc / web 的异常槽由 `TryCatch::get_message()` 清空（下一次 `TryCatch` 会断言槽为脏）。
+所以除 `flush_uncaught_exception`（用 `to_string` 直接读值、不涉槽）外，其余四处**仍调用
+`BridgeHelper::get_exception(try_catch)` 消费槽**，只是把结果存进局部变量、仅在未转发时打日志。
+
+**验证（Windows node 构建 `use_node=yes dev_build=yes tests=yes`）**：
+- 编译+链接通过（75s，增量）。
+- 单场景 `CrossEnvironment.tscn`：`error-reporting:{onmessage-throw,timer-throw}:{worker,shadow}` 全部 start→done
+  （未断言失败即证明宿主仍收到 `CrossEnvError`），行首 `Uncaught` **0**，来源侧重复日志 `timer error` /
+  `[JSWorker][Error]` / `[ShadowRealm][Error] Uncaught` **全空**。
+- 整工程 15 场景：`GODOTJS_TEST_PROJECT_COMPLETED`、无 `TEST FAILED`、行首 `Uncaught` **0**。
+
+**状态**：按用户要求**未提交**（工作区改动待用户复查）。

@@ -785,15 +785,17 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, Me
 }
 #endif
 
-void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
+bool Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
 	// 没有接收者就不采集（采集要逐字段读属性）。
 	if (!has_master_env_info() || p_exception.IsEmpty()) {
-		return;
+		return false;
 	}
-#if !JSB_WITH_WEB
+#if JSB_WITH_WEB
+	return false;
+#else
 	const std::shared_ptr<Environment> master = _access(master_token_);
 	if (!master) {
-		return;
+		return false;
 	}
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
@@ -809,6 +811,7 @@ void Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exceptio
 	} else {
 		master->post_message(std::move(message));
 	}
+	return true;
 #endif
 }
 
@@ -865,10 +868,12 @@ void Environment::flush_uncaught_exception() {
 		if (exception.IsEmpty()) {
 			continue;
 		}
-		JSB_LOG(Error, "uncaught error %s", impl::Helper::to_string(isolate, exception));
+		// 先转发：已转发时宿主 `onerror` 会拿到错误，来源侧不再重复输出。
 		// 同步档：本点已在 node 的 async 作用域之外（`PumpEventLoop` 之后），宿主同线程就能在本帧把
 		// `onerror` 跑完；跨线程宿主由投递闸自动降级为排队。（在钩子里同步跑会打乱 node 的异步栈。）
-		forward_error_to_master(exception, ErrorForwardMode::Sync);
+		if (!forward_error_to_master(exception, ErrorForwardMode::Sync)) {
+			JSB_LOG(Error, "uncaught error %s", impl::Helper::to_string(isolate, exception));
+		}
 	}
 }
 #endif

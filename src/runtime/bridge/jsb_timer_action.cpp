@@ -69,10 +69,15 @@ void JavaScriptTimerAction::operator()(v8::Isolate *isolate) {
 	jsb_unused(result);
 #endif
 	if (try_catch.has_caught()) {
+		bool forwarded = false;
 		if (Environment *env = Environment::wrap(isolate)) {
-			env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
+			forwarded = env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
 		}
-		JSB_LOG(Error, "timer error %s", BridgeHelper::get_exception(try_catch));
+		// 仍要消费异常槽（quickjs/jsc 靠 `get_message()` 清空），只是已转发时不再重复输出日志。
+		const String message = BridgeHelper::get_exception(try_catch);
+		if (!forwarded) {
+			JSB_LOG(Error, "timer error %s", message);
+		}
 	}
 }
 } //namespace jsb

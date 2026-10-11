@@ -1810,8 +1810,12 @@ private:
 			// 统一入口自己判有没有接收者、要不要 capture（点1/点2）。
 			// realm 与宿主同线程同栈：同步档，宿主 `onerror` 在本帧内跑完（帧内 terminate 已由 FrameScope 挡成延迟销毁）。
 			// NOTE 取值顺序：先取异常值（`get_message()` 会消费异常槽），再让日志消费。
-			env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
-			JSB_SHADOW_REALM_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			const bool forwarded = env->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Sync);
+			// 仍要消费异常槽（quickjs/jsc 靠 `get_message()` 清空），只是已转发时不再重复输出日志。
+			const String message = BridgeHelper::get_exception(try_catch);
+			if (!forwarded) {
+				JSB_SHADOW_REALM_LOG(Error, "%s", message);
+			}
 		}
 	}
 
