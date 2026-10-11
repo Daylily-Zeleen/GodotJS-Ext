@@ -1686,3 +1686,29 @@ V8 对**被外部 `v8::TryCatch` 接住**的异常也套 `MessageTemplate::kUnca
 实测（WSL, Godot_v4.7.1-stable = CI 引擎，各腿独立二进制）：node **1198/1198**、qjs-classic **2370/2370**、
 qjs-ng **2371/2371**、v8 **1324/1324**，均 `Status: SUCCESS!`、`rc=0`；Windows node **1209/1209**。
 jsc（macOS-only）与 host-node/macos 的 teardown 修复需由 CI 确认。
+
+---
+
+## §48 jsc 第二个崩溃定位与修复（缺陷 5，非 node）
+
+CI run `38152591682`（推送 `c134c0c`）后，jsc 腿只剩一处崩溃，用例
+`ShadowRealm: a guest object is wrapped once per host isolate (cache reuse)` → `signal 5`。
+
+**崩溃点**：`ERROR: FATAL: Condition "!(p_index.get_revision() != 0)" is true.` @ `jsb_sarray.h:578 SArray::get_value`。
+栈（内→外）：
+`ShadowRealmImpl::evaluate → wrap_cross_env_value → ObjectCrossWrapper::create → Helper::to_string_without_side_effect
+→ v8::Value::ToDetailString/ToString → [JSC] JSValueToStringCopy → JSObject::toString → ordinaryToPrimitive
+→ 重入 v8::Function::_function_call → Isolate::_get_captured_value → SArray::get_value → check 失败`。
+
+**根因（已确认）**：`CrossWrapper::try_get_cache(guest, …)` 返回的是 `wrapper->get_host_obj(host_isolate)`
+——**属于 host isolate 的对象**（`jsb_shadow_realm.cpp:472`）。而 `FunctionCrossWrapper::create` / `ObjectCrossWrapper::create`
+的 cache 命中日志却用 **guest isolate** 去字符串化它：
+`JSB_LOG(Info, "Get cache: %s", to_string_without_side_effect(p_guest_isolate, cache))`（:575 / :700）。
+- v8 / quickjs：`ToDetailString` 对异属句柄不触发 JS，无副作用（该函数本意即“无副作用”，但 jsc 做不到）。
+- **jsc：`ToString` 会真的执行 JS**（`ordinaryToPrimitive` → `toString`），于是在 guest 上下文里重入一个 C 回调；
+  `_function_call` 用 `GetContextOpaque(ctx)` 取到的是 **guest isolate**，却拿它去查 **host isolate** 分配的
+  `captured_value_id` ⇒ 查错表 ⇒ id 的 revision 读成 0（默认构造）⇒ `jsb_check` 失败。
+- 该日志被 `JSB_MIN_LOG_LEVEL` 在 **release 下编译期剔除**，只有 `dev_build`（= CI 配置）才会踩到。
+
+**修法**：两处 cache 命中日志改用 `GetIdentityHash()`（jsc 实现是纯指针运算，不执行 JS，且正是缓存的查找键），
+不再跨隔离字符串化。文件：`src/runtime/bridge/jsb_shadow_realm.cpp:575`、`:700`。
