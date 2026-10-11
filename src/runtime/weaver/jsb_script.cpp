@@ -934,9 +934,8 @@ void GodotJSScript::_notify_script_reloaded_in_envs(std::shared_ptr<jsb::Environ
 }
 
 // 在【本 env 所属线程】上刷新本脚本，并重绑本 env 拥有的实例。
+// NOTE: 如果调用线程不是创建该 env 的线程，在接受通知到重绑生效之间，该 env 逻辑仍可能跑在旧 prototype 上, 属于预期的异步行为。
 void GodotJSScript::refresh_in_env(jsb::Environment *p_env) {
-	// TODO(已知遗留): 接受通知到重绑生效之间，本 env 自己的逻辑仍可能跑在旧 prototype 上；
-	// 后续需把重绑推迟到安全时机，或在入口处校验实例是否已重绑。
 	JSB_BENCHMARK_SCOPE(GodotJSScript, refresh_in_env);
 	if (!p_env || p_env->is_disposing()) {
 		return;

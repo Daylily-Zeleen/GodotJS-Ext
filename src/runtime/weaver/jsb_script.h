@@ -98,7 +98,7 @@ private:
 	jsb::StatelessScriptClassInfo script_class_info_;
 
 #if JSB_TOOLS
-	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders; // TODO: 是否要改成 HashMap 加快查找？
+	LocalVector<PlaceholderScriptInstance *, int32_t> placeholders;
 #endif
 #if JSB_DEBUG
 	HashMap<ObjectInstanceID, ScriptInstancePropertyState> pending_reload_state_;
