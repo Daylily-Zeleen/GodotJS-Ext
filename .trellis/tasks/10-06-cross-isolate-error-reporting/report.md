@@ -1656,22 +1656,33 @@ JSC 只在**失败时**写 `*exception`（头文件："a pointer ... in which to
 其余调用点都已 `= nullptr`。修：三处都 `= nullptr`。
 **未在本机复现**（jsc 只在 macOS 构建，本机仅 Linux/Windows）；依据是 JSC 头文件契约 + CI 崩溃栈。
 
-### 缺陷 4：`Uncaught ` 前缀（node-only，最后修）
+### 缺陷 4（已按用户要求**撤销**，另行处理）
 
-用户指出我先前"该正则只会命中我们自己的续行"的说法**不准确**——仓库里 `Uncaught Error:` 出现在多处。
-核实后的真机制：V8 对**被外部 `v8::TryCatch` 接住**的异常也套 `MessageTemplate::kUncaughtException`（`"Uncaught %"`，
-`isolate.cc:3016 CreateMessage`）。于是每条 `BridgeHelper::get_exception()`（v8/node 腿）都带该前缀：
-`Uncaught Error: ...`、`Uncaught SyntaxError: ...` 等。quickjs/jsc 的 `get_message()` 读 `err.message`，本就没有它
-——所以**只有 node 腿**打出无前缀列 0 的 `Uncaught Error:`，被矩阵 `/^Uncaught\s+Error:/im` 命中。
-（这些行是 `Environment::load` 的 `JSB_LOG(Warning, "something went wrong on loading '%s'\n%s", ...)` 的续行：
-只有首行带 `WARNING: [jsb][Warning]`，`\n` 后的 payload 从列 0 开始。）
-修：`BridgeHelper::get_exception()` 里剥掉行首 `Uncaught `（该函数语义是"已被接住的异常"，引擎标签是误导）。
+我先把 `BridgeHelper::get_exception()` 里行首的 `Uncaught ` 剥掉了——**用户否决**：宁可留着这个错误别动。
+已把该提交从历史里丢掉（`git rebase --interactive` drop，未推送过）。机制本身仍记录在此备查：
 
-实测：场景仍把 `cross-environment-test: peer load throw` 送达宿主 `onerror`（41 done、rc=0），
-无任何行命中矩阵模式；Windows 与 Linux(node) 双确认；node doctest 1198/1198(Linux)、1209/1209(Windows)。
+V8 对**被外部 `v8::TryCatch` 接住**的异常也套 `MessageTemplate::kUncaughtException`（`"Uncaught %"`，
+`isolate.cc:3016 CreateMessage`），于是 v8/node 腿每条 `get_exception()` 都带该前缀
+（`Uncaught Error: ...`、`Uncaught SyntaxError: ...`）。quickjs/jsc 的 `get_message()` 读 `err.message`，本就没有它
+——所以只有 node 腿打出无前缀、列 0 的 `Uncaught Error:`，被矩阵 `/^Uncaught\s+Error:/im` 命中
+（这些行是 `Environment::load` 的 `JSB_LOG(Warning, "something went wrong on loading ...")` 的续行）。
+**该问题不在本次提交范围内。**
 
-### 提交（按用户顺序：非 node 先、node 最后）
+### 更正：v8 腿本机构建失败的真因（不是项目问题）
 
-- `9718b87` 缺陷 1+2（非 node，Linux doctest 断言）
-- `2d4dd3a` 缺陷 3（非 node，jsc macOS abort）
-- `b6bcf38` 缺陷 4（node-only，矩阵误命中）
+我先前说"WSL 里 lws 无 PIC 导致 v8 链接失败"——**用户指出 GodotJS-Dependencies 已处理**。核实结论：
+- `GodotJS-Dependencies/.github/actions/lws/build/action.yml:35-36` 明确带 `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`（首个提交即有）；
+- 从 deps release `ci-36222190595` 下的 `lws_linux_x86_64.zip` 里取 `logs.c.o`：`stderr` 是 `R_X86_64_REX_GOTP`（**PIC**）；
+- 我本机 `third/lws`（9/6）的 `logs.c.o`：`stderr` 是 `R_X86_64_PC32`（**非 PIC**，正是链接报错）——**陈旧副本**，早于 deps 的 CI 产物（9/25 起）。
+
+装回 deps bundle 的 PIC 版后 v8 腿**链接通过**，doctest **1324/1324、rc=0**（原 1316/8 failed）。纯属本机环境问题。
+
+### 提交（非 node 先、node-only 已撤销）
+
+- `9718b87` 缺陷 1（WalkState 悬垂引用）+ 缺陷 2（flag_symbols_ 静态析构）——非 node，Linux doctest 断言
+- `2d4dd3a` 缺陷 3（jsc 出参未初始化）——非 node，macOS-only，待 CI 验证
+- ~~缺陷 4（Uncaught 前缀）~~ **已撤销**（用户：留着别动）
+
+实测（WSL, Godot_v4.7.1-stable = CI 引擎，各腿独立二进制）：node **1198/1198**、qjs-classic **2370/2370**、
+qjs-ng **2371/2371**、v8 **1324/1324**，均 `Status: SUCCESS!`、`rc=0`；Windows node **1209/1209**。
+jsc（macOS-only）与 host-node/macos 的 teardown 修复需由 CI 确认。
