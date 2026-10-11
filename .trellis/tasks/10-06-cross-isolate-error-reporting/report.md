@@ -1613,3 +1613,65 @@ node 构建 rc=0；doctest **93/93、1209 断言 SUCCESS**；场景 **rc=0、41 
 
 ### 实测
 node 构建 rc=0；doctest **93/93、1209 断言 SUCCESS**；场景 **rc=0、41 done、0 fail**。
+
+## §47 CI 全红复盘：四个独立缺陷（含三个非 node、一个 node-only）
+
+用户要求：非 node 问题先修、**单独提交**；node 专属问题最后修、再单独提交。按此顺序落了三笔提交
+（`9718b87` 非 node 两个、`2d4dd3a` 非 node 一个、`b6bcf38` node-only 最后）。
+
+### 决定性事实：失败是**分平台**的，不是分后端
+
+本地 Windows（node 腿）doctest 1209/1209 全绿，CI 的**所有 Linux/macOS 腿**全挂、Windows 腿全绿。
+最后一个绿 run（`d3b760268`，2026-10-06）各腿 SUCCESS；其后 `d3b760268..HEAD` 区间内引入回归。
+在 WSL + `Godot_v4.7.1-stable`（CI 用的引擎）+ 下载的 CI 产物 `.so` 上**精确复现**了 CI 的失败集。
+
+### 缺陷 1：`WalkState` 引用成员绑临时量（非 node）
+
+`jsb_cross_isolate_util.cpp`：`struct WalkState { const Limits &limits; ... }`，调用点 `WalkState state{ Limits() };`。
+临时 `Limits()` 在该语句结束即析构 → `state.limits` 悬垂。MSVC 恰好保留栈槽（Windows 全绿），
+GCC/Clang 复用栈槽 → 采集预算变垃圾 → 采集循环立刻 bail：`name/message/stack`（直读）还在，
+**所有自定义字段、未携带清单、递归 cause、有界计数全丢**。
+修：`limits` 改按值（4 个 int，拷贝零成本）。
+
+实测（WSL, 4.7.1-stable）：node **1198/1198**（原 1190/8 failed）、qjs-classic **2370/2370**（原 2361/9）、
+qjs-ng **2371/2371**（原 2362/9），均 `Status: SUCCESS!`。
+
+### 缺陷 2：`CrossWrapper::flag_symbols_` 静态析构释放死 isolate 句柄（非 node）
+
+`jsb_shadow_realm.cpp`：`inline static std::unordered_map<Isolate*, TStrongRef<v8::Name>> flag_symbols_`。
+创建 wrapper 时注册的是 **host isolate**（`:593 get_flag_symbol(isolate)`），而 `finish()` 只 erase **guest isolate**。
+host 表项活到进程退出，静态析构在 `__run_exit_handlers` 里对已死 isolate 调 `v8::Global::Reset` → SEGV/abort。
+测试全过之后才崩（CI 里表现为 "assertions 全过 + 退出码 139/132"）。
+gdb 回溯确证：`__run_exit_handlers → _Hashtable dtor → TStrongRef<Name>::~ → Global<Name>::Reset → free_value`。
+修：加 `clean()`，在 `ShadowRealm::finish_all()` 里与姊妹 `SymbolCrossUtils::clean()` 并列调用。
+
+实测：修后各腿 **rc=0**（原 139/132/133/134）。
+
+### 缺陷 3：JSC 出参未初始化（非 node，仅 macOS 可跑）
+
+`jsb_jsc_object.cpp`：`Promise::Resolver::New` / `GetPromise` / `InvokePromise` 三处 `JSValueRef error;` 未初始化。
+JSC 只在**失败时**写 `*exception`（头文件："a pointer ... in which to store an exception, if any"），成功路径不清空
+→ 读到栈上垃圾当异常 → `_ThrowError` → `JSValueProtect`（macOS CI 的 abort 栈正是
+`importValue → Promise::Resolver::New → _ThrowError → JSValueProtect`）。这是该文件里**仅有**的三处未初始化，
+其余调用点都已 `= nullptr`。修：三处都 `= nullptr`。
+**未在本机复现**（jsc 只在 macOS 构建，本机仅 Linux/Windows）；依据是 JSC 头文件契约 + CI 崩溃栈。
+
+### 缺陷 4：`Uncaught ` 前缀（node-only，最后修）
+
+用户指出我先前"该正则只会命中我们自己的续行"的说法**不准确**——仓库里 `Uncaught Error:` 出现在多处。
+核实后的真机制：V8 对**被外部 `v8::TryCatch` 接住**的异常也套 `MessageTemplate::kUncaughtException`（`"Uncaught %"`，
+`isolate.cc:3016 CreateMessage`）。于是每条 `BridgeHelper::get_exception()`（v8/node 腿）都带该前缀：
+`Uncaught Error: ...`、`Uncaught SyntaxError: ...` 等。quickjs/jsc 的 `get_message()` 读 `err.message`，本就没有它
+——所以**只有 node 腿**打出无前缀列 0 的 `Uncaught Error:`，被矩阵 `/^Uncaught\s+Error:/im` 命中。
+（这些行是 `Environment::load` 的 `JSB_LOG(Warning, "something went wrong on loading '%s'\n%s", ...)` 的续行：
+只有首行带 `WARNING: [jsb][Warning]`，`\n` 后的 payload 从列 0 开始。）
+修：`BridgeHelper::get_exception()` 里剥掉行首 `Uncaught `（该函数语义是"已被接住的异常"，引擎标签是误导）。
+
+实测：场景仍把 `cross-environment-test: peer load throw` 送达宿主 `onerror`（41 done、rc=0），
+无任何行命中矩阵模式；Windows 与 Linux(node) 双确认；node doctest 1198/1198(Linux)、1209/1209(Windows)。
+
+### 提交（按用户顺序：非 node 先、node 最后）
+
+- `9718b87` 缺陷 1+2（非 node，Linux doctest 断言）
+- `2d4dd3a` 缺陷 3（非 node，jsc macOS abort）
+- `b6bcf38` 缺陷 4（node-only，矩阵误命中）
