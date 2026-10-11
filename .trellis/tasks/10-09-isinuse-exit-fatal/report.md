@@ -95,3 +95,8 @@ method=_exit_tree   owner=Node   script=res://tests/singleton/config-singleton.t
 含义：进程收尾时**仍有节点通知在派发**（`start.ts` 的 `_exit_tree` 等），而 JS 环境已销毁。
 目前只是 `WARN_PRINT` + 返回 false，行为安全；但说明退出顺序上"语言 shutdown"早于"场景树通知排空"。
 **未改行为**（属独立问题，需确认是否为引擎既定时序）。探针已还原。
+
+## CI 确认（2026-10-12）
+
+`620bf50` 推送 → run **38179774833 = success**（含 4 条 web 腿 `engine: web` ×2 + nothreads）。
+本任务无代码改动（根因修复由 `9718b87` 承载），本条仅记录文档与诊断结论。
