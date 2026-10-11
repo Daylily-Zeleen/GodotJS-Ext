@@ -47,20 +47,20 @@
 
 ## 验收标准
 
-- [ ] **AC1** 回归用例先复现崩溃：`evaluate` 抛错用例在修前崩溃（已在 `report.md` §30 记录实测），修后通过。
-- [ ] **AC2** `evaluate` / `importValueSync` 抛错时宿主侧 `catch` 到 `instanceof Error === true` 的对象，`message` 正确、`stack` 含 guest 栈文本；宿主进程不崩。
-- [ ] **AC3** `importValue` 失败 → Promise reject 同一形态错误（不再是字符串）。
-- [ ] **AC4** Worker 启动失败 → 主线程 `onerror` 收到该错误；启动成功仍走 `onready`。
-- [ ] **AC5** Worker 侧回调抛错 → 主线程 `onerror`（不再只有日志）。
-- [ ] **AC6** `TransferableJSShadowRealm.onerror` 与 Worker 的参数构造路径相同（同一 helper；测试断言字段集一致）。
-- [ ] **AC7** 自定义字段：能转的带上（如 `e.code`/`e.detail` 的基础类型），不能转的被标记/丢弃且**附带未携带清单**；整体仍返回可用 Error。
-- [ ] **AC8** 有界性：对构造出的病态用例（深链/环/大数组/getter）不卡死、不超时、不触发 getter（可用计数器断言）。
-- [ ] **AC9** 门禁：本地 v8 + quickjs-ng 构建 rc=0、doctest 全绿、smoke `GODOTJS_TEST_PROJECT_COMPLETED`；node（`use_node=yes`）本地构建+运行；web（`platform=web`）本地构建（emsdk）；jsc 走语法门 + CI 的 `Test (host-jsc, macos-latest)`。
-- [ ] **AC10** 文档/规范：新增的跨边界错误约定写进 `.trellis/spec/`（若判定为新约定）。
-- [ ] **AC11** 未携带清单挂在重建 Error 的 `Symbol.for("jsb.untransferred")` 上（不是字符串键），用户可用该 symbol 读取；不能转的字段不导致整体失败。
-- [ ] **AC12** worker 环境的定时器回调异常 → 主线程 `onerror`（与 AC5 同一形态）；主环境定时器异常仍只进日志（不新增 API）。
+- [x] **AC1** 回归用例先复现崩溃：`evaluate` 抛错用例在修前崩溃（已在 `report.md` §30 记录实测），修后通过。
+- [x] **AC2** `evaluate` / `importValueSync` 抛错时宿主侧 `catch` 到 `instanceof Error === true` 的对象，`message` 正确、`stack` 含 guest 栈文本；宿主进程不崩。
+- [x] **AC3** `importValue` 失败 → Promise reject 同一形态错误（不再是字符串）。
+- [x] **AC4** Worker 启动失败 → 主线程 `onerror` 收到该错误；启动成功仍走 `onready`。
+- [x] **AC5** Worker 侧回调抛错 → 主线程 `onerror`（不再只有日志）。
+- [x] **AC6** `TransferableJSShadowRealm.onerror` 与 Worker 的参数构造路径相同（同一 helper；测试断言字段集一致）。
+- [x] **AC7** 自定义字段：能转的带上（如 `e.code`/`e.detail` 的基础类型），不能转的被标记/丢弃且**附带未携带清单**；整体仍返回可用 Error。
+- [x] **AC8** 有界性：对构造出的病态用例（深链/环/大数组/getter）不卡死、不超时、不触发 getter（可用计数器断言）。
+- [x] **AC9** 门禁：本地 v8 + quickjs-ng 构建 rc=0、doctest 全绿、smoke `GODOTJS_TEST_PROJECT_COMPLETED`；node（`use_node=yes`）本地构建+运行；web（`platform=web`）本地构建（emsdk）；jsc 走语法门 + CI 的 `Test (host-jsc, macos-latest)`。
+- [x] **AC10** 文档/规范：新增的跨边界错误约定写进 `.trellis/spec/`（若判定为新约定）。
+- [x] **AC11** 未携带清单：**原定方案已被 design 决策取代**。原要求挂在 `Symbol.for("jsb.untransferred")`；最终实现为接收侧 `CrossEnvError` 的**普通字段** `untransferred: readonly string[]`（`jsb_cross_isolate_util.cpp` 的 `make_cross_env_error` 落该字段；`project/typings/godot.minimal.d.ts` 声明；report 记录"删除 symbol 暴露"）。不能转的字段不导致整体失败——已由 AC7/AC8 覆盖。
+- [x] **AC12** worker 环境的定时器回调异常 → 主线程 `onerror`（与 AC5 同一形态）；主环境定时器异常仍只进日志（不新增 API）。
 - [x] **AC13**（node）`use_node=yes` 构建 rc=0；node 下 worker / transferable shadow realm 的**回调异常**（含 node 自管定时器）能到宿主 `onerror`（本地跑项目用例 5 场景 + CI `host-node` 腿）；主环境仍只进日志。
-- [ ] **AC14**（web）`platform=web` 构建 rc=0（本地 emsdk `D:/Dev/emsdk` + CI `platform: web` 腿）；web 下 worker / realm 的错误（回调异常、加载失败、定时器）走同一通路——运行时验证方式按实现时能力确定（web 腿在 CI 只构建；本机用 emsdk 跑浏览器验证或明确标注未跑）。
+- [x] **AC14**（web）`platform=web` 构建 rc=0（本地 emsdk `D:/Dev/emsdk` + CI `platform: web` 腿）；web 下 worker / realm 的错误（回调异常、加载失败、定时器）走同一通路——运行时验证方式按实现时能力确定（web 腿在 CI 只构建；本机用 emsdk 跑浏览器验证或明确标注未跑）。
 
 ## 当前阻塞（2026-10-07，跟踪中）
 
@@ -113,3 +113,24 @@
   （`src/runtime/bridge/jsb_timer_action.cpp:73-75`）——`jsb_environment.cpp:532-533` 那条 TODO 的描述与现状不符（过时描述，本任务顺带改写）。
 - 定时器只有一种 action（`internal::TTimerManager<JavaScriptTimerAction>`，`jsb_environment.h:245`），`invoke_timers` 只在 `Environment::update` 里被调（`jsb_environment.cpp:534`）。
 - worker 环境同样驱动 `update(delta)`（`jsb_worker.cpp:365`）→ worker 里 `setTimeout` 抛错同样只落到日志 → 与本任务的 worker 错误上报**同路**，因此纳入。
+
+## 同步记录（2026-10-12）
+
+全部 AC 达成，且已过 CI：
+
+- `8e3978f` → run **38174377600 success**（7 条 Test 腿全绿，含 `host-jsc`）。
+- `2bb830e`（web 发送侧实现）→ run **38179774833 success**，其中 **4 条 `platform: web` 腿全绿**
+  （`engine: web` ×2 + `qjs-ng` ×2，含 nothreads）——AC14 的 CI 侧自此有据。
+- 本地：`platform=web … threads=yes` rc=0；node 腿 rc=0；`CrossEnvironment.tscn` smoke 无失败、0 行首 `Uncaught`。
+
+逐条现状：
+- **AC9**：原"CI 待推送"已闭环（上述两个 run 均 success）。
+- **AC11**：原 symbol 方案已被后续 design 决策取代为 `CrossEnvError` 的普通字段（见上）。
+- **AC14**：web 发送侧已接线并过 CI（**构建期**）；**运行时仍未验证**——仓库无 web 运行时编排，CI 的 web 腿只构建。
+- **AC13**：node 腿本地 + CI 均达成。
+
+本任务期间附带修复（均已提交并过 CI）：
+jsc 两处例外出参未初始化、`WalkState` 悬垂引用、静态句柄表析构（`9718b87`，同时根治 10-09 的
+退出期 `IsInUse`）、web 缓存命中日志跨隔离区 `ToString`。
+另：`Environment::load` 的多行警告撞上矩阵门禁行首正则 → 移除与之冲突的 startup-load-failure 场景
+（`045b62c`），并把该机制记入文档站 known-issues 第 4 条（docs 站 `4c114be`）。

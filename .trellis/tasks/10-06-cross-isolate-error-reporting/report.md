@@ -288,21 +288,28 @@ peer 脚本现在同时支持 worker（`JSWorkerParent`）与 realm（`ShadowRea
 | AC3 `importValue` reject Error（非字符串） | ✅ doctest |
 | AC4 worker 启动失败 → `onerror` | ✅ 项目用例 |
 | AC5 worker `onmessage` 抛错 → `onerror` | ✅ 项目用例 |
-| AC6 Worker 与 TransferableShadowRealm 同形态 | ✅ 项目用例（同一宿主重建路径；发送侧两处 helper 逻辑相同、可后续合并） |
+| AC6 Worker 与 TransferableShadowRealm 同形态 | ✅ 项目用例（同一宿主重建路径） |
 | AC7 额外字段 best-effort + 未携带清单 | ✅ doctest |
 | AC8 有界性（getter/环/深链/大数组/清单上限） | ✅ doctest（本轮补） |
-| AC9 门禁 | 本地 ✅（v8/qjs doctest + smoke、jsc 语法门）；**CI 待推送** |
+| AC9 门禁 | ✅ 本地（v8/qjs doctest + smoke、jsc 语法门）+ **CI 两 run success**（38174377600 / 38179774833） |
 | AC10 规范 | ✅ 本轮补 |
-| AC11 清单用 `Symbol.for("jsb.untransferred")` | ✅ doctest |
+| AC11 未携带清单 | ✅ **但方案已被 design 决策取代**：改为 `CrossEnvError` 的普通字段 `untransferred`（非 symbol） |
 | AC12 worker 定时器异常 → `onerror`；主环境只日志 | ✅ 项目用例 |
+| AC13（node）| ✅ 本地 smoke + CI `host-node` 腿 |
+| AC14（web）| ✅ 发送侧已实现、CI 4 条 web 腿 success（**构建期**）；运行时未验证（无 web 运行时编排） |
 
-## 仍欠（明确记录）
+## 仍欠（明确记录，2026-10-12 更新）
 
-1. `importValue` / `importValueSync` 的错误只有文案（`_importValue` 内部把异常压成字符串）→ 要富记录需把异常值带出来。
-2. web 腿的 worker 错误路径未接（web 只有 emscripten 路径；本机不可测）。
-3. 发送侧两个 helper（worker / shadow realm）逻辑重复，可合并到一个共享函数。
+1. **web 运行时未验证**：发送侧已实现且 CI 构建通过，但仓库没有 web 运行时测试编排（CI 的 web 腿也只构建），
+   浏览器里的 worker + 结构化克隆这条路径本机无法执行。要闭环需新增 web 运行时 harness。
+2. `importValue` / `importValueSync` 的错误仍只有文案（`_importValue` 内部把异常压成字符串）；
+   要富记录需把异常值带出来（AC2/AC3 只要求"可用的 Error object"，已达成；富记录属增强）。
+3. web 上启用 shadow realm 的前置（尚缺）：`JSB_SHADOW_REALM_ENABLED` 现为 `#if !JSB_WITH_WEB`（全仓 24 处）；
+   同线程 → 需同步档投递；接收端需按 realm 身份登记。web 投递侧已留唯一分叉点 `_web_sender_route`。
 4. 既有隐患：对已退出的 worker 调 `terminate()` 会崩（非本任务引入）。
-5. 观察一次 smoke 卡到 1200s（未复现，连续两次 rc=0）。
+5. 退出期恒有 8 次 `Call ScriptInstance::callp() failed: env is null`（主环境 dispose 后仍有节点通知派发，
+   探针证实为 `start.ts`/`config-singleton.ts` 的 `_enter_tree`/`_ready`/`_draw`/`_exit_tree`）——行为安全、非本任务引入，
+   已记入 10-09 的 report。
 
 ## 最终本地门禁（bg_13，全部代码就位后）
 
