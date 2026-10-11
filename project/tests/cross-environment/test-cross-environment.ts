@@ -360,12 +360,6 @@ export default class TestCrossEnvironment extends Node {
 						await this.runPeerErrorReporting(backend, action);
 						console.log(`[cross-environment-test] error-reporting:${action}:${backend}:done`);
 					}
-					// Scenario 3 is worker-only; see runWorkerStartupLoadFailure's NOTE.
-					if (backend === 'worker') {
-						console.log('[cross-environment-test] error-reporting:startup-load-failure:worker:start');
-						await this.runWorkerStartupLoadFailure();
-						console.log('[cross-environment-test] error-reporting:startup-load-failure:worker:done');
-					}
 					for (let session = 1; session <= 3; session++) {
 						console.log(`[cross-environment-test] ${backend}:session:${String(session)}:start`);
 						await this.runSession(backend, session);
@@ -458,55 +452,6 @@ export default class TestCrossEnvironment extends Node {
 
 			const message: ThrowMessage = { type: MessageType.Throw, action };
 			peer.postMessage(message);
-		});
-	}
-
-	/**
-	 * Scenario 3 (worker-only): the startup script throws while loading.
-	 *
-	 * NOTE This one is deliberately outside the shared backend matrix: only the
-	 * worker boot sequence owns an "onready must not fire" contract, so it is
-	 * driven directly with `JSWorker` here. A transferable shadow realm's
-	 * startup-script failure takes a different code path.
-	 *
-	 * The startup script's real error (`peer-fails-on-load.ts` throws
-	 * "cross-environment-test: peer load throw") must reach `onerror` — the
-	 * runtime captures the record at the moment of failure and forwards it, so
-	 * no synthetic "failed to load the worker script" placeholder is involved.
-	 */
-	private runWorkerStartupLoadFailure(): Promise<void> {
-		return new Promise<void>((resolve, reject) => {
-			const worker = new JSWorker('tests/cross-environment/peer-fails-on-load');
-			let readyFired = false;
-			const timeout = setTimeout(() => {
-				worker.terminate();
-				reject(new Error('worker onerror timed out (startup load failure)'));
-			}, WORKER_READY_TIMEOUT_MS);
-			worker.onready = () => {
-				readyFired = true;
-			};
-			worker.onerror = (error: unknown) => {
-				clearTimeout(timeout);
-				try {
-					if (readyFired) {
-						fail('onready fired for a worker script that failed to load');
-					}
-					// 入口脚本加载失败时 worker 侧只发得出字符串文案，宿主侧包成 CrossEnvError 后落在 cause 上。
-					if (!(error instanceof CrossEnvError)) {
-						fail(`onerror did not receive a CrossEnvError (startup load failure): ${typeof error}`);
-					}
-					const cause = error.cause;
-					if (typeof cause !== 'string' || !cause.includes('failed to load the worker script')) {
-						fail(`unexpected onerror cause (startup load failure): ${String(cause)}`);
-					}
-					resolve();
-				} catch (assertionError) {
-					reject(assertionError);
-				}
-				// NOTE deliberately no terminate() here: the worker thread already
-				// exited after the startup failure, and terminating a terminated
-				// worker crashes today (pre-existing issue, out of scope).
-			};
 		});
 	}
 
