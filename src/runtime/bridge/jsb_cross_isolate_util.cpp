@@ -490,27 +490,31 @@ void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context
 	impl::Helper::throw_value(p_isolate, p_context, p_error);
 }
 
-void throw_cross_isolate_error(v8::Isolate *p_target_isolate, const v8::Local<v8::Context> &p_target_context, const v8::Local<v8::Value> &p_exception, const String &p_fallback_message) {
-	// 源侧采集必须热着做（异常 `Local` 随帧消失，跨 isolate 存 `Global` 是 UB）。
-	v8::Isolate *source_isolate = v8::Isolate::TryGetCurrent();
-	jsb_checkf(source_isolate != nullptr, "throw_cross_isolate_error requires an active source isolate scope.");
-	const v8::Local<v8::Context> source_context = source_isolate->GetCurrentContext();
-	std::unique_ptr<ErrorRecord> record = capture(source_isolate, source_context, p_exception);
+std::unique_ptr<MessageRawData> capture_exception(Environment *p_env, const v8::Local<v8::Value> &p_exception) {
+	return capture(p_env->get_isolate(), p_env->get_context(), p_exception);
+}
 
-	JSB_ISOLATE_SCOPE(p_target_isolate);
-	const v8::HandleScope handle_scope(p_target_isolate);
-	const v8::Context::Scope context_scope(p_target_context);
-	v8::Local<v8::Value> error;
-	if (Environment *env = Environment::wrap(p_target_isolate)) {
-		if (record->name.is_empty() && record->message.is_empty() && !record->is_primitive) {
-			record->message = p_fallback_message;
-		}
-		error = make_cross_env_error(env, std::move(record));
+void throw_captured_exception(Environment *p_env, std::unique_ptr<MessageRawData> p_record, const String &p_fallback_message) {
+	v8::Isolate *isolate = p_env->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	const v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = p_env->get_context();
+	const v8::Context::Scope context_scope(context);
+
+	std::unique_ptr<ErrorRecord> record;
+	if (p_record) {
+		record.reset(static_cast<ErrorRecord *>(p_record.release()));
+	} else {
+		record = std::make_unique<ErrorRecord>();
 	}
+	if (record->name.is_empty() && record->message.is_empty() && !record->is_primitive) {
+		record->message = p_fallback_message;
+	}
+	v8::Local<v8::Value> error = make_cross_env_error(p_env, std::move(record));
 	if (error.IsEmpty()) {
-		error = make_error(p_target_isolate, p_target_context, p_fallback_message);
+		error = make_error(isolate, context, p_fallback_message);
 	}
-	throw_error(p_target_isolate, p_target_context, p_fallback_message, error);
+	throw_error(isolate, context, p_fallback_message, error);
 }
 
 } //namespace jsb::cross_isolate

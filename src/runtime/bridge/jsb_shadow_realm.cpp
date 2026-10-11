@@ -1370,11 +1370,12 @@ public:
 			} else {
 				// guest 抛了（或没产出值）：把异常值交给 cross_isolate，在本块内（源作用域）完成采集，
 				// 转到调用方 realm 重建成 Error 并抛出。realm 侧不接触记录/重建细节。
-				// NOTE `get_exception_value()` 必须在 `get_message()` 之前取：后者会消费异常槽。
-				v8::Local<v8::Value> exception;
+				// NOTE 顺序要紧：shim 腿的异常值就是异常槽的引用，而 `get_exception()`（`get_message()`）
+				//      会把那个槽清成 null ⇒ **必须先采集**（复制成与 isolate 无关的数据），再取文案。
 				String guest_error;
+				std::unique_ptr<MessageRawData> record;
 				if (caught) {
-					exception = try_catch.get_exception_value();
+					record = cross_isolate::capture_exception(realm->env_.get(), try_catch.get_exception_value());
 					guest_error = BridgeHelper::get_exception(try_catch);
 				} else {
 					guest_error = String("failed to evaluate the source in the shadow realm");
@@ -1382,7 +1383,9 @@ public:
 				if (guest_error.is_empty()) {
 					guest_error = String("uncaught value from the shadow realm");
 				}
-				cross_isolate::throw_cross_isolate_error(host_isolate, host_context, exception, guest_error);
+				Environment *host_env = Environment::wrap(host_isolate);
+				jsb_check(host_env);
+				cross_isolate::throw_captured_exception(host_env, std::move(record), guest_error);
 				return;
 			}
 		}

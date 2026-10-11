@@ -34,8 +34,15 @@ v8::Local<v8::Value> make_error(v8::Isolate *p_isolate, const v8::Local<v8::Cont
 /** 抛出一个值（`p_error` 为空则按 `p_message` 抛）。 */
 void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error);
 
-/** 把当前源作用域里的异常搬到目标 realm 抛出。 */
-void throw_cross_isolate_error(v8::Isolate *p_target_isolate, const v8::Local<v8::Context> &p_target_context, const v8::Local<v8::Value> &p_exception, const String &p_fallback_message);
+/**
+ * 采集源环境里的异常成与 isolate 无关的载荷。
+ * NOTE **必须在异常槽被消费之前调用**：shim 腿（quickjs/jsc）的异常值就是异常槽的引用，
+ *      而 `TryCatch::get_message()` 会清空那个槽（v8 腿的 `Local` 是独立句柄，所以那边看不出问题）。
+ */
+std::unique_ptr<MessageRawData> capture_exception(Environment *p_env, const v8::Local<v8::Value> &p_exception);
+
+/** 把 {@link capture_exception} 的载荷在 `p_env` 里物化并抛出；载荷为空则按 `p_fallback_message` 抛。 */
+void throw_captured_exception(Environment *p_env, std::unique_ptr<MessageRawData> p_record, const String &p_fallback_message);
 
 // shared master -> worker/shadowRealm postMessage transfer-list parsing.
 // Worker and TransferableShadowRealm both send Godot objects over postMessage,
