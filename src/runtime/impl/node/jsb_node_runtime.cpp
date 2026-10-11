@@ -129,8 +129,6 @@ NodeRuntime::NodeRuntime() {
 }
 
 NodeRuntime::~NodeRuntime() {
-	// TODO: 找不到node 构建在退出进程时的 89 个 Orphan StringName 怎么处理，orz。
-
 	// From here on this runtime owns the loop exclusively: stop Environment::update()
 	// from pumping it (see PumpEventLoop), so node's own uv_run() calls below are
 	// the only ones running uv__io_poll on it.

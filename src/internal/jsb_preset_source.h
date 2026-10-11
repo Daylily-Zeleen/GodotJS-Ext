@@ -127,7 +127,6 @@ private:
 		jsb_check((size_t)(int)uncompressed_size_ == uncompressed_size_);
 		jsb_check((size_t)(int)data_size_ == data_size_);
 
-		// TODO: 调整生成的数据，考虑直接生成 PackedByteArray，避免内存拷贝
 		PackedByteArray compressed;
 		if (compressed.resize((int)data_size_) != OK) {
 			JSB_LOG(Error, "failed to allocate %d bytes for the compressed preset data", (int)data_size_);
