@@ -551,6 +551,13 @@ public:
 		MUTEX_LOCK_GUARD(lock_);
 		flag_symbols_.erase(p_isolate);
 	}
+
+	/** 进程/主环境关停时清空：`finish()` 只摘掉 guest isolate 的表项，host isolate 的表项会留到
+	 *  静态析构（`__run_exit_handlers`），那时 isolate 已死，`TStrongRef` 释放句柄 = SEGV。 */
+	static void clean() {
+		MUTEX_LOCK_GUARD(lock_);
+		flag_symbols_.clear();
+	}
 };
 
 class FunctionCrossWrapper : public CrossWrapper {
@@ -1966,6 +1973,7 @@ void ShadowRealm::update_env(Environment *p_env, uint64_t p_delta_msecs) {
 void ShadowRealm::finish_all() {
 	ShadowRealmImpl::finish_all();
 	SymbolCrossUtils::clean();
+	CrossWrapper::clean();
 }
 
 void ShadowRealm::register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_self) {

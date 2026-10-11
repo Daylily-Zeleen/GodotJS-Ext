@@ -14,7 +14,9 @@ struct Limits {
 };
 
 struct WalkState {
-	const Limits &limits;
+	// 按值持有：调用点会传 `Limits()` 临时量，引用成员会悬垂（MSVC 侥幸存活，GCC/Clang
+	// 复用栈槽 → 采集预算变垃圾，字段/清单全丢）。全是 int，拷贝零成本。
+	Limits limits;
 	int nodes = 0;
 	bool budget_exhausted = false;
 	bool truncated = false;
