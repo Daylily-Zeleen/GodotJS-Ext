@@ -209,5 +209,15 @@ JSBROWSER_API jsb::impl::StackPosition jsbi_NewSet(jsb::impl::JSRuntime engine_i
 JSBROWSER_API jsb::impl::StackPosition jsbi_SetAsArray(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);
 JSBROWSER_API jsb::impl::ResultValue jsbi_SetAdd(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition set_sp, jsb::impl::StackPosition value_sp);
 
+/**
+ * `jsbi_PostMessage` 的返回值（与 JS 侧 `jsbb_PostMessageResult` 对齐）。
+ * 这里集中定义，供 worker 与 Environment 两个 TU 共用（原先只定义在 jsb_worker.cpp 内）。
+ */
+enum jsbb_PostMessageResult : int {
+	jsbb_PostMessageResult_Failed = -1,
+	jsbb_PostMessageResult_Success = 0,
+	jsbb_PostMessageResult_NativeTransfersUnused = 1,
+};
+
 JSBROWSER_API int jsbi_PostMessage(uintptr_t pthread_id, jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition data_sp, uint32_t native_message_id, jsb::impl::StackPosition transfer_sp);
 JSBROWSER_API bool jsbi_RegisterWorkerOwner(uintptr_t pthread_id, jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition worker_owner_sp);

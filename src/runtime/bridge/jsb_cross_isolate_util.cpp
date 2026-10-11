@@ -2,6 +2,12 @@
 
 #include "jsb_string_names.h"
 
+#if JSB_WITH_WEB
+#	include "../impl/web/jsb_web_interop.h"
+#	include <emscripten/threading.h>
+#	include <pthread.h>
+#endif
+
 namespace jsb::cross_isolate {
 namespace {
 
@@ -483,6 +489,198 @@ v8::Local<v8::Value> take_error(Environment *p_env, Message &p_message, const St
 v8::Local<v8::Value> make_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message) {
 	return make_error_js(p_isolate, p_context, p_message);
 }
+
+#if JSB_WITH_WEB
+const char *const kErrorPayloadKey = "__jsbError";
+
+namespace {
+/** 记录 → 纯数据普通对象（`cause` / `untransferred` 一并物化；web 不做懒重建）。 */
+v8::Local<v8::Value> _record_to_js(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const ErrorRecord &p_record) {
+	const v8::Local<v8::Object> object = v8::Object::New(p_isolate);
+	const auto set = [&](const char *p_key, const v8::Local<v8::Value> &p_value) {
+		object->Set(p_context, impl::Helper::new_string_ascii(p_isolate, p_key), p_value).Check();
+	};
+	set("name", impl::Helper::new_string(p_isolate, p_record.name));
+	set("message", impl::Helper::new_string(p_isolate, p_record.message));
+	set("stack", impl::Helper::new_string(p_isolate, p_record.stack));
+	set("sourceRealm", impl::Helper::new_string(p_isolate, p_record.source_realm));
+	if (p_record.is_primitive) {
+		v8::Local<v8::Value> primitive_value;
+		if (p_record.primitive_is_undefined) {
+			primitive_value = v8::Undefined(p_isolate);
+		} else {
+			primitive_value = _primitive_to_js(p_isolate, p_record.primitive);
+		}
+		set("primitive", primitive_value);
+		set("isPrimitive", v8::Boolean::New(p_isolate, true));
+	}
+	if (!p_record.extra.is_empty()) {
+		const v8::Local<v8::Object> extra = v8::Object::New(p_isolate);
+		for (const Variant &key_var : p_record.extra.keys()) {
+			const v8::Local<v8::Value> value = _primitive_to_js(p_isolate, p_record.extra[key_var]);
+			if (!value.IsEmpty()) {
+				extra->Set(p_context, impl::Helper::new_string(p_isolate, (String)key_var), value).Check();
+			}
+		}
+		set("extra", extra);
+	}
+	if (!p_record.untransferred.is_empty()) {
+		const v8::Local<v8::Array> lost = v8::Array::New(p_isolate, (size_t)p_record.untransferred.size());
+		for (int i = 0; i < p_record.untransferred.size(); ++i) {
+			lost->Set(p_context, (uint32_t)i, impl::Helper::new_string(p_isolate, p_record.untransferred[i])).Check();
+		}
+		set("untransferred", lost);
+	}
+	if (p_record.has_cause) {
+		if (p_record.cause_is_error && p_record.cause_record) {
+			set("causeError", _record_to_js(p_isolate, p_context, *p_record.cause_record));
+		} else {
+			set("causeValue", _primitive_to_js(p_isolate, p_record.cause_value));
+		}
+	}
+	return object;
+}
+
+/** 纯数据载荷 → 记录（`_record_to_js` 的逆操作）。 */
+void _record_from_js(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Object> &p_payload, ErrorRecord &r_record, int p_depth = 0) {
+	const auto read_text = [&](const char *p_key) -> String {
+		v8::Local<v8::Value> value;
+		if (!p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, p_key)).ToLocal(&value) || !value->IsString()) {
+			return String();
+		}
+		return impl::Helper::to_string(p_isolate, value.As<v8::String>());
+	};
+	// `HasOwnProperty` 而不是 `Get()`：`Get()` 对缺失键也成功返回 undefined（见 spec 硬约束 9）。
+	const auto has = [&](const char *p_key) -> bool {
+		bool found = false;
+		return p_payload->HasOwnProperty(p_context, impl::Helper::new_string_ascii(p_isolate, p_key).As<v8::Name>()).To(&found) && found;
+	};
+	r_record.name = read_text("name");
+	r_record.message = read_text("message");
+	r_record.stack = read_text("stack");
+	r_record.source_realm = read_text("sourceRealm");
+	v8::Local<v8::Value> flag;
+	if (has("isPrimitive") && p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "isPrimitive")).ToLocal(&flag)
+			&& flag->BooleanValue(p_isolate)) {
+		r_record.is_primitive = true;
+		v8::Local<v8::Value> primitive;
+		if (p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "primitive")).ToLocal(&primitive)) {
+			if (primitive->IsUndefined()) {
+				r_record.primitive_is_undefined = true;
+			} else {
+				_js_to_primitive(p_isolate, p_context, primitive, &r_record.primitive);
+			}
+		}
+	}
+	if (has("extra")) {
+		v8::Local<v8::Value> extra_val;
+		if (p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "extra")).ToLocal(&extra_val) && extra_val->IsObject()) {
+			const v8::Local<v8::Object> extra = extra_val.As<v8::Object>();
+			v8::MaybeLocal<v8::Array> maybe_keys = extra->GetOwnPropertyNames(p_context, v8::PropertyFilter::SKIP_SYMBOLS, v8::KeyConversionMode::kKeepNumbers);
+			if (!maybe_keys.IsEmpty()) {
+				const v8::Local<v8::Array> keys = maybe_keys.ToLocalChecked();
+				for (uint32_t i = 0, len = keys->Length(); i < len; ++i) {
+					v8::Local<v8::Value> key;
+					if (!keys->Get(p_context, i).ToLocal(&key) || !key->IsString()) {
+						continue;
+					}
+					v8::Local<v8::Value> value;
+					if (!extra->Get(p_context, key).ToLocal(&value)) {
+						continue;
+					}
+					Variant carried;
+					if (_js_to_primitive(p_isolate, p_context, value, &carried)) {
+						r_record.extra[impl::Helper::to_string(p_isolate, key.As<v8::String>())] = carried;
+					}
+				}
+			}
+		}
+	}
+	v8::Local<v8::Value> lost_val;
+	if (has("untransferred")
+			&& p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "untransferred")).ToLocal(&lost_val)
+			&& lost_val->IsArray()) {
+		const v8::Local<v8::Array> lost = lost_val.As<v8::Array>();
+		for (uint32_t i = 0, len = lost->Length(); i < len; ++i) {
+			v8::Local<v8::Value> item;
+			if (lost->Get(p_context, i).ToLocal(&item) && item->IsString()) {
+				r_record.untransferred.push_back(impl::Helper::to_string(p_isolate, item.As<v8::String>()));
+			}
+		}
+	}
+	if (has("causeError") && p_depth < 8) {
+		v8::Local<v8::Value> cause_val;
+		if (p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "causeError")).ToLocal(&cause_val) && cause_val->IsObject()) {
+			r_record.has_cause = true;
+			r_record.cause_is_error = true;
+			r_record.cause_record = std::make_shared<ErrorRecord>();
+			_record_from_js(p_isolate, p_context, cause_val.As<v8::Object>(), *r_record.cause_record, p_depth + 1);
+		}
+	} else if (has("causeValue")) {
+		v8::Local<v8::Value> cause_val;
+		if (p_payload->Get(p_context, impl::Helper::new_string_ascii(p_isolate, "causeValue")).ToLocal(&cause_val)) {
+			r_record.has_cause = true;
+			r_record.cause_is_error = false;
+			_js_to_primitive(p_isolate, p_context, cause_val, &r_record.cause_value);
+		}
+	}
+}
+} //namespace
+
+v8::Local<v8::Value> record_to_js(Environment *p_env, const v8::Local<v8::Value> &p_exception) {
+	std::unique_ptr<ErrorRecord> record = capture(p_env->get_isolate(), p_env->get_context(), p_exception);
+	return _record_to_js(p_env->get_isolate(), p_env->get_context(), *record);
+}
+
+v8::Local<v8::Value> record_from_js(Environment *p_env, const v8::Local<v8::Value> &p_payload, const String &p_fallback_message) {
+	if (!p_payload.IsEmpty() && p_payload->IsObject()) {
+		std::unique_ptr<ErrorRecord> record = std::make_unique<ErrorRecord>();
+		_record_from_js(p_env->get_isolate(), p_env->get_context(), p_payload.As<v8::Object>(), *record);
+		if (record->name.is_empty() && record->message.is_empty() && !record->is_primitive) {
+			record->message = p_fallback_message;
+		}
+		const v8::Local<v8::Value> error = make_cross_env_error(p_env, std::move(record));
+		if (!error.IsEmpty()) {
+			return error;
+		}
+	}
+	return make_error(p_env->get_isolate(), p_env->get_context(), p_fallback_message);
+}
+
+namespace {
+/**
+ * web 腿的寻址：本环境作为发送方，宿主侧按什么认出它。0 = 本环境当前没有 web 投递路由。
+ *
+ * **这是"新增一种能转发错误的 web 环境"时唯一要补的地方**：
+ * worker 跑在自己的 pthread 上，宿主侧注册表按 pthread id 反查（`Worker::web_try_get_worker_by_pthread_id`）；
+ * 将来若在 web 上启用 shadow realm，它与宿主**同线程**、pthread id 没有区分度，需要改成按 realm 的
+ * token/handle 直接派发，并在宿主侧加对应登记 —— 投递实现 {@link post_to_master_web} 不必改动。
+ */
+uintptr_t _web_sender_route(Environment *p_sender) {
+	if (!p_sender->is_worker()) {
+		return 0; // web 上目前只有 worker 能转发错误（shadow realm 在 web 整体禁用）
+	}
+	return static_cast<uintptr_t>(pthread_self());
+}
+} //namespace
+
+bool post_to_master_web(Environment *p_sender, const v8::Local<v8::Object> &p_payload) {
+	const uintptr_t route = _web_sender_route(p_sender);
+	if (!route) {
+		return false;
+	}
+	const uintptr_t env_token = reinterpret_cast<uintptr_t>(p_sender);
+	// `transfer_id == 0`：JS 侧据此走"不带 native transfer"那一档，且宿主侧正是凭着它去查 C++ 的
+	// 接收者注册表（一定命中），从而不依赖 `RegisterWorkerOwner`。
+	const int message_result = jsbi_PostMessage(
+			route,
+			static_cast<jsb::impl::JSRuntime>(env_token),
+			static_cast<jsb::impl::StackPosition>(p_payload),
+			0,
+			jsb::impl::StackBase::Undefined);
+	return message_result != jsbb_PostMessageResult_Failed;
+}
+#endif // JSB_WITH_WEB
 
 void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error) {
 	if (p_error.IsEmpty()) {

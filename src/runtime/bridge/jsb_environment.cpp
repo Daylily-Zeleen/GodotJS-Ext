@@ -791,7 +791,22 @@ bool Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exceptio
 		return false;
 	}
 #if JSB_WITH_WEB
-	return false;
+	/**
+	 * web 腿没有 `Message`/`inbox_` 通道：worker→master 走浏览器的结构化克隆
+	 * （`jsbi_PostMessage` → `_jsbb_.PostMessage`），所以只能把记录降级成**纯数据普通对象**送过去。
+	 * 载荷 = `{ "__jsbError": <纯数据记录> }`；宿主侧按环境种类各自认这个键并重建成 `CrossEnvError`
+	 * 后调 `onerror`（worker：`Worker::on_web_message_from_pthread`）。
+	 * NOTE 记录必须是纯数据：`CrossEnvError` 实例带原生指针内部字段，过不了结构化克隆。
+	 *      投递原语见 `jsb::cross_isolate::post_to_master_web`（与环境种类无关；寻址在其中按种类分叉）。
+	 */
+	v8::Isolate *isolate = get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	const v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = get_context();
+	const v8::Context::Scope context_scope(context);
+	const v8::Local<v8::Object> payload = v8::Object::New(isolate);
+	payload->Set(context, impl::Helper::new_string_ascii(isolate, cross_isolate::kErrorPayloadKey), cross_isolate::record_to_js(this, p_exception)).Check();
+	return cross_isolate::post_to_master_web(this, payload);
 #else
 	const std::shared_ptr<Environment> master = _access(master_token_);
 	if (!master) {

@@ -75,9 +75,9 @@ v8::Local<v8::Value> restore_transfer_markers_impl(
 
 #if JSB_WITH_WEB
 static SafeNumeric<uint32_t> s_next_transfer_id;
-constexpr int kPostMessageFailed = -1;
-// constexpr int kPostMessageSuccess = 0;
-constexpr int kPostMessageNativeTransfersUnused = 1;
+// `jsbi_PostMessage` 的返回值：与 `jsb_web_interop.h` 的 `jsbb_PostMessageResult` 同源（Environment 也要用）。
+constexpr int kPostMessageFailed = jsbb_PostMessageResult_Failed;
+constexpr int kPostMessageNativeTransfersUnused = jsbb_PostMessageResult_NativeTransfersUnused;
 #endif
 
 class WorkerImpl;
@@ -811,6 +811,35 @@ void Worker::on_web_message_from_pthread(uintptr_t p_sender_pthread_id, jsb::imp
 	if (!master->try_get_object(worker->get_handle(), worker_obj)) {
 		worker->discard_transfers(p_transfer_id);
 		return;
+	}
+
+	// web 腿的错误投递：worker 侧把记录降级成 `{ "__jsbError": <纯数据记录> }` 随普通消息发来，
+	// 宿主在这里认出来、重建成 `CrossEnvError` 后走 `onerror`（web 没有 `Message`/`TYPE_ERROR` 通道）。
+	// NOTE 必须在下面 ready 哨兵分支**之前**判断：error 走的就是 `transfer_id == 0` 那一档
+	//      （ready 用 `StackBase::Undefined` 当 data，非对象，不会误判）。
+	{
+		const v8::Local<v8::Value> data = v8::Local<v8::Value>(v8::Data(isolate, p_data_sp));
+		if (data->IsObject()) {
+			const v8::Local<v8::Object> payload = data.As<v8::Object>();
+			v8::Local<v8::Value> error_payload;
+			if (payload->HasOwnProperty(context, impl::Helper::new_string_ascii(isolate, cross_isolate::kErrorPayloadKey).As<v8::Name>()).FromMaybe(false)
+					&& payload->Get(context, impl::Helper::new_string_ascii(isolate, cross_isolate::kErrorPayloadKey)).ToLocal(&error_payload)) {
+				v8::Local<v8::Value> error_callback;
+				if (!worker_obj->Get(context, jsb_name(master.get(), onerror)).ToLocal(&error_callback) || !error_callback->IsFunction()) {
+					JSB_WORKER_LOG(Error, "onerror is not a function");
+					return;
+				}
+				const v8::Local<v8::Value> error = cross_isolate::record_from_js(master.get(), error_payload, "failed to load the worker script (see the worker log for the path)");
+				const impl::TryCatch error_try_catch(isolate);
+				v8::Local<v8::Value> error_argv[] = { error };
+				const v8::MaybeLocal<v8::Value> error_rval = error_callback.As<v8::Function>()->Call(context, v8::Undefined(isolate), 1, error_argv);
+				jsb_unused(error_rval);
+				if (error_try_catch.has_caught()) {
+					JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(error_try_catch));
+				}
+				return;
+			}
+		}
 	}
 
 	if (p_transfer_id == 0) {

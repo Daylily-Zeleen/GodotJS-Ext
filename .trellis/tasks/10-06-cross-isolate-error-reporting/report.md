@@ -1826,3 +1826,79 @@ qjs / qjs-classic / jsc **0 行**。node 原生 dump（`Node.js v…` / `node:in
 - 整工程 15 场景：`GODOTJS_TEST_PROJECT_COMPLETED`、无 `TEST FAILED`、行首 `Uncaught` **0**。
 
 **状态**：按用户要求**未提交**（工作区改动待用户复查）。
+
+---
+
+## §53 web 腿错误转发接线（未提交）
+
+**背景（scout 核实，推翻早前假设）**：web 没有 `jsb::Message`/`inbox_` 通道。worker→master 走
+`jsbi_PostMessage` → `_jsbb_.PostMessage`（`monolith.ts` → 生成的 `js/jsbb.impl.js`），载荷经**浏览器结构化克隆**
+（`{ "__jsbMessage": true, data, sender_pthread_id, transfer_id? }`）；JS 侧 `handle_message` 按
+`transfer_id` 是否为 number 分流：是 → `interop.on_worker_message_from_pthread` →
+`Worker::on_web_message_from_pthread`；否 → JS 直接派发（依赖 `RegisterWorkerOwner`）。
+`_on_worker_message`（含 `TYPE_ERROR`）在 web **不编译**；shadow realm 在 web 整体禁用。
+
+**实现**：
+1. `jsb_cross_isolate_util.{h,cpp}`（`#if JSB_WITH_WEB`）：把记录编解码升为公开 API —
+   `kErrorPayloadKey`（`"__jsbError"`）、`record_to_js(env, exception)`（`capture` + 降级成**纯数据普通对象**，
+   `cause`/`untransferred` 一并物化）、`record_from_js(env, payload, fallback)`（逆操作 + `make_cross_env_error`）。
+   纯数据是硬性要求：`CrossEnvError` 实例带原生指针内部字段，**过不了结构化克隆**。
+2. `jsb_environment.cpp` `forward_error_to_master` 的 web 分支：`is_worker()` 才继续；建
+   `{ "__jsbError": record_to_js(...) }` 交给 `Worker::web_post_error`。
+3. `jsb_worker.{h,cpp}`：新增 `Worker::web_post_error(env, payload)` —— 用 **`transfer_id == 0`**（ready 哨兵那一档）
+   投递，从而走 C++ 侧 `on_web_message_from_pthread`（worker 注册表在创建时即建好）；
+   避开 JS 直接派发依赖的 `RegisterWorkerOwner`（**入口脚本加载失败时宿主还未注册 owner**）。
+4. 宿主接收：`on_web_message_from_pthread` 里认 `__jsbError` 键 → `record_from_js` → 调 `onerror`。
+   **判断必须放在 `transfer_id == 0` 的 ready 分支之前**（error 用的就是这一档；ready 的 data 是
+   `StackBase::Undefined`，非对象，不会误判）。
+
+**踩到的 shim 差异（web 腿编译报错）**：
+- `Local<Primitive>` 与 `Local<v8::Value>` 双向可转换 → `?:` 三元表达式报 "ambiguous"（改写成 if/else 赋值）；
+- web 的 `Object::GetOwnPropertyNames` 返回 `MaybeLocal<Array>`，`.ToLocal(&keys)` 会与 `godot::Array`
+  撞重载（改 `IsEmpty()` + `ToLocalChecked()`，与原 `capture_error_fields` 写法一致）。
+另：`HasOwnProperty(...).To(&found)` 需显式 `bool`（web/jsc/quickjs 的 `Maybe<bool>` 无 `FromJust`），
+在**宿主**侧（v8 语义）用 `.FromMaybe(false)` —— 注意该调用点只在 `#if JSB_WITH_WEB` 里编译，
+而 web 的 `Maybe<bool>` 有 `FromMaybe`（`jsb_web_maybe.h`）。
+
+**验证**：
+- `scons platform=web target=template_release arch=wasm32 threads=yes`（本机 emsdk 4.0.11）**rc=0**，
+  链接出 `bin/web/godotjs-ext.web.template_release.wasm32.wasm`。
+- node 腿（共享文件改动后）**rc=0**；`CrossEnvironment.tscn` smoke：4 个 error-reporting 场景全部 start→done、0 行首 `Uncaught`。
+- **web 运行时无法验证**：仓库没有 web 运行时测试编排（CI 的 web 腿也只构建），浏览器里跑 worker + 结构化克隆
+  这一路径本地测不了。
+
+**状态**：按用户要求**未提交**（工作区 5 个文件）。
+
+---
+
+## §54 修正：web 投递原语的位置（未提交）
+
+用户两次指出分层错误，最终定稿：
+
+- 初版：`Worker::web_post_error` —— 把投递能力绑死在 worker 上（将来 web 的 shadow realm 得复制一份）。
+- 二版：`Environment::web_post_payload` / `web_sender_route` —— 又跑到 `Environment` 去了；**用户指出
+  `jsb_cross_isolate_util` 本来就是专门做跨隔离区的事情**，浏览器 `postMessage` 属于"错误怎么跨边界送出"，
+  归它管；`Environment` 不该知道 web 的投递机制。
+- **定稿**：全部落回 `jsb::cross_isolate`（`jsb_cross_isolate_util.{h,cpp}`）：
+  - `post_to_master_web(Environment *p_sender, const v8::Local<v8::Object> &p_payload)`（公开，仅 web）：
+    经 `jsbi_PostMessage` 投递，走控制消息档（`transfer_id == 0`）——宿主侧接收者注册表直接命中，
+    不依赖 JS 的 `RegisterWorkerOwner`（入口脚本加载失败时它还没建）。
+  - 文件内 `_web_sender_route(Environment*)`：**唯一按种类分叉的点**。worker 返回 `pthread_self()`；
+    将来 web 启用 shadow realm 时在此加分支（它与宿主同线程，pthread id 无区分度，需换成 token/handle），
+    投递实现不动。
+  - `Environment::forward_error_to_master` 的 web 分支只做"把记录降级成纯数据载荷"，
+    再调 `cross_isolate::post_to_master_web`。
+  - `Worker::web_post_error` 已删除；web 投递不再经过 `Worker` 的任何接口。
+  - `kPostMessageFailed` / `kPostMessageNativeTransfersUnused` 从 `jsb_worker.cpp` 的匿名常量提升为
+    `jsb_web_interop.h` 的 `enum jsbb_PostMessageResult`（跨 TU 共用；与 JS 侧 `jsbb_PostMessageResult` 对齐）。
+
+**web 上启用 shadow realm 的其余前置（尚缺，仅记录）**：`JSB_SHADOW_REALM_ENABLED` 现在是
+`#if !JSB_WITH_WEB`（全仓 24 处引用，`jsb_shadow_realm.cpp` 整个 TU 被包住）；
+shadow realm 在 web 上与宿主**同线程**，其错误投递应是**同步**语义（宿主 `onerror` 当场跑完），
+与 worker 的跨线程异步不同 —— 落在 `_web_sender_route` 分支 + `forward_error_to_master` 的
+`ErrorForwardMode::Sync` 处理上；接收端还需新增"按 realm 身份派发"的登记。
+
+**验证**：
+- web 腿（`scons platform=web target=template_release arch=wasm32 threads=yes`，emsdk 4.0.11）**rc=0**。
+- node 腿 **rc=0**；`CrossEnvironment.tscn` smoke：8 条 error-reporting `start/done` 全齐、0 崩溃 / 0 行首 `Uncaught`。
+- **web 运行时仍无法验证**（仓库无 web 运行时编排，CI 的 web 腿也只构建）。

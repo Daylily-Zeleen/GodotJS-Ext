@@ -31,6 +31,32 @@ v8::Local<v8::Value> take_error(Environment *p_env, Message &p_message, const St
 /** 本 realm 自己的失败：一个普通 `Error`。 */
 v8::Local<v8::Value> make_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message);
 
+#if JSB_WITH_WEB
+/**
+ * web 腿的转发载体：把错误记录降级成**纯数据 JS 对象**（`Message` 通道在 web 上不存在，
+ * worker→master 走浏览器的结构化克隆，只能携带可序列化的普通值）。
+ * 键定义在 `kErrorPayloadKey`（`"__jsbError"`）；`cause` / `untransferred` 一并物化（web 侧不做懒重建）。
+ * 返回一个普通 `Object`（不是 `CrossEnvError` 实例：该实例带原生指针内部字段，过不了结构化克隆）。
+ */
+v8::Local<v8::Value> record_to_js(Environment *p_env, const v8::Local<v8::Value> &p_exception);
+
+/** {@link record_to_js} 的逆操作：在 `p_env` 里把载荷重建成 `CrossEnvError`。 */
+v8::Local<v8::Value> record_from_js(Environment *p_env, const v8::Local<v8::Value> &p_payload, const String &p_fallback_message);
+
+/** web 投递载荷里"这是错误记录"的包装键（与普通 onmessage 数据区分）。 */
+extern const char *const kErrorPayloadKey;
+
+/**
+ * web 腿的投递原语：把 `p_payload` 经 `jsbi_PostMessage` 发给 `p_sender` 的宿主。
+ * 这是跨隔离区"怎么送出去"的实现，与发送方种类无关（worker、以及将来 web 上的 shadow realm 共用）；
+ * 唯一按种类分叉的是**寻址**，见 `_web_sender_route`。
+ * 走控制消息档（`transfer_id == 0`）：该档由宿主侧接收者注册表直接命中，不依赖 JS 侧
+ * `RegisterWorkerOwner`（入口脚本加载失败时它还没建），适合"连接建立前/后都要送得到"的错误消息。
+ * @return 已投递返回 true（该环境在 web 上没有投递路由时返回 false）。
+ */
+bool post_to_master_web(Environment *p_sender, const v8::Local<v8::Object> &p_payload);
+#endif // JSB_WITH_WEB
+
 /** 抛出一个值（`p_error` 为空则按 `p_message` 抛）。 */
 void throw_error(v8::Isolate *p_isolate, const v8::Local<v8::Context> &p_context, const String &p_message, const v8::Local<v8::Value> &p_error);
 
