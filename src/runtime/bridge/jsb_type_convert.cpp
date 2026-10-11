@@ -602,10 +602,7 @@ bool TypeConvert::js_to_gd_var(v8::Isolate *isolate, const v8::Local<v8::Context
 		r_cvar = impl::Helper::to_packed_byte_array(isolate, p_jval.As<v8::ArrayBuffer>());
 		return true;
 	}
-	//TODO
-	// if (p_jval->IsFunction())
-	// {
-	// }
+	// NOTE: 不隐式把 JS Function 转为 Callable
 
 	if (p_jval->IsObject()) {
 		const v8::Local<v8::Object> self = p_jval.As<v8::Object>();

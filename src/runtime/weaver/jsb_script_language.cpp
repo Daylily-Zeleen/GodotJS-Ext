@@ -1126,12 +1126,7 @@ String GodotJSScriptLanguage::_debug_get_stack_level_source(int32_t p_level) con
 
 Dictionary GodotJSScriptLanguage::_debug_get_globals(int32_t p_max_subitems, int32_t p_max_depth) {
 	// 引擎按 `名称 -> 值` 的字典读它（script_language_extension.h:643-662），
-	// 所以这里报告运行时的全局对象。
-	//
-	// 预期它很稀疏。GodotJS 的模块是在 CommonJS 包装里编译的，脚本自己的绑定是
-	// 函数局部量、从不进全局；而全局对象上**确实**存在的那些（require/setTimeout/gc...）
-	// 都是函数，`TypeConvert::js_to_gd_var` 不把函数转成 Variant
-	// （jsb_type_convert.cpp 里有明确的 `//TODO`）。表示不了的值直接跳过，不伪造。
+	// 所以这里报告运行时的全局对象，预期它很稀疏。
 	jsb_unused(p_max_subitems);
 	jsb_unused(p_max_depth);
 
@@ -1211,7 +1206,6 @@ String GodotJSScriptLanguage::_debug_parse_stack_level_expression(int32_t p_leve
 	// （remote_debugger.cpp:553-611）。而 JSVM 的局部作用域在本仓 vendor 的 v8 头文件里
 	// 没有任何公开 API 能取到（无 `ScopeIterator`、无 `Debug` 命名空间，已核实）；
 	// v8 给出的函数名本身就是参数表（见 `_debug_get_stack_level_function`），
-	// 所以帧的参数只能靠解析那个字符串还原 —— 那是猜测，不做。
 	//
 	// 本 hook **能**做的是：在运行时的全局作用域里求值，并回报 VM 自己的结果，
 	// 而不是一口回绝。这样对「由全局量构成的表达式」（即 `_debug_get_globals` 报告的
@@ -1219,9 +1213,7 @@ String GodotJSScriptLanguage::_debug_parse_stack_level_expression(int32_t p_leve
 	// 例如 `ReferenceError: x is not defined` —— 真实原因，而不是本运行时猜的原因。
 	jsb_unused(p_max_subitems);
 	jsb_unused(p_max_depth);
-	// 无条件重取：引擎从表达式框调用本 hook 时（local_debugger.cpp:222）
-	// **不会**先调 `debug_get_stack_level_count()`；若复用缓存，就会拿「碰巧存在的那份
-	// 快照」作答 —— 包括早先空闲时取到的那份空快照。
+
 	_refill_debug_stack();
 	if (p_level < 0 || p_level >= (int32_t)debug_stack_.frames.size()) {
 		return "<no stack frame at level " + itos(p_level) + ">";
