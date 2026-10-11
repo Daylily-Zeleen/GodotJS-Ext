@@ -572,7 +572,11 @@ public:
 		v8::MaybeLocal<v8::Object> maybe_cache = try_get_cache(p_guest_isolate, p_function, p_host_env->get_isolate());
 		v8::Local<v8::Object> cache;
 		if (maybe_cache.ToLocal(&cache)) {
-			JSB_LOG(Info, "Get cache: %s", impl::Helper::to_string_without_side_effect(p_guest_isolate, cache));
+			// 不要用 p_guest_isolate 去字符串化 cache：它属于 host isolate（见 try_get_cache 返回
+			// get_host_obj）。jsc 的 ToString 会真的执行 JS（ordinaryToPrimitive），从而在 guest 上下文里
+			// 重入一个 C 回调，_function_call 便会拿 guest 的 captured_values_ 去查 host 分配的 id → 触发
+			// jsb_check。这里只用 guest 源对象的 identity hash（不做任何 JS 求值）即可。
+			JSB_LOG(Info, "Get cache: %s", p_function->GetIdentityHash());
 			return cache;
 		}
 
@@ -697,7 +701,9 @@ public:
 		v8::MaybeLocal<v8::Object> maybe_cache = try_get_cache(p_guest_isolate, p_guest_obj, p_host_env->get_isolate());
 		v8::Local<v8::Object> cache;
 		if (maybe_cache.ToLocal(&cache)) {
-			JSB_LOG(Info, "Get cache: %s", impl::Helper::to_string_without_side_effect(p_guest_isolate, cache));
+			// 同 FunctionCrossWrapper::create：cache 属于 host isolate，绝不能用 guest isolate 去
+			// ToString（jsc 会执行 JS 并重入 C 回调，导致 captured_value_id 跨表查找）。只用 identity hash。
+			JSB_LOG(Info, "Get cache: %s", p_guest_obj->GetIdentityHash());
 			return cache;
 		}
 
