@@ -1764,3 +1764,37 @@ CI run `38152591682`（推送 `c134c0c`）后，jsc 腿只剩一处崩溃，用�
 - 修法只是把本机 `third/lws` 换成 deps release 的 PIC 包；换后 v8 腿链接通过，
   doctest 从 1316/8-failed → **1324/1324 rc=0**。
 - 我先前"lws 无 PIC"的说法错在：把**本机陈旧副本**当成了发布产物。
+
+---
+
+## §51 移除与既有机制冲突的 startup-load-failure 场景（run 38161742868 后的 4 条红）
+
+**定位**：4 条红腿（host-node×3、host-v8）**只**命中 `run-runtime-matrix.mts:49` 的 `/^Uncaught\s+Error:/im`，
+每腿恰好 1 行，内容为 `Uncaught Error: cross-environment-test: peer load throw`。
+
+**性质**：撞既有机制，与本任务的捕获转发无关。`Environment::load()`（`jsb_environment.cpp:1635-1640`）
+**就地** try/catch 了 worker 入口脚本的抛异常并打日志 `"something went wrong on loading '%s'\n%s"`；
+node/v8 后端从 `v8::Message::Get()` 取文案，V8 的模板恒为 `"Uncaught %"`
+（`MessageTemplate::kUncaughtException`，v8 `isolate.cc:3017`）——**即使异常被接住也带前缀**；日志里的 `\n`
+把它顶到行首 → 命中行首正则。qjs/jsc 读 `err.message`，无前缀。
+
+实测（逐行跑门禁正则于 CI 日志 `ci3_full.log`）：node/v8 各腿行首 `Uncaught` 命中数 15/16，其中 TS 集成步仅 1 行；
+qjs / qjs-classic / jsc **0 行**。node 原生 dump（`Node.js v…` / `node:internal`）**0 处**——该行不是 node 打的。
+场景本身全绿（`error-reporting:{onmessage-throw,timer-throw}:{worker,shadow}:{start,done}` 齐全、无
+`GODOTJS_TEST_PROJECT_FAILED`、有 `GODOTJS_TEST_PROJECT_COMPLETED`）。
+
+既有性：门禁 pattern `e379b85`(2026-07-22)；用例 `c30270b`(2026-10-09)，均早于本任务 base `56b3b49`。
+
+**处置（用户决定）**：移除该测试，并把机制写进文档站。
+- `045b62c`（main）：删除 `runWorkerStartupLoadFailure()` 调用与方法、删除 fixture
+  `project/tests/cross-environment/peer-fails-on-load.ts`；保留的场景 1/2/4/5（onmessage/timer 抛点）不动。
+- `4c114be`（docs 站）：`docs/misc/known-issues.md` + `docs/en/misc/known-issues.md` 新增「第 4 条：
+  脚本加载失败时多出一行以 `Uncaught ` 开头的裸日志」，含现象/原因/影响/当前做法（无，未处理）。
+
+**验证**：
+- `tsc --noEmit` / `tsc`（project）rc=0。
+- Windows node 构建，单场景 `CrossEnvironment.tscn`：全部 worker/shadow 场景通过，**行首 `Uncaught Error:` 0 行**。
+- Windows node 构建，整个测试工程（15 场景）：`GODOTJS_TEST_PROJECT_COMPLETED`、`startup-load-failure` 消失、
+  **行首 `Uncaught` 0 行**。
+
+**遗留**：机制仍在（仅日志外观）；用户脚本加载失败时控制台仍会出现该裸行，现已在 known-issues 记录。
