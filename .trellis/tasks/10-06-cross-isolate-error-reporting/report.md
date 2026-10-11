@@ -1725,3 +1725,42 @@ CI run `38152591682`（推送 `c134c0c`）后，jsc 腿只剩一处崩溃，用�
   `host-node@{macos,ubuntu,windows}`、`host-v8@ubuntu`。来源是 `cross-environment` 用例**故意抛出**的 peer 异常
   被 node 自身处理器打成裸行 `Uncaught Error: …`。`BridgeHelper::get_exception()` 按用户要求保持不动，
   门禁口径待单独商定。
+
+---
+
+## §50 Linux lws 问题的完整结论（本机陈旧预编译库，非项目缺陷）
+
+用户追问"说清楚 linux 的 lws 问题"。逐项实测：
+
+**1. 官方产物确实是 PIC（用户说法正确）**
+- `GodotJS-Dependencies/.github/actions/lws/build/action.yml`：linux 分支（x86_64 与 arm64）均带
+  `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`（本地副本 `.agent_tmp/godotjs-deps/.../lws/build/action.yml:30,36`）。
+- 该 CI 在 linux 上**主动验证 PIC**：`verify_symbols.py lws` 把整个静态库
+  `--whole-archive` 链接成 `.so`，失败即报 `contains non-PIC objects, recompile with -fPIC`
+  （`action.yml:88`；脚本 `scripts/verify_symbols.py:88-105`）。非 PIC 产物**出不了 CI**。
+- SConstruct 也早已写明：`SConstruct:385`「The linux lws prebuilt is PIC now (built with
+  CMAKE_POSITION_INDEPENDENT_CODE=ON by our own GodotJS-Dependencies CI)」。
+- 实测 release `260926-node-final` 的 `lws_4.3.zip`（linux x86_64）：`logs.c.o` 的 `stderr`
+  是 `R_X86_64_REX_GOTP`（**PIC**），md5 `d53433ec…`。
+
+**2. 我遇到的链接失败源自本机陈旧副本（同一目录两种产物）**
+| 位置 | 日期 | 大小 | md5 | `logs.c.o` 的 `stderr` |
+|---|---|---|---|---|
+| `third/lws/...`（现已替换为 deps 版） | 2026-10-11 | 720718 | `d53433ec…` | `R_X86_64_REX_GOTP` ✅ PIC |
+| `.worktrees/binding_mode/third/lws/...` | 2026-09-06 | 720910 | `3dcc19fd…` | `R_X86_64_PC32` ❌ **非 PIC** |
+| `.worktrees/optimize_api_tool/third/lws/...` | 2026-09-06 | 720910 | `3dcc19fd…` | `R_X86_64_PC32` ❌ **非 PIC** |
+
+后两者即我原先那份 9/6 副本的活体（未被我改动过），证明「非 PIC」是在**本机**存在过的真实产物形态，
+而当前 `third/lws` 与 deps release 的包**逐字节相同**。
+
+**3. SConstruct 为何没自动纠正**
+`dependency_is_ready()`（`SConstruct:244-256`）对 lws 只检查
+`<platform_base>/include` 目录存在 **且** `<platform_base>/libwebsockets.a` 文件存在——
+**不校验内容/版本/日期**。`third/lws/` 在 `.gitignore:15` 被忽略，跨 worktree/checkout 存活，
+于是 9/6 的旧库被静默接受，`download_dependency()` 直接 return，永不重下。
+
+**4. 结论**
+- 不是仓库缺陷，**GodotJS-Dependencies 无需任何改动**（用户判断正确）。
+- 修法只是把本机 `third/lws` 换成 deps release 的 PIC 包；换后 v8 腿链接通过，
+  doctest 从 1316/8-failed → **1324/1324 rc=0**。
+- 我先前"lws 无 PIC"的说法错在：把**本机陈旧副本**当成了发布产物。
