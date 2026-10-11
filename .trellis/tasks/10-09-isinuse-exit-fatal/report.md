@@ -53,3 +53,45 @@ D:\Dev\godot\godot\bin\godot.windows.editor.x86_64.console.exe ^
 ## 状态
 
 未定位。与 `10-06-cross-isolate-error-reporting` 无因果，独立任务。
+
+---
+
+## 已定位并修复（2026-10-12，A/B 反证）
+
+**根因**：`ShadowRealm::finish_all()` 里对静态句柄表的清理（`SymbolCrossUtils::clean()` /
+`CrossWrapper::clean()`，**提交 `9718b87`**）之前不存在。缺了它，`jsb_shadow_realm.cpp` 的两个
+**静态**表（`SymbolCrossUtils::cache_`、`key_for_funcs`、`CrossWrapper::flag_symbols_`）
+会活到进程静态析构（`__run_exit_handlers`）；此时 isolate 已销毁，其中的 `v8::Global` / `TStrongRef`
+析构 → 释放 V8 Global handle → `GlobalHandles::NodeSpace::Free()` 的
+`CHECK(node->IsInUse())` 失败（`third/.../v8/src/handles/global-handles.cc:279`）。
+`IsInUse()` = `state() != FREE`，即**同一个 handle 节点被释放了两次**。
+
+**A/B 反证（决定性）**：把 `finish_all()` 里的两行 `clean()` 注释掉，只改这一处，同一二进制：
+```
+无 clean()：IsInUse 命中 8 / 12 次   （.agent_tmp/fals_*.log）
+有 clean()：IsInUse 命中 0 / 42 次   （.agent_tmp/ii_probe_*/ii2_*/iii_*/final_*.log）
+```
+恢复 `clean()` 后重编再跑 5 次，0/5。**命中率差异把因果钉死在这两行上。**
+
+**时间线吻合**：10-09 任务建立时（2026-10-09 01:32 的 `fin2_node_dt.err` 命中）`9718b87` 尚未落地；
+该提交是本会话早前为修"静态析构时对已死 isolate 释放句柄 → SEGV"而加的，正好同源。
+
+## 另一独立发现：退出期 8 次 `env is null`（不是本 CHECK 的原因，但值得单列）
+
+给 `callp()` 的 null 分支加探针（`.agent_tmp/jsb_script_instance.cpp.bak` 为原样）后实跑，8 次调用是：
+```
+method=_enter_tree  owner=Node   script=res://tests/singleton/config-singleton.ts
+method=_enter_tree  owner=Node2D script=res://tests/start.ts
+method=_ready       owner=Node   script=res://tests/singleton/config-singleton.ts
+method=_ready       owner=Node2D script=res://tests/start.ts
+method=_draw        owner=Node2D script=res://tests/start.ts
+method=_top_level_raise_self owner=Node2D script=res://tests/start.ts
+method=_exit_tree   owner=Node2D script=res://tests/start.ts
+method=_exit_tree   owner=Node   script=res://tests/singleton/config-singleton.ts
+```
+固定 8 条、每次相同、恒在 `[jsb] running tests result: 0` 之后（即主环境已 `dispose()` 之后）。
+`env_` 由 `EnvironmentRef::reset()`（`~Environment` 尾部，`jsb_environment.cpp:437`）置空，
+所有脚本实例共享同一 control block，所以一次 dispose 就让全部实例变 null。
+含义：进程收尾时**仍有节点通知在派发**（`start.ts` 的 `_exit_tree` 等），而 JS 环境已销毁。
+目前只是 `WARN_PRINT` + 返回 false，行为安全；但说明退出顺序上"语言 shutdown"早于"场景树通知排空"。
+**未改行为**（属独立问题，需确认是否为引擎既定时序）。探针已还原。
