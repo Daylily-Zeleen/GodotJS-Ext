@@ -84,7 +84,7 @@ struct TypeConvert {
 	// variant fast check (without checking NativeClassInfo)
 	_FORCE_INLINE_ static bool is_variant(const v8::Local<v8::Object> &p_obj) {
 		/**
-		 * TODO: v8 能够根据编译配置改变 v8::Promise，v8::ArrayBuffer，v8::ArrayBufferView 的内嵌字段数量
+		 * NOTE: v8 能够根据编译配置改变 v8::Promise，v8::ArrayBuffer，v8::ArrayBufferView 的内嵌字段数量
 		 * 		直接判断并不安全，但是一直依赖工作都很安全，Promise 0, v8::ArrayBuffer 专门用于 PackedByteArray 的处理，v8::ArrayBufferView 只存在于 v8，未在 GodotJS 中使用
 		 * Node.js 则是 Promise 为 1
 		 */
@@ -97,7 +97,7 @@ struct TypeConvert {
 	// object fast check (without checking NativeClassInfo)
 	_FORCE_INLINE_ static bool is_object(const v8::Local<v8::Object> &p_obj) {
 		/**
-		 * TODO: v8 能够根据编译配置改变 v8::Promise，v8::ArrayBuffer，v8::ArrayBufferView 的内嵌字段数量
+		 * NOTE: v8 能够根据编译配置改变 v8::Promise，v8::ArrayBuffer，v8::ArrayBufferView 的内嵌字段数量
 		 * 		直接判断并不安全，但是一直依赖工作都很安全，Promise 0, v8::ArrayBuffer 专门用于 PackedByteArray 的处理，v8::ArrayBufferView 只存在于 v8，未在 GodotJS 中使用
 		 * Node.js 则是 Promise 为 1
 		 */
