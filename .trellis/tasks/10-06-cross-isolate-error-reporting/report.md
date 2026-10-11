@@ -1712,3 +1712,16 @@ CI run `38152591682`（推送 `c134c0c`）后，jsc 腿只剩一处崩溃，用�
 
 **修法**：两处 cache 命中日志改用 `GetIdentityHash()`（jsc 实现是纯指针运算，不执行 JS，且正是缓存的查找键），
 不再跨隔离字符串化。文件：`src/runtime/bridge/jsb_shadow_realm.cpp:575`、`:700`。
+
+---
+
+## §49 缺陷 5 由 CI 确认（run 38158831818，head 6787db8）
+
+- `Test (host-jsc, macos-latest) → Run C++ unit tests`：**success**，doctest **91/91 test cases、1313/1313 assertions、Status: SUCCESS!**。
+  崩溃用例 `ShadowRealm: a guest object is wrapped once per host isolate (cache reuse)` 通过 ——
+  cache 命中日志不再跨隔离 `ToString`（jsc 会执行 JS 并重入 C 回调）。
+- **所有非 node 缺陷（1~5）至此在 CI 上全绿**：node/qjs/qjs-classic/v8/jsc 各腿 doctest 均通过。
+- 剩余失败仅 4 条 TS 集成腿，且**只**命中 `run-runtime-matrix.mts:49` 的 `/^Uncaught\s+Error:/im`：
+  `host-node@{macos,ubuntu,windows}`、`host-v8@ubuntu`。来源是 `cross-environment` 用例**故意抛出**的 peer 异常
+  被 node 自身处理器打成裸行 `Uncaught Error: …`。`BridgeHelper::get_exception()` 按用户要求保持不动，
+  门禁口径待单独商定。
