@@ -268,7 +268,9 @@ MaybeLocal<Promise::Resolver> Promise::Resolver::New(Local<Context> context) {
 	Isolate *isolate = context->GetIsolate();
 	const JSContextRef ctx = isolate->ctx();
 	JSObjectRef resolve, reject;
-	JSValueRef error;
+	// JSC 只在**出错时**写入 `*exception`（头文件：`a pointer ... in which to store an exception, if any`），
+	// 成功路径不会把它清成 NULL。这里不初始化就会把栈上的垃圾当异常 `_ThrowError`（macOS 上实测 abort）。
+	JSValueRef error = nullptr;
 	const JSObjectRef promise = JSObjectMakeDeferredPromise(ctx, &resolve, &reject, &error);
 	if (error) {
 		isolate->_ThrowError(error);
@@ -295,7 +297,7 @@ Local<Promise> Promise::Resolver::GetPromise() {
 	const JSContextRef ctx = isolate_->ctx();
 	jsb_check(JSValueIsArray(ctx, (JSValueRef) * this));
 	const JSObjectRef holder = jsb::impl::JavaScriptCore::AsObject(ctx, (JSValueRef) * this);
-	JSValueRef error;
+	JSValueRef error = nullptr; // 同上：成功路径不会写这个出参
 	const JSValueRef rval = JSObjectGetPropertyAtIndex(ctx, holder, kHolderIndexPromise, &error);
 
 	// or, just loosely check `!JSValueIsObject(ctx, rval)`
@@ -313,7 +315,7 @@ Maybe<bool> InvokePromise(Local<Context> context, Data *this_, Local<Value> valu
 	const JSContextRef ctx = isolate->ctx();
 	jsb_check(JSValueIsArray(ctx, (JSValueRef)*this_));
 	const JSObjectRef holder = jsb::impl::JavaScriptCore::AsObject(ctx, (JSValueRef)*this_);
-	JSValueRef error;
+	JSValueRef error = nullptr; // 同上：成功路径不会写这个出参
 	const JSValueRef holderValue = JSObjectGetPropertyAtIndex(ctx, holder, kHolderIndex, &error);
 	if (error) {
 		isolate->_ThrowError(error);
