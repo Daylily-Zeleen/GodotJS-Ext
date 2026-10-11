@@ -434,7 +434,9 @@ bool GodotJSScript::_has_method(const StringName &p_method) const {
 bool GodotJSScript::_has_static_method(const StringName &p_method) const {
 	ensure_module_loaded();
 	if (!_is_valid()) return false;
-	// TODO: 当前 ScriptInfo 中似乎不包含静态函数信息
+	// NOTE: 与静态变量不同（通过装饰器在 c++ 中存1个所有隔离区公认的 Variant 变量），
+	// 		 我们不能通过 GodotJSScript 对象来调用 JS 类的静态函数, 不能确定这个静态函数属于哪个隔离区里的 JS 类，会产生什么副作用
+	//		因此不支持所有 GodotJSScript 的静态函数功能
 	return false; // script_class_info_.methods.has(p_method);
 }
 Dictionary GodotJSScript::_get_method_info(const StringName &p_method) const {
