@@ -39,8 +39,10 @@
 #endif
 
 /**
- * TODO: CI 缺「配置文件完整性」的校验：`.gdextension` 里声明的库路径与实际产物是否一致，
- *       目前只在运行期才发现缺失。
+ * NOTE: 配置完整性已加 CI 校验：`misc/verify_gdextension.py`（test 腿的
+ *       "Verify .gdextension declarations"）查两件事 —— `.godot/extension_list.cfg`
+ *       里是否有指向已不存在文件的登记残留，以及当前平台在 `[libraries]` 里声明的库
+ *       是否都在 addon 目录里。
  *
  * NOTE: node module（原生 addon）已有覆盖（`project/tests/node-runtime/native-addon-probe.cjs`
  *       在 forked helper 里加载 `node-llama-cpp` 的 `llama-addon.node`）。为此修的真实缺口：

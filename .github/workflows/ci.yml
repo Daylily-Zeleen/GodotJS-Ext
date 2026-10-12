@@ -906,6 +906,19 @@ jobs:
             ls -la "$macos_bin"
           fi
 
+      # 校验 .gdextension 与已落地的产物一致：登记残留（.godot/extension_list.cfg 指向
+      # 已不存在的 .gdextension）与"当前平台声明的库缺失"都要在这里暴露，而不是等运行期。
+      # platform 由 matrix 给出；非 windows/linux/macos 的腿（android/ios/web）跳过——
+      # 它们的库不在这个目录布局里。
+      - name: Verify .gdextension declarations
+        if: contains(fromJSON('["windows","linux","macos"]'), matrix.platform)
+        shell: bash
+        run: |
+          python3 misc/verify_gdextension.py project \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --target "${{ matrix.target }}"
+
       # Bootstrap emit ONLY. `project/typings/` does not exist yet — it is
       # generated from the api store that the next step produces — so this pass
       # cannot type-check; it exists to emit the JS the editor loads while
