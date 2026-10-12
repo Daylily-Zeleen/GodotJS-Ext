@@ -84,23 +84,28 @@ def parse_library_entries(path):
 
 
 def tag_matches(key, platform, arch, target):
-    """该 key 是否是运行环境会选中的候选。
+    """该 key 是否是当前构建目标会选中的候选。
 
-    key 形如 `<platform>.<debug|release>.<editor>.<arch>`，各段可选。这里只做宽松匹配：
-    platform 必须相同，arch 若出现必须相同，debug/release 与 target 一致，editor 段与
-    target == editor 一致。宽松是刻意的——目的是发现"该平台声明的库不存在"，
-    不是复刻引擎的精确 tag 求解。
+    key 形如 `<platform>.<debug|release>.<editor>.<arch>`。关键是 target 与 tag 必须对应：
+    editor 构建对应带 `editor` 的项，模板构建对应**不带** `editor` 的项；否则会把
+    `linux.debug.x86_64`（模板调试库）误当成 editor 构建该有的库，而 CI 只落地 editor 库。
+    架构段可选（macOS universal / iOS xcframework 不带架构）。
     """
     tags = key.split(".")
     if not tags or tags[0] != platform:
         return False
-    want_release = target != "editor" and target != "template_debug"
-    if "debug" in tags and want_release:
-        return False
-    if "release" in tags and not want_release:
-        return False
-    if "editor" in tags and target != "editor":
-        return False
+    has_editor = "editor" in tags
+    has_debug = "debug" in tags
+    has_release = "release" in tags
+    if target == "editor":
+        if not (has_editor and has_debug):
+            return False
+    elif target == "template_debug":
+        if has_editor or not has_debug:
+            return False
+    elif target == "template_release":
+        if has_editor or not has_release:
+            return False
     arch_tags = [t for t in tags[1:] if t not in ("debug", "release", "editor", "threads")]
     if arch_tags and arch not in arch_tags:
         return False
