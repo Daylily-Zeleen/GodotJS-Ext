@@ -334,7 +334,12 @@ void GodotJSEditorPlugin::_generate_types_from_cmdline() {
 
 		if (DisplayServer::get_singleton()->get_name() == "headless") {
 			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-				scene_tree->quit(EXIT_SUCCESS);
+				// The exit code has to carry the outcome: a caller that only ran us
+				// to produce typings (CI does) cannot otherwise tell a skipped
+				// generation from a real one, and `--generate-types` already exits
+				// non-zero on its own shutdown crash, so "zero" is the only signal
+				// that currently means "the files were written".
+				scene_tree->quit(success ? EXIT_SUCCESS : EXIT_FAILURE);
 			} else {
 				CRASH_NOW_MSG("Cannot get SceneTree.");
 			}
@@ -996,14 +1001,22 @@ Vector<String> GodotJSEditorPlugin::_filter_resource_paths(const PackedStringArr
 }
 
 void GodotJSEditorPlugin::generate_types(std::function<void(bool)> complete, bool skip_static_types) {
-	ERR_FAIL_COND_MSG(!api_tool::has_generated_data(), "Please generate api data first.");
+	// Every early exit below must report through `complete(false)`: the only caller
+	// (`_generate_types_from_cmdline`) prints the outcome and decides the exit code
+	// from it. A silent return here let a run that produced no typings still look
+	// like a clean, logless success to the command line (and to CI).
+	if (!api_tool::has_generated_data()) {
+		JSB_LOG(Error, "Type generation aborted: no api data. Run --godotjs-api-generate first.");
+		if (complete) {
+			complete(false);
+		}
+		return;
+	}
 	jsb::editor::ApiToolSession api_tool_session;
 	if (!api_tool_session.is_valid()) {
 		JSB_LOG(Error, "Type generation requires the api store. Run --godotjs-api-generate first.");
-		if (DisplayServer::get_singleton()->get_name() == "headless") {
-			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-				scene_tree->quit(EXIT_FAILURE);
-			}
+		if (complete) {
+			complete(false);
 		}
 		return;
 	}

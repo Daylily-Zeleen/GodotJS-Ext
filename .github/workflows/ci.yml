@@ -1000,10 +1000,17 @@ jobs:
         run: |
           rm -f project/.godot/.tsbuildinfo
           pnpm gen:types || {
+            # `working-directory` is already `project`, so the paths below are
+            # relative to it (the first version of this diagnostic looked for
+            # `project/typings` from inside `project` and reported "No such
+            # file or directory" for a directory that may well have existed).
             echo "=== DIAGNOSTIC: gen:types failed; dumping the typings it actually produced ==="
-            ls -la project/typings/ || true
-            grep -rn "_set(property" project/typings/ || echo "no _set(property) declaration found in project/typings/"
-            echo "--- the _set declaration comes from whichever file matches above ---"
+            echo "--- project/typings (cwd is <repo>/project) ---"
+            ls -la typings/ 2>&1 || echo "typings/ does not exist"
+            echo "--- _set(property declarations found there ---"
+            grep -rn "_set(property" typings/ 2>&1 || echo "no _set(property) declaration under typings/"
+            echo "--- api store state (a missing store is why generation is skipped) ---"
+            ls -la .godot/.api_dumping/ 2>&1 | head -20 || echo ".api_dumping does not exist"
             echo "=== end diagnostic ==="
             exit 1
           }
