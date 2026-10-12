@@ -999,7 +999,14 @@ jobs:
         # tolerates that and the trailing type-check is what proves success.
         run: |
           rm -f project/.godot/.tsbuildinfo
-          pnpm gen:types
+          pnpm gen:types || {
+            echo "=== DIAGNOSTIC: gen:types failed; dumping the typings it actually produced ==="
+            ls -la project/typings/ || true
+            grep -rn "_set(property" project/typings/ || echo "no _set(property) declaration found in project/typings/"
+            echo "--- the _set declaration comes from whichever file matches above ---"
+            echo "=== end diagnostic ==="
+            exit 1
+          }
 
       # Diagnostic: rerun the exact first-time generation scenario under gdb
       # to capture a symbolized backtrace of the teardown SIGSEGV. Never

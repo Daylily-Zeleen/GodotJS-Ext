@@ -10,7 +10,7 @@ export default class HooksDerived extends HooksBase {
 		g.__hook_calls_get = (g.__hook_calls_get ?? 0) + 1;
 		return null;
 	}
-	_set(property: string, value: any): any {
+	_set(property: string, value: any): boolean {
 		const g = globalThis as any;
 		g.__hook_calls_set = (g.__hook_calls_set ?? 0) + 1;
 		return false;
