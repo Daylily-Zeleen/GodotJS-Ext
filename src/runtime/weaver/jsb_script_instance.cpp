@@ -621,7 +621,7 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 					r_ret = Callable(owner_, p_name);
 					return true;
 				} else {
-					// TODO: Warp static method to Callable
+					// NOTE: 我们不能在 godot 接口层级返回 静态函数，JS 类有隔离区归属。
 				}
 			}
 		}
