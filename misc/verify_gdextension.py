@@ -13,15 +13,18 @@
    属于预期（本平台无对应产物），跳过而不是失败。
 
 用法：
+    python misc/verify_gdextension.py <project_dir>
     python misc/verify_gdextension.py <project_dir> --platform <p> --arch <a> --target <t>
-    python misc/verify_gdextension.py <project_dir>            # 只查登记残留
+
+不给 --platform 时按**宿主**推断（platform.system()/machine()），这样在 CI 的 test 腿里直接跑
+即可——那条腿的 matrix 只有 runtime/os，没有 platform/arch。
 
 退出码：0 通过；1 有问题。
 """
 
 import argparse
 import os
-import re
+import platform as host_platform
 import sys
 
 # 与引擎一致的可加载库后缀（含 macOS 的 xcframework 目录）。
@@ -121,13 +124,35 @@ def check_declared_libraries(addon_dir, gdextension, platform, arch, target, pro
             )
 
 
+def detect_host_platform():
+    """宿主平台名，与 .gdextension 的键一致。"""
+    system = host_platform.system().lower()
+    return {"windows": "windows", "linux": "linux", "darwin": "macos"}.get(system)
+
+
+def detect_host_arch():
+    machine = host_platform.machine().lower()
+    if machine in ("amd64", "x86_64"):
+        return "x86_64"
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    return machine
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("project_dir", help="Godot 工程目录（含 addons/ 与 .godot/）")
-    parser.add_argument("--platform", default=None, help="当前平台（windows/linux/macos/...）；不给则只查登记残留")
-    parser.add_argument("--arch", default="x86_64", help="当前架构")
+    parser.add_argument("--platform", default=None, help="当前平台；不给则取宿主")
+    parser.add_argument("--arch", default=None, help="当前架构；不给则取宿主")
     parser.add_argument("--target", default="editor", help="editor / template_debug / template_release")
     args = parser.parse_args()
+
+    if args.platform is None:
+        args.platform = detect_host_platform()
+    if args.arch is None:
+        args.arch = detect_host_arch()
+    if args.platform is None:
+        print("[gdextension] WARNING: 无法识别宿主平台，只查登记残留", file=sys.stderr)
 
     if not os.path.isdir(args.project_dir):
         print(f"[gdextension] 工程目录不存在: {args.project_dir}", file=sys.stderr)
