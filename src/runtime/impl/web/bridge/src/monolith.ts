@@ -1523,7 +1523,6 @@ class _jsbb_ {
         return HEAP32;
     }
 
-    //TODO may not be supported?
     static get i64(): BigInt64Array {
         if (wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();

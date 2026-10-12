@@ -307,7 +307,6 @@ class ProcessImpl : public Process {
 	}
 };
 #elif defined(UNIX_ENABLED) && !defined(__EMSCRIPTEN__)
-//TODO not tested on linux
 class ProcessImpl : public Process {
 	String proc_name;
 	// `-1` 而非 `0`：`0` 是 stdin，若 `pipe()` 失败（on_start 提前返回、无读取线程）
