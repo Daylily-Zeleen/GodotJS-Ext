@@ -27,6 +27,13 @@ import os
 import platform as host_platform
 import sys
 
+# Windows 控制台默认编码（cp1252 等）编不了中文，print 会直接抛 UnicodeEncodeError
+# 让整个步骤失败。统一改成 utf-8 + 替换，别让输出把校验结果吃掉。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 与引擎一致的可加载库后缀（含 macOS 的 xcframework 目录）。
 LIBRARY_SUFFIXES = (".dll", ".so", ".dylib")
 XCFRAMEWORK_SUFFIX = ".xcframework"

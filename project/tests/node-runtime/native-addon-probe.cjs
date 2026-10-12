@@ -22,11 +22,12 @@ if (isBridgeRequire) {
 
 	// 预编译二进制在 `@node-llama-cpp/<platform>` 里。pnpm 不会把它放到顶层 node_modules，
 	// 所以从包自身导出的模块反推包目录，再在它旁边找平台包；同时也试提升后的位置。
+	// 注意 macOS arm64 的包名是 mac-arm64-metal（不是 mac-arm64），与 pnpm-lock 里的一致。
 	const platformDir = {
 		"win32-x64": "win-x64",
 		"win32-arm64": "win-arm64",
 		"darwin-x64": "mac-x64",
-		"darwin-arm64": "mac-arm64",
+		"darwin-arm64": "mac-arm64-metal",
 		"linux-x64": "linux-x64",
 		"linux-arm64": "linux-arm64",
 	}[`${process.platform}-${process.arch}`];
