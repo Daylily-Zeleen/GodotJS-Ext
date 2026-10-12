@@ -1357,7 +1357,7 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 
 #	if 0 // 暂不支持内置脚本特性  GodotJSScriptLanguage::_supports_builtin_mode() -> false
 		if (scr->is_built_in()) {
-			// TODO: It would be nice to do it more efficiently than loading the whole scene again.
+			// NOTE: It would be nice to do it more efficiently than loading the whole scene again.
 			Ref<PackedScene> scene = ResourceLoader::get_singleton()->load(scr_path.get_slice("::", 0), "", ResourceLoader::CACHE_MODE_IGNORE_DEEP);
 			ERR_CONTINUE(scene.is_null());
 
