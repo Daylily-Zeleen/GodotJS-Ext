@@ -37,11 +37,12 @@ import extract from "../../out/jsb.global.class.extract.cjs";
 
 const { collectGlobalClassFromText } = extract as {
 	collectGlobalClassFromText: (p_fileName: string, p_source: string) => {
-		class: string;
+		name: string;
 		base_type: string;
 		icon_path: string;
 		is_tool: boolean;
 		is_abstract: boolean;
+		is_generic: boolean;
 	} | undefined;
 };
 
@@ -61,7 +62,7 @@ interface Expectation {
 	fileName: string;
 	source: string;
 	/** undefined = 期望解析不出（没有 default 导出 / 没有 extends）。 */
-	expected?: { class: string; base_type: string; icon_path: string; is_tool: boolean; is_abstract: boolean };
+	expected?: { name: string; base_type: string; icon_path: string; is_tool: boolean; is_abstract: boolean; is_generic: boolean };
 }
 
 const expectations: Expectation[] = [
@@ -71,7 +72,7 @@ const expectations: Expectation[] = [
 		source: `import { Node } from "godot";
 export default class C extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "ts: cross-line extends (regex could not)",
@@ -80,7 +81,7 @@ export default class C extends Node {}
 export default class C
 	extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "ts: icon + tool decorators",
@@ -90,7 +91,7 @@ export default class C
 @bind.tool()
 export default class C extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "res://icon/affiliate.svg", is_tool: true, is_abstract: false },
+		expected: { name: "C", base_type: "Node", icon_path: "res://icon/affiliate.svg", is_tool: true, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "ts: abstract class",
@@ -98,7 +99,7 @@ export default class C extends Node {}
 		source: `import { Node } from "godot";
 export default abstract class C extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: true },
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: true, is_generic: false },
 	},
 	{
 		name: "ts: icon with a variable argument yields no icon_path",
@@ -108,7 +109,7 @@ const p = "res://x.svg";
 @bind.icon(p)
 export default class C extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "ts: class text inside a string is not picked up",
@@ -117,7 +118,34 @@ export default class C extends Node {}
 const decoy = "export default class Fake extends Other {}";
 export default class C extends Node {}
 `,
-		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
+	},
+	{
+		name: "ts: generic class (same line)",
+		fileName: "C.ts",
+		source: `import { Node } from "godot";
+export default class C<T> extends Node {}
+`,
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: true },
+	},
+	{
+		// 旧正则要求 `extends` 与类声明同一行（`[^\n]*`），这里跨行，旧实现会漏判成"非泛型"
+		name: "ts: generic class (cross-line extends)",
+		fileName: "C.ts",
+		source: `import { Node } from "godot";
+export default class C<T>
+	extends Node {}
+`,
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: true },
+	},
+	{
+		// 泛型参数自带 extends 约束，旧正则的 `<` 捕获组会走偏
+		name: "ts: generic parameter with constraint",
+		fileName: "C.ts",
+		source: `import { Node } from "godot";
+export default class C<T extends Node> extends Node {}
+`,
+		expected: { name: "C", base_type: "Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: true },
 	},
 	{
 		name: "ts: not default-exported => nothing",
@@ -140,7 +168,7 @@ class C extends Node {}
 		source: `const gd = require("godot");
 exports.default = class C extends gd.Node {};
 `,
-		expected: { name: "C", base_type: "gd.Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "gd.Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "js: class X + exports.default = X",
@@ -149,7 +177,7 @@ exports.default = class C extends gd.Node {};
 class C extends gd.Node {}
 exports.default = C;
 `,
-		expected: { name: "C", base_type: "gd.Node", icon_path: "", is_tool: false, is_abstract: false },
+		expected: { name: "C", base_type: "gd.Node", icon_path: "", is_tool: false, is_abstract: false, is_generic: false },
 	},
 	{
 		name: "js: no exports.default => nothing",
@@ -176,6 +204,7 @@ for (const expectation of expectations) {
 	check(actual.icon_path === expectation.expected.icon_path, expectation.name + ": icon_path = " + actual.icon_path);
 	check(actual.is_tool === expectation.expected.is_tool, expectation.name + ": is_tool = " + String(actual.is_tool));
 	check(actual.is_abstract === expectation.expected.is_abstract, expectation.name + ": is_abstract = " + String(actual.is_abstract));
+	check(actual.is_generic === expectation.expected.is_generic, expectation.name + ": is_generic = " + String(actual.is_generic));
 }
 
 console.log("[global-class-extract] checks=" + checks + " failures=" + failures);

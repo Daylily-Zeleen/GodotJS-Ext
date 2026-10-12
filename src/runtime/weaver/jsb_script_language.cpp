@@ -162,24 +162,6 @@ void GodotJSScriptLanguage::add_script_call_profile_info(const String &p_path, c
 }
 #endif // JSB_DEBUG
 
-bool GodotJSScriptLanguage::is_global_class_generic(const String &p_path) const {
-	const Ref<FileAccess> file_access = FileAccess::open(p_path, FileAccess::READ);
-	if (file_access.is_null()) {
-		return false;
-	}
-
-	const String source = file_access->get_as_text();
-
-	if (jsb::internal::PathUtil::is_recognized_javascript_extension(p_path)) {
-		return false;
-	}
-
-	jsb_check(ts_class_name_matcher_.is_valid());
-
-	Ref<RegExMatch> match = ts_class_name_matcher_->search(source);
-	return match.is_valid() && match->get_group_count() == 4 && match->get_string(3).length() > 0;
-}
-
 GodotJSScriptLanguage::GodotJSScriptLanguage() {
 	JSB_BENCHMARK_SCOPE(GodotJSScriptLanguage, Construct);
 	jsb_check(!singleton_);
@@ -208,11 +190,9 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage() {
 void GodotJSScriptLanguage::_init() {
 	if (once_initialized_) return;
 
-	ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
 #if JSB_TOOLS
 	js_declaration_matcher_ = RegEx::create_from_string(R"(^\s*(?:(?:static|async|public|private|protected|readonly|abstract|declare|override|get|set)\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[(=:;]))");
 #endif // JSB_TOOLS
-	jsb_check(ts_class_name_matcher_.is_valid());
 #if JSB_TOOLS
 	jsb_check(js_declaration_matcher_.is_valid());
 #endif // JSB_TOOLS
@@ -260,7 +240,6 @@ void GodotJSScriptLanguage::_init() {
 void GodotJSScriptLanguage::_finish() {
 	jsb_check(once_initialized_);
 
-	ts_class_name_matcher_.unref();
 #if JSB_TOOLS
 	js_declaration_matcher_.unref();
 #endif // JSB_TOOLS
@@ -525,6 +504,9 @@ Dictionary GodotJSScriptLanguage::_get_global_class_name(const String &p_path) c
 	if (!global_class_extractor_(p_path, info)) {
 		return Dictionary();
 	}
+	// 返回的字典即引擎契约（`name`/`base_type`/`icon_path`/`is_abstract`/`is_tool`，见
+	// `ScriptLanguageExtension::get_global_class_name`）；多出的键（`is_generic`）引擎不看，
+	// 编辑器侧的 codegen 直接读它，故原样返回。
 	return info;
 }
 

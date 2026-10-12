@@ -35,7 +35,7 @@
 
 // 产物是 CommonJS：具名导出拿不到（`MemberDoc` 只是类型，值导出用默认导入再解构）。
 import docExtract from "../../out/jsb.doc.extract.cjs";
-import type { MemberDoc } from "../../out/jsb.doc.extract.cjs";
+import type { MemberDoc } from "../src/jsb.doc.extract.cts";
 
 const { collectScriptDocFromText } = docExtract as {
 	collectScriptDocFromText: (p_fileName: string, p_source: string) => { class: { brief: string; description: string }; members: MemberDoc[] } | undefined;

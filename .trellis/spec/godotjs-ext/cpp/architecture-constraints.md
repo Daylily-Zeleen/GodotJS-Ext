@@ -80,6 +80,15 @@ runtime 与 editor 虽同库，但**不得让 runtime 认识 editor**（全仓 r
   `lifecycle_mutex_`，与 `_spawn()` 的锁序相反而死锁。
 - **别名声明必须在类首**：`using GlobalClassExtractor = ...` 若放在成员之后会出现
   `C4430`/`C3646`/`C2065`（成员先引用到尚未声明的别名）。
+- **同一份源码上的两个问题必须同源**：`_get_global_class_name`（全局类元数据）与
+  `is_global_class_generic`（是否带泛型参数）问的是同一份源码、同一次解析，故共用一条应答
+  （`global-class` op 的 `is_generic` 字段）。旧实现让后者另跑一条正则，于是同一事实被解析两遍，
+  且那条正则要求 `extends` 与类声明**同一行**，跨行写法被漏判成"非泛型"（场景根因而被错误地
+  加上类型化参数）。**新增"读源码回答某个问题"的函数前，先查提取器是否已经答过。**
+- **把只被编辑器调用的函数移进 `#if JSB_TOOLS` 时，它的测试与调用点要一起看**：
+  `is_global_class_generic` 原先在宏外（调用点全在 `src/editor/codegen/`），它改成依赖
+  工具进程钩子后必须同进宏内，否则 template 腿引用不到 tools-only 成员而编不过；
+  它那两条 doctest 也同理。
 - **返回字典的键由引擎定，不是我方定**：`ScriptLanguageExtension::get_global_class_name`
   （`script_language_extension.h:756-775`）判的是 `if (!ret.has("name")) return String();`，
   只认 `name` / `base_type` / `icon_path` / `is_abstract` / `is_tool`。

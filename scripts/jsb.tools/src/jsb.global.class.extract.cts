@@ -26,8 +26,10 @@
 /**
  * 全局类元数据提取（编辑器侧）：`GodotJSScriptLanguage::_get_global_class_name` 的输入。
  *
- * 用途是编辑器的全局类缓存（`EditorFileSystem` 后台扫描 → `ProjectSettings` 的
- * `_global_script_class_cache`），字段为 `class / base_type / icon_path / is_tool / is_abstract`。
+ * 用途一：编辑器的全局类缓存（`EditorFileSystem` 后台扫描 → `ProjectSettings` 的
+ * `_global_script_class_cache`），字段为 `name / base_type / icon_path / is_tool / is_abstract`。
+ * 用途二：`GodotJSScriptLanguage::is_global_class_generic`（场景类型化 codegen 用它判断
+ * 该类是否带泛型参数），字段为 `is_generic`。两者同源同一次解析，故一起产出。
  * 此前由 C++ 侧正则提取；正则处理不了跨行、也会命中字符串/注释里的假文本，故改由本模块用
  * TS AST 提取（C++ 侧正则已删除）。
  *
@@ -63,6 +65,8 @@ export interface GlobalClassInfo {
 	icon_path: string;
 	is_tool: boolean;
 	is_abstract: boolean;
+	/** 默认导出的类是否带泛型参数（`class X<T>`）。 */
+	is_generic: boolean;
 }
 
 /**
@@ -115,6 +119,7 @@ export function collectGlobalClass(p_sourceFile: ts.SourceFile): GlobalClassInfo
 		icon_path,
 		is_tool,
 		is_abstract: isAbstract(declared),
+		is_generic: (declared.typeParameters?.length ?? 0) > 0,
 	};
 }
 

@@ -139,10 +139,6 @@ class GodotJSScriptLanguage : public ScriptLanguageExtension {
 	ScriptCallProfileInfoMap profile_info_map_;
 #endif
 
-	// `is_global_class_generic` 用：`export default class X<T> extends Y` 里的泛型参数段。
-	// 与 `_get_global_class_name` 无关（那一处已改走提取器），故保留。
-	Ref<RegEx> ts_class_name_matcher_;
-
 #if JSB_TOOLS
 	/** 全局类元数据提取器：`_get_global_class_name` 的实现来源。由 editor plugin 注册
 	 *  （它拥有常驻 TS 工具进程），runtime 因而不必依赖 editor。返回 true 时 `r_info` 生效。
@@ -192,8 +188,6 @@ public:
 #if JSB_DEBUG
 	void add_script_call_profile_info(const String &p_path, const StringName &p_class, const StringName &p_method, uint64_t p_time);
 #endif
-
-	bool is_global_class_generic(const String &p_path) const;
 
 #if JSB_TOOLS
 	/** 注册/清除全局类元数据提取器（传 nullptr 清除）。
@@ -265,6 +259,7 @@ public:
 	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
 
 	virtual bool _handles_global_class_type(const String &p_type) const override;
+	/** 引擎的全局类名钩子；返回的字典同时带 `is_generic`，编辑器侧（codegen）也直接读它。 */
 	virtual Dictionary _get_global_class_name(const String &p_path) const override;
 
 	// 用户自行设置外部文本编辑器即可。

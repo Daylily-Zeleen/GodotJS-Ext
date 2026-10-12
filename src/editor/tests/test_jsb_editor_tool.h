@@ -131,6 +131,38 @@ TEST_CASE("[editor] [tool] a killed tool process is restarted and the request re
 			"a request after the process went away must restart it and succeed");
 }
 
+// 场景类型化 codegen 读的是语言层 `_get_global_class_name` 应答里的 `is_generic`：
+// 那条应答就是引擎全局类钩子的返回值，编辑器侧与引擎共用同一个字典。
+// 这里锁两件事：应答里确实带这个键；没有提取器（工具未装）时给空字典而不是崩。
+TEST_CASE("[editor] [tool] the global class query carries is_generic for codegen") {
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+
+	// 未注册提取器（工具未装/起不来）⇒ 空字典；codegen 据此取 `false`（按非泛型处理）
+	lang->set_global_class_extractor(nullptr);
+	CHECK(lang->_get_global_class_name("res://g.ts").is_empty());
+
+	// 注册后 `is_generic` 随应答一起出来，且与其它字段共存
+	lang->set_global_class_extractor([](const String &, Dictionary &r_info) {
+		r_info["name"] = "G";
+		r_info["base_type"] = "Node";
+		r_info["is_generic"] = true;
+		return true;
+	});
+	const Dictionary info = lang->_get_global_class_name("res://g.ts");
+	CHECK((String)info.get("name", "") == "G");
+	CHECK((bool)info.get("is_generic", false));
+
+	// 解析不出（false）⇒ 空字典，不残留上一次的键
+	lang->set_global_class_extractor([](const String &, Dictionary &r_info) {
+		r_info["is_generic"] = true;
+		return false;
+	});
+	CHECK(lang->_get_global_class_name("res://g.ts").is_empty());
+
+	lang->set_global_class_extractor(nullptr);
+}
+
 } //namespace jsb::editor::tests
 
 #endif // JSB_USE_TYPESCRIPT

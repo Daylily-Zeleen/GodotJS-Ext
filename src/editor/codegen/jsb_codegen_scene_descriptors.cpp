@@ -176,10 +176,13 @@ Dictionary _build_node_type_descriptor(const SceneDTSContext &p_context, Node *p
 		// By default, only scene (and sub-scene) roots are typed with a user defined type. This ensures that classes are
 		// able to use SceneNodes in their type declaration without illegally referencing their own type. Users can use
 		// codegen to override this behavior.
+		// 默认 true（"按泛型处理" = 不类型化场景根）；问到空字典（解析不出）时取 false ——
+		// 没有 default 导出 / 没有 extends 的文件本来就不是泛型类。
 		bool generic_global_class = true;
 		if (const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 				lang != nullptr && lang->is_initialized() && script.is_valid()) {
-			generic_global_class = lang->is_global_class_generic(script->get_path());
+			const Dictionary class_info = lang->_get_global_class_name(script->get_path());
+			generic_global_class = (bool)class_info.get("is_generic", false);
 		}
 		if (!script.is_valid()
 				|| p_node->get_scene_file_path().is_empty()
@@ -358,7 +361,8 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 	bool generic_global_class = true;
 	if (const GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 			lang != nullptr && lang->is_initialized() && script.is_valid()) {
-		generic_global_class = lang->is_global_class_generic(script->get_path());
+		const Dictionary class_info = lang->_get_global_class_name(script->get_path());
+		generic_global_class = (bool)class_info.get("is_generic", false);
 	}
 
 	if (!script.is_valid() || generic_global_class) {

@@ -432,6 +432,7 @@ TEST_CASE("[runtime] [jsb.lang] global class extractor hook drives _get_global_c
 	// 清理，避免影响其它用例
 	lang->set_global_class_extractor(nullptr);
 }
+
 #endif // JSB_TOOLS
 
 } //namespace jsb::tests

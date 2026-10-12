@@ -27,7 +27,7 @@
 
 // Tests for the runtime entry points the editor side consumes directly:
 // GodotJSScriptLanguage::eval_source / eval_source_with_arg /
-// scan_external_changes / is_global_class_generic, and
+// scan_external_changes, and
 // Environment::get_module_source_info / get_module_direct_dependencies /
 // get_statistics / gc -- plus the console sink list (IConsoleOutput).
 //
@@ -211,12 +211,7 @@ TEST_CASE("[runtime] [api] scan_external_changes and gc succeed while initialize
 	CHECK(true); // reaching here without a crash is the assertion
 }
 
-TEST_CASE("[runtime] [api] is_global_class_generic answers false for a plain script") {
-	GodotJSScriptLanguageIniter initer;
 
-	// test_01.ts declares no class_name and no generics
-	CHECK_FALSE(GodotJSScriptLanguage::get_singleton()->is_global_class_generic(String("res://test_01.ts")));
-}
 
 TEST_CASE("[runtime] [api] console sinks receive writes until they are destroyed") {
 	using namespace runtime_api_test;
