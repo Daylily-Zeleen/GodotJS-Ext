@@ -667,6 +667,8 @@ generate_code([
     # 见 .trellis/tasks/09-28-comment-doc-annotation/design.md §3。
     PresetDefine("scripts/out/jsb.editor.tools.cjs", "jsb.editor.tools.cjs"),
     PresetDefine("scripts/out/jsb.doc.extract.cjs", "jsb.doc.extract.cjs"),
+    PresetDefine("scripts/out/jsb.global.class.extract.cjs", "jsb.global.class.extract.cjs"),
+    PresetDefine("scripts/out/jsb.ts.ast.cjs", "jsb.ts.ast.cjs"),
     PresetDefine("scripts/presets/package.json.txt", "package.json"),
     PresetDefine("scripts/presets/tsconfig.json.txt", "tsconfig.json"),
     PresetDefine("scripts/presets/jsconfig.json.txt", "jsconfig.json"),

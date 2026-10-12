@@ -41,6 +41,16 @@
  */
 
 import * as ts from "typescript";
+
+import {
+	findBaseIdentifierName,
+	findDefaultClassByModifier,
+	findExportAssignmentName,
+	importedFromOf,
+	localClassesOf,
+	parseSource,
+	scriptKindOfPath,
+} from "./jsb.ts.ast.cjs";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -538,28 +548,12 @@ type GodotVerdict = "godot" | "not" | "unknown";
 
 /** 默认导出的目标：`export default class X` 或 `export default X`。 */
 function findDefaultExportedClassName(p_source: ts.SourceFile): string | undefined {
-	for (const statement of p_source.statements) {
-		if (ts.isClassDeclaration(statement) && statement.name) {
-			const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
-			if (!!modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) {
-				return statement.name.text;
-			}
-		}
-		if (ts.isExportAssignment(statement) && !statement.isExportEquals && ts.isIdentifier(statement.expression)) {
-			return statement.expression.text;
-		}
-	}
-	return undefined;
+	return findDefaultClassByModifier(p_source)?.name?.text ?? findExportAssignmentName(p_source);
 }
 
 /** `extends` 后的标识符。`extends Mixin(Base)` 这类表达式返回 undefined（⇒ 未知）。 */
 function findBaseIdentifier(p_class: ts.ClassDeclaration): string | undefined {
-	const clause = p_class.heritageClauses?.find((c) => c.token === ts.SyntaxKind.ExtendsKeyword);
-	const type = clause?.types[0];
-	if (!type) {
-		return undefined;
-	}
-	return ts.isIdentifier(type.expression) ? type.expression.text : undefined;
+	return findBaseIdentifierName(p_class);
 }
 
 function classifyClassName(p_name: string, p_localClasses: Map<string, ts.ClassDeclaration>, p_importedFrom: Map<string, string>, p_seen: Set<string>): GodotVerdict {
@@ -584,26 +578,8 @@ function isGodotScript(p_source: ts.SourceFile): boolean {
 	if (exported === undefined) {
 		return false;
 	}
-	const localClasses = new Map<string, ts.ClassDeclaration>();
-	const importedFrom = new Map<string, string>();
-	for (const statement of p_source.statements) {
-		if (ts.isClassDeclaration(statement) && statement.name) {
-			localClasses.set(statement.name.text, statement);
-		}
-		if (ts.isImportDeclaration(statement) && statement.importClause && ts.isStringLiteral(statement.moduleSpecifier)) {
-			const moduleName = statement.moduleSpecifier.text;
-			const clause = statement.importClause;
-			if (clause.name) {
-				importedFrom.set(clause.name.text, moduleName);
-			}
-			const bindings = clause.namedBindings;
-			if (bindings && ts.isNamedImports(bindings)) {
-				for (const element of bindings.elements) {
-					importedFrom.set(element.name.text, moduleName);
-				}
-			}
-		}
-	}
+	const localClasses = localClassesOf(p_source);
+	const importedFrom = importedFromOf(p_source);
 	return classifyClassName(exported, localClasses, importedFrom, new Set<string>()) !== "not";
 }
 
@@ -699,7 +675,7 @@ export function runExtraction(args: ExtractionArgs, pDump: boolean): ExtractionR
 			continue;
 		}
 
-		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true, scriptKindOf(extension));
+		const sourceFile = parseSource(fileName, source);
 		// 单文件判据：不是 Godot 脚本就不产出清单（并清掉可能存在的旧清单）。
 		if (!isGodotScript(sourceFile)) {
 			++excluded;
@@ -789,7 +765,7 @@ function sourceExtension(p_normalized_path: string): string | undefined {
 }
 
 function scriptKindOf(p_extension: string): ts.ScriptKind {
-	return p_extension === ".js" ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+	return scriptKindOfPath(p_extension);
 }
 
 /**
@@ -866,7 +842,7 @@ export function listGodotScripts(p_project: string): GodotSourceFile[] {
 			continue;
 		}
 		const source = fs.readFileSync(fileName, "utf8");
-		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.ES2022, true, scriptKindOf(extension));
+		const sourceFile = parseSource(fileName, source);
 		if (!isGodotScript(sourceFile)) {
 			continue;
 		}

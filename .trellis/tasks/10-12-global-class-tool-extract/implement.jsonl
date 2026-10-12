@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "runtime/editor 分层与 include 方向约定，新增钩子必须遵守"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "doctest 用例的组织方式与验收判据（Orphan StringName=0 等）"}

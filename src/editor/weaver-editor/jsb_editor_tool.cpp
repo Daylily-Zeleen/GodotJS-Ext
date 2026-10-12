@@ -56,11 +56,14 @@ EditorToolClient::~EditorToolClient() {
 
 bool EditorToolClient::start(const String &p_project_root) {
 	project_root_ = p_project_root;
-	if (process_ != nullptr) {
-		return true;
-	}
-	if (!_spawn()) {
-		return false;
+	{
+		std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+		if (process_ != nullptr) {
+			return true;
+		}
+		if (!_spawn()) {
+			return false;
+		}
 	}
 	// 启动时先握手：确认它真的在工作（`require("typescript")` 失败之类会在此时暴露）。
 	// 失败不算致命：调用方的下一次触发会再试，而握手本身已经把错误打到日志里了。
@@ -115,7 +118,10 @@ void EditorToolClient::stop() {
 	// 关键：**必须**走 `Process::stop()`（它 join 读取线程），不能直接 `reset()`。
 	// 读取线程持有 `ProcessImpl*` 裸指针，未被 join 就销毁 `ProcessImpl` 是 use-after-free ——
 	// 这正是 09-26 为短命进程修过的那一类缺陷（`jsb_process.cpp` 的 `Process::stop()` 注释）。
-	_teardown_process();
+	{
+		std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+		_teardown_process();
+	}
 	std::lock_guard<std::mutex> lock(mutex_);
 	eof_ = true;
 	responded_.clear();
@@ -167,14 +173,19 @@ void EditorToolClient::_on_eof(const String &p_eof_reason) {
 bool EditorToolClient::request(const String &p_op, const Dictionary &p_payload, Dictionary &r_response) {
 	// 崩溃恢复：本次请求最多重试一次（重启进程后再来一遍）。
 	for (int attempt = 0; attempt < 2; ++attempt) {
-		if (process_ == nullptr || !process_->is_running()) {
-			if (attempt == 0) {
-				// **不静默**：先说清楚发生了什么、接下来做什么（用户裁决）。
-				ERR_PRINT("the editor tool process is not running; restarting it and retrying '" + p_op + "'");
-			}
-			_teardown_process();
-			if (!_spawn()) {
-				return false;
+		// 生命周期串行化：存活检查、teardown、spawn 是一组，必须整体互斥——
+		// `request()` 会从扫描线程进来，两个线程同时判定"进程死了"会各自 spawn 一个进程。
+		{
+			std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+			if (process_ == nullptr || !process_->is_running()) {
+				if (attempt == 0) {
+					// **不静默**：先说清楚发生了什么、接下来做什么（用户裁决）。
+					ERR_PRINT("the editor tool process is not running; restarting it and retrying '" + p_op + "'");
+				}
+				_teardown_process();
+				if (!_spawn()) {
+					return false;
+				}
 			}
 		}
 
@@ -190,7 +201,14 @@ bool EditorToolClient::request(const String &p_op, const Dictionary &p_payload, 
 		}
 
 		const String line = JSON::stringify(payload);
-		if (process_->write_stdin(line)) {
+		// `Process` 不对写端加锁（见 jsb_process.cpp 的注释），由本类串行化。
+		// 与生命周期锁一起取，避免写时句柄被另一个线程 teardown 掉。
+		bool written = false;
+		{
+			std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+			written = process_ != nullptr && process_->write_stdin(line);
+		}
+		if (written) {
 			// 等待应答（上限 5s）。超时或 EOF 都要报出来，不静默返回。
 			const uint64_t deadline = Time::get_singleton()->get_ticks_msec() + (uint64_t)kRequestTimeoutMsec;
 			std::unique_lock<std::mutex> lock(mutex_);
@@ -200,7 +218,10 @@ bool EditorToolClient::request(const String &p_op, const Dictionary &p_payload, 
 					responded_.erase(request_id);
 					break;
 				}
-				if (eof_ || process_ == nullptr || !process_->is_running()) {
+				// 只用 `eof_`：读取线程在 stdout EOF（含进程被杀）时置位。
+				// 不要在这里读 `process_`/`is_running()`：本处持 `mutex_`，再取
+				// `lifecycle_mutex_` 会与 `_spawn()` 的 lifecycle→mutex_ 顺序相反而死锁。
+				if (eof_) {
 					lock.unlock();
 					if (attempt == 0) {
 						ERR_PRINT("the editor tool process died while handling '" + p_op + "'; restarting it and retrying");

@@ -393,6 +393,45 @@ TEST_CASE("[runtime] [jsb.lang] debug stack hooks report a real stack, never an 
 	// and a level that is not on the stack is refused by name, not evaluated
 	CHECK(lang->_debug_parse_stack_level_expression(9999, "1", -1, -1).contains("9999"));
 }
+// 全局类元数据的提取器钩子：runtime 不再自己解析（旧正则已删），只把问题转给注册方。
+// 该函数只被编辑器调用，因此未注册时必须是空结果，而不是猜一个。
+TEST_CASE("[runtime] [jsb.lang] global class extractor hook drives _get_global_class_name") {
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+
+	// 未注册 ⇒ 空
+	lang->set_global_class_extractor(nullptr);
+	CHECK(lang->_get_global_class_name("res://whatever.ts").is_empty());
+
+	// 注册 ⇒ 用提取器的返回值；路径原样透传
+	String seen_path;
+	lang->set_global_class_extractor([&seen_path](const String &p_path, Dictionary &r_info) {
+		seen_path = p_path;
+		r_info["name"] = "Foo";
+		r_info["base_type"] = "Node";
+		r_info["icon_path"] = "res://icon.svg";
+		r_info["is_tool"] = true;
+		r_info["is_abstract"] = false;
+		return true;
+	});
+	const Dictionary info = lang->_get_global_class_name("res://a/b.ts");
+	CHECK(seen_path == "res://a/b.ts");
+	CHECK((String)info.get("name", "") == "Foo");
+	CHECK((String)info.get("base_type", "") == "Node");
+	CHECK((String)info.get("icon_path", "") == "res://icon.svg");
+	CHECK((bool)info.get("is_tool", false));
+	CHECK(!(bool)info.get("is_abstract", true));
+
+	// 提取器解析不出（false）⇒ 空，且不保留上一次的结果
+	lang->set_global_class_extractor([](const String &, Dictionary &r_info) {
+		r_info["name"] = "Stale";
+		return false;
+	});
+	CHECK(lang->_get_global_class_name("res://c.ts").is_empty());
+
+	// 清理，避免影响其它用例
+	lang->set_global_class_extractor(nullptr);
+}
 #endif // JSB_TOOLS
 
 } //namespace jsb::tests

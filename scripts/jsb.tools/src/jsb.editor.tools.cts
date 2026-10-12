@@ -33,8 +33,10 @@
  *
  *   请求： {"id":17,"op":"signatures"}                       全项目签名提取（离线产物）
  *         {"id":18,"op":"doc","paths":["res://a.ts", ...]}  单文件帮助文档（内存即答）
+ *         {"id":19,"op":"global-class","path":"res://a.ts"} 单文件全局类元数据（内存即答）
  *   应答： {"id":17,"ok":true,"written":18,"up-to-date":0}
  *         {"id":18,"ok":true,"docs":{"res://a.ts":{...}}}
+ *         {"id":19,"ok":true,"info":{...}}  /  {"id":19,"ok":true,"info":null}
  *         {"id":18,"ok":false,"error":"..."}
  *
  * 约束：
@@ -53,6 +55,7 @@ import * as readline from "node:readline";
 // (实测：extensionless 与 `./x.js` 都报 TS2307；只有 `./x.cjs` 编译通过且 emit 出的 require 可运行)。
 import { runExtraction, listGodotScripts } from "./jsb.signature.extract.cjs";
 import { collectScriptDocFromText, ScriptDoc } from "./jsb.doc.extract.cjs";
+import { collectGlobalClassFromText, GlobalClassInfo } from "./jsb.global.class.extract.cjs";
 
 const SIG_EXT = ".sig";
 
@@ -61,6 +64,8 @@ interface Request {
 	op: string;
 	project?: string;
 	paths?: string[];
+	/** `op:"global-class"` 的单文件路径。 */
+	path?: string;
 	/** `op:"doc"` 的全项目模式（编辑器推模式的唯一用法）。 */
 	all?: boolean;
 }
@@ -87,12 +92,36 @@ function dispatch(p_request: Request): Record<string, unknown> {
 				return opSignatures(p_request);
 			case "doc":
 				return opDoc(p_request);
+			case "global-class":
+				return opGlobalClass(p_request);
 			default:
 				return { ok: false, error: "unknown op: " + String(p_request.op) };
 		}
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
+}
+
+/**
+ * `op:"global-class"`：单文件全局类元数据。
+ *
+ * 结果走 `info`：解析不出（无 default 导出 / 无 extends）时为 `null`——这是**正常**结果，
+ * 不是错误；只有路径非法、文件读不到才 `ok:false`。
+ */
+function opGlobalClass(p_request: Request): Record<string, unknown> {
+	const project = p_request.project ?? projectRoot;
+	if (typeof p_request.path !== "string" || p_request.path === "") {
+		return { ok: false, error: "global-class requires a 'path'" };
+	}
+	const absolute = projectPathToAbsolute(project, p_request.path);
+	let source: string;
+	try {
+		source = fs.readFileSync(absolute, "utf8");
+	} catch (error) {
+		return { ok: false, error: "cannot read " + absolute + ": " + (error instanceof Error ? error.message : String(error)) };
+	}
+	const info: GlobalClassInfo | undefined = collectGlobalClassFromText(p_request.path, source);
+	return { ok: true, info: info ?? null };
 }
 
 function opSignatures(p_request: Request): Record<string, unknown> {

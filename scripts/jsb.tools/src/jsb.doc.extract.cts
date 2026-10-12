@@ -42,6 +42,8 @@
 
 import * as ts from "typescript";
 
+import { decoratorsOf, modifiersOf, parseSource } from "./jsb.ts.ast.cjs";
+
 /** 文档只取这几种成员（与运行时 `ScriptClassInfo` 的登记面一一对应）。 */
 export const DOC_KIND_METHOD = "method";
 export const DOC_KIND_PROPERTY = "property";
@@ -103,8 +105,8 @@ function splitBrief(p_text: string): { brief: string; description: string } {
  */
 function docOf(p_node: ts.Node, p_sourceFile: ts.SourceFile): { brief: string; description: string } {
 	const modifiers: readonly ts.Node[] = [
-		...(ts.canHaveDecorators(p_node) ? ts.getDecorators(p_node) ?? [] : []),
-		...((p_node as ts.HasModifiers).modifiers ?? []),
+		...decoratorsOf(p_node),
+		...modifiersOf(p_node),
 	];
 	let upper = p_node.getStart(p_sourceFile);
 	for (const modifier of modifiers) {
@@ -210,13 +212,5 @@ export function collectScriptDoc(p_sourceFile: ts.SourceFile): ScriptDoc | undef
 
 /** 从一段源码文本提取文档（`p_fileName` 只用于诊断与 `ScriptKind` 推断）。 */
 export function collectScriptDocFromText(p_fileName: string, p_source: string): ScriptDoc | undefined {
-	const isJavaScript = p_fileName.endsWith(".js") || p_fileName.endsWith(".cjs") || p_fileName.endsWith(".mjs");
-	const sourceFile = ts.createSourceFile(
-		p_fileName,
-		p_source,
-		ts.ScriptTarget.ES2022,
-		true,
-		isJavaScript ? ts.ScriptKind.JS : ts.ScriptKind.TS,
-	);
-	return collectScriptDoc(sourceFile);
+	return collectScriptDoc(parseSource(p_fileName, p_source));
 }

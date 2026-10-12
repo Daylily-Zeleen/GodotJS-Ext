@@ -208,14 +208,10 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage() {
 void GodotJSScriptLanguage::_init() {
 	if (once_initialized_) return;
 
-	js_class_name_matcher1_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*class\s*(\w+)\s+extends\s+(\w+))");
-	js_class_name_matcher2_ = RegEx::create_from_string(R"(\s*exports.default\s*=\s*(\w+)\s*;?)");
 	ts_class_name_matcher_ = RegEx::create_from_string(R"(\s*(@[tT]ool\s*\(\s*\)\s*\n*\s*)?export\s+default\s+class\s+(\w+)(\s*<)?[^\n]*(?:>|\s+)extends\s+(\w+))");
 #if JSB_TOOLS
 	js_declaration_matcher_ = RegEx::create_from_string(R"(^\s*(?:(?:static|async|public|private|protected|readonly|abstract|declare|override|get|set)\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[(=:;]))");
 #endif // JSB_TOOLS
-	jsb_check(js_class_name_matcher1_.is_valid());
-	jsb_check(js_class_name_matcher2_.is_valid());
 	jsb_check(ts_class_name_matcher_.is_valid());
 #if JSB_TOOLS
 	jsb_check(js_declaration_matcher_.is_valid());
@@ -264,8 +260,6 @@ void GodotJSScriptLanguage::_init() {
 void GodotJSScriptLanguage::_finish() {
 	jsb_check(once_initialized_);
 
-	js_class_name_matcher1_.unref();
-	js_class_name_matcher2_.unref();
 	ts_class_name_matcher_.unref();
 #if JSB_TOOLS
 	js_declaration_matcher_.unref();
@@ -519,74 +513,21 @@ bool GodotJSScriptLanguage::_handles_global_class_type(const String &p_type) con
 }
 
 Dictionary GodotJSScriptLanguage::_get_global_class_name(const String &p_path) const {
-	// GodotJSScript implementation do not really support threaded access for now.
-	// So, we can not load the script module in-place because `get_global_class_name` could be called from EditorFileSystem (background) scan.
-	// And for simplicity, we use regex to extract the class name from the source code instead of using ANTLR or similar.
-	// Please follow the rules of the class name declaration in the source code.
-	//     * .ts files: `export default class ClassName extends BaseClassName`
-	//     * .js files: `class ClassName extends BaseClassName` and `exports.default = ClassName` (with or without `;`)
-
-	// And, we do not support abstract classes here, please define all abstract class by not exporting it as `default`.
-	// It should be equivalent and enough for TS/JS since we do not rely on GodotJSScript to use abstract classes in TS/JS sources.
-
-	Dictionary result;
-	const Ref<FileAccess> file_access = FileAccess::open(p_path, FileAccess::READ);
-	if (file_access.is_null()) {
-		return result;
+	// 该函数只被编辑器调用（`EditorFileSystem` 的全局类缓存、场景树、新建脚本对话框），
+	// 用不到时不产出（模板构建没有编辑器插件，也就不会有提取器）。
+	if (!global_class_extractor_) {
+		return Dictionary();
 	}
 
-	const String source = file_access->get_as_text();
-	String class_name;
-	String base_type;
-	String icon_path; // TODO
-	bool is_tool{ false };
-	bool is_abstract{ false }; // TODO
-	if (jsb::internal::PathUtil::is_recognized_javascript_extension(p_path)) {
-		// check if the class id defined in a single line (export default class ClassName extends BaseClassName)
-		jsb_check(js_class_name_matcher1_.is_valid());
-		const Ref<RegExMatch> match1 = js_class_name_matcher1_->search(source);
-		if (match1.is_valid() && match1->get_group_count() == 2) {
-			class_name = match1->get_string(1);
-			base_type = match1->get_string(2);
-		} else {
-			// otherwise, it probably defined in separated lines (firstly, check 'class ClassName extends BaseClassName')
-			jsb_check(js_class_name_matcher2_.is_valid());
-			const Ref<RegExMatch> match2 = js_class_name_matcher2_->search(source);
-			if (match2.is_valid() && match2->get_group_count() == 1) {
-				class_name = match2->get_string(1);
-				// then, check 'exports.default = ClassName'
-				const Ref<RegEx> base_matcher = RegEx::create_from_string(jsb::internal::format(R"(\s*class\s*%s\s*extends\s*(\w+)\s*\{?)", class_name));
-				const Ref<RegExMatch> base_match = base_matcher->search(source);
-				if (base_match.is_valid() && base_match->get_group_count() == 1) {
-					base_type = base_match->get_string(1);
-				}
-			}
-		}
-	} else {
-		// hope it's a typescript file
-		jsb_check(ts_class_name_matcher_.is_valid());
-
-		Ref<RegExMatch> match = ts_class_name_matcher_->search(source);
-		if (match.is_valid() && match->get_group_count() == 4) {
-			is_tool = !match->get_string(1).is_empty();
-			class_name = match->get_string(2);
-			base_type = match->get_string(4);
-		}
+	Dictionary info;
+	// 提取器失败 = 这个文件解析不出全局类（没有 default 导出 / 没有 extends）。
+	// 属正常结果；只有环境故障（工具未装、进程死了、超时）才会在提取器内部报错。
+	if (!global_class_extractor_(p_path, info)) {
+		return Dictionary();
 	}
-
-	if (!class_name.is_empty()) {
-		result["class"] = class_name;
-		result["base_type"] = base_type;
-		result["icon_path"] = icon_path;
-		result["is_tool"] = is_tool;
-		result["is_abstract"] = is_abstract;
-	}
-	return result;
+	return info;
 }
 
-#endif // JSB_TOOLS
-
-#if JSB_TOOLS
 // 按标识符定位**声明所在行**（1 基），找不到返回 -1。`_find_function`（语言层）与
 // `GodotJSScript::_get_member_line`（脚本层）共用，两处结论因而一致。
 //

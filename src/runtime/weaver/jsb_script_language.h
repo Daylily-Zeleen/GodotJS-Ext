@@ -28,6 +28,12 @@
 #pragma once
 
 #include <compat/jsb_compat.h>
+
+#if JSB_TOOLS
+// 仅 `GlobalClassExtractor`（编辑器注册的全局类元数据钩子）需要。
+#	include <functional>
+#endif
+
 #include <runtime/bridge/jsb_bridge.h>
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_language_extension.hpp>
@@ -84,7 +90,6 @@ using ScriptInstancePropertyState = List<Pair<StringName, Variant>>;
 class GodotJSScriptLanguage : public ScriptLanguageExtension {
 	GDCLASS(GodotJSScriptLanguage, ScriptLanguageExtension)
 
-private:
 	friend class GodotJSScript;
 	friend class GodotJSScriptInstance;
 	friend class GodotJSScriptInstanceBase;
@@ -134,15 +139,19 @@ private:
 	ScriptCallProfileInfoMap profile_info_map_;
 #endif
 
+	// `is_global_class_generic` 用：`export default class X<T> extends Y` 里的泛型参数段。
+	// 与 `_get_global_class_name` 无关（那一处已改走提取器），故保留。
 	Ref<RegEx> ts_class_name_matcher_;
 
-	// [JS] export & declare in two lines, matches 'class ClassName extends BaseName' + 'exports.default = ClassName'
-	Ref<RegEx> js_class_name_matcher2_;
-
-	// [JS] export & declare in a single line, matches 'exports.default = class ClassName extends BaseName'
-	Ref<RegEx> js_class_name_matcher1_;
-
 #if JSB_TOOLS
+	/** 全局类元数据提取器：`_get_global_class_name` 的实现来源。由 editor plugin 注册
+	 *  （它拥有常驻 TS 工具进程），runtime 因而不必依赖 editor。返回 true 时 `r_info` 生效。
+	 *  仅编辑器构建使用：`_get_global_class_name` 本身就在 `#if JSB_TOOLS` 内。 */
+	using GlobalClassExtractor = std::function<bool(const String &p_path, Dictionary &r_info)>;
+
+	// 未注册时 `_get_global_class_name` 返回空——该函数只被编辑器调用，模板构建不会走到。
+	GlobalClassExtractor global_class_extractor_;
+
 	// 源码里按标识符定位声明：`_find_function`（语言层）与 `GodotJSScript::_get_member_line`
 	// （脚本层）共用，两处结论因而一致。
 	// 只认「行首 + 可选修饰符 + 标识符 + 声明后继」，声明后继取自 JS/TS 里真实的成员声明形态
@@ -185,6 +194,12 @@ public:
 #endif
 
 	bool is_global_class_generic(const String &p_path) const;
+
+#if JSB_TOOLS
+	/** 注册/清除全局类元数据提取器（传 nullptr 清除）。
+	 *  @note 钩子会在 **EditorFileSystem 的扫描线程**上被调用，注册方必须保证线程安全。 */
+	void set_global_class_extractor(GlobalClassExtractor p_extractor) { global_class_extractor_ = std::move(p_extractor); }
+#endif // JSB_TOOLS
 
 	template <size_t N>
 	jsb::JSValueMove eval_source(const char (&p_code)[N], Error &r_err) {

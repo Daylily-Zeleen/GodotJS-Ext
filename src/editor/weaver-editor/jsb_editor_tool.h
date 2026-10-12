@@ -44,7 +44,10 @@ namespace jsb::editor {
  * 两类时刻：请求是**阻塞**的（上限 `kRequestTimeoutMsec`），因为调用点（编辑器安装/重扫、
  * 脚本加载）本来就在同步上下文里，且作者期望改完立刻看到结果。
  *
- * @note 触达本类的线程只有编辑器主线程，加上工具进程的读取线程（它只把行推进队列）。
+ * @note 线程模型：`request()` 可被**任意线程**调用（编辑器主线程，以及 `EditorFileSystem` 的
+ *       后台扫描线程——全局类元数据在扫描期就要答案）。进程生命周期（spawn / teardown /
+ *       存活检查）由 `lifecycle_mutex_` 串行化；`start()` / `stop()` 仍只在编辑器主线程调用。
+ *       工具进程的读取线程只把行推进队列。
  */
 class EditorToolClient {
 public:
@@ -93,6 +96,12 @@ private:
 
 	std::shared_ptr<jsb::internal::Process> process_;
 	String project_root_;
+
+	// 进程生命周期（spawn / teardown / 存活检查）与 stdin 写入互斥：`request()` 会从
+	// 扫描线程进来，两个线程同时发现"进程死了"就会同时 teardown + spawn；而 `Process`
+	// 明确不对写端加锁（jsb_process.cpp 的注释：由调用方串行化）。写入与生命周期共用
+	// 这把锁，保证写的时候句柄不会被另一个线程 teardown 掉。请求-应答配对用 `mutex_`。
+	std::mutex lifecycle_mutex_;
 
 	// 请求-应答配对。`responded_` 只需保护队列，不在锁内做任何 io 或回调。
 	std::mutex mutex_;

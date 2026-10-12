@@ -61,6 +61,46 @@ Godot **不会**原地加载构建出的扩展 DLL。对 `.gdextension` 里每�
 - **stdout 是协议通道**：工具的诊断一律走 stderr，否则会破坏 NDJSON 帧。
 - 子进程输出按 **UTF-8** 解码（Node/tsc 恒 UTF-8）；仅当往返比对失败才退回 ANSI 代码页。
 
+### runtime 需要编辑器专属数据时：钩子注册，反向依赖禁止（2026-10-12）
+
+runtime 与 editor 虽同库，但**不得让 runtime 认识 editor**（全仓 runtime 对 editor 头零 `#include`，
+这条边界是结构性的，不是惯例）。当 runtime 的某个虚函数需要只有编辑器才具备的能力
+（实例：`_get_global_class_name` 依赖常驻 TS 工具进程解析源码），形态是：
+
+- runtime 侧持有 `std::function` 钩子（本例 `GodotJSScriptLanguage::GlobalClassExtractor`），
+  由 editor plugin 在 `NOTIFICATION_READY` 注册、`NOTIFICATION_EXIT_TREE` 注销 `nullptr`。
+- **未注册必须降级为空结果，不是报错**：该虚函数只被编辑器调用（`EditorFileSystem` 扫描、
+  场景树、新建脚本对话框），模板构建根本不会走到；模板腿因此天然不需要这条能力。
+- **失败要出声**：钩子返回 false 是"这个文件解析不出"（正常），而工具进程起不来/超时
+  必须在提取器内部 `ERR_PRINT`，否则会把"工具没起来"伪装成"所有脚本都没有全局类"。
+- **钩子会在扫描线程上被调用**（`EditorFileSystem` 的 `global_classes` 阶段），
+  注册方必须线程安全：`EditorToolClient::request()` 从任意线程进来，其
+  "存活检查→teardown→spawn"与 stdin 写入整体进 `lifecycle_mutex_`（`Process` 不对写端加锁）。
+  等待循环**只信 `eof_`**，不读 `process_`/`is_running()`——那会在持 `mutex_` 时取
+  `lifecycle_mutex_`，与 `_spawn()` 的锁序相反而死锁。
+- **别名声明必须在类首**：`using GlobalClassExtractor = ...` 若放在成员之后会出现
+  `C4430`/`C3646`/`C2065`（成员先引用到尚未声明的别名）。
+- **返回字典的键由引擎定，不是我方定**：`ScriptLanguageExtension::get_global_class_name`
+  （`script_language_extension.h:756-775`）判的是 `if (!ret.has("name")) return String();`，
+  只认 `name` / `base_type` / `icon_path` / `is_abstract` / `is_tool`。
+  键名写错**不报错、不打日志**，只是静默返回空 `String()`、`global_script_class_cache.cfg`
+  停在 `list=[]`——这正是改造前 `result["class"]` 让全局类全程失效的原因（A/B：旧 0 类 / 新 23 类）。
+  新增此类"返回给引擎的字典"时，第一件事是去引擎源码里确认键名。
+- **常驻工具进程新增的每个 `require("./x.cjs")` 同目录模块都必须同时接两处**：
+  `jsb_editor_plugin.cpp` 的 `add_install_file`（安装进项目数据目录）与 `SConstruct` 的
+  `PresetDefine`（嵌入编辑器预设 blob）。漏任一处 → 运行时 `Cannot find module`、
+  工具进程一启动就退出，表现为 `keeping dying` 重试风暴。
+- **工具产物只有在编辑器"安装项目文件"后才存在，而那次安装不会在 headless 下自动发生**
+  （`try_install_project_files` 只接 GUI 菜单与 REPL 按钮；headless 分支打
+  "Skipped existing TypeScript project files"）。`.godot/` 又被 gitignore ⇒ 全新克隆 +
+  纯 headless 的流程里，`.godot/*.cjs` 是空的。**任何依赖工具进程的能力都必须把
+  "工具没装"当作可发生状态处理**（降级 + 一次性醒目报错），不能假定它一定在。
+- **工具侧 AST 原语集中在 `scripts/jsb.tools/src/jsb.ts.ast.cts`**：`parseSource`（唯一
+  `ts.createSourceFile` 入口，ScriptKind 由它独占决定）、装饰器/修饰符读取、`extends` 文本、
+  本地类表与 import 表。各提取器的**判据差异**（哪些 `default` 导出形态算数、"什么算 Godot
+  脚本"的三态判定）留在各自文件，不合并——合并成"全能版"会单方面放宽某一边的判据，
+  静默改变哪些文件产出产物。`default` 导出因此提供三个**正交**查找函数供调用方组合。
+
 ## 拆分单体扩展的方法
 
 1. 动手移动任何东西之前先盘点跨侧依赖：单例 getter、对引擎/脚本引擎的直接访问、内部 util 命名空间——按依赖 × 文件统计调用点数量

@@ -214,6 +214,10 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
 			remove_export_plugin(export_plugin_);
+			// 注销提取器，避免它指向即将失效的 tool_client_。
+			if (GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton()) {
+				lang->set_global_class_extractor(nullptr);
+			}
 		} break;
 		case NOTIFICATION_READY:
 			singleton_ = this;
@@ -255,6 +259,34 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 			_regenerate_paths_mapping();
 			_regenerate_signatures();
 			_regenerate_script_docs();
+
+			// 把全局类元数据的提取挂到语言层：runtime 因此不必依赖 editor。
+			// 首次文件系统扫描在本通知之后才开始（见 `_generate_types_from_cmdline` 的注释），
+			// 而全局类元数据正是在那条扫描线程上被问到的，所以这里注册得够早。
+			// 工具进程起不来时不注册：语言层会返回空结果（该函数只被编辑器调用）。
+			if (_ensure_tool_client()) {
+				GodotJSScriptLanguage::get_singleton()->set_global_class_extractor(
+						[this](const String &p_path, Dictionary &r_info) {
+							// 本 lambda 在 EditorFileSystem 的扫描线程上被调用；`tool_client_`
+							// 由 plugin 持有、生命周期长于注册（注销在 NOTIFICATION_EXIT_TREE）。
+							const std::shared_ptr<jsb::editor::EditorToolClient> client = tool_client_;
+							if (client == nullptr) {
+								return false;
+							}
+							Dictionary payload;
+							payload["path"] = p_path;
+							Dictionary response;
+							if (!client->request("global-class", payload, response)) {
+								return false;
+							}
+							const Variant info = response.get("info", Variant());
+							if (info.get_type() != Variant::DICTIONARY) {
+								return false;
+							}
+							r_info = info;
+							return true;
+						});
+			}
 #endif
 
 			break;
@@ -496,12 +528,15 @@ GodotJSEditorPlugin::GodotJSEditorPlugin() {
 	add_install_file({ "type.extension.d.ts", "res://" JSB_TYPE_ROOT, jsb::weaver::CH_TYPESCRIPT | jsb::weaver::CH_D_TS | jsb::weaver::CH_OBSOLETE });
 
 #if JSB_USE_TYPESCRIPT
-	// 常驻编辑器工具进程及其两个同目录模块（源码在 `scripts/jsb.tools/`）：入口
-	// `require("./jsb.signature.extract.cjs")` 与 `require("./jsb.doc.extract.cjs")` 按相对路径解析，
-	// 三者必须一起装。落在项目数据目录而非 jsb 输出目录：输出目录的清理规则是"没有对应源即判陈旧"。
+	// 常驻编辑器工具进程及其同目录模块（源码在 `scripts/jsb.tools/`）：入口按相对路径
+	// `require(...)` 它们，必须一起装。落在项目数据目录而非 jsb 输出目录：输出目录的清理
+	// 规则是"没有对应源即判陈旧"。`jsb.ts.ast.cjs` 是三个提取器共用的 AST 原语，
+	// 三个模块都 require 它。
 	add_install_file({ JSB_EDITOR_TOOL_NAME, "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
 	add_install_file({ "jsb.signature.extract.cjs", "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
 	add_install_file({ "jsb.doc.extract.cjs", "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
+	add_install_file({ "jsb.global.class.extract.cjs", "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
+	add_install_file({ "jsb.ts.ast.cjs", "res://" + jsb::internal::settings::get_project_data_dir_name(), jsb::weaver::CH_TYPESCRIPT });
 #endif // JSB_USE_TYPESCRIPT
 
 	// write `.gdignore` in the `node_modules` folder anyway to avoid scanning in the situation that `node_modules` is generated externally before starting the Godot engine.
