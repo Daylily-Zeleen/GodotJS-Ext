@@ -39,10 +39,14 @@
 #endif
 
 /**
- * TODO: 参考 Gode
- *  3. 通过ExportPlugin确保额外的二进制文件被打包
- *  4. 添加 node 相关的测试
- *  5. 添加 CI 验证文件货配置完整性
+ * TODO: CI 缺「配置文件完整性」的校验：`.gdextension` 里声明的库路径与实际产物是否一致，
+ *       目前只在运行期才发现缺失。
+ *
+ * NOTE: node module（原生 addon）已有覆盖（`project/tests/node-runtime/native-addon-probe.cjs`
+ *       在 forked helper 里加载 `node-llama-cpp` 的 `llama-addon.node`）。为此修的真实缺口：
+ *       该 addon 用 `GetProcAddress(GetModuleHandle(NULL), ...)` 在宿主可执行文件上取 N-API 符号，
+ *       而 `godotjs-ext.exe` 当时不导出任何 `napi_*`；现在由 `SConstruct` 生成的 `node-exe.def`
+ *       让它导出（符号本就在 exe 里，只差导出表）。
  */
 
 namespace jsb::impl {

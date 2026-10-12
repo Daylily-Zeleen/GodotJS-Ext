@@ -2089,7 +2089,8 @@ void Environment::call_script_prelude(ScriptClassID p_script_class_id, NativeObj
 }
 
 Variant Environment::call_script_method(ScriptClassID p_script_class_id, NativeObjectID p_object_id, const StringName &p_method, const Variant **p_argv, int p_argc, GDExtensionCallError &r_error) {
-	// TODO: 支持静态函数的调用。 static calls are not supported
+	// NOTE: 不支持静态函数调用：脚本类被所有 JS 环境共享，静态函数属于哪个隔离区无法确定。
+	//       同 GodotJSScript::_has_static_method() 恒 false。
 	if (!p_object_id) {
 		return {};
 	}

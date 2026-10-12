@@ -212,7 +212,8 @@ public:
 
 	JSObjectRef _NewFunction(JSObjectCallAsFunctionCallback func, const char *name, void *callback, JSValueRef captured_value);
 	static bool _hasInstance_callback(JSContextRef ctx, JSObjectRef constructor, JSValueRef possibleInstance, JSValueRef *exception);
-	JSObjectRef _NewConstructor(JSObjectCallAsConstructorCallback func, const char *name, v8::FunctionCallback callback, uint32_t class_payload);
+	// NOTE: 死代码，勿删勿启用（实现见 jsb_jsc_isolate.cpp 同名注释块）。
+	// JSObjectRef _NewConstructor(JSObjectCallAsConstructorCallback func, const char *name, v8::FunctionCallback callback, uint32_t class_payload);
 	JSObjectRef _NewObjectProtoClass(JSValueRef prototype, void *data);
 	JSValueRef _get_captured_value(jsb::impl::CapturedValueID id) { return captured_values_.get_value(id); }
 	// 由 `_CFunction_finalize`（可能在任意线程）调用：只把 payload 入队，不碰

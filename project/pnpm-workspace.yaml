@@ -1,0 +1,5 @@
+# `project/` is its own pnpm root (it is not part of scripts/pnpm-workspace.yaml).
+# `allowBuilds` lets node-llama-cpp's postinstall fetch its prebuilt native binary;
+# without it pnpm blocks the script and the native-addon test has nothing to load.
+allowBuilds:
+  node-llama-cpp: true

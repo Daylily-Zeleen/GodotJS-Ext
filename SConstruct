@@ -1137,6 +1137,36 @@ if node_support is not None and jsb_platform == "windows":
     node_shim_copy = env.Install("{}/bin/{}/".format(addon_dir, env["platform"]), node_shim)
     default_args += [node_shim, node_shim_copy]
 
+    # 供 helper exe 用的第二个 def：**导出**（而非转发）N-API 符号。
+    #
+    # 有些 addon 不在链接期绑定 napi_*（如 Rust 的 napi-sys），而是运行时用
+    # GetProcAddress(GetModuleHandle(NULL), ...) 在**宿主可执行文件**上取符号。
+    # 这类 addon 不导入任何 node 模块、也没有延迟导入，只能靠宿主 exe 自己导出。
+    # node.exe 导出 161 个，本仓的 godotjs-ext.exe 一个都不导出。
+    #
+    # exe 静态链接主库，实现已在其中，缺的只是导出表，所以这里是**纯导出**（不写
+    # `=target.symbol` 转发）。`napi_register_module_v1` 不列入：它由 addon 自己定义，
+    # node.exe 也不导出，列入会链接失败。
+    node_exe_def_path = os.path.join(root_dir, "bin", jsb_platform, "node-exe.def")
+
+    def _build_node_exe_def(target, source, env):
+        symbols = sorted(set(re.findall(
+            r"(?:napi|node_api)_[A-Za-z0-9_]+(?=\s*\()",
+            open(os.path.join(node_include_dir, "js_native_api.h"), encoding="utf-8", errors="ignore").read()
+            + open(os.path.join(node_include_dir, "node_api.h"), encoding="utf-8", errors="ignore").read()
+            + open(os.path.join(node_include_dir, "node.h"), encoding="utf-8", errors="ignore").read(),
+        )))
+        if not symbols:
+            raise RuntimeError(f"[node-shim] no N-API symbols found under {node_include_dir}")
+        with open(str(target[0]), "wt", encoding="utf-8") as f:
+            f.write("EXPORTS\n")
+            for symbol in symbols:
+                f.write(f"\t{symbol}\n")
+        print(f"[node-shim] wrote {target[0]} with {len(symbols)} exported symbols")
+        return None
+
+    node_exe_def = env.Command(node_exe_def_path, library, _build_node_exe_def)
+
 # Build the standalone node helper executable used as the execPath for
 # child_process.fork() probes (native addon host detection). The embedded
 # runtime reports Godot as process.execPath, so forking a probe must start
@@ -1212,7 +1242,13 @@ if node_support is not None and jsb_platform in ("windows", "linux", "macos"):
             # 否则又会静默覆盖主库符号。
             helper_pdb = os.path.join(helper_dir, "godotjs-ext-launcher.pdb")
         helper_env.Append(LINKFLAGS=["/PDB:" + helper_pdb])
+        # 让 exe 自己导出 N-API 符号（原因见上面的 node-exe.def）。/def: 是 MSVC 专有，
+        # 这个分支本来就是 MSVC。
+        helper_env.Append(LINKFLAGS=["/def:" + node_exe_def_path])
     helper = helper_env.Program(os.path.join(helper_dir, helper_name), [helper_main])
+    if jsb_platform == "windows":
+        # node-exe.def 必须先于 exe 链接生成。
+        helper_env.Depends(helper, node_exe_def)
     # The helper links the main shared library by name from helper_dir, so that
     # library must exist in helper_dir before the link runs. Without this the
     # link happens first and fails with "cannot find -l:<name>".

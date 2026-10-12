@@ -2,20 +2,15 @@
 import { Node, ProjectSettings } from "godot";
 import { reportTestFailure } from "../test-status";
 
-// Node-leg integration test — modelled on Gode's `test/fixtures/npm_native_llama`
-// (see .agent_tmp/gode): it forks a probe child and asserts the child's
-// process.execPath IS the bundled helper executable.
+// node 腿集成测试：fork 探针子进程，断言其 process.execPath 是随包发布的 helper 可执行文件。
 //
-// Why this leg needs its own test: an embedded libnode reports the *Godot*
-// executable as process.execPath, so a naive fork() re-spawns Godot itself.
-// jsb_node_runtime.cpp redirects fork() to the bundled `godotjs-ext` helper;
-// nothing covered that before (the generic C++/TS suites resolve no node
-// builtins and never fork).
+// 这条腿需要自己的测试：内嵌 libnode 会把 *Godot* 可执行文件报成 process.execPath，
+// 于是朴素的 fork() 会重新拉起 Godot 自己。jsb_node_runtime.cpp 把 fork() 重定向到随包的
+// `godotjs-ext` helper；在此之前没有任何测试覆盖它。
 //
-// NOTE: node builtins must be loaded through globalThis.__godotjs_node_require
-// (jsb_node_runtime.cpp exposes it). The global `require` here is the GodotJS
-// bridge require (Builtins::_require -> Environment::_load_module), which only
-// resolves GodotJS modules and crashes on ids it does not know.
+// NOTE: node 内建模块必须经 globalThis.__godotjs_node_require 加载（由 jsb_node_runtime.cpp
+// 暴露）。这里的全局 `require` 是 GodotJS 的桥接 require
+// （Builtins::_require -> Environment::_load_module），只认 GodotJS 模块，遇到未知 id 会崩。
 
 interface ForkProbeMessage {
 	type?: string;
@@ -36,16 +31,23 @@ interface ChildProcessModule {
 	fork(modulePath: string, args: string[], options: { stdio: string[]; env?: Record<string, string | undefined> }): ForkChild;
 }
 
-// The bootstrap exposes only the call form: `globalThis.__godotjs_node_require =
-// function(id) { return require(id); }` (jsb_node_runtime.cpp). There is NO
-// `resolve` on it, so do not declare one -- a declared-but-missing member fails
-// at runtime with "require_.resolve is not a function".
-interface GodeRequire {
+// native-addon-probe.cjs 写入 `.native-addon-probe.json` 的内容。
+interface NativeAddonProbeResult {
+	ok: boolean;
+	addonType?: string;
+	error?: string;
+	addonPath?: string;
+}
+
+// bootstrap 只暴露调用形式：`globalThis.__godotjs_node_require = function(id){ return require(id) }`
+// （jsb_node_runtime.cpp）。它**没有** `resolve`，所以不要声明 —— 声明了但运行时不存在会报
+// "require_.resolve is not a function"。
+interface NodeRequireBridge {
 	(id: string): unknown;
 }
 
 interface NodeBridgeGlobal {
-	__godotjs_node_require?: GodeRequire;
+	__godotjs_node_require?: NodeRequireBridge;
 }
 
 declare const process: {
@@ -72,7 +74,7 @@ function isNodeLeg(): boolean {
 	return typeof process !== "undefined" && typeof process.nextTick === "function";
 }
 
-function nodeRequire(): GodeRequire {
+function nodeRequire(): NodeRequireBridge {
 	const bridgeRequire = (globalThis as unknown as NodeBridgeGlobal).__godotjs_node_require;
 	if (typeof bridgeRequire === "function") {
 		return bridgeRequire;
@@ -88,8 +90,7 @@ function asChildProcess(value: unknown): ChildProcessModule | null {
 }
 
 // Fork `modulePath` and resolve with the execPath the child reports over IPC.
-// Mirrors Gode's runForkProbe: any of timeout / error / early exit / an execPath
-// that is not the bundled helper is a hard failure.
+// 超时 / 出错 / 提前退出 / execPath 不是随包 helper，任一即判失败。
 function forkExecPath(cp: ChildProcessModule, modulePath: string, extraEnv?: Record<string, string | undefined>): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let settled = false;
@@ -129,16 +130,67 @@ function forkExecPath(cp: ChildProcessModule, modulePath: string, extraEnv?: Rec
 				finish(() => reject(new Error("fork did not use the bundled godotjs-ext helper: " + execPath)));
 				return;
 			}
-			// Do NOT reply: the probe child exits right after process.send(), so
-			// writing back hits a closed IPC channel. On Linux that raises EPIPE,
-			// which by default terminates the whole process with SIGPIPE (exit 13)
-			// -- the run died before this assertion could even be reported.
+			// 不要回写：探针子进程在 process.send() 后立即退出，回写会打到已关闭的 IPC 通道。
+			// Linux 上会抛 EPIPE，默认让整个进程以 SIGPIPE 终止（exit 13）—— 断言都来不及报出来。
 			finish(() => resolve(execPath));
 		});
 		child.on("error", (error) => finish(() => reject(error)));
 		child.on("exit", (code) =>
 			finish(() => reject(new Error("fork probe exited before reporting execPath: " + String(code) + (stderrText ? "\n" + stderrText : "")))));
 	});
+}
+
+// fork 原生 addon 探针，读它写出的结果文件。用文件而非 IPC：fork 重定向会改写参数，
+// 不保证 IPC 通道可用。
+function forkNativeAddonProbe(cp: ChildProcessModule, probePath: string, resultPath: string): Promise<NativeAddonProbeResult> {
+	return new Promise<NativeAddonProbeResult>((resolve, reject) => {
+		const child = cp.fork(probePath, [], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
+		let settled = false;
+		let stderr = "";
+		let timer: TimeoutHandle | null = null;
+		const finish = (callback: () => void) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			if (timer !== null) {
+				clearTimeout(timer);
+			}
+			callback();
+		};
+		timer = setTimeout(() => {
+			child.kill();
+			finish(() => reject(new Error("native addon probe timed out")));
+		}, FORK_PROBE_TIMEOUT_MS);
+		child.stderr?.on("data", (chunk: unknown) => {
+			stderr += String(chunk);
+		});
+		child.on("error", (error: Error) => finish(() => reject(error)));
+		child.on("exit", (code: number | null) => {
+			finish(() => {
+				const raw = readTextFile(resultPath);
+				if (raw === null) {
+					reject(new Error("probe wrote no result (exit " + String(code) + ")" + (stderr ? "\n" + stderr : "")));
+					return;
+				}
+				try {
+					resolve(JSON.parse(raw) as NativeAddonProbeResult);
+				} catch (error) {
+					reject(new Error("probe result is unreadable: " + String(error)));
+				}
+			});
+		});
+	});
+}
+
+function readTextFile(path: string): string | null {
+	try {
+		const fs = nodeRequire()("node:fs");
+		if (fs !== null && typeof fs === "object" && "readFileSync" in fs && typeof fs.readFileSync === "function") {
+			return String(fs.readFileSync(path, "utf8"));
+		}
+	} catch (_) {}
+	return null;
 }
 
 export default class NodeRuntimeTest extends Node {
@@ -152,12 +204,12 @@ export default class NodeRuntimeTest extends Node {
 			await this._testNextTick();
 			this._testNodeBuiltins();
 			await this._testForkHelper();
+			await this._testNativeAddon();
 		} catch (error) {
 			fail(error instanceof Error ? error.stack || error.message : String(error));
 		}
-		// Do NOT remove/free ourselves: start.ts owns remove_child + queue_free for
-		// every scene it loads. Doing it here too double-frees the node and the
-		// trailing call_deferred fails with "Object::call_deferred. Bad this".
+		// 不要自行 remove/free：start.ts 负责它加载的每个场景的 remove_child + queue_free。
+		// 这里再做一次会双重释放该节点，随后的 call_deferred 报 "Object::call_deferred. Bad this"。
 	}
 
 	private async _testNextTick(): Promise<void> {
@@ -181,30 +233,39 @@ export default class NodeRuntimeTest extends Node {
 		}
 	}
 
-	// Gode's first probe: the child must be the bundled helper, not Godot.
+	// 子进程必须是随包 helper，而不是 Godot 自己。
 	private async _testForkHelper(): Promise<void> {
 		const cp = asChildProcess(nodeRequire()("child_process"));
 		if (!cp) {
 			fail("child_process.fork is not available");
 			return;
 		}
-		// Fork an OS absolute path, not a res:// one: the redirect translates
-		// res:// through process.cwd(), and under CI the cwd is the repository root
-		// while res:// is the project directory -- the translation then points at a
-		// file that does not exist and fork exits 127. globalize_path is exact.
+		// 传 OS 绝对路径而非 res://：重定向按 process.cwd() 翻译 res://，而 CI 下 cwd 是仓库根、
+		// res:// 是工程目录，翻译出来指向不存在的文件，fork 会以 127 退出。globalize_path 是精确的。
 		const probePath = ProjectSettings.globalize_path("res://tests/node-runtime/fork-probe-child.cjs");
 		const execPath = await forkExecPath(cp, probePath);
 		console.log("[node-runtime] fork helper OK: " + execPath);
 	}
 
-	// Gode's second probe: a fork target resolved out of node_modules must work too
-	// (it exercises res:// -> OS path translation for paths outside res://).
-	// Gode's fixture has a second probe that forks a native-module probe script
-	// resolved out of node_modules (testBindingBinary.js). We have no equivalent
-	// here: this project ships no native addon to probe, and forking some
-	// unrelated third-party script would assert nothing about the fork redirect --
-	// it cannot report the node-fork-probe message our assertion reads. So this
-	// leg is covered by the single probe above rather than a second one invented
-	// to mirror Gode's shape.
-	// (A second probe becomes meaningful once a real .node dependency exists.)
+	// 加载 npm 包自带的原生模块（`.node`）：在 forked helper（真 node 进程）里加载
+	// node-llama-cpp 的 llama.cpp addon。
+	//
+	// 这是 node module 通路，其它测试都不覆盖。它也是要求**宿主可执行文件**导出 napi_* 的场景：
+	// 该 addon 运行时在宿主上取 N-API 符号（GetProcAddress(GetModuleHandle(NULL), ...)），
+	// 所以 helper exe 带导出表（见 SConstruct）。
+	private async _testNativeAddon(): Promise<void> {
+		const cp = asChildProcess(nodeRequire()("child_process"));
+		if (!cp) {
+			fail("child_process.fork is not available");
+			return;
+		}
+		const probePath = ProjectSettings.globalize_path("res://tests/node-runtime/native-addon-probe.cjs");
+		const resultPath = ProjectSettings.globalize_path("res://.native-addon-probe.json");
+		const result = await forkNativeAddonProbe(cp, probePath, resultPath);
+		if (!result.ok) {
+			fail("the native addon did not load: " + String(result.error));
+			return;
+		}
+		console.log("[node-runtime] native addon OK (" + String(result.addonType) + ")");
+	}
 }

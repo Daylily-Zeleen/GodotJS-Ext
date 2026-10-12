@@ -511,12 +511,16 @@ void Isolate::_BridgeInstance_finalizer(JSObjectRef obj) {
 	}
 }
 
+// NOTE: 死代码，勿删勿启用。`_NewConstructor` 无调用点（native class 走 jsb_jsc_class_builder.h
+// 的 JS class factory），故这条路径不可达；将来改回 C 回调式构造时会重新生效。
+// 届时注意：读保留槽，不要 `stack_dup` —— 它额外 protect 一份且无处释放。
+/*
 JSValueRef _NotAllowedCallAsFunction(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception) {
 	Isolate *isolate = (Isolate *)jsb::impl::JavaScriptCore::GetContextOpaque(ctx);
-	//TODO copy or steal?
-	*exception = isolate->stack_dup(jsb::impl::StackPos::ConstructorCallError);
+	*exception = isolate->stack_val(jsb::impl::StackPos::ConstructorCallError);
 	return nullptr;
 }
+*/
 
 bool Isolate::_hasInstance_callback(JSContextRef ctx, JSObjectRef constructor, JSValueRef possibleInstance, JSValueRef *exception) {
 	Isolate *isolate = (Isolate *)jsb::impl::JavaScriptCore::GetContextOpaque(ctx);
@@ -546,6 +550,8 @@ JSObjectRef Isolate::_NewObjectProtoClass(JSValueRef prototype, void *data) {
 	return obj;
 }
 
+// NOTE: 死代码，勿删勿启用。恢复时连同 jsb_jsc_isolate.h 的声明一起解注释。
+/*
 JSObjectRef Isolate::_NewConstructor(JSObjectCallAsConstructorCallback func, const char *name, v8::FunctionCallback callback, uint32_t class_payload) {
 	JSClassDefinition def = kJSClassDefinitionEmpty;
 	def.className = name;
@@ -562,6 +568,7 @@ JSObjectRef Isolate::_NewConstructor(JSObjectCallAsConstructorCallback func, con
 	JSClassRelease(cls);
 	return constructor;
 }
+*/
 
 JSObjectRef Isolate::_NewFunction(JSObjectCallAsFunctionCallback func, const char *name, void *callback, JSValueRef captured_value) {
 	JSClassDefinition def = kJSClassDefinitionEmpty;

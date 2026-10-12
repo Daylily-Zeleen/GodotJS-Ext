@@ -1487,3 +1487,31 @@ Worker 的 `onerror` 发送端（启动失败 + 回调抛错）、`TransferableS
 - 性能：只在错误路径跑，抓栈比属性遍历贵 1~2 个数量级；风险来自病态输入（深链/环/大数组/getter），
   必须有界（深度/节点/字节上限 + 环检测 + 不触发 getter）。
 - 同线程 ShadowRealm 的"活代理"（`ObjectCrossWrapper`）可行但不用于错误对象（寿命 + `instanceof Error` 为假）。
+
+## 23. 「被改过又被复原」的 TODO 复核（2026-10-12）
+
+用户提出「有些过时 TODO 还在代码里，可能是被复原了」。全量扫描近三周 271 个提交的 TODO 增删后：
+
+- 复原批次只有两处：`8b85a4b`（17 行）、`5811f0b`（4 行），共 21 行；**19 行仍在 HEAD**。
+- **`8b85a4b` 回退了一处真 bug 修复**：`jsb_jsc_isolate.cpp` 的 `stack_val` → `stack_dup`
+  （jsc 异常路径保护计数泄漏，`69fa066` 刚修过）。这是本次唯一的**代码回退**，HEAD `:517` 仍是
+  `stack_dup`，而 `:194` 的 `_release()` 不覆盖 `ConstructorCallError`。
+- **`STATUS.md` 的 B 类「已过时，已删」6 条全部失效**（46/73/100/158/94/124+125 都已回到代码）。
+- **A 类两处与代码不符**：#96 记 `stack_dup→stack_val` 已实现（实为已回退）；#10 记「新增
+  `CH_GENERATED` 标记」（HEAD 里 0 处，实际做法是 `install_project_files()` 里分工，`96b2822`）。
+- 复原判错 4 条（前提已被推翻）：`not tested on linux`、`require.cache`、`may not be supported?`、
+  `_notification`。
+
+逐条证据与建议见 `research/todo-restore-audit.md`。
+
+### 23.1 后续（2026-10-12，第二轮）
+
+- **jsc 回退已修**：`jsb_jsc_isolate.cpp:520` `stack_dup` → `stack_val`（+就地说明）。
+  `clang++ -fsyntax-only` rc=0；gate 用「故意注入语法错」反证有效（rc=1）。
+- **`jsb_preset_source.h:130`**：目标已达成（`60021eb` 已去掉第二次整块 memcpy），TODO 过时。
+- **`jsb_node_bridge.cpp:42`**：剩余 3 项（ExportPlugin 打包 / node 测试 / CI 校验）**都已实现**
+  （`199f1c5` + `7821acf` + CI node 腿），TODO 应删。
+- **`jsb_node_runtime.cpp:132`**：真未完成；注释里的「89 个」已过时（09-23 实测 99 条），
+  且缺复现判据。
+
+详见 `research/todo-restore-audit.md` §6。
