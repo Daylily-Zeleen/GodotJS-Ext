@@ -221,7 +221,7 @@ private:
 	}
 
 private:
-	GDExtensionScriptInstanceInfo3 script_instance_info_ {
+	GDExtensionScriptInstanceInfo3 script_instance_info_{
 		.set_func = &ScriptInstanceInfo::set_func,
 		.get_func = &ScriptInstanceInfo::get_func,
 		.get_property_list_func = &ScriptInstanceInfo::get_property_list_func,
@@ -542,6 +542,10 @@ bool GodotJSScriptInstance::set(const StringName &p_name, const Variant &p_value
 		return false;
 	}
 
+	// `properties` / `static_variables` 是**每层各自的**静态元数据，必须逐层查。
+	// 但 `_set` 是 JS 函数：`call_script_method(class_id_, …)` 内部走原型链查找，链上任何一层
+	// 定义了它都会解析到**同一个**函数，故只应在最派生的那个声明层调一次。
+	bool set_hook_called = false;
 	GodotJSScript *sptr = script_.ptr();
 	while (sptr) {
 		if (const auto &it = sptr->script_class_info_.properties.find(p_name); it) {
@@ -556,7 +560,8 @@ bool GodotJSScriptInstance::set(const StringName &p_name, const Variant &p_value
 			return jsb::SharedStatics::set(sptr->script_class_info_.module_id, p_name, p_value);
 		}
 
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_set)); it) {
+		if (!set_hook_called && sptr->script_class_info_.methods.has(jsb_string_name(_set))) {
+			set_hook_called = true;
 			Variant name = p_name;
 			const Variant *args[2] = { &name, &p_value };
 
@@ -586,6 +591,9 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 		return true;
 	}
 
+	// 同 `set`：`_get` 是 JS 函数（原型链查找），只应在最派生的声明层调一次；
+	// 而 `properties` / `constants` / `static_variables` / `signals` / `methods` 是逐层元数据。
+	bool get_hook_called = false;
 	GodotJSScript *sptr = script_.ptr();
 	while (sptr) {
 		if (const auto &it = sptr->script_class_info_.properties.find(p_name); it) {
@@ -626,7 +634,8 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 			}
 		}
 
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_get)); it) {
+		if (!get_hook_called && sptr->script_class_info_.methods.has(jsb_string_name(_get))) {
+			get_hook_called = true;
 			Variant name = p_name;
 			const Variant *args[1] = { &name };
 
@@ -645,14 +654,18 @@ bool GodotJSScriptInstance::get(const StringName &p_name, Variant &r_ret) const 
 }
 
 void GodotJSScriptInstance::get_property_list(PropertyList *r_properties) const {
+	// 循环必须保留：它同时承担"逐层收集 `script_class_info_.properties` 并去重"。
+	// 但 `_get_property_list` 是 JS 函数（原型链查找），只应在最派生的声明层调一次。
+	bool hook_called = false;
 	GodotJSScript *sptr = script_.ptr();
 	HashSet<StringName> properties;
 
 	while (sptr) {
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_get_property_list)); it) {
+		if (!hook_called && sptr->script_class_info_.methods.has(jsb_string_name(_get_property_list))) {
 			GDExtensionCallError err{};
 			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_get_property_list), nullptr, 0, err);
 			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
+				hook_called = true;
 				ERR_FAIL_COND_MSG(ret.get_type() != Variant::ARRAY, "Wrong type for _get_property_list, must be an array of dictionaries.");
 
 				Array arr = ret;
@@ -703,20 +716,15 @@ Variant::Type GodotJSScriptInstance::get_property_type(const StringName &p_name,
 
 void GodotJSScriptInstance::validate_property(PropertyInfo &p_property) const {
 	ERR_FAIL_NULL_MSG(env_, "ScriptInstance::validate_property: env is null");
-	GodotJSScript *sptr = script_.ptr();
-	while (sptr) {
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_validate_property)); it) {
-			Variant property = (Dictionary)p_property;
-			const Variant *args[1] = { &property };
+	// `_validate_property` 是 JS 函数（原型链查找），单次调用即可；没有需要逐层收集的元数据。
+	// 命中即 return，对齐 `GDScriptInstance::validate_property`（`gdscript.cpp:1724`）。
+	Variant property = (Dictionary)p_property;
+	const Variant *args[1] = { &property };
 
-			GDExtensionCallError err{};
-			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_validate_property), (const Variant **)args, 1, err);
-			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
-				p_property = PropertyInfo::from_dict(property);
-			}
-		}
-
-		sptr = sptr->base.ptr();
+	GDExtensionCallError err{};
+	Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_validate_property), (const Variant **)args, 1, err);
+	if (err.error == GDEXTENSION_CALL_OK && ret.get_type() != Variant::NIL) {
+		p_property = PropertyInfo::from_dict(property);
 	}
 }
 
@@ -726,23 +734,13 @@ bool GodotJSScriptInstance::property_can_revert(const StringName &p_name) const 
 		return false;
 	}
 
-	GodotJSScript *sptr = script_.ptr();
-	while (sptr) {
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_property_can_revert)); it) {
-			Variant name = p_name;
-			const Variant *args[1] = { &name };
+	// `_property_can_revert` 是 JS 函数（原型链查找），单次调用即可。
+	Variant name = p_name;
+	const Variant *args[1] = { &name };
 
-			GDExtensionCallError err{};
-			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_can_revert), args, 1, err);
-			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
-				return true;
-			}
-		}
-
-		sptr = sptr->base.ptr();
-	}
-
-	return false;
+	GDExtensionCallError err{};
+	Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_can_revert), args, 1, err);
+	return err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool();
 }
 
 bool GodotJSScriptInstance::property_get_revert(const StringName &p_name, Variant &r_ret) const {
@@ -751,23 +749,16 @@ bool GodotJSScriptInstance::property_get_revert(const StringName &p_name, Varian
 		return false;
 	}
 
-	GodotJSScript *sptr = script_.ptr();
-	while (sptr) {
-		if (const auto &it = sptr->script_class_info_.methods.find(jsb_string_name(_property_get_revert)); it) {
-			Variant name = p_name;
-			const Variant *args[1] = { &name };
+	// `_property_get_revert` 是 JS 函数（原型链查找），单次调用即可。
+	Variant name = p_name;
+	const Variant *args[1] = { &name };
 
-			GDExtensionCallError err{};
-			Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_get_revert), args, 1, err);
-			if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
-				r_ret = ret;
-				return true;
-			}
-		}
-
-		sptr = sptr->base.ptr();
+	GDExtensionCallError err{};
+	Variant ret = env_->call_script_method(class_id_, object_id_, jsb_string_name(_property_get_revert), args, 1, err);
+	if (err.error == GDEXTENSION_CALL_OK && ret.get_type() == Variant::BOOL && ret.operator bool()) {
+		r_ret = ret;
+		return true;
 	}
-
 	return false;
 }
 
@@ -821,12 +812,13 @@ void GodotJSScriptInstance::notification(int p_notification, bool p_reversed) {
 	// since `NOTIFICATION_READY` is not reversed, `notification` will be posted after `callp`.
 	// so, we can't `call_prelude` here with `NOTIFICATION_READY`
 
-	//TODO find the method named `_notification`, cal it with `p_notification` as `argv`
-	//TODO call it at all type levels? @seealso `GDScriptInstance::notification`
+	// JS 语义：`_notification` 按原型链查找，从最派生层往上，命中**第一个**就调用并停止。
+	// 派生类定义同名方法即**替换**基类那份，不隐式调用父类；要调父类得自己写
+	// `super._notification(...)`。这里刻意**不**模仿 `GDScriptInstance::notification` 的
 	Variant value = p_notification;
 	const Variant *argv[] = { &value };
 	GDExtensionCallError error{};
-	callp(jsb_string_name(_notification), argv, 1, error);
+	env_->call_script_method(class_id_, object_id_, jsb_string_name(_notification), argv, 1, error);
 }
 
 const Variant GodotJSScriptInstance::get_rpc_config() const {

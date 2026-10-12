@@ -31,6 +31,7 @@
 
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
+#include <godot_cpp/classes/node.hpp>
 
 namespace jsb::tests {
 
@@ -431,6 +432,123 @@ TEST_CASE("[runtime] [jsb.lang] global class extractor hook drives _get_global_c
 
 	// 清理，避免影响其它用例
 	lang->set_global_class_extractor(nullptr);
+}
+
+// `_notification` 走 **JS 语义**：按原型链查找，从最派生层往上，命中第一个就调用并停止。
+// 派生类定义同名方法即**替换**基类那份，不隐式调用父类（要调父类得自己写 `super._notification`）。
+// 刻意**不**模仿 `GDScriptInstance::notification` 的 "called at ALL levels" —— 那是 GDScript 的
+// 语义（引擎对脚本实例只发一次通知，GDScript 会遍历 script->base 链逐层调，JS 不会）。
+TEST_CASE("[runtime] [jsb] _notification uses JS lookup semantics (no implicit base call)") {
+	GodotJSScriptLanguageIniter initer;
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
+	REQUIRE(env != nullptr);
+
+	// 逐层调用后的**顺序**就是断言内容，用逗号连接成一个字符串回读。
+	const auto collect = [&](const char *p_path) -> String {
+		Error err;
+		lang->eval_source("globalThis.__notif_log = [];", err);
+		REQUIRE(err == OK);
+
+		const Ref<GodotJSScript> script = ResourceLoader::get_singleton()->load(String(p_path));
+		REQUIRE(script.is_valid());
+		Node *node = memnew(Node);
+		node->set_script(script);
+		// 引擎对脚本实例的回调入口就是这一处。
+		node->notification(9101);
+		memdelete(node);
+
+		String joined;
+		{
+			v8::Isolate *isolate = env->get_isolate();
+			v8::HandleScope handle_scope(isolate);
+			const v8::Local<v8::Context> context = env->get_context();
+			v8::Context::Scope context_scope(context);
+			v8::Local<v8::Value> log_val;
+			if (context->Global()->Get(context, impl::Helper::new_string(isolate, "__notif_log")).ToLocal(&log_val) && log_val->IsArray()) {
+				const v8::Local<v8::Array> arr = log_val.As<v8::Array>();
+				for (uint32_t i = 0; i < arr->Length(); ++i) {
+					v8::Local<v8::Value> item;
+					if (arr->Get(context, i).ToLocal(&item) && item->IsString()) {
+						if (!joined.is_empty()) {
+							joined += ",";
+						}
+						joined += impl::Helper::to_string(isolate, item.As<v8::String>());
+					}
+				}
+			}
+		}
+		return joined;
+	};
+
+	// 派生类不定义 ⇒ 查找落到基类那一层
+	CHECK(collect("res://tests/notification/notif-plain.ts") == "base");
+	// 派生类定义且不调 `super` ⇒ **只有派生类**，基类不被隐式调用
+	CHECK(collect("res://tests/notification/notif-derived.ts") == "derived");
+	// 派生类定义并显式 `super._notification(...)` ⇒ 派生类先，然后才是基类
+	CHECK(collect("res://tests/notification/notif-super.ts") == "super,base");
+}
+
+// 属性 hook（`_get` / `_set` / `_get_property_list`）是 **JS 函数**：`call_script_method`
+// 内部的 `prototype.Get(...)` 自己就走原型链查找，命中第一个即止。所以 C++ 侧不该再手搓
+// `script_->base` 链 —— 那会把"链上有几层声明了它"变成"同一个（最派生的）函数被调几次"。
+// 改前实测：两层都定义时每个 hook 被调 2 次。C# 侧（`csharp_script.cpp:1590-1640`）同样只调一次。
+TEST_CASE("[runtime] [jsb] property hooks are dispatched once, not once per chain level") {
+	GodotJSScriptLanguageIniter initer;
+	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
+	REQUIRE(lang != nullptr);
+	const std::shared_ptr<jsb::Environment> env = lang->get_environment();
+	REQUIRE(env != nullptr);
+
+	// 回到 JS 侧的 `__hook_calls_*` 计数（fixture 里自增）。
+	const auto counter = [&](const char *p_key) {
+		int out = -1;
+		v8::Isolate *isolate = env->get_isolate();
+		v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = env->get_context();
+		v8::Context::Scope context_scope(context);
+		v8::Local<v8::Value> val;
+		if (context->Global()->Get(context, impl::Helper::new_string(isolate, p_key)).ToLocal(&val) && val->IsNumber()) {
+			out = (int)val.As<v8::Number>()->Value();
+		}
+		return out;
+	};
+	const auto reset = [&]() {
+		Error err;
+		lang->eval_source("globalThis.__hook_calls_get = 0; globalThis.__hook_calls_set = 0; globalThis.__hook_calls_gpl = 0;", err);
+		REQUIRE(err == OK);
+	};
+
+	// 派生类把三个 hook 全部再定义一遍：改前每个会被调 2 次
+	reset();
+	const Ref<GodotJSScript> derived = ResourceLoader::get_singleton()->load("res://tests/instance-hooks/hooks-derived.ts");
+	REQUIRE(derived.is_valid());
+	Node *node = memnew(Node);
+	node->set_script(derived);
+	node->set("no_such_property", 1);
+	node->get("no_such_property");
+	node->get_property_list();
+	memdelete(node);
+
+	CHECK(counter("__hook_calls_set") == 1);
+	CHECK(counter("__hook_calls_get") == 1);
+	CHECK(counter("__hook_calls_gpl") == 1);
+
+	// 派生类不定义 ⇒ 由基类那份响应（仍是 1 次，只是落在基类函数上）
+	reset();
+	const Ref<GodotJSScript> plain = ResourceLoader::get_singleton()->load("res://tests/instance-hooks/hooks-plain.ts");
+	REQUIRE(plain.is_valid());
+	Node *plain_node = memnew(Node);
+	plain_node->set_script(plain);
+	plain_node->set("no_such_property", 1);
+	plain_node->get("no_such_property");
+	plain_node->get_property_list();
+	memdelete(plain_node);
+
+	CHECK(counter("__hook_calls_set") == 1);
+	CHECK(counter("__hook_calls_get") == 1);
+	CHECK(counter("__hook_calls_gpl") == 1);
 }
 
 #endif // JSB_TOOLS

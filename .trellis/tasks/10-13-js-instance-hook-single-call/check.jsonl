@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "规定了 runtime/editor 解耦与钩子约定，本任务改的实例化 hook 属于该层"}

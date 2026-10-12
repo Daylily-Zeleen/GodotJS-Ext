@@ -194,6 +194,33 @@ api json 的 `right_type: "Variant"` 行来自 dump 遍历右参类型含 NIL �
     - `_svderived.gd extends _svbase.gd`（基类含 `static var bsv`）⇒ `DERIVED_HAS_bsv=true`，派生脚本的 `get_property_list()` **含**基类的 `bsv|u=4096`。
     - `get_script_property_list()`（分析器读的那一面）= `[_svderived.gd, _svbase.gd, biv]` —— **含**基类脚本名与基类实例成员。
     ⇒ 我方 `jsb_script.cpp:472-492` / `:510-532` 的 `for (current = this; …; current = current->base.ptr())` 走链是**必需**的；删掉会让继承的静态变量在分析期与 inspector 面**双双消失**。（我方的唯一偏离是"静态变量也进 `_get_script_property_list`"——GDScript 静态变量走 parser 的 `STATIC_VARIABLE` 通道，外来脚本没有，见上一节。）
+- **栈虚拟函数（`_notification` / `_get` / `_set` / `_get_property_list` 等）按 JS 原型链解析，不模仿 GDScript 的逐层调用**（2026-10-13 实测，三条腿对照）：
+  `Environment::call_script_method(class_id_, …)` 内部是 `prototype.Get(...)` —— 从最派生类沿原型链
+  往上找，**命中第一个即止**。所以派生类一旦定义同名方法就**替换**基类那份，不隐式调用父类；
+  要调父类得自己写 `super._notification(...)`。实测三态（`_notification`）：
+
+  | 派生类 | GDScript（`gdscript.cpp:1969`） | JS（本仓，正确语义） |
+  |---|---|---|
+  | 不定义 | `Base` | `Base`（原型链落到基类） |
+  | 定义、不调 `super` | `Base`→`Derived`（引擎遍历 `script->base` 逐层调） | **只有 `Derived`** |
+  | 定义、调 `super` | `Base`→`Derived`→`Base` | `Derived`→`Base` |
+
+  - **C# 同 JS 语义**（`csharp_script.cpp:1916-1954` + `CSharpInstanceBridge`）：引擎只调一次，
+    交给 C# 虚分派；Godot 自己的 C# 代码写 `base._Notification(what)` 才会上溯。
+    **GDScript 是三条腿里唯一的异类**，不要拿它当契约。
+  - **不要在 C++ 侧手搓 `script_->base` 链去"补"逐层调用**：`call_script_method` 已经走原型链，
+    手搓链只会把"链上有几层声明了它"变成"同一个最派生函数被调几次"。
+    实测踩坑：`set`/`get`/`get_property_list` 的循环里每轮都调 `class_id_`，两层都定义 hook 时
+    各被调 **2 次**。修法是保留遍历（若循环内还有逐层元数据要收集，如 `script_class_info_.properties`），
+    但用一个 `*_hook_called` 标记把 JS hook 限定在**最派生的声明层**调一次；
+    循环内无额外操作的（`validate_property` / `property_can_revert` / `property_get_revert`）
+    直接删掉遍历、单次调用。
+  - **`_validate_property` 例外地"每属性一次"**：那是引擎 `Object::validate_property`
+    （`object.cpp:648`）对每个属性各调一次，非重复调用。
+  - 回归入口：doctest `[runtime] [jsb] _notification uses JS lookup semantics` 与
+    `[runtime] [jsb] property hooks are dispatched once, not once per chain level`
+    （fixture `project/tests/notification/`、`project/tests/instance-hooks/`）。
+
 - **`_get_method_info()` 可在模块加载前被调用（`loaded_ == false`）——不能断言 `loaded_`**（2026-09-25，Q5 实测）：链路 `Object::get_method_argument_count`（`object.cpp:1964`，ClassDB 绑定）→ `object.cpp:794-805` → `ScriptExtension::get_script_method_argument_count`（`script_language_extension.h:113-124`）→ 我方 `_get_script_method_argument_count`（`jsb_script.cpp`）。
   **2026-09-26 更新（`get_method_argument_count` 落地后，本条不再是"恒回退"）**：该钩子现在对**自有方法名**返回 INT（声明参数个数，剩余参数不计），此时 `ScriptExtension` 的 INT 分支命中、**不走回退**；只有名字**不是自有方法**时才返回空 Variant ⇒ 回退 `Script::get_script_method_argument_count`（`script_language.cpp:122-136`）→ `get_method_info()`。因此 `get_method_info()` **仍**必须自加载 —— 未知名字（以及所有非脚本名，如 ClassDB 方法名）依旧走回退路径到达它。
   **两条相关不变量**：① 返回**空 Variant 而非 INT 0** 是必需的 —— 返回 0 会让**任意**名字都像"我方的 0 参方法"，回退路径永不生效；② 不可判定（`k_ArgumentCountUnknown`，正则字面量/模板字面量/截断导致形参表无法闭合）时也必须返回空 Variant，不得报 0。

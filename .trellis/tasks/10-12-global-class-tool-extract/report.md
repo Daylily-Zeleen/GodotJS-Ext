@@ -41,12 +41,16 @@
 偶发（约 1/10）在 `ScriptServer::finish_languages` → `ScriptLanguageExtension::finish`
 报 `HandleScope Entering the V8 API without proper locking`（rc=134）。
 
-判定为**既有偶发、非本任务引入**：
+判定为**既有偶发、非本任务引入**（2026-10-13 复核，样本加大）：
 
-- 干净树（stash 全部改动）`--generate-types` 连跑 6 次：rc 全 =5，无该崩溃。
-- 改动树连跑 8 次（AC6 全链路就绪后）：rc 全 =5，无该崩溃。
-- 崩溃点在本任务**不触碰**的 JS 运行时收尾路径；CI 早已对该非零退出有容忍口径。
-- 首次遇到的 134 出现在工具进程因缺模块反复重启的那几轮，属伴随现象。
+- 干净树（stash 全部改动）`--generate-types` 连跑 10 次：rc 全 =5，0 次崩溃。
+- 改动树连跑 14 次：rc 全 =5，0 次崩溃。
+- 崩溃点在本任务**不触碰**的 JS 运行时收尾路径（`ScriptServer::finish_languages` →
+  `ScriptLanguageExtension::finish`）；CI 早已对该非零退出有容忍口径。
+- 崩溃样本与干净样本的日志**尾部完全一致**（都走到第 97 个工具请求、`Type generation
+  complete`、`[editor-tools] terminated`），只在之后的 `_finish` 收尾处分岔 ⇒ 与工具请求无关。
+- 早先"加钩子才崩 / 去掉钩子不崩"的 1 次 A/B 是**假相关**：随后同源二进制连跑 9 次全干净。
+  该崩溃率约 <3%（本任务全程 ~30 次运行中出现 2 次），单样本对照没有鉴别力。
 
 ## 审查后追加（用户三点意见）
 
@@ -103,3 +107,60 @@
 - `@bind.icon` 只认字符串字面量实参（变量实参视为未写）；旧正则同样处理不了，非回归。
 - 工具源码布局：`scripts/jsb.tools/src/jsb.ts.ast.cts`。新增 require 的同目录模块必须
   **同时**接 `add_install_file`（`jsb_editor_plugin.cpp`）与 `PresetDefine`（`SConstruct`）。
+
+
+## 审查后追加（第二轮）：`_notification` 与属性 hook 的单次派发（已修，最终方案）
+
+原始代码带着一条 TODO：
+
+```cpp
+//TODO find the method named `_notification`, cal it with `p_notification` as `argv`
+//TODO call it at all type levels? @seealso `GDScriptInstance::notification`
+callp(jsb_string_name(_notification), argv, 1, error);
+```
+
+**中途走过弯路**：一度照 `GDScriptInstance::notification` 实现成"沿脚本类链逐层调用"
+（`Environment::call_script_method_chain`）。**该方案已被推翻并全部删除** ——
+用户裁决：这是 JS，不是 GDScript，**不隐式调用父类同名函数**。
+
+**最终语义（JS 原型链）**：`call_script_method(class_id_, …)` 内部的 `prototype.Get(...)`
+从最派生类沿原型链往上找，**命中第一个即止**。派生类定义同名方法即替换基类那份；
+要调父类得自己写 `super._notification(...)`。实测三态：
+
+| 派生类 | GDScript（异类） | JS（本仓，正确语义） |
+|---|---|---|
+| 不定义 | `Base` | `Base` |
+| 定义、不调 `super` | `Base`→`Derived` | **只有 `Derived`** |
+| 定义、调 `super` | `Base`→`Derived`→`Base` | `Derived`→`Base` |
+
+**C# 侧是佐证**：`csharp_script.cpp:1916-1954` 只调一次 `CSharpInstanceBridge_Call`，交给 C# 虚分派；
+Godot 自己的 C# 代码写 `base._Notification(what)` 才会上溯。三条腿里 GDScript 是唯一异类。
+
+### 顺带查出的真缺陷（同源）：属性 hook 被重复调用
+
+`set` / `get` / `get_property_list` 在 C++ 侧手搓 `script_->base` 链，但循环内**每轮都用最派生类
+`class_id_`** 调用同一个 JS hook ⇒ 同一函数被调 N 次（N = 链上声明了它的层数）。
+实测（fixture 两层都定义）：`_get` / `_set` / `_get_property_list` **各被调 2 次**。
+
+修法（见任务 `10-13-js-instance-hook-single-call`）：
+
+- 循环内**无额外操作**的（`validate_property` / `property_can_revert` / `property_get_revert`）
+  → 删掉遍历，单次 `call_script_method`。
+- 循环内还有**逐层元数据**要收集的（`set`/`get`/`get_property_list`）→ 保留遍历，
+  用 `*_hook_called` 标记把 JS hook 限定在**最派生的声明层**调一次。
+- 纯查表的 `get_property_type` / `has_method` 不动。
+
+### 验证
+
+| 项 | 证据 |
+|---|---|
+| 通知三态 | 与 JS 语义一致（含显式 `super` 用例） |
+| hook 调用次数 | 改后 `_set`/`_get`/`_get_property_list` 各 1 次（改前各 2 次） |
+| 鉴别力 | 回退任一修复 → 对应 doctest 断言失败（实测 `values: 2 == 1`） |
+| 全套 | doctest **96/96、1264/1264** |
+| 构建 | `template_release` rc=0；`--headless --editor` 6 次全 rc=0 |
+| spec | `architecture-constraints.md` 新增「栈虚拟函数按 JS 原型链解析」条目 |
+
+**遗留**：`--generate-types` 退出期的 `HandleScope ... without proper locking` 崩溃为本仓**既有偶发**
+（<3%，~30 次运行中出现 2 次；干净树 10 次、改动树 14 次均 0 崩溃）——与本轮改动无关。
+
