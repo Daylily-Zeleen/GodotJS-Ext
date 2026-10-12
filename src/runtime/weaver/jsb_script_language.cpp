@@ -31,12 +31,12 @@
 
 #include <string_view>
 
-#include "../internal/jsb_module_wrapper.h"
 #include "../bridge/jsb_script_doc.h"
 #include "../bridge/jsb_shared_statics.h"
 #include "../bridge/jsb_type_convert.h"
 #include "../bridge/jsb_worker.h"
 #include "../internal/jsb_debug_stack.h"
+#include "../internal/jsb_module_wrapper.h"
 // Debug hooks translate VM frames back to the editable source: the source map
 // beside the compiled artifact, and `ProjectSettings` to name it as `res://`.
 #include "../internal/jsb_internal.h"
@@ -756,7 +756,7 @@ void GodotJSScriptLanguage::_reload_all_scripts() {
 		}
 
 #	if JSB_TOOLS
-		// TODO: Implement global mechanism.
+		// TODO: Autoload 的问题见 jsb_script_language.h:306. 暂不实现
 #	endif // JSB_TOOLS
 	}
 
@@ -1354,6 +1354,8 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 		Ref<GodotJSScript> scr = E.key;
 		const String scr_path = scr->get_path();
 		print_verbose("GodotJSScript: Reloading: " + scr_path);
+
+#	if 0 // 暂不支持内置脚本特性  GodotJSScriptLanguage::_supports_builtin_mode() -> false
 		if (scr->is_built_in()) {
 			// TODO: It would be nice to do it more efficiently than loading the whole scene again.
 			Ref<PackedScene> scene = ResourceLoader::get_singleton()->load(scr_path.get_slice("::", 0), "", ResourceLoader::CACHE_MODE_IGNORE_DEEP);
@@ -1382,6 +1384,9 @@ void GodotJSScriptLanguage::reload_scripts_internal(const Array &p_scripts, bool
 		} else {
 			scr->load_source_code(scr_path);
 		}
+#	else
+		scr->load_source_code(scr_path);
+#	endif
 		scr->reload(true); /* p_soft_reload */
 
 		//restore state if saved
