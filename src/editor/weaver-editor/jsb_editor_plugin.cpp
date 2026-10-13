@@ -1385,7 +1385,7 @@ void GodotJSEditorPlugin::start_tsc_watch() {
 #else
 	const String exe_path = "node";
 #endif
-	//TODO no console output in this way, implement pipes here
+
 	tsc_ = jsb::internal::Process::create("tsc", exe_path, args);
 	if (!tsc_ || !tsc_->is_running()) {
 		kill_tsc();
