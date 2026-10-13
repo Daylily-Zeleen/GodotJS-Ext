@@ -311,7 +311,7 @@ String GodotJSExportPlugin::_get_name() const {
 }
 
 bool GodotJSExportPlugin::_supports_platform(const Ref<EditorExportPlatform> &p_export_platform) const {
-	//TODO
+	// TODO: 根据导出目标平台与构建检查是否有对应的动态库可以一起打包
 	JSB_EXPORTER_LOG(VeryVerbose, "GodotJSExportPlugin::_supports_platform( %s )", p_export_platform.is_valid() ? p_export_platform->get_class() : String("null"));
 	return true;
 }

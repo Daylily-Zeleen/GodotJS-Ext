@@ -284,7 +284,7 @@ Error GodotJSScript::_reload(bool p_keep_state) {
 	const StringName &module_id = script_class_info_.module_id;
 	jsb::JSEnvironment env(get_path(), true);
 
-	//TODO different env has different module state, we need to refresh the state in all envs when marking a module as dirty somewhere
+	// Different env has different module state, we need to refresh the state in all envs when marking a module as dirty somewhere
 	const jsb::ModuleReloadResult::Type result = env->mark_as_reloading(module_id);
 	if (result == jsb::ModuleReloadResult::Requested) {
 		//TODO `Callable` objects bound with this script should be invalidated somehow?
