@@ -46,26 +46,26 @@
 #include "api_tool/editor/api_tool_editor.h"
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
 
-#if JSB_WITH_NODE
 namespace {
-constexpr const char *kNodeRuntimeBinDir = "res://addons/godotjs-ext.daylily-zeleen/bin";
+#if JSB_WITH_NODE
+constexpr const char *kAddonBinDir = "res://addons/godotjs-ext.daylily-zeleen/bin";
 constexpr const char *kNodeRuntimeHelperName = "godotjs-ext";
 
 String node_runtime_helper_res_path(const String &p_platform) {
 	const String exe_name = String(kNodeRuntimeHelperName) + (p_platform == "windows" ? ".exe" : "");
-	return String(kNodeRuntimeBinDir).path_join(p_platform).path_join(exe_name);
+	return String(kAddonBinDir).path_join(p_platform).path_join(exe_name);
 }
 
 bool is_node_runtime_helper_path(const String &p_path) {
-	const String prefix = String(kNodeRuntimeBinDir) + "/";
+	const String prefix = String(kAddonBinDir) + "/";
 	if (!p_path.begins_with(prefix)) {
 		return false;
 	}
 	const String file_name = p_path.get_file();
 	return file_name == kNodeRuntimeHelperName || file_name == String(kNodeRuntimeHelperName) + ".exe";
 }
-} //namespace
 #endif // JSB_WITH_NODE
+} //namespace
 
 const HashSet<String> &GodotJSExportPlugin::get_ignored_paths() {
 	static const HashSet<String> ignored_paths{
@@ -311,8 +311,52 @@ String GodotJSExportPlugin::_get_name() const {
 }
 
 bool GodotJSExportPlugin::_supports_platform(const Ref<EditorExportPlatform> &p_export_platform) const {
-	// TODO: 根据导出目标平台与构建检查是否有对应的动态库可以一起打包
-	JSB_EXPORTER_LOG(VeryVerbose, "GodotJSExportPlugin::_supports_platform( %s )", p_export_platform.is_valid() ? p_export_platform->get_class() : String("null"));
+	if (p_export_platform.is_null()) {
+		return false;
+	}
+
+	// 导出目标平台 -> 产物目录名；未识别的名字返回空。
+	constexpr auto export_platform_dir_name = [](const String &p_os_name) -> String {
+		const String os_name = p_os_name.to_lower();
+		if (os_name == "windows" || os_name == "linux" || os_name == "macos" || os_name == "android" || os_name == "ios" || os_name == "web") {
+			return os_name;
+		}
+		return String();
+	};
+
+	// 该平台是否随包提供了可用于导出的库。导出只用 template_debug / template_release，
+	// bin/<platform>/godotjs-ext.<platform>.<target>.<arch>.<ext>
+	constexpr auto has_export_library = [](const String &p_platform) -> bool {
+		const String prefix = String("godotjs-ext.") + p_platform + ".template_";
+		Ref<DirAccess> dir = DirAccess::open(String(kAddonBinDir).path_join(p_platform));
+		if (dir.is_null()) {
+			return false;
+		}
+		dir->list_dir_begin();
+		for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
+			if (!dir->current_is_dir() && name.begins_with(prefix)) {
+				dir->list_dir_end();
+				return true;
+			}
+		}
+		dir->list_dir_end();
+		return false;
+	};
+
+	const String os_name = p_export_platform->get_os_name();
+	const String platform = export_platform_dir_name(os_name);
+	if (platform.is_empty()) {
+		// 平台名没见过：不下判断，免得因为名字对不上而静默把导出关掉。
+		JSB_EXPORTER_LOG(Warning, "export: unrecognized platform name '%s', assume it is supported.", os_name);
+		return true;
+	}
+
+	if (!has_export_library(platform)) {
+		JSB_EXPORTER_LOG(Warning, "export: no %s runtime library is bundled (%s/%s/godotjs-ext.%s.template_*); rebuild the extension for that platform.", os_name, kAddonBinDir, platform, platform);
+		return false;
+	}
+
+	JSB_EXPORTER_LOG(VeryVerbose, "GodotJSExportPlugin::_supports_platform( %s )", os_name);
 	return true;
 }
 
