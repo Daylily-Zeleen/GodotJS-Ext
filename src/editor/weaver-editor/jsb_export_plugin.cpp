@@ -47,8 +47,8 @@
 #define JSB_EXPORTER_LOG(Severity, Format, ...) JSB_LOG_IMPL(JSExporter, Severity, Format, ##__VA_ARGS__)
 
 namespace {
-#if JSB_WITH_NODE
 constexpr const char *kAddonBinDir = "res://addons/godotjs-ext.daylily-zeleen/bin";
+#if JSB_WITH_NODE
 constexpr const char *kNodeRuntimeHelperName = "godotjs-ext";
 
 String node_runtime_helper_res_path(const String &p_platform) {
