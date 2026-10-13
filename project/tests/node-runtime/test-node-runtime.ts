@@ -1,6 +1,6 @@
 // uid://dit5h0tvym0yw This line is generated, don't modify or remove it.
 import { Node, ProjectSettings } from "godot";
-import { reportTestFailure } from "../test-status";
+import { beginAsyncTest, endAsyncTest, reportTestFailure } from "../test-status";
 
 // node 腿集成测试：fork 探针子进程，断言其 process.execPath 是随包发布的 helper 可执行文件。
 //
@@ -194,7 +194,14 @@ function readTextFile(path: string): string | null {
 }
 
 export default class NodeRuntimeTest extends Node {
+	// start.ts 只对带 completeCallback 的场景等这个回调，否则 100ms 后就直接 free。
+	// fork 探针要等子进程（原生 addon 那条更慢），必然超过 100ms：测试的异步续体会活到
+	// 引擎 quit 之后，在那里再碰 ProjectSettings 已经拿不到对象（"Bad this"），于是
+	// GODOTJS_TEST_PROJECT_COMPLETED 之后又补一条 FAILED。
+	public completeCallback: (() => unknown) | null = null;
+
 	async _ready(): Promise<void> {
+		beginAsyncTest();
 		try {
 			if (!isNodeLeg()) {
 				console.log("[node-runtime] skipped: not a node build");
@@ -207,6 +214,9 @@ export default class NodeRuntimeTest extends Node {
 			await this._testNativeAddon();
 		} catch (error) {
 			fail(error instanceof Error ? error.stack || error.message : String(error));
+		} finally {
+			endAsyncTest();
+			this.completeCallback?.();
 		}
 		// 不要自行 remove/free：start.ts 负责它加载的每个场景的 remove_child + queue_free。
 		// 这里再做一次会双重释放该节点，随后的 call_deferred 报 "Object::call_deferred. Bad this"。
