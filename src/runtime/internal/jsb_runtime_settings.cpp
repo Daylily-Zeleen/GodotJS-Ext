@@ -62,6 +62,8 @@ static constexpr char kRtSourceMapEnabled[] = JSB_MODULE_NAME_STRING "/runtime/l
 // `debug/settings/gdscript/max_call_stack`（那个是 GDScript 专属的**栈溢出判定阈值**，
 // 超了直接中断执行）是两回事，不能混用。
 static constexpr char kRtDebugMaxStackFrames[] = JSB_MODULE_NAME_STRING "/runtime/debugger/max_stack_frames";
+// V8 的电池省电模式：降低 GC 与优化强度换取功耗。只在 v8 腿有效，jsc/quickjs/web 是空实现。
+static constexpr char kRtBatterySaveModeEnabled[] = JSB_MODULE_NAME_STRING "/runtime/v8/battery_save_mode_enabled";
 
 void init_runtime_settings() {
 	_GLOBAL_DEF(kRtCamelCaseBindingsEnabled, false, JSB_SET_RESTART(true), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
@@ -92,6 +94,7 @@ void init_runtime_settings() {
 	_GLOBAL_DEF(kRtDebuggerSourceMapBaseUrl, "http://localhost:9230", JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(false), JSB_SET_INTERNAL(false));
 	_GLOBAL_DEF(kRtDebuggerWaitForDebugger, false, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
 	_GLOBAL_DEF(kRtAdditionalSearchPaths, PackedStringArray(), JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(true), JSB_SET_INTERNAL(false));
+	_GLOBAL_DEF(kRtBatterySaveModeEnabled, false, JSB_SET_RESTART(false), JSB_SET_IGNORE_DOCS(false), JSB_SET_BASIC(false), JSB_SET_INTERNAL(false));
 }
 
 namespace project {
@@ -158,6 +161,10 @@ bool is_sourcemap_enabled() {
 int get_debug_max_stack_frames() {
 	// 兜底成 1：0 或负值会让 VM 的 `CurrentStackTrace` 什么都取不到。
 	return MAX(1, (int)GLOBAL_GET(kRtDebugMaxStackFrames));
+}
+
+bool is_battery_save_mode_enabled() {
+	return GLOBAL_GET(kRtBatterySaveModeEnabled);
 }
 } //namespace project
 

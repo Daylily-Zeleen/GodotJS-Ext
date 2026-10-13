@@ -51,6 +51,8 @@ bool is_sourcemap_enabled();
 /// 一次 JS 调用栈快照最多回溯的帧数（>=1）。见 `init_runtime_settings` 里的说明：
 /// 这是采样上限，不是执行上限。
 int get_debug_max_stack_frames();
+/// V8 的电池省电模式（降低 GC 与优化强度换取功耗）；只在 v8 腿有效。
+bool is_battery_save_mode_enabled();
 } //namespace project
 
 } //namespace jsb::internal::settings

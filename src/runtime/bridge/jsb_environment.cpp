@@ -48,6 +48,7 @@
 #include "jsb_thread_safe_for_nodes_scope.h"
 
 #include "../internal/jsb_path_util.h"
+#include "../internal/jsb_runtime_settings.h"
 #include "../internal/jsb_settings.h"
 #include "../internal/jsb_variant_util.h"
 #include "../jsb_runtime_preset.h"
@@ -319,6 +320,8 @@ Environment::Environment(const CreateParams &p_params)
 
 	__isolate__->SetData(kIsolateEmbedderData, this);
 	__isolate__->SetPromiseRejectCallback(PromiseRejectCallback_);
+	// 项目设置驱动；只在 v8 腿有效（其它腿的 SetBatterySaverMode 是空实现）。
+	set_battery_save_mode(jsb::internal::settings::project::is_battery_save_mode_enabled());
 #if JSB_PRINT_GC_TIME
 	__isolate__->AddGCPrologueCallback(&OnPreGCCallback);
 	__isolate__->AddGCEpilogueCallback(&OnPostGCCallback);
@@ -649,6 +652,9 @@ void Environment::exec_async_call(AsyncCall::Type p_type, void *p_user_data) {
 		case AsyncCall::TYPE_GC_REQUEST:
 			_on_gc_request();
 			break;
+		case AsyncCall::TYPE_SET_BATTERY_SAVE_MODE:
+			set_battery_save_mode((bool)(intptr_t)p_user_data);
+			break;
 		case AsyncCall::TYPE_SCRIPT_RELOAD: {
 			// 入队时 notify_script_reloaded() 使用 reference() 保活，这里需要 unreference()。
 			GodotJSScript *script = static_cast<GodotJSScript *>(p_user_data);
@@ -917,6 +923,23 @@ std::shared_ptr<Environment> Environment::_access() {
 
 std::vector<std::shared_ptr<Environment>> Environment::get_all_environments() {
 	return EnvironmentStore::get_shared().get_list();
+}
+
+void Environment::sync_battery_save_mode_from_settings() {
+	const bool enabled = jsb::internal::settings::project::is_battery_save_mode_enabled();
+
+	// `settings_changed` 对任何项目设置的改动都会触发，值没变就不必下发。
+	// 竞争最多导致一次多余的（幂等的）下发，故不加锁。
+	static int cached = -1;
+	if (cached == (int)enabled) {
+		return;
+	}
+	cached = (int)enabled;
+
+	for (const std::shared_ptr<Environment> &env : get_all_environments()) {
+		// isolate 级配置只能由它自己的线程改，add_async_call 非同线程会自动入队。
+		env->add_async_call(AsyncCall::TYPE_SET_BATTERY_SAVE_MODE, (void *)(intptr_t)enabled);
+	}
 }
 
 NativeObjectID Environment::bind_godot_object(NativeClassID p_class_id, Object *p_pointer, const v8::Local<v8::Object> &p_object, bool p_js_owned_non_ref) {

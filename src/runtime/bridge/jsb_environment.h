@@ -152,6 +152,10 @@ private:
 			// request a full gc from other threads
 			TYPE_GC_REQUEST,
 
+			// 套用项目设置里的 V8 电池省电模式。isolate 级配置只能在它自己的线程上改，
+			// 所以由 `sync_battery_save_mode_from_settings()` 下发。参数是目标值（bool 编进指针）。
+			TYPE_SET_BATTERY_SAVE_MODE,
+
 			// 通知脚本已被重载，需要在该环境中重新加载该模块，并 rebind 属于该环境的脚本实例。
 			// 携带参数是脚本对象指针。**入队时由 notify_script_reloaded() 先 reference、
 			// 消费端 unreference**：队列在途期间持有一个引用保活。
@@ -714,7 +718,7 @@ public:
 
 	// request a full garbage collection
 	static void gc();
-	// TODO: 作为项目设置使用
+	// 由项目设置 `godotjs_ext/runtime/v8/battery_save_mode_enabled` 驱动（创建环境时套用）。
 	void set_battery_save_mode(bool p_enabled) { get_isolate()->SetBatterySaverMode(p_enabled); }
 
 	void update(uint64_t p_delta_msecs);
@@ -840,6 +844,10 @@ public:
 	// snapshot of every live Environment (thread-safe; used by the console
 	// hook to install the node console trampoline across all environments).
 	static std::vector<std::shared_ptr<Environment>> get_all_environments();
+
+	/// 项目设置 `settings_changed` 的响应：把 V8 电池省电模式对齐到所有存活的环境。
+	/// 新建的环境在构造时已按当前值套用，这里只负责让已存在的环境跟上。
+	static void sync_battery_save_mode_from_settings();
 
 private:
 	void exec_async_calls();

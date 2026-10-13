@@ -190,6 +190,10 @@ GodotJSScriptLanguage::~GodotJSScriptLanguage() {
 void GodotJSScriptLanguage::_init() {
 	if (once_initialized_) return;
 
+	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
+		ps->connect("settings_changed", callable_mp_static(&jsb::Environment::sync_battery_save_mode_from_settings));
+	}
+
 #if JSB_TOOLS
 	js_declaration_matcher_ = RegEx::create_from_string(R"(^\s*(?:(?:static|async|public|private|protected|readonly|abstract|declare|override|get|set)\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[(=:;]))");
 #endif // JSB_TOOLS
@@ -239,6 +243,10 @@ void GodotJSScriptLanguage::_init() {
 
 void GodotJSScriptLanguage::_finish() {
 	jsb_check(once_initialized_);
+
+	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
+		ps->disconnect("settings_changed", callable_mp_static(&jsb::Environment::sync_battery_save_mode_from_settings));
+	}
 
 #if JSB_TOOLS
 	js_declaration_matcher_.unref();
