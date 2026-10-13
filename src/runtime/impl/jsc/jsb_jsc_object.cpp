@@ -223,7 +223,6 @@ JSValueRef _lazy(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject,
 		jsb_unused(rval);
 	}
 
-	//TODO correct?
 	JSValueUnprotect(ctx, rvo);
 	return rvo;
 }

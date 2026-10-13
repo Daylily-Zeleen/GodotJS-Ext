@@ -153,7 +153,6 @@ private:
 	void **internal_fields_;
 };
 
-//TODO use JSWeakRef (JSWeakPrivate.h)
 template <typename T>
 class Global {
 	enum WeakType { kStrong,
