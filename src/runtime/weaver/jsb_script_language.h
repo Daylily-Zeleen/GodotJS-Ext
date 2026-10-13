@@ -254,9 +254,11 @@ public:
 	// called once per caret range, so it must be a pure function of the input.
 	virtual String _auto_indent_code(const String &p_code, int32_t p_from_line, int32_t p_to_line) const override;
 
-	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // TODO: Vector<StackInfo>
-	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // TODO: Vector<StackInfo>
-	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // TODO: Vector<StackInfo>
+	// TODO: 向帮助文档暴露 @GodotJSScript 的 函数/常量/注解 没有什么收益，而且把这些全局两都暴露出来的话帮助文档将非常臃肿，可读性非常差。
+	// 		鉴于 C# 脚本也没实现，我们再次也暂不考虑实现
+	virtual TypedArray<Dictionary> _get_public_functions() const override { return {}; } // List<MethodInfo>
+	virtual Dictionary _get_public_constants() const override { return Dictionary(); } // List<Pair<String, Variant>>
+	virtual TypedArray<Dictionary> _get_public_annotations() const override { return {}; } // List<MethodInfo>
 
 	virtual bool _handles_global_class_type(const String &p_type) const override;
 	/** 引擎的全局类名钩子；返回的字典同时带 `is_generic`，编辑器侧（codegen）也直接读它。 */
