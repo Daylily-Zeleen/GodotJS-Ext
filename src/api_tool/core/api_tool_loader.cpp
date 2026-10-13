@@ -330,11 +330,13 @@ const ApiClass *ApiLoader::ensure_class(const StringName &p_name) {
 				}
 
 				const bool has_return_value = internal::has_returns(minfo);
+				/** NOTE: `MethodInfo::from_dict` 没有对 minfo.return_val_metadata 进行赋值。而对 minfo 的构造又没经过初始化，会读到栈上垃圾值*/
+				const GDExtensionClassMethodArgumentMetadata return_meta = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
 				ApiClassMethod method_data;
 				// godot::MethodInfo carries no hash, so these synthesised methods keep
 				// hash 0 exactly as the previous implementation did (the old code copied
 				// the MethodInfo and left ApiMethodBase::hash at its default).
-				ApiMethodAccess::setup(method_data, minfo.name, (MethodHash)0, minfo.flags, has_return_value, minfo.return_val.type, minfo.return_val_metadata, (uint16_t)minfo.arguments.size());
+				ApiMethodAccess::setup(method_data, minfo.name, (MethodHash)0, minfo.flags, has_return_value, minfo.return_val.type, return_meta, (uint16_t)minfo.arguments.size());
 				ApiMethodAccess::set_default_count(method_data, (uint16_t)minfo.default_arguments.size());
 				injected_details.push_back(detail);
 				injected.push_back(method_data);
