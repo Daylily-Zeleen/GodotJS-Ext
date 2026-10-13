@@ -165,7 +165,6 @@ GodotJSREPL::GodotJSREPL() {
 	candidate_list_->hide();
 	candidate_list_->set_focus_mode(FOCUS_NONE);
 	candidate_list_->set_mouse_filter(MOUSE_FILTER_IGNORE);
-	// TODO: GDExtension: set_disable_visibility_clip not available in godot-cpp, skip
 	candidate_list_->set_size(Size2(600, 160));
 	output_container->add_child(candidate_list_);
 
