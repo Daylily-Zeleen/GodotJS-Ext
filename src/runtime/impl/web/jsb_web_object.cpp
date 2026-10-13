@@ -196,7 +196,7 @@ Maybe<bool> Object::DefineOwnProperty(Local<Context> context, Local<Name> key, L
 }
 
 void Object::SetAccessorProperty(Local<Name> name, Local<FunctionTemplate> getter, Local<FunctionTemplate> setter) {
-	int flags = jsb::impl::PropertyFlags::ENUMERABLE | jsb::impl::PropertyFlags::CONFIGURABLE; //TODO consider remove 'configurable' flags
+	int flags = jsb::impl::PropertyFlags::ENUMERABLE | jsb::impl::PropertyFlags::CONFIGURABLE;
 	if (!getter.IsEmpty()) flags |= jsb::impl::PropertyFlags::GET;
 	if (!setter.IsEmpty()) flags |= jsb::impl::PropertyFlags::SET;
 

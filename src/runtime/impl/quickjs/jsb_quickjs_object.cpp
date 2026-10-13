@@ -330,7 +330,7 @@ Maybe<bool> Object::DefineOwnProperty(Local<Context> context, Local<Name> key, L
 void Object::SetAccessorProperty(Local<Name> name, Local<FunctionTemplate> getter, Local<FunctionTemplate> setter) {
 	JSContext *ctx = isolate_->ctx();
 	const JSValue this_obj = (JSValue) * this;
-	int flags = JS_PROP_HAS_ENUMERABLE | JS_PROP_HAS_CONFIGURABLE; //TODO consider remove 'configurable' flags
+	int flags = JS_PROP_HAS_ENUMERABLE | JS_PROP_HAS_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_CONFIGURABLE;
 	if (!getter.IsEmpty()) flags |= JS_PROP_HAS_GET;
 	if (!setter.IsEmpty()) flags |= JS_PROP_HAS_SET | JS_PROP_HAS_WRITABLE;
 
