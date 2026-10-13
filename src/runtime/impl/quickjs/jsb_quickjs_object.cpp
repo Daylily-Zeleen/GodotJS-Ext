@@ -132,7 +132,8 @@ MaybeLocal<Value> Object::Get(Local<Context> context, Local<Value> key) const {
 }
 
 Maybe<bool> Object::HasOwnProperty(Local<Context> context, Local<Name> key) const {
-	//TODO unsure
+	// `desc == NULL` 是受支持的用法：`JS_GetOwnPropertyInternal2` 为此留了独立分支，
+	// 跳过描述符填充，但仍会实例化 auto-init 属性、并照常抛出异常。
 	JSContext *ctx = isolate_->ctx();
 	const jsb::impl::QuickJS::Atom prop(ctx, (JSValue)key);
 	const int res = JS_GetOwnProperty(ctx, nullptr, (JSValue) * this, prop);
@@ -352,12 +353,10 @@ MaybeLocal<Array> Object::GetOwnPropertyNames(Local<Context> context, PropertyFi
 	if ((filter & SKIP_SYMBOLS) == 0) flags |= JS_GPN_SYMBOL_MASK;
 	if ((filter & ONLY_ENUMERABLE) != 0) flags |= JS_GPN_ENUM_ONLY;
 
-	// `key_conversion` is not implemented here, matching the jsc and web shims (see the TODO in
-	// `src/runtime/impl/web/bridge/src/monolith.ts`): quickjs reports array indices as string atoms
-	// (`JS_AtomToValue` formats a tagged int into its decimal string), so every mode yields names.
-	// `kConvertToString` is therefore exact; `kKeepNumbers` / `kNoNumbers` degrade to it instead of
-	// aborting, which is what the callers of those modes already tolerate (they filter non-strings
-	// themselves and additionally accept indices on the other engines).
+	// `key_conversion` 未实现（与 jsc / web 一致）：quickjs 把数组下标报成字符串原子，
+	// 各模式拿到的都是字符串，`kConvertToString` 即精确解。
+	// 调用方**不能**依赖"非字符串即非下标"：两个真实调用点（`jsb_worker.cpp`、
+	// `jsb_quickjs_serializer.cpp`）传 `kNoNumbers` 是想滤掉下标，在本腿滤不掉。
 	jsb_unused(key_conversion);
 
 	int res = JS_GetOwnPropertyNames(ctx, &tab, &len, (JSValue) * this, flags);

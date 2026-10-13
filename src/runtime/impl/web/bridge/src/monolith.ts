@@ -943,7 +943,9 @@ class jsbb_Engine {
         }
     }
 
-    //TODO filter and key_conversion are not implemented (or not supported?)
+    // `filter` / `key_conversion` 未实现（与 jsc / quickjs 一致）。调用方不能假设
+    // 这里不会出现下标键：`jsb_worker.cpp`、`jsb_quickjs_serializer.cpp` 传
+    // `kNoNumbers` 是想滤掉数组下标，本腿滤不掉。
     GetOwnPropertyNames(obj_sp: StackPosition, filter: number, key_conversion: number): StackPosition {
         try {
             const obj = this._stack.GetValue(obj_sp);
