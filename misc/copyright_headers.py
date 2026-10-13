@@ -73,6 +73,7 @@ EXTENSION_MAP = {
 
 # Directories to always skip
 EXCLUDE_DIRS = {"third", "node_modules", "_NOT_FOR_INCLUDE_", "__pycache__", ".git"}
+EXCLUDE_FILES = {"JSWeakPrivate.h"}
 
 # =============================================================================
 # Detection helpers
@@ -86,7 +87,6 @@ COPYRIGHT_MARKERS = [
     "SPDX-License-Identifier",
     "licensed under",
 ]
-
 
 def has_copyright_header(content: str) -> bool:
     """Check if a file already has a copyright/license header (scan first 2KB)."""
@@ -129,6 +129,8 @@ def collect_files() -> list[tuple[Path, str]]:
                 if fpath.suffix.lower() not in extensions:
                     continue
                 if is_godot_mit_file(fpath):
+                    continue
+                if fpath.name in EXCLUDE_FILES:
                     continue
 
                 try:
