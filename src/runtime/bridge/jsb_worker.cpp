@@ -230,11 +230,13 @@ public:
 			return;
 		}
 
+		// 整段消息处理（含用户回调）期间放开引擎的节点线程守卫
+		ThreadSafeForNodesScope node_safe_scope;
+
 		v8::Local<v8::Value> data = v8::Local<v8::Value>(v8::Data(isolate, data_sp));
 		std::vector<TransferData> transfers = take_transfers(transfer_id);
 
 		if (!transfers.empty()) {
-			ThreadSafeForNodesScope node_safe_scope;
 			for (const auto &transfer : transfers) {
 				v8::HandleScope transfer_bind_scope(isolate);
 				env_->transfer_in_bind(context, transfer);
@@ -506,6 +508,9 @@ private:
 			return;
 		}
 
+		// 整段消息处理（含反序列化与 onmessage）期间放开引擎的节点线程守卫
+		ThreadSafeForNodesScope node_safe_scope;
+
 		Environment *worker_env = env_.get();
 
 		if (p_message.get_transfers().size() > 0) {
@@ -516,7 +521,6 @@ private:
 				return;
 			}
 
-			ThreadSafeForNodesScope node_safe_scope;
 			for (const auto &transfer : p_message.get_transfers()) {
 				v8::HandleScope transfer_bind_scope(isolate);
 				p_env->transfer_in_bind(p_context, transfer);
@@ -801,6 +805,9 @@ void Worker::on_web_message_from_pthread(uintptr_t p_sender_pthread_id, jsb::imp
 		return;
 	}
 
+	// 整段消息处理（含 onerror/onready/onmessage）期间放开引擎的节点线程守卫
+	ThreadSafeForNodesScope node_safe_scope;
+
 	v8::Isolate *isolate = master->get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	v8::HandleScope handle_scope(isolate);
@@ -875,7 +882,6 @@ void Worker::on_web_message_from_pthread(uintptr_t p_sender_pthread_id, jsb::imp
 	std::vector<TransferData> transfers = worker->take_transfers(p_transfer_id);
 
 	if (!transfers.empty()) {
-		ThreadSafeForNodesScope node_safe_scope;
 		for (const auto &transfer : transfers) {
 			v8::HandleScope transfer_bind_scope(isolate);
 			master->transfer_in_bind(context, transfer);

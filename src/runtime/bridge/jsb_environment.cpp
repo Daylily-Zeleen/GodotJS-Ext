@@ -693,7 +693,6 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 	v8::Local<v8::Value> value;
 	if (p_message) {
 		const std::vector<TransferData> &transfers = p_message->get_transfers();
-		ThreadSafeForNodesScope node_safe_scope;
 
 		for (const auto &transfer : transfers) {
 			v8::HandleScope transfer_bind_scope(isolate);
@@ -746,6 +745,10 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, Me
 	const v8::Local<v8::Object> obj = handle->ref_.Get(isolate).As<v8::Object>();
 	jsb_check(!obj.IsEmpty());
 	handle = nullptr;
+
+	// 整段消息处理（含反序列化与用户回调）期间放开引擎的节点线程守卫：
+	// 收到消息的这一侧不是主线程，而 onmessage/onready/onerror 里的 JS 也会直接访问节点。
+	ThreadSafeForNodesScope node_safe_scope;
 
 	v8::Local<v8::Value> callback;
 	switch (p_message.get_type()) {
