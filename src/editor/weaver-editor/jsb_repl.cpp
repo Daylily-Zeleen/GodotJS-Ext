@@ -265,20 +265,28 @@ void GodotJSREPL::_refresh_realms() {
 
 	if (selected_idx >= 0) {
 		realm_selector_->select(selected_idx);
+		select_realm(selected_idx);
 	} else if (main_idx >= 0) {
 		realm_selector_->select(main_idx);
+		select_realm(main_idx);
 	}
 }
 
-void GodotJSREPL::_realm_selected(int p_idx) {
+bool GodotJSREPL::select_realm(int p_idx) {
 	jsb::Environment *selected = (jsb::Environment *)((uint64_t)realm_selector_->get_item_metadata(p_idx));
 	std::shared_ptr<jsb::Environment> selected_env = jsb::Environment::_access(selected);
 	if (selected_env.get() == nullptr || selected_env->is_disposing()) {
 		add_line(jsb_format("[color=yellow]-- %s %s --[/color]", realm_selector_->get_item_text(p_idx), TTR("is invalid.")));
-		return;
+		return false;
 	}
 	selected_realm_ = selected;
-	add_line(jsb_format("[color=dim_gray]-- %s %s --[/color]", TTR("Select realm:"), realm_selector_->get_item_text(p_idx)));
+	return true;
+}
+
+void GodotJSREPL::_realm_selected(int p_idx) {
+	if (select_realm(p_idx)) {
+		add_line(jsb_format("[color=dim_gray]-- %s %s --[/color]", TTR("Select realm:"), realm_selector_->get_item_text(p_idx)));
+	}
 }
 
 Ref<Texture2D> GodotJSREPL::get_editor_theme_icon(const StringName &p_name) const {

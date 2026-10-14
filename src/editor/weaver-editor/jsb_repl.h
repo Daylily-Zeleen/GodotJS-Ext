@@ -95,6 +95,7 @@ protected:
 	void _realm_selected(int p_idx);
 	void _backlog_flush();
 
+	bool select_realm(int p_idx);
 	void add_string(const String &p_str);
 	void add_line(const String &p_line);
 	void add_history(const String &p_text);
