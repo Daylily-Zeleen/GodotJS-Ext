@@ -58,6 +58,7 @@
 #include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/reg_ex.hpp>
@@ -267,25 +268,25 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 			if (_ensure_tool_client()) {
 				GodotJSScriptLanguage::get_singleton()->set_global_class_extractor(
 						[this](const String &p_path, Dictionary &r_info) {
-							// 本 lambda 在 EditorFileSystem 的扫描线程上被调用；`tool_client_`
-							// 由 plugin 持有、生命周期长于注册（注销在 NOTIFICATION_EXIT_TREE）。
-							const std::shared_ptr<jsb::editor::EditorToolClient> client = tool_client_;
-							if (client == nullptr) {
-								return false;
-							}
-							Dictionary payload;
-							payload["path"] = p_path;
-							Dictionary response;
-							if (!client->request("global-class", payload, response)) {
-								return false;
-							}
-							const Variant info = response.get("info", Variant());
-							if (info.get_type() != Variant::DICTIONARY) {
-								return false;
-							}
-							r_info = info;
-							return true;
-						});
+					// 本 lambda 在 EditorFileSystem 的扫描线程上被调用；`tool_client_`
+					// 由 plugin 持有、生命周期长于注册（注销在 NOTIFICATION_EXIT_TREE）。
+					const std::shared_ptr<jsb::editor::EditorToolClient> client = tool_client_;
+					if (client == nullptr) {
+						return false;
+					}
+					Dictionary payload;
+					payload["path"] = p_path;
+					Dictionary response;
+					if (!client->request("global-class", payload, response)) {
+						return false;
+					}
+					const Variant info = response.get("info", Variant());
+					if (info.get_type() != Variant::DICTIONARY) {
+						return false;
+					}
+					r_info = info;
+					return true;
+				});
 			}
 #endif
 
@@ -1412,11 +1413,14 @@ void GodotJSEditorPlugin::ensure_tsc_installed() {
 	ERR_FAIL_NULL_MSG(lang, "the script language is not available");
 	ERR_FAIL_COND_MSG(!lang->is_initialized(), "the script language is not initialized");
 
-	Error err = OK;
-	jsb::JSValueMove result = lang->eval_source(String("require('jsb.editor.main').run_npm_install()\n"), err);
-	result.ignore();
-	if (err != OK) {
-		JSB_LOG(Warning, "run_npm_install failed (%d)", (int)err);
+	const String exe_path = OS::get_singleton()->get_name() != "Windows" ? "npm" : "npm.cmd";
+	PackedStringArray args;
+	args.push_back("install");
+	const int32_t pid = OS::get_singleton()->create_process(exe_path, args, true);
+	if (pid == -1) {
+		JSB_LOG(Error, "Failed to execute `npm install`, please ensure that node.js has been installed properly, and run it manually in the project root path.");
+	} else {
+		JSB_LOG(Log, "Started process: npm install");
 	}
 }
 
