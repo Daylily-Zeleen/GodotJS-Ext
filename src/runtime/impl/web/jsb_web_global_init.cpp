@@ -198,6 +198,7 @@ void GlobalInitialize::init() {
 	if (!tls_js_bridge_initialized) {
 		tls_js_bridge_initialized = true;
 		JSB_WEB_LOG(Verbose, "initializing JS bridge for thread");
+		jsb_web_glue_ensure();
 		jsbi_init(
 				JSNI_FUNC(gc_callback),
 				JSNI_FUNC(unhandled_rejection),

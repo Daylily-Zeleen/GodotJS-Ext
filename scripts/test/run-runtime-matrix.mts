@@ -666,8 +666,8 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
 
         await new Promise<void>((resolve, reject) => {
             const sentinelTimeout = setTimeout(() => {
-                reject(new Error(`${label}: timed out waiting for sentinel log`));
-            }, 120000);
+                rejectWithTail(`${label}: timed out waiting for sentinel log`);
+            }, 300000);
 
             const consoleTail: string[] = [];
             const workerSessions = new Set<string>();

@@ -686,6 +686,12 @@ if os.path.exists(templates_script):
 
 generate_jsb_gen_header()
 
+# Generate the web glue header: EM_JS carriers so the extension side module ships its own
+# web bridge + jsbi_* implementations (see misc/build/generate_web_glue_header.py).
+web_glue_script = os.path.join("misc", "build", "generate_web_glue_header.py")
+if os.path.exists(web_glue_script):
+    subprocess.run([sys.executable, web_glue_script, src_dir], check=True)
+
 # Use absolute paths to ensure compile_commands.json has correct include paths
 # NOTE: no /FS here anymore. Debug-info writes go through /Z7 (see
 # make_target_env); a shared-PDB compile path would reintroduce C1041.
