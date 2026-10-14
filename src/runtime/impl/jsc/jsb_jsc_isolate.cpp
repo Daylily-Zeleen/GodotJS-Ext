@@ -164,9 +164,6 @@ function(key, value, getter, setter) {
 	JSGlobalContextSetInspectable(ctx_, true);
 #endif
 
-	//TODO dead loop checker
-	// JS_SetInterruptHandler
-
 	jsb_ensure(emplace_(JSValueMakeUndefined(ctx_)) == jsb::impl::StackPos::Undefined);
 	jsb_ensure(emplace_(JSValueMakeNull(ctx_)) == jsb::impl::StackPos::Null);
 	jsb_ensure(emplace_(JSValueMakeBoolean(ctx_, true)) == jsb::impl::StackPos::True);

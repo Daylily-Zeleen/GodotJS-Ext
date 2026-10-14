@@ -289,8 +289,10 @@ public:
 	}
 
 	_FORCE_INLINE_ static void set_as_interruptible(v8::Isolate *isolate) {
-		// Unfortunately, JSC does not expose APIs for interruptible execution. There is
-		// JSContextGroupSetExecutionTimeLimit, but it's a private API.
+		/**
+			NOTE: Unfortunately, JSC does not expose APIs for interruptible execution.
+				There is JSContextGroupSetExecutionTimeLimit, but it's a private API.
+		*/
 	}
 };
 } //namespace jsb::impl
