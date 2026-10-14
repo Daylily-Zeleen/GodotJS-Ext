@@ -102,11 +102,13 @@ protected:
 	// jsb::internal::IConsoleOutput: instantiated as a sink from the constructor
 	// on, so every runtime console write lands here.
 	void write(jsb::internal::ELogSeverity::Type p_severity, const String &p_text) override;
-	String encode_string(const String &p_text);
 	void check_install();
 	void check_tsc();
 
 public:
 	GodotJSREPL();
 	virtual ~GodotJSREPL() override;
+
+	// 计算 REPL 自动补全候选（语义见 .cpp）。抽成静态函数是为了让测试能直接调用。
+	static PackedStringArray _collect_candidates(jsb::Environment *p_realm, const String &p_text);
 };

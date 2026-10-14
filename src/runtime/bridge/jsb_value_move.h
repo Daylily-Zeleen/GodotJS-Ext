@@ -56,6 +56,8 @@ public:
 	bool is_valid() const;
 	String to_string() const;
 	Variant to_variant() const;
-	// Vector<String> to_strings() const;
+
+	/** NOTE: 不带 handle scope ! */
+	v8::MaybeLocal<v8::Value> get_raw() const;
 };
 } //namespace jsb

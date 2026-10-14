@@ -54,6 +54,11 @@ Variant JSValueMove::to_variant() const {
 	return val;
 }
 
+v8::MaybeLocal<v8::Value> JSValueMove::get_raw() const {
+	if (!is_valid()) return {};
+	return value_.Get(env_->get_isolate());
+}
+
 String JSValueMove::to_string() const {
 	if (!is_valid()) return {};
 	v8::Isolate *isolate = env_->get_isolate();

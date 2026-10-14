@@ -36,6 +36,9 @@ namespace v8 {
 class Isolate;
 class FunctionTemplate;
 class String;
+// NOTE: `Object::GetOwnPropertyNames` 的返回类型里用到未限定的 `Array`；不先声明它，本头在
+// `jsb_quickjs_container.h` 之前被解析时会落到 `godot::Array`（各 TU 类型不一致，非 v8 腿编不过）。
+class Array;
 
 class Object : public Data {
 public:

@@ -26,8 +26,6 @@
 /************************************************************************/
 
 #include "jsb_repl.h"
-#include "compat/jsb_compat.h"
-#include "jsb_editor_pch.h"
 #include "jsb_editor_plugin.h"
 
 #include <godot_cpp/classes/editor_interface.hpp>
@@ -341,10 +339,6 @@ void GodotJSREPL::_generate_types_pressed() {
 	GodotJSEditorPlugin::generate_types();
 }
 
-String GodotJSREPL::encode_string(const String &p_text) {
-	return p_text.replace("'", "\\'");
-}
-
 static bool is_auto_complete_allowed(const String &p_text) {
 #if JSB_REPL_AUTO_COMPLETE
 	// a rough rule to allow auto-complete
@@ -355,14 +349,80 @@ static bool is_auto_complete_allowed(const String &p_text) {
 }
 
 void GodotJSREPL::_input_changed(const String &p_text) {
-	// if (input_submitting_) return;
+	if (input_submitting_) return;
 
-	//TODO we haven't implemented the js function invocation from outside of Realm, just temporarily call as source code eval
-	const PackedStringArray results =
-			is_auto_complete_allowed(p_text)
-			? (PackedStringArray)(Variant)eval_source(jsb_format("require('jsb.editor.main').auto_complete('%s')", encode_string(p_text)))
-			: PackedStringArray();
-	_show_candidates(results);
+	_show_candidates(is_auto_complete_allowed(p_text)
+					? _collect_candidates(selected_realm_, p_text)
+					: PackedStringArray());
+}
+
+// 计算 REPL 自动补全候选。语义与原 JS 实现（jsb.editor.main.auto_complete）一致：
+// 作用域 = 最后一个 `.` 之前的部分求值结果（无点则全局对象），
+// 列出自身 + 原型链上的可枚举字符串键（按首次出现去重），前缀匹配。
+// 抽成静态函数是为了让测试能直接调用（对照旧 JS 行为）。
+PackedStringArray GodotJSREPL::_collect_candidates(jsb::Environment *p_realm, const String &p_text) {
+	PackedStringArray results;
+	if (p_realm == nullptr) return results;
+
+	v8::Isolate *isolate = p_realm->get_isolate();
+	JSB_ISOLATE_SCOPE(isolate);
+	v8::HandleScope handle_scope(isolate);
+	const v8::Local<v8::Context> context = p_realm->get_context();
+	v8::Context::Scope context_scope(context);
+
+	// `a.b` -> 作用域取 `a`（按源码求值）；没有点 -> 全局对象
+	v8::Local<v8::Value> scope;
+	String left;
+	String pattern = p_text;
+	const PackedStringArray splits = p_text.rsplit(".", true, 1);
+	if (splits.size() == 2) {
+		const String head = splits[0];
+		left = head + String(".");
+		pattern = splits[1];
+
+		const CharString head_utf8 = head.utf8();
+		Error err = FAILED;
+		const jsb::JSValueMove val = p_realm->eval_source(head_utf8.get_data(), head_utf8.length(), "", err);
+		if (err != OK || !val.get_raw().ToLocal(&scope)) return results;
+	} else {
+		scope = context->Global();
+	}
+
+	// 非对象（null / undefined / 数字 / 布尔）在 `for..in` 下没有可枚举键。字符串按 JS 语义会列出
+	// 下标，这里刻意不列（对补全没有意义）。
+	if (!scope->IsObject()) return results;
+
+	// 与原实现的 `for..in` 对齐：自身 + 原型链上的可枚举字符串键，按首次出现去重。
+	// `GetOwnPropertyNames` 只给自身属性，所以这里逐层走 `GetPrototype()`。
+	LocalVector<String> seen;
+	seen.reserve(16);
+	const v8::Local<v8::Object> scope_obj = scope.As<v8::Object>();
+	for (v8::Local<v8::Value> current = scope_obj; !current.IsEmpty() && current->IsObject();) {
+		const v8::Local<v8::Object> obj = current.As<v8::Object>();
+		{
+			// 枚举可能抛错（例如 Proxy 的 ownKeys 陷阱）：必须就地吃掉，否则异常会从这里带出去。
+			// 名字数组的具名类型各腿不同（v8 的 `v8::Array` vs shim 自己的），用 auto 取。
+			const jsb::impl::TryCatch try_catch(isolate);
+			auto maybe_names = obj->GetOwnPropertyNames(context, v8::PropertyFilter::ONLY_ENUMERABLE);
+			if (maybe_names.IsEmpty()) {
+				break;
+			}
+			const auto names = maybe_names.ToLocalChecked();
+			for (int i = 0; i < (int)names->Length(); ++i) {
+				v8::Local<v8::Value> key;
+				if (!names->Get(context, i).ToLocal(&key)) break;
+				const String k = jsb::impl::Helper::to_string(isolate, key);
+				if (seen.has(k)) continue;
+
+				seen.push_back(k);
+				if (k.begins_with(pattern)) {
+					results.push_back(left + k);
+				}
+			}
+			current = obj->GetPrototype();
+		}
+	}
+	return results;
 }
 
 void GodotJSREPL::_show_candidates(const PackedStringArray &p_items) {
