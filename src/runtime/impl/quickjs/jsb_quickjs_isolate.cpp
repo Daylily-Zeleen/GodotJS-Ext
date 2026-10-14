@@ -64,9 +64,12 @@ struct IsolateInternalFunctions {
 	}
 
 	static void *js_realloc(void *opaque, void *ptr, size_t size) {
-		//TODO JSObject would never be reallocated, true?
-		//     (otherwise, we need an indirect way to map it in Global handle, and remap it in Isolate on it reallocated)
-		// jsb_check(!((Isolate*) s->opaque)->_has_phantom(ptr));
+		// 能被 in-place realloc 的 JSValue 负载只有 JSString（string buffer）
+		// 与 ng 的 JSBigInt，且都要求 ref_count == 1；Global 会多持一份引用（>= 2），
+		// 所以被登记的 phantom 指针不会被 realloc。
+		jsb_checkf(!(((Isolate *)opaque)->_has_phantom(ptr) && ((Isolate *)opaque)->is_phantom_alive(ptr)),
+				"realloc a live phantom: %p",
+				ptr);
 		return ::realloc(ptr, size);
 	}
 
@@ -89,9 +92,12 @@ struct IsolateInternalFunctions {
 	}
 
 	static void *js_realloc(JSMallocState *s, void *ptr, size_t size) {
-		//TODO JSObject would never be reallocated, true?
-		//     (otherwise, we need an indirect way to map it in Global handle, and remap it in Isolate on it reallocated)
-		// jsb_check(!((Isolate*) s->opaque)->_has_phantom(ptr));
+		// 能被 in-place realloc 的 JSValue 负载只有 JSString（string buffer）
+		// 与 ng 的 JSBigInt，且都要求 ref_count == 1；Global 会多持一份引用（>= 2），
+		// 所以被登记的 phantom 指针不会被 realloc。
+		jsb_checkf(!(((Isolate *)s->opaque)->_has_phantom(ptr) && ((Isolate *)s->opaque)->is_phantom_alive(ptr)),
+				"realloc a live phantom: %p",
+				ptr);
 		return memrealloc(ptr, size);
 	}
 #endif
@@ -123,9 +129,6 @@ Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), st
 	JS_SetRuntimeOpaque(rt_, this);
 	JS_SetContextOpaque(ctx_, this);
 	JS_SetHostPromiseRejectionTracker(rt_, _promise_rejection_tracker, this);
-
-	//TODO dead loop checker
-	// JS_SetInterruptHandler
 
 	jsb_ensure(emplace_(JS_UNDEFINED) == jsb::impl::StackPos::Undefined);
 	jsb_ensure(emplace_(JS_NULL) == jsb::impl::StackPos::Null);
