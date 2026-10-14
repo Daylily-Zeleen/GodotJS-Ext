@@ -445,8 +445,7 @@ class jsbb_Engine {
     }
 
     private _throw_trivial(value: any) {
-        //TODO not sure, temporarily throw all trivial errors
-        this._throw(value);
+        jsbb_console.trace("removed a trivial exception:", typeof value, value);
     }
 
     constructor(engine_id: EngineID, opaque: Pointer) {
