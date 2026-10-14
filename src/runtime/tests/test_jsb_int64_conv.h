@@ -191,6 +191,58 @@ TEST_CASE("[runtime] [jsb.int64] new_unsigned_integer writes high-bit values uns
 	env.reset();
 }
 
+TEST_CASE("[runtime] [jsb.int64] IsInt32/IsUint32 answer from the value, not the tag") {
+	GodotJSScriptLanguageIniter initer;
+	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+
+		// 值域而非存储：Number::New(5.0) 在 v8 是 Smi，在 quickjs-ng 是 FLOAT64 tag。
+		CHECK(v8::Number::New(isolate, 5.0)->IsInt32());
+		CHECK(v8::Number::New(isolate, -5.0)->IsInt32());
+		CHECK(!v8::Number::New(isolate, 5.5)->IsInt32());
+		CHECK(!v8::Number::New(isolate, 2147483648.0)->IsInt32());
+		CHECK(v8::Number::New(isolate, 2147483648.0)->IsUint32());
+		// -0 位表示不是 0：v8 实测两个判定都为 false。
+		CHECK(!v8::Number::New(isolate, -0.0)->IsInt32());
+		CHECK(!v8::Number::New(isolate, -0.0)->IsUint32());
+
+		// quickjs 曾按 tag 把负数也判为 uint32。
+		CHECK(impl::Helper::new_integer(isolate, -1)->IsInt32());
+		CHECK(!impl::Helper::new_integer(isolate, -1)->IsUint32());
+		CHECK(!impl::Helper::new_integer(isolate, INT32_MIN)->IsUint32());
+		CHECK(impl::Helper::new_integer(isolate, 0)->IsUint32());
+		CHECK(impl::Helper::new_integer(isolate, INT32_MAX)->IsUint32());
+
+		// 超过 INT32_MAX 后两者分道：quickjs 无 uint32 tag，范围只能从值上来。
+		CHECK(!impl::Helper::new_unsigned_integer(isolate, (uint64_t)INT32_MAX + 1)->IsInt32());
+		CHECK(impl::Helper::new_unsigned_integer(isolate, (uint64_t)INT32_MAX + 1)->IsUint32());
+		CHECK(impl::Helper::new_unsigned_integer(isolate, UINT32_MAX)->IsUint32());
+		CHECK(!impl::Helper::new_unsigned_integer(isolate, (uint64_t)UINT32_MAX + 1)->IsUint32());
+	}
+
+	// 值域语义：1/1 与 Math.floor(2.7) 在 v8 是 Smi，在 quickjs 是直接构造的 FLOAT64，
+	// 两端转换结果必须一致。
+	{
+		Error err = OK;
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("1 / 1"), err).to_variant().get_type() == Variant::INT);
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("Math.floor(2.7)"), err).to_variant().get_type() == Variant::INT);
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("1.5"), err).to_variant().get_type() == Variant::FLOAT);
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("1 / 0"), err).to_variant().get_type() == Variant::FLOAT);
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("0 / 0"), err).to_variant().get_type() == Variant::FLOAT);
+
+		// TypedArray 的 double 元素：v8 走 HeapNumber 加载，quickjs 出 FLOAT64 tag，
+		// 值为整数时两端都应归 int32。
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("new Float64Array([5])[0]"), err).to_variant().get_type() == Variant::INT);
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("new Float64Array([5.5])[0]"), err).to_variant().get_type() == Variant::FLOAT);
+		// -0：v8 侧实测为 FLOAT（IsInt32/IsUint32 都不把它算整数），两端应一致。
+		CHECK(GodotJSScriptLanguage::get_singleton()->eval_source(String("-0"), err).to_variant().get_type() == Variant::FLOAT);
+	}
+
+	env.reset();
+}
+
 TEST_CASE("[runtime] [jsb.int64] to_int64 and to_uint64 read bit patterns") {
 	GodotJSScriptLanguageIniter initer;
 	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();

@@ -109,16 +109,45 @@ bool Data::IsFunction() const {
 
 bool Data::IsInt32() const {
 	const JSValue val = isolate_->stack_val(stack_pos_);
-
-	//TODO we can not determine whether it's int32 or uint32
-	return JS_VALUE_GET_TAG(val) == JS_TAG_INT;
+	constexpr auto is_int32_value = [](const double d) {
+		// 与 v8 一致：按值域判定，-0 不算（位表示不是 0）
+		if (!(d >= INT32_MIN && d <= INT32_MAX)) {
+			return false;
+		}
+		union {
+			double d;
+			uint64_t u;
+		} u, t;
+		u.d = d;
+		t.d = (double)(int32_t)d;
+		return u.u == t.u;
+	};
+	// FLOAT64 tag 也可能落在 int32 值域（除法、Math.floor、TypedArray 读取会直接构造 FLOAT64）。
+	const int tag = JS_VALUE_GET_TAG(val);
+	return tag == JS_TAG_INT || (JS_TAG_IS_FLOAT64(tag) && is_int32_value(JS_VALUE_GET_FLOAT64(val)));
 }
 
 bool Data::IsUint32() const {
 	const JSValue val = isolate_->stack_val(stack_pos_);
 
-	//TODO we can not determine whether it's int32 or uint32
-	return JS_VALUE_GET_TAG(val) == JS_TAG_INT;
+	constexpr auto is_uint32_value = [](const double d) {
+		if (!(d >= 0 && d <= 4294967295.0)) {
+			return false;
+		}
+		union {
+			double d;
+			uint64_t u;
+		} u, t;
+		u.d = d;
+		t.d = (double)(uint32_t)d;
+		return u.u == t.u;
+	};
+	// quickjs 无 uint32 tag：超过 INT32_MAX 的值由 JS_NewUint32 存为精确 FLOAT64。
+	const int tag = JS_VALUE_GET_TAG(val);
+	if (tag == JS_TAG_INT) {
+		return JS_VALUE_GET_INT(val) >= 0;
+	}
+	return JS_TAG_IS_FLOAT64(tag) && is_uint32_value(JS_VALUE_GET_FLOAT64(val));
 }
 
 bool Data::IsNumber() const {

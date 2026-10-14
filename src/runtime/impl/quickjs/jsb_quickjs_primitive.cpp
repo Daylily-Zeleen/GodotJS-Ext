@@ -237,7 +237,7 @@ Local<Integer> Integer::New(Isolate *isolate, int32_t value) {
 }
 
 Local<Integer> Integer::NewFromUnsigned(Isolate *isolate, uint32_t value) {
-	//TODO avoid using Uint32 because the underlying tag is INT or FLOAT64
+	// JS_NewUint32 即正确调用：≤INT32_MAX 出 INT，超过则出精确 FLOAT64。
 	const uint16_t stack_pos = isolate->push_steal(JS_NewUint32(isolate->ctx(), value));
 	return Local<Integer>(Data(isolate, stack_pos));
 }
