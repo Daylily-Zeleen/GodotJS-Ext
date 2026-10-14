@@ -61,10 +61,6 @@ enum {
 	JS_ATOM_END,
 };
 
-//TODO do not know whether it works properly or not
-enum {
-	JS_TAG_EXTERNAL = JS_TAG_FLOAT64 + 1,
-};
 } //namespace jsb::impl
 
 namespace v8 {

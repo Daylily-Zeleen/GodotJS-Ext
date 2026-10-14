@@ -88,12 +88,11 @@ MaybeLocal<String> Value::ToString(Local<Context> context) const {
 }
 
 void *External::Value() const {
-	const JSValue val = (JSValue) * this;
-	return JS_VALUE_GET_PTR(val);
+	return isolate_->get_external((JSValue) * this);
 }
 
 Local<External> External::New(Isolate *isolate, void *value) {
-	const uint16_t stack_pos = isolate->push_steal(JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, value));
+	const uint16_t stack_pos = isolate->push_steal(isolate->new_external(value));
 	return Local<External>(Data(isolate, stack_pos));
 }
 

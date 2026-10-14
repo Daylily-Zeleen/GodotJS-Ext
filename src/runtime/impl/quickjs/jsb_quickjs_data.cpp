@@ -156,8 +156,7 @@ bool Data::IsNumber() const {
 }
 
 bool Data::IsExternal() const {
-	const JSValue val = isolate_->stack_val(stack_pos_);
-	return JS_VALUE_GET_TAG(val) == jsb::impl::JS_TAG_EXTERNAL;
+	return isolate_->is_external(isolate_->stack_val(stack_pos_));
 }
 
 bool Data::IsBoolean() const {

@@ -118,7 +118,10 @@ Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), st
 #endif
 	rt_ = JS_NewRuntime2(&mf, this);
 	ctx_ = JS_NewContext(rt_);
+#if JSB_PREFER_QUICKJS_NG
 	class_id_.init(rt_);
+	external_class_id_.init(rt_);
+#endif // JSB_PREFER_QUICKJS_NG
 	static_assert(sizeof(stack_) == sizeof(JSValue) * jsb::impl::kMaxStackSize);
 
 	// should be fine to leave it uninitialized
@@ -150,7 +153,37 @@ Isolate::Isolate() : ref_count_(1), disposed_(false), handle_scope_(nullptr), st
 	class_def.call = nullptr;
 
 	details::verified(JS_NewClass(rt_, get_class_id(), &class_def));
+
+	JSClassDef external_class_def;
+	external_class_def.class_name = "External";
+	external_class_def.finalizer = nullptr;
+	external_class_def.exotic = nullptr;
+	external_class_def.gc_mark = nullptr;
+	external_class_def.call = nullptr;
+	details::verified(JS_NewClass(rt_, get_external_class_id(), &external_class_def));
+
 	JS_FreeValue(ctx_, global);
+}
+
+namespace {
+// 哨兵：载荷为 nullptr 时占位，让 JS_GetOpaque 能区分「不是 External」与「载荷是空指针」
+char kNullPayload;
+} //namespace
+
+JSValue Isolate::new_external(void *ptr) {
+	const JSValue obj = JS_NewObjectProtoClass(ctx_, JS_NULL, get_external_class_id());
+	jsb_ensure(JS_IsObject(obj));
+	JS_SetOpaque(obj, ptr ? ptr : &kNullPayload);
+	return obj;
+}
+
+bool Isolate::is_external(const JSValueConst val) const {
+	return JS_IsObject(val) && JS_GetOpaque(val, get_external_class_id()) != nullptr;
+}
+
+void *Isolate::get_external(const JSValueConst val) const {
+	void *ptr = is_external(val) ? JS_GetOpaque(val, get_external_class_id()) : nullptr;
+	return ptr == &kNullPayload ? nullptr : ptr;
 }
 
 Isolate::~Isolate() {

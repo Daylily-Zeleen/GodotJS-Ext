@@ -72,7 +72,7 @@ JSValue Function::_function_call(JSContext *ctx, JSValue this_val, int argc, JSV
 		isolate->push_copy(argv[i]);
 	}
 
-	const FunctionCallback callback = (FunctionCallback)JS_VALUE_GET_PTR(func_data[jsb::impl::FuncPayload::kCallback]);
+	const FunctionCallback callback = (FunctionCallback)isolate->get_external(func_data[jsb::impl::FuncPayload::kCallback]);
 
 	callback(info);
 	if (isolate->is_error_thrown()) {
@@ -84,17 +84,20 @@ JSValue Function::_function_call(JSContext *ctx, JSValue this_val, int argc, JSV
 MaybeLocal<Function> Function::New(Local<Context> context, FunctionCallback callback, Local<Value> data, int length) {
 	Isolate *isolate = context->isolate_;
 	JSValue payload[] = {
-		/* jsb::impl::FuncPayload::kCallback */ JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, (void *)callback),
+		/* jsb::impl::FuncPayload::kCallback */ isolate->new_external((void *)callback),
 		// borrowed: `JS_NewCFunctionData` `js_dup`s every entry itself (see `Helper::NewFunction`)
 		/* jsb::impl::FuncPayload::kData*/ isolate->stack_val(data->stack_pos_),
 	};
 
 	static_assert(sizeof(callback) == sizeof(void *));
 	static_assert(jsb::impl::FuncPayload::kNum == ::std::size(payload));
-	return MaybeLocal<Function>(Data(isolate, isolate->push_steal(JS_NewCFunctionData(isolate->ctx(), _function_call, length,
-													  /* magic */ 0,
-													  ::std::size(payload),
-													  payload))));
+	const JSValue func_obj = JS_NewCFunctionData(isolate->ctx(), _function_call, length,
+			/* magic */ 0,
+			::std::size(payload),
+			payload);
+	// JS_NewCFunctionData 已 dup 一份，本地这份要还掉
+	JS_FreeValue(isolate->ctx(), payload[jsb::impl::FuncPayload::kCallback]);
+	return MaybeLocal<Function>(Data(isolate, isolate->push_steal(func_obj)));
 }
 
 Local<Context> Function::GetCreationContextChecked() const {

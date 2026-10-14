@@ -67,7 +67,7 @@ public:
 		// const v8::Local<v8::Function> func = v8::Function::New(context, callback, data).ToLocalChecked();
 		v8::Isolate *isolate = context->isolate_;
 		JSValue payload[] = {
-			/* kFuncPayloadCallback */ JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, (void *)callback),
+			/* kFuncPayloadCallback */ isolate->new_external((void *)callback),
 			// `JS_NewCFunctionData` `js_dup`s every entry it stores, so this must stay borrowed:
 			// duplicating here would leave an unreleased reference behind on each created function
 			// and pin the payload object until `JS_FreeRuntime` aborts on the leak check.
@@ -82,6 +82,8 @@ public:
 				/* magic */ 0,
 				::std::size(payload),
 				payload);
+		// JS_NewCFunctionData 已 dup 一份，本地这份要还掉
+		JS_FreeValue(isolate->ctx(), payload[jsb::impl::FuncPayload::kCallback]);
 #if JSB_DEBUG
 		JSContext *ctx = context->GetIsolate()->ctx();
 		jsb_check(JS_IsFunction(ctx, func_obj));

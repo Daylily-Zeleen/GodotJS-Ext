@@ -554,4 +554,43 @@ file = undefined;
 	// There is no strong reference anymore, therefore the FileAccess object should have been deleted by JS GC.
 	CHECK(weak_ref->get_ref().get_validated_object() == nullptr);
 }
+// External 用 quickjs 原生对象 + opaque 承载裸指针（不再依赖自定义 tag）
+TEST_CASE("[runtime] [jsb] External carries a raw pointer") {
+	GodotJSScriptLanguageIniter initer;
+	std::shared_ptr<Environment> env = GodotJSScriptLanguage::get_singleton()->get_environment();
+	{
+		JSB_TESTS_EXECUTION_SCOPE(env.get());
+		v8::Isolate *isolate = env->get_isolate();
+		const v8::Local<v8::Context> context = env->get_context();
+
+		int payload = 0;
+		{
+			const v8::Local<v8::External> ext = v8::External::New(isolate, &payload);
+			CHECK(ext->IsExternal());
+			CHECK(ext.As<v8::External>()->Value() == &payload);
+		}
+		{
+			// 空载荷也必须和「不是 External」区分开
+			const v8::Local<v8::External> ext = v8::External::New(isolate, nullptr);
+			CHECK(ext->IsExternal());
+			CHECK(ext.As<v8::External>()->Value() == nullptr);
+		}
+		{
+			// 普通对象不是 External
+			const v8::Local<v8::Object> obj = v8::Object::New(isolate);
+			CHECK(!obj->IsExternal());
+		}
+		{
+			// 存进属性再取回来仍然可用
+			const v8::Local<v8::Object> host = v8::Object::New(isolate);
+			const v8::Local<v8::String> key = impl::Helper::new_string(isolate, "ext");
+			host->Set(context, key, v8::External::New(isolate, &payload)).Check();
+			const v8::Local<v8::Value> got = host->Get(context, key).ToLocalChecked();
+			CHECK(got->IsExternal());
+			CHECK(got.As<v8::External>()->Value() == &payload);
+		}
+	}
+
+	env.reset();
+}
 } //namespace jsb::tests

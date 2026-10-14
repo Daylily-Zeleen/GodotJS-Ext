@@ -89,6 +89,9 @@ enum {
 };
 } //namespace StackPos
 
+// `slot` 只对 classic 分支有意义：那里 JS_NewClassID 非线程安全，id 只能取一次，
+// 所以按 slot 各留一个 static 成员（一个 slot 对应一个类）。
+template <int slot = 0>
 struct ClassID {
 #if JSB_PREFER_QUICKJS_NG
 	// in quickjs-ng, the class id is generated and registered in the runtime,
@@ -102,22 +105,12 @@ struct ClassID {
 private:
 	JSClassID id_;
 #else
-	// in quickjs, the class id is generated globally.
-	// since we use only one ClassID for UniversalClass, we can init it statically/globally in Impl.
-	_FORCE_INLINE_ void init(JSRuntime *rt) {}
-	explicit operator JSClassID() const {
-		static Impl impl;
-		return impl.id_;
-	}
-
-private:
-	struct Impl {
-		Impl() {
-			id_ = 0;
-			JS_NewClassID(&id_);
-		}
-		JSClassID id_;
-	};
+	// in quickjs, the class id is generated globally, so it is created once per `slot`.
+	static inline JSClassID id = []() {
+		JSClassID id = 0;
+		JS_NewClassID(&id);
+		return id;
+	}();
 #endif
 };
 
@@ -219,7 +212,26 @@ public:
 		return internal_data_.add(jsb::impl::InternalData{ { nullptr, nullptr }, internal_field_count, { nullptr, nullptr } });
 	}
 
-	_FORCE_INLINE_ JSClassID get_class_id() const { return (JSClassID)class_id_; }
+	_FORCE_INLINE_ JSClassID get_class_id() const {
+#if JSB_PREFER_QUICKJS_NG
+		return (JSClassID)class_id_;
+#else
+		return (JSClassID)jsb::impl::ClassID<0>::id;
+#endif
+	}
+	_FORCE_INLINE_ JSClassID get_external_class_id() const {
+#if JSB_PREFER_QUICKJS_NG
+		return (JSClassID)external_class_id_;
+#else
+		return (JSClassID)jsb::impl::ClassID<1>::id;
+#endif
+	}
+
+	// External 用 quickjs 原生对象承载裸指针：不再依赖自定义 tag，
+	// 32 位（NaN boxing 下 tag >= 7 一律按 FLOAT64 处理）同样安全。
+	JSValue new_external(void *ptr);
+	bool is_external(const JSValueConst val) const;
+	void *get_external(const JSValueConst val) const;
 
 	// get stack value
 	[[nodiscard]] const JSValue &stack_val(const uint16_t index) const {
@@ -439,7 +451,10 @@ private:
 	static void _promise_rejection_tracker(JSContext *ctx, JSValueConst promise, JSValueConst reason, PromiseRejectionHandled is_handled, void *user_data);
 	static int _interrupt_callback(JSRuntime *rt, void *data) { return ((Isolate *)data)->interrupted_.is_set(); }
 
-	jsb::impl::ClassID class_id_;
+#if JSB_PREFER_QUICKJS_NG
+	jsb::impl::ClassID<> class_id_;
+	jsb::impl::ClassID<1> external_class_id_;
+#endif
 	uint32_t ref_count_;
 	bool disposed_;
 	JSRuntime *rt_;

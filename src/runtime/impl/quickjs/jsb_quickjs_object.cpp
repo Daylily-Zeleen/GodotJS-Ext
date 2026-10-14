@@ -253,7 +253,7 @@ JSValue Object::_lazy(JSContext *ctx, JSValue this_val, int argc, JSValue *argv,
 
 	// evaluate lazy callback
 	{
-		const AccessorNameGetterCallback getter = (AccessorNameGetterCallback)JS_VALUE_GET_PTR(func_data[1]);
+		const AccessorNameGetterCallback getter = (AccessorNameGetterCallback)isolate->get_external(func_data[1]);
 		HandleScope handle_scope(isolate);
 
 		const uint16_t rvo_pos = isolate->push_copy(JS_UNDEFINED); // return value
@@ -291,8 +291,10 @@ Maybe<bool> Object::SetLazyDataProperty(Local<Context> context, Local<Name> name
 	JSContext *ctx = isolate_->ctx();
 	const JSValue this_obj = (JSValue) * this;
 	constexpr int flags = JS_PROP_HAS_CONFIGURABLE | JS_PROP_HAS_ENUMERABLE | JS_PROP_HAS_GET;
-	JSValue lazy_data[] = { JS_DupValue(ctx, (JSValue)name), JS_MKPTR(jsb::impl::JS_TAG_EXTERNAL, (void *)getter) };
+	// 借用 name（`JS_NewCFunctionData` 会 dup 每一项），getter 指针由 External 对象承载
+	JSValue lazy_data[] = { (JSValue)name, isolate_->new_external((void *)getter) };
 	const JSValue lazy = JS_NewCFunctionData(ctx, _lazy, /* length */ 0, /* magic */ 0, ::std::size(lazy_data), lazy_data);
+	JS_FreeValue(ctx, lazy_data[1]);
 
 	const jsb::impl::QuickJS::Atom prop(ctx, (JSValue)name);
 	const int res = JS_DefineProperty(ctx, this_obj, prop, JS_UNDEFINED, lazy, JS_UNDEFINED, flags);
