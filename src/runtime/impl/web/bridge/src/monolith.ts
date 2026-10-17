@@ -515,6 +515,9 @@ class jsbb_Engine {
         const self = this;
 
         const on_unhandled_rejection = (event: Event) => {
+            // jsb 已把该 rejection 接管并转入原生通道（forward to master），
+            // 必须阻止浏览器按「未处理 rejection」上报页面级错误（harness 视为致命）
+            event.preventDefault();
             const ev = event as PromiseRejectionEvent;
             jsbb_console.warn("unhandled_rejection", ev.promise, ev.reason);
             const stack = self._stack;
@@ -530,6 +533,8 @@ class jsbb_Engine {
 
         // 浏览器 realm 没有别的失败上报入口：未捕获错误走同一原生通道，worker 才能到达宿主 onerror
         const on_error = (event: Event) => {
+            // 同上：接管后阻止页面级默认上报（否则 harness 收到 page error 直接判负）
+            event.preventDefault();
             const ev = event as ErrorEvent;
             const reason = ev.error ?? new Error(ev.message || "uncaught error");
             jsbb_console.warn("uncaught_error", reason);

@@ -180,6 +180,9 @@ JSBROWSER_API jsb::impl::StackPosition jsbi_ProxyGetTarget(jsb::impl::JSRuntime 
 // web 序列化 stash：WriteValue 存入（返回序号），ReadValue 按序取回（Push 后返回槽位）
 JSBROWSER_API jsb::impl::HandleID jsbi_SerializerStash(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition val_sp);
 JSBROWSER_API jsb::impl::StackPosition jsbi_SerializerTake(jsb::impl::JSRuntime engine_id);
+// 共享 realm 的全局类发布：existing 已被存活引擎持有时跳过（0），否则允许发布（1）
+JSBROWSER_API int jsbi_ShouldPublishGlobal(jsb::impl::JSRuntime engine_key, jsb::impl::StackPosition existing_sp);
+JSBROWSER_API void jsbi_TagEngineOwner(jsb::impl::JSRuntime engine_key, jsb::impl::StackPosition ctor_sp);
 // web 序列化深遍历原语：kind=0 其他/1 数组/2 普通对象；其余为属性/数组访问与构造
 JSBROWSER_API int32_t jsbi_SerKind(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition val_sp);
 JSBROWSER_API jsb::impl::StackPosition jsbi_ArrayGet(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition arr_sp, int32_t index);

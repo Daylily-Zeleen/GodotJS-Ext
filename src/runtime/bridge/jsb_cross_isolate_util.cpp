@@ -461,7 +461,24 @@ void register_(const v8::Local<v8::Context> &p_context, const v8::Local<v8::Obje
 		own_proto.As<v8::Object>()->SetPrototype(p_context, error_proto).Check();
 	}
 	// 只作**用户**用途（`instanceof CrossEnvError` / 自行构造）；C++ 侧只用类表里那份。
+#if JSB_WITH_WEB
+	// web 的多个 Environment 共享同一 realm/globalThis：per-env 无条件覆盖会让全局 ctor
+	// 与错误物化所用 ctor（接收 env 类表里那份）不同源，`instanceof` 失配。
+	// 因此只在「全局尚不存在」或「原发布引擎已释放」时写入，否则保持现状。
+	v8::Local<v8::Value> existing;
+	if (p_context->Global()->Get(p_context, env->get_string_value(class_name)).ToLocal(&existing)
+		&& !jsbi_ShouldPublishGlobal(
+			static_cast<jsb::impl::JSRuntime>(reinterpret_cast<intptr_t>(isolate)),
+			static_cast<jsb::impl::StackPosition>(existing))) {
+		return;
+	}
+#endif
 	p_context->Global()->Set(p_context, env->get_string_value(class_name), ctor).Check();
+#if JSB_WITH_WEB
+	jsbi_TagEngineOwner(
+			static_cast<jsb::impl::JSRuntime>(reinterpret_cast<intptr_t>(isolate)),
+			static_cast<jsb::impl::StackPosition>(ctor));
+#endif
 }
 
 std::unique_ptr<MessageRawData> capture_error(Environment *p_env, const v8::Local<v8::Value> &p_exception) {

@@ -31,6 +31,10 @@ const _jsbb_proxy_targets = new WeakMap();
 // web 序列化 stash：同线程的所有引擎共享同一模块作用域，值以引用直通
 const _jsbb_ser_store = [];
 
+// 共享 realm 上的全局类（如 CrossEnvError）归属标记：记录发布它的引擎键，
+// 供 C++ 侧判断「已有全局是否仍然有效」（引擎死了才允许后继 env 抢占覆盖）
+const _jsb_engine_owner_key = "__jsb_engine_owner";
+
 const GodotJSBrowserInterface = {
     // $GodotJSBrowserInterface__deps: ['$GodotRuntime'],
     // $GodotJSBrowserInterface: {},
@@ -205,6 +209,17 @@ const GodotJSBrowserInterface = {
     "jsbi_SerNewArray": function (engine_id, length) {
         const engine = _jsbb_.GetEngine(engine_id);
         return engine.stack.Push(new Array(length));
+    },
+    "jsbi_ShouldPublishGlobal": function (engine_key, existing_sp) {
+        const engine = _jsbb_.GetEngine(engine_key);
+        const e = engine.stack.GetValue(existing_sp);
+        if (e === null || e === undefined) return 1;
+        const owner = e[_jsb_engine_owner_key];
+        return owner !== undefined && _jsbb_.engines.has(owner) ? 0 : 1;
+    },
+    "jsbi_TagEngineOwner": function (engine_key, ctor_sp) {
+        const engine = _jsbb_.GetEngine(engine_key);
+        engine.stack.GetValue(ctor_sp)[_jsb_engine_owner_key] = engine_key;
     },
     "jsbi_stack_eq": function (engine_id, stack_pos1, stack_pos2) {
         const v1 = _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos1);

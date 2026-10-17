@@ -36,3 +36,18 @@
 - web shim：`jsb_web_data.h/.cpp`、`jsb_web_primitive.h`、`jsb_web_object.h/.cpp`、`jsb_web_maybe.h`、`jsb_web_interop.h`、`js/library_godotjs_jsbi.js`
 - bridge：`jsb_environment.h/.cpp`、`jsb_shadow_realm.cpp`、`jsb_cross_isolate_util.cpp`（仅诊断已撤）
 - bridge（TS）：`src/runtime/impl/web/bridge/src/monolith.ts`（NewInstance 诊断已撤；wasmop 模块作用域 const 为上一轮 Q3 改动，本轮首次运行时验证通过）
+
+## 迭代 2（本轮收口）
+
+### 已修
+1. **shadow error-reporting（根因修复）**：web 多 env 共享同一 realm 的 `globalThis`，`register_` per-env 无条件覆盖全局 ctor → shadow env 初始化晚于主 env，把 `globalThis.CrossEnvError` 换成了自己的 f；错误物化用接收 env 类表里的 f，两者不同源 → `instanceof` 失配（实测 `same_proto=0`）。修复：`register_` 在 web 上条件发布——全局不存在或原发布引擎已释放（`jsbi_ShouldPublishGlobal`/`jsbi_TagEngineOwner`，owner 键挂在 ctor 上）才写入。实测 onmessage-throw/timer-throw 两场景 `done`。
+2. **页面级异常逃逸**：realm 级 `error`/`unhandledrejection` 监听器补 `preventDefault()`——jsb 已把事件接管进原生通道，不阻止默认上报会被 harness 当 page error 判致命。
+
+### 未修（根因已定位）
+3. **persistent:shadow 的 bind 竞争**：轮次间 shadow env 对 wrapper 的弱引用被 GC（first-pass 清 `ref_`、second-pass 释放未跑完），下一轮 `gd_obj_to_js` 的 `try_get_object` 因 `ref_.IsEmpty()` 走新建绑定 → `bind_godot_object` 撞 `object_db_.has_object` → `WTF? Bind again?` FATAL。
+   - 天真修法（检测死绑定后同步 `free_object` + 重建）不安全：旧 wrapper 的 FinalizationRegistry finalizer 按 **Godot 对象指针**寻址，迟到触发会 free 掉重建后的新绑定。
+   - 需要 epoch/generation 守卫（second-pass 携带代次、不匹配则忽略），但 finalizer 的 `parameter` 由 Godot instance-binding 机制固定为指针，无法携带载荷——需改 internal_data 管线，独立一轮实施。
+4. 早期 wasm trap 抖动（unreachable / signature mismatch）：本轮两次完整运行未复现，待统计。
+
+### 验证
+- `web_fix_run3.log`：worker 全绿（transfer ×4、error-reporting ×2、session ×3），shadow transfer ×4 + error-reporting ×2 绿；仅 persistent:shadow 未过。
