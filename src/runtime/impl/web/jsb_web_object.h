@@ -78,6 +78,51 @@ public:
 	static Local<Object> New(Isolate *isolate);
 };
 
+class Proxy : public Object {
+public:
+	Isolate *GetIsolate() const { return isolate_; }
+
+	int InternalFieldCount() const;
+	void SetAlignedPointerInInternalField(int slot, void *data);
+	void SetAlignedPointerInInternalFields(int argc, int indices[], void *values[]);
+	void *GetAlignedPointerFromInternalField(int slot) const;
+
+	Local<String> GetConstructorName();
+
+	Maybe<bool> Set(Local<Context> context, Local<Value> key, Local<Value> value);
+	Maybe<bool> Set(Local<Context> context, uint32_t index, Local<Value> value);
+
+	MaybeLocal<Value> Get(Local<Context> context, Local<Value> key) const;
+	MaybeLocal<Value> Get(Local<Context> context, uint32_t index) const;
+
+	Maybe<bool> DefineOwnProperty(
+			Local<Context> context, Local<Name> key, Local<Value> value, PropertyAttribute attributes = None);
+
+	MaybeLocal<Value> GetOwnPropertyDescriptor(Local<Context> context, Local<Name> key) const;
+	Maybe<bool> HasOwnProperty(Local<Context> context, Local<Name> key) const;
+
+	Maybe<bool> Has(Local<Context> context, Local<Value> key) const;
+
+	MaybeLocal<Array> GetOwnPropertyNames(
+			Local<Context> context, PropertyFilter filter, KeyConversionMode key_conversion = KeyConversionMode::kKeepNumbers);
+
+	Maybe<bool> SetPrototype(Local<Context> context, Local<Value> prototype);
+	Local<Value> GetPrototype();
+	MaybeLocal<Value> CallAsConstructor(Local<Context> context, int argc, Local<Value> argv[]);
+	void SetAccessorProperty(Local<Name> name, Local<FunctionTemplate> getter = Local<FunctionTemplate>(), Local<FunctionTemplate> setter = Local<FunctionTemplate>());
+
+	Maybe<bool> SetLazyDataProperty(
+			Local<Context> context, Local<Name> name, AccessorNameGetterCallback getter);
+
+	static Local<Object> New(Isolate *isolate);
+
+	// Proxy 的 target（shadow realm 的 cross-wrapper 解包用）
+	Local<Value> GetTarget() const;
+
+	// v8::Proxy::New：`new Proxy(target, handler)`（shadow realm 的 evaluate 拦截用）
+	static MaybeLocal<Proxy> New(Local<Context> context, Local<Value> target, Local<Object> handler);
+};
+
 class Promise : public Object {
 public:
 	class Resolver : public Object {

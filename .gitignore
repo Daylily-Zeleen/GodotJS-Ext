@@ -98,3 +98,6 @@ godotjs-ext.github.io/
 
 # node 原生 addon 探针的结果文件（运行期产物）
 .native-addon-probe.json
+
+# web 跑测用编辑器二进制（本地手动放置，禁止入库）
+/tests/bin/

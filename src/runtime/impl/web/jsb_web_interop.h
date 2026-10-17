@@ -171,6 +171,25 @@ JSBROWSER_API bool jsbi_Uint64Value(jsb::impl::JSRuntime engine_id, jsb::impl::S
 
 JSBROWSER_API int jsbi_hash(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos);
 JSBROWSER_API bool jsbi_stack_eq(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition stack_pos1, jsb::impl::StackPosition stack_pos2);
+// ToPrimitive（对象走 valueOf）：结果 Push 进新栈槽并返回槽位
+JSBROWSER_API jsb::impl::StackPosition jsbi_ToPrimitive(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition val_sp);
+// new Proxy(target, handler)：结果 Push 进新栈槽并返回槽位
+JSBROWSER_API jsb::impl::StackPosition jsbi_ProxyNew(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition target_sp, jsb::impl::StackPosition handler_sp);
+// Proxy 的 target
+JSBROWSER_API jsb::impl::StackPosition jsbi_ProxyGetTarget(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition proxy_sp);
+// web 序列化 stash：WriteValue 存入（返回序号），ReadValue 按序取回（Push 后返回槽位）
+JSBROWSER_API jsb::impl::HandleID jsbi_SerializerStash(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition val_sp);
+JSBROWSER_API jsb::impl::StackPosition jsbi_SerializerTake(jsb::impl::JSRuntime engine_id);
+// web 序列化深遍历原语：kind=0 其他/1 数组/2 普通对象；其余为属性/数组访问与构造
+JSBROWSER_API int32_t jsbi_SerKind(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition val_sp);
+JSBROWSER_API jsb::impl::StackPosition jsbi_ArrayGet(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition arr_sp, int32_t index);
+JSBROWSER_API void jsbi_ArraySet(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition arr_sp, int32_t index, jsb::impl::StackPosition val_sp);
+JSBROWSER_API int32_t jsbi_ArrayLen(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition arr_sp);
+JSBROWSER_API jsb::impl::StackPosition jsbi_OwnKeys(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp);
+JSBROWSER_API jsb::impl::StackPosition jsbi_GetProp(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp, jsb::impl::StackPosition key_sp);
+JSBROWSER_API void jsbi_SetProp(jsb::impl::JSRuntime engine_id, jsb::impl::StackPosition obj_sp, jsb::impl::StackPosition key_sp, jsb::impl::StackPosition val_sp);
+JSBROWSER_API jsb::impl::StackPosition jsbi_NewPlainObject(jsb::impl::JSRuntime engine_id);
+JSBROWSER_API jsb::impl::StackPosition jsbi_SerNewArray(jsb::impl::JSRuntime engine_id, int32_t length);
 
 // GLOBAL HANDLE MANAGEMENT
 JSBROWSER_API bool jsbi_handle_eq(jsb::impl::JSRuntime engine_id, jsb::impl::HandleID handle1, jsb::impl::StackPosition handle2);

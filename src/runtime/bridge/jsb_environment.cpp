@@ -556,7 +556,7 @@ void Environment::update(uint64_t p_delta_msecs) {
 	// handle messages from workers
 #if JSB_WITH_WEB
 	jsbi_FlushPendingWorkerMessages();
-#else
+#endif
 	{
 		std::vector<Message> &messages = inbox_.swap();
 		if (!messages.empty()) {
@@ -572,7 +572,6 @@ void Environment::update(uint64_t p_delta_msecs) {
 			messages.clear();
 		}
 	}
-#endif
 
 	exec_async_calls();
 
@@ -698,7 +697,6 @@ void Environment::notify_script_reloaded(const Ref<GodotJSScript> &p_script) {
 	add_async_call(AsyncCall::TYPE_SCRIPT_RELOAD, p_script.ptr());
 }
 
-#if !JSB_WITH_WEB
 void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8::Context> &p_context, const v8::Local<v8::Function> &p_callback, const Message *p_message) {
 	v8::Isolate *isolate = p_env->get_isolate();
 
@@ -716,13 +714,13 @@ void invoke_worker_callback_from_message(Environment *p_env, const v8::Local<v8:
 			p_env->transfer_in_apply_state(transfer);
 		}
 
-#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS
+#if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS || JSB_WITH_WEB
 		Serialization::VariantDeserializerDelegate delegate(p_env, transfers);
 		v8::ValueDeserializer deserializer(isolate, p_message->get_buffer().ptr(), p_message->get_buffer().size(), &delegate);
 		delegate.SetSerializer(&deserializer);
-#	else
+#else
 		v8::ValueDeserializer deserializer(isolate, p_message->get_buffer().ptr(), p_message->get_buffer().size());
-#	endif
+#endif
 
 		bool ok;
 		if (!deserializer.ReadHeader(p_context).To(&ok) || !ok) {
@@ -798,35 +796,40 @@ void Environment::_on_worker_message(const v8::Local<v8::Context> &p_context, Me
 			return;
 	}
 }
-#endif
 
 bool Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exception, ErrorForwardMode p_mode) {
 	// 没有接收者就不采集（采集要逐字段读属性）。
 	if (!has_master_env_info() || p_exception.IsEmpty()) {
 		return false;
 	}
+	const std::shared_ptr<Environment> master = _access(master_token_);
+	const bool master_on_caller_thread = master && master->thread_id_ == ThreadEx::get_caller_id();
 #if JSB_WITH_WEB
 	/**
-	 * web 腿没有 `Message`/`inbox_` 通道：worker→master 走浏览器的结构化克隆
-	 * （`jsbi_PostMessage` → `_jsbb_.PostMessage`），所以只能把记录降级成**纯数据普通对象**送过去。
+	 * web：同线程的 master（shadow realm 等）走 `Message`/`inbox_` 通道；跨 pthread 的
+	 * worker master 没有 inbox 可投——worker→master 走浏览器的结构化克隆
+	 * （`jsbi_PostMessage` → `_jsbb_.PostMessage`），只能把记录降级成**纯数据普通对象**送过去。
 	 * 载荷 = `{ "__jsbError": <纯数据记录> }`；宿主侧按环境种类各自认这个键并重建成 `CrossEnvError`
 	 * 后调 `onerror`（worker：`Worker::on_web_message_from_pthread`）。
 	 * NOTE 记录必须是纯数据：`CrossEnvError` 实例带原生指针内部字段，过不了结构化克隆。
 	 *      投递原语见 `jsb::cross_isolate::post_to_master_web`（与环境种类无关；寻址在其中按种类分叉）。
 	 */
-	v8::Isolate *isolate = get_isolate();
-	JSB_ISOLATE_SCOPE(isolate);
-	const v8::HandleScope handle_scope(isolate);
-	const v8::Local<v8::Context> context = get_context();
-	const v8::Context::Scope context_scope(context);
-	const v8::Local<v8::Object> payload = v8::Object::New(isolate);
-	payload->Set(context, impl::Helper::new_string_ascii(isolate, cross_isolate::kErrorPayloadKey), cross_isolate::record_to_js(this, p_exception)).Check();
-	return cross_isolate::post_to_master_web(this, payload);
+	if (!master_on_caller_thread) {
+		v8::Isolate *isolate = get_isolate();
+		JSB_ISOLATE_SCOPE(isolate);
+		const v8::HandleScope handle_scope(isolate);
+		const v8::Local<v8::Context> context = get_context();
+		const v8::Context::Scope context_scope(context);
+		const v8::Local<v8::Object> payload = v8::Object::New(isolate);
+		payload->Set(context, impl::Helper::new_string_ascii(isolate, cross_isolate::kErrorPayloadKey), cross_isolate::record_to_js(this, p_exception)).Check();
+		return cross_isolate::post_to_master_web(this, payload);
+	}
 #else
-	const std::shared_ptr<Environment> master = _access(master_token_);
 	if (!master) {
 		return false;
 	}
+#endif
+	jsb_check(master);
 	v8::Isolate *isolate = get_isolate();
 	JSB_ISOLATE_SCOPE(isolate);
 	// 必须在本环境的 isolate 作用域内采集（调用方可能处于另一种 isolate 的作用域里）。
@@ -835,14 +838,13 @@ bool Environment::forward_error_to_master(const v8::Local<v8::Value> &p_exceptio
 	const v8::Context::Scope context_scope(context);
 	Message message(Message::TYPE_ERROR, handle_in_master_env_, cross_isolate::capture_error(this, p_exception));
 	// 同线程才能同步投递：跨线程宿主走 `handle_message` 会把宿主的 JS 跑到本线程上。
-	if (p_mode == ErrorForwardMode::Sync && master->thread_id_ == ThreadEx::get_caller_id()) {
+	if (p_mode == ErrorForwardMode::Sync && master_on_caller_thread) {
 		// 帧内把宿主的 `onerror` 跑完；来源侧须保证帧内销毁自己不会析构 isolate（见 spec）。
 		master->handle_message(std::move(message));
 	} else {
 		master->post_message(std::move(message));
 	}
 	return true;
-#endif
 }
 
 #if JSB_WITH_NODE

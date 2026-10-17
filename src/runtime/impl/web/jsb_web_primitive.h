@@ -28,6 +28,7 @@
 #pragma once
 #include "jsb_web_data.h"
 #include "jsb_web_handle.h"
+#include "jsb_web_maybe.h"
 #include "jsb_web_pch.h"
 
 namespace v8 {
@@ -46,6 +47,16 @@ public:
 	bool BooleanValue(Isolate *isolate) const;
 
 	MaybeLocal<String> ToString(Local<Context> context) const;
+
+	// SameValue（符号按身份相等；`Equals(context, key).ToChecked()` 的用法与 v8 一致）
+	Maybe<bool> Equals(Local<Context> context, Local<Value> that) const {
+		return Maybe<bool>(Data::Equals(Data(that->isolate_, that->stack_pos_)));
+	}
+
+	// ToPrimitive（对象走 valueOf）；结果压入新栈槽，以新 Data 返回
+	MaybeLocal<Value> ToPrimitive(Local<Context> context) const {
+		return MaybeLocal<Value>(Data::ToPrimitive());
+	}
 };
 
 class External : public Value {

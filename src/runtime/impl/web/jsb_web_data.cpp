@@ -110,4 +110,15 @@ bool Data::strict_eq(const Data &other) const {
 	return jsbi_stack_eq(isolate_->rt(), stack_pos_, other.stack_pos_);
 }
 
+bool Data::Equals(const Data &other) const {
+	return strict_eq(other);
+}
+
+Data Data::ToPrimitive() const {
+	// 结果由 JS 侧 Push 进新栈槽后返回槽位
+	const jsb::impl::StackPosition sp = jsbi_ToPrimitive(isolate_->rt(), stack_pos_);
+	return Data(isolate_, sp);
+}
+
+
 } //namespace v8

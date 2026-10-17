@@ -1715,7 +1715,7 @@ private:
 
 		const impl::TryCatch try_catch(isolate);
 
-#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS
+#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS || JSB_WITH_WEB
 		Serialization::VariantSerializerDelegate delegate(from_env, transfers);
 		v8::ValueSerializer serializer(isolate, &delegate);
 		delegate.SetSerializer(&serializer);
@@ -1783,7 +1783,7 @@ private:
 			}
 		}
 
-#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS
+#	if JSB_WITH_V8 || JSB_WITH_JAVASCRIPTCORE || JSB_WITH_QUICKJS || JSB_WITH_WEB
 		Serialization::VariantDeserializerDelegate delegate(env, p_message.get_transfers());
 		v8::ValueDeserializer deserializer(isolate, p_message.get_data().ptr(), p_message.get_data().size(), &delegate);
 		delegate.SetSerializer(&deserializer);

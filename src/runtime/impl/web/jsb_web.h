@@ -38,6 +38,7 @@
 #include "jsb_web_function_interop.h"
 #include "jsb_web_object.h"
 #include "jsb_web_primitive.h"
+#include "jsb_web_serializer.h"
 #include "jsb_web_promise_reject.h"
 
 #include "jsb_web_helper.h"

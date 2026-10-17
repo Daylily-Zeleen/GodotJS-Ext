@@ -217,9 +217,7 @@ private:
 	ArrayBufferAllocator allocator_;
 #endif
 
-#if !JSB_WITH_WEB
 	internal::DoubleBuffered<Message> inbox_;
-#endif
 
 #if JSB_THREADING
 	internal::DoubleBuffered<AsyncCall> async_calls_;
@@ -723,14 +721,12 @@ public:
 
 	void update(uint64_t p_delta_msecs);
 
-#if !JSB_WITH_WEB
 	// [thread safe] it's OK to call this method before the env is initialized.
 	void post_message(Message &&p_message) {
 		JSB_LOG(VeryVerbose, "inbox message %d: %d", p_message.get_id(), p_message.get_buffer().size());
 		inbox_.add(std::move(p_message));
 	}
 	void handle_message(Message &&p_message);
-#endif
 
 	class IModuleLoader *find_module_loader(const StringName &p_module_id) const {
 		const HashMap<StringName, class IModuleLoader *>::ConstIterator it = module_loaders_.find(p_module_id);
@@ -865,9 +861,7 @@ public:
 	void notify_script_reloaded(const Ref<GodotJSScript> &p_script);
 
 private:
-#if !JSB_WITH_WEB
 	void _on_worker_message(const v8::Local<v8::Context> &p_context, Message &p_message);
-#endif
 
 	void _rebind(v8::Isolate *isolate, const v8::Local<v8::Context> context, Object *p_this, ScriptClassID p_class_id);
 
@@ -984,7 +978,6 @@ private:
 #endif // JSB_TOOLS
 };
 
-#if !JSB_WITH_WEB
 namespace Serialization {
 enum class SerializationTag : uint8_t {
 	kGodotVariantTransfer = 'V',
@@ -1015,7 +1008,12 @@ public:
 	}
 
 	void ThrowDataCloneError(v8::Local<v8::String> p_message) override {
+#if JSB_WITH_WEB
+		// web shim 没有 Isolate::ThrowException/v8::Exception，统一走 Helper::throw_error
+		impl::Helper::throw_error(from_env_->get_isolate(), impl::Helper::to_string(from_env_->get_isolate(), p_message));
+#else
 		from_env_->get_isolate()->ThrowException(v8::Exception::Error(p_message));
+#endif
 	}
 
 	v8::Maybe<bool> WriteHostObject(v8::Isolate *p_isolate, v8::Local<v8::Object> p_object) override {
@@ -1117,6 +1115,5 @@ public:
 	}
 };
 } //namespace Serialization
-#endif
 
 } //namespace jsb

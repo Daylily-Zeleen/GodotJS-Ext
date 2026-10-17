@@ -29,7 +29,7 @@
 // -1 for return value to indicate an error thrown in jsbb_Engine internally (not JS throw)
 type ResultValue = number;
 
-type IntPtr = number;
+type IntPtr = number; // wasm32 的 指针宽度 4 位所以能兼容
 
 interface WasmProtocol {
     UTF8ToString(ptr: Pointer): string;
@@ -77,7 +77,7 @@ type EngineID = number;
 type GlobalID = number;
 
 type CString = number;
-type Pointer = number;
+type Pointer = number; // wasm32 的 指针宽度 4 位所以能兼容
 type FunctionPointer = number;
 type FinalizationRegistryCallbackInfo = Pointer;
 
@@ -422,8 +422,6 @@ class jsbb_External {
 }
 
 class jsbb_Engine {
-    private _id: EngineID;
-
     // a fake global for Environment
     // private _global: object;
 
@@ -459,9 +457,8 @@ class jsbb_Engine {
         jsbb_console.trace("removed a trivial exception:", typeof value, value);
     }
 
-    constructor(engine_id: EngineID, opaque: Pointer) {
-        jsbb_console.trace("new engine", engine_id, opaque);
-        this._id = engine_id;
+    constructor(opaque: Pointer) {
+        jsbb_console.trace("new engine", opaque);
         this._opaque = opaque;
         // this._global = {};
         this._stack = new jsbb_Stack();
@@ -1543,7 +1540,10 @@ class _jsbb_ {
     static evalResult: Function | undefined = undefined;
     static interop: InteropProtocol;
     static wasmop: WasmProtocol;
+    // 本 realm 的主 engine（第一个创建的）：worker 消息等 realm 级路径绑定它。
+    // 其余 engine（ShadowRealm 等）只经 `GetEngine(id)` 按 id 访问。
     static engine: jsbb_Engine | undefined;
+    private static engines = new Map<IntPtr, jsbb_Engine>(); // Engine opaque -> jsbb_Engine
     private static _i64: BigInt64Array;
     private static _u64: BigUint64Array;
     private static _pending_worker_messages: Array<QueuedWorkerMessage> = [];
@@ -1632,38 +1632,38 @@ class _jsbb_ {
     }
 
     static NewEngine(opaque: Pointer) {
-        if (typeof this.engine !== "undefined") {
-            jsbb_console.error("temporarily support only one engine");
-            return -1;
+        // 一个 realm（线程的 JS global）可以承载多个 engine：主环境一个、每个 ShadowRealm 一个。
+        // 键直接用 C++ `Isolate` 的 opaque（wasm32 下指针宽度即 number；`JSRuntime` 在 C++ 侧
+        // 只是当不透明值回传）。生命周期与表项严格成对：`NewEngine` 入表、`FreeEngine` 删表
+        // （`Isolate::_release` 先删表再析构），此后过期键只可能 miss，不会命中别的 engine。
+        const engine = new jsbb_Engine(opaque);
+        this.engines.set(opaque, engine);
+        // 第一个创建的 engine 是本 realm 的主 engine：worker 消息等 realm 级路径绑定它
+        // （ShadowRealm 不使用该路径，见 `handle_message`/`PostMessage`）。
+        if (this.engine === undefined) {
+            this.engine = engine;
         }
-
-        // engine_id 是"**本 realm 的那一个 engine**"的地址（保持上游形态：恒为 0）。
-        // 每个线程一个 JS realm（worker = 一个 Web Worker = 一个 globalThis），各有各的 `_jsbb_`，
-        // 因此"同一时刻只支持一个 engine"= 一个 realm 一个，多线程 worker 天然满足。
-        // 它的前提不变量是：一个 isolate（及其 Global/句柄）只在创建它的线程/realm 上使用
-        // —— 这也是 v8 对 v8::Global 的语义要求（参见 jsb_environment.cpp 里 free_object 的跨线程处理）。
-        // 注意：正因为 id 按 realm 解析，"跨线程误用句柄"在上游形态下无法被发现，只会静默命中
-        // 本 realm 的同号句柄；如需把这种误用变成可见错误，可把 id 改成 isolate opaque 并校验归属。
-        this.engine = new jsbb_Engine(0, opaque);
         this.flush_pending_worker_messages();
-        return 0;
+        return opaque;
     }
 
     static FreeEngine(engine_id: EngineID) {
-        if (engine_id !== 0) {
-            jsbb_console.error("invalid engine id");
+        const engine = this.engines.get(engine_id);
+        if (engine === undefined) {
+            jsbb_console.error("invalid engine id", engine_id);
             return;
         }
-        this.engine!.Release();
-        this.engine = undefined;
+        engine.Release();
+        this.engines.delete(engine_id);
     }
 
     static GetEngine(engine_id: EngineID) {
-        if (engine_id !== 0) {
-            jsbb_console.error("invalid engine id");
+        const engine = this.engines.get(engine_id);
+        if (engine === undefined) {
+            jsbb_console.error("invalid engine id", engine_id);
             return undefined;
         }
-        return this.engine;
+        return engine;
     }
 
     static is_object(val: unknown): val is object {

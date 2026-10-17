@@ -252,4 +252,17 @@ Maybe<bool> Promise::Resolver::Reject(Local<Context> context, Local<Value> value
 	return Maybe<bool>(true);
 }
 
+Local<Value> Proxy::GetTarget() const {
+	const jsb::impl::StackPosition sp = jsbi_ProxyGetTarget(isolate_->rt(), stack_pos_);
+	return Local<Value>(Data(isolate_, sp));
+}
+
+MaybeLocal<Proxy> Proxy::New(Local<Context> context, Local<Value> target, Local<Object> handler) {
+	Isolate *isolate = context->GetIsolate();
+	const jsb::impl::StackPosition target_sp = static_cast<jsb::impl::StackPosition>(target);
+	const jsb::impl::StackPosition handler_sp = static_cast<jsb::impl::StackPosition>(handler);
+	const jsb::impl::StackPosition sp = jsbi_ProxyNew(isolate->rt(), target_sp, handler_sp);
+	return MaybeLocal<Proxy>(Data(isolate, sp));
+}
+
 } //namespace v8

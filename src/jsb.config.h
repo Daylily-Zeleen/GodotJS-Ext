@@ -230,11 +230,9 @@
 #define JSB_JSON_EXT "json"
 
 /** EXPERIMENTAL: 是否启用 ShadowRealm 功能 */
-#if !JSB_WITH_WEB
-#	define JSB_SHADOW_REALM_ENABLED 1
-#else // JSB_WITH_WEB
-#	define JSB_SHADOW_REALM_ENABLED 0
-#endif // JSB_WITH_WEB
+/* web 也不再禁用：web shim 已支持同 realm 多 engine（见 10-17-web-shadow-realm），
+   shadow env 与主 env 共享 JS realm（`globalThis`），隔离语义由 C++ 侧的独立 isolate 状态承担。 */
+#define JSB_SHADOW_REALM_ENABLED 1
 
 /**
  * EXPERIMENTAL: 是否在使用 JSB_ISOLATE_SCOPE 时使用 v8::Locker 加锁。

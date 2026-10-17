@@ -65,6 +65,10 @@ public:
 	bool IsBigInt() const;
 	bool IsExternal() const;
 	bool IsArrayBuffer() const;
+	// 转成 primitive（对象走 valueOf），结果压入新栈槽后以 Data 返回
+	Data ToPrimitive() const;
+	// SameValue（符号/名字按身份相等）
+	bool Equals(const Data &other) const;
 
 private:
 	bool strict_eq(const Data &other) const;

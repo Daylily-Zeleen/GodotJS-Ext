@@ -61,4 +61,12 @@ private:
 	bool has_value_ = false;
 	T value_;
 };
+
+// 对齐 v8::Just / v8::Nothing 的自由函数形式
+template <typename T>
+Maybe<T> Just(T value) { return Maybe<T>(value); }
+
+template <typename T>
+Maybe<T> Nothing() { return Maybe<T>(); }
+
 } //namespace v8

@@ -25,6 +25,12 @@
  *  see <https://www.gnu.org/licenses/>.
  */
 
+// v8::Proxy::GetTarget 的 shim：自建 Proxy 时记录 target（同 realm 内可解）
+const _jsbb_proxy_targets = new WeakMap();
+
+// web 序列化 stash：同线程的所有引擎共享同一模块作用域，值以引用直通
+const _jsbb_ser_store = [];
+
 const GodotJSBrowserInterface = {
     // $GodotJSBrowserInterface__deps: ['$GodotRuntime'],
     // $GodotJSBrowserInterface: {},
@@ -125,6 +131,81 @@ const GodotJSBrowserInterface = {
     "jsbi_Uint64Value": function (engine_id, stack_pos, o_value_ptr) { return _jsbb_.GetEngine(engine_id).Uint64Value(stack_pos, o_value_ptr); },
 
     "jsbi_hash": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).GetIdentityHash(stack_pos); },
+    "jsbi_ToPrimitive": function (engine_id, val_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        let v = engine.stack.GetValue(val_sp);
+        if (v !== null && v !== undefined && (typeof v === "object" || typeof v === "function")) {
+            v = typeof v.valueOf === "function" ? v.valueOf() : v;
+            if (v !== null && typeof v === "object") {
+                v = typeof v.toString === "function" ? String(v) : Object.prototype.toString.call(v);
+            }
+        }
+        return engine.stack.Push(v);
+    },
+    "jsbi_ProxyNew": function (engine_id, target_sp, handler_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        const proxy = new Proxy(engine.stack.GetValue(target_sp), engine.stack.GetValue(handler_sp));
+        // v8::Proxy::GetTarget() 在 JS 里没有公开访问器；shim 自建 Proxy 时把 target 记下来
+        _jsbb_proxy_targets.set(proxy, target);
+        return engine.stack.Push(proxy);
+    },
+    "jsbi_ProxyGetTarget": function (engine_id, proxy_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        const proxy = engine.stack.GetValue(proxy_sp);
+        return engine.stack.Push(typeof proxy === "object" && proxy !== null ? (_jsbb_proxy_targets.get(proxy) ?? proxy) : undefined);
+    },
+    "jsbi_SerializerStash": function (engine_id, val_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        _jsbb_ser_store.push(engine.stack.GetValue(val_sp));
+        return _jsbb_ser_store.length - 1;
+    },
+    "jsbi_SerializerTake": function (engine_id) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push(_jsbb_ser_store.length > 0 ? _jsbb_ser_store.shift() : undefined);
+    },
+    "jsbi_SerKind": function (engine_id, val_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        const v = engine.stack.GetValue(val_sp);
+        if (v === null || v === undefined) return 0;
+        if (Array.isArray(v)) return 1;
+        if (typeof v === "object") {
+            const proto = Object.getPrototypeOf(v);
+            if (proto === Object.prototype || proto === null) return 2;
+        }
+        return 0;
+    },
+    "jsbi_ArrayGet": function (engine_id, arr_sp, index) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push(engine.stack.GetValue(arr_sp)[index]);
+    },
+    "jsbi_ArraySet": function (engine_id, arr_sp, index, val_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        engine.stack.GetValue(arr_sp)[index] = engine.stack.GetValue(val_sp);
+    },
+    "jsbi_ArrayLen": function (engine_id, arr_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.GetValue(arr_sp).length;
+    },
+    "jsbi_OwnKeys": function (engine_id, obj_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push(Object.keys(engine.stack.GetValue(obj_sp)));
+    },
+    "jsbi_GetProp": function (engine_id, obj_sp, key_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push(engine.stack.GetValue(obj_sp)[engine.stack.GetValue(key_sp)]);
+    },
+    "jsbi_SetProp": function (engine_id, obj_sp, key_sp, val_sp) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        engine.stack.GetValue(obj_sp)[engine.stack.GetValue(key_sp)] = engine.stack.GetValue(val_sp);
+    },
+    "jsbi_NewPlainObject": function (engine_id) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push({});
+    },
+    "jsbi_SerNewArray": function (engine_id, length) {
+        const engine = _jsbb_.GetEngine(engine_id);
+        return engine.stack.Push(new Array(length));
+    },
     "jsbi_stack_eq": function (engine_id, stack_pos1, stack_pos2) {
         const v1 = _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos1);
         const v2 = _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos2);
