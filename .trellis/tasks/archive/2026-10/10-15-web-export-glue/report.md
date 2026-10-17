@@ -605,3 +605,10 @@ v2（当前实现，`jsb_environment.cpp:1146+`）：
 | native 回归 | `node_shim.log` / `doctest_shim.log` / `hostnode_s.log` | rc=0、98\|98+1280\|1280、host-node PASS |
 
 **调试注意点（记录）**：在 `Global::Reset()` / `Broker::owns_current_thread()` 这两处，`JSB_WEB_LOG(Error/Warning, …)` 的运行结果**不会出现在抓取的日志里**（该时刻 logger 已不可用），只有 `jsb_checkf`/FATAL 可见 —— 排查同类问题时，不能用"日志没出现"推断"代码没执行"。
+
+
+### 2026-10-17（CI 验证）：host-jsc 修复已过 CI
+
+- PR run `39008563724`（head `78289a6`）：**conclusion=success**；
+  `Test (host-jsc, macos-latest)` → **success**（修复前该 job 在 main 上即为 failure，run `38828744426` 同样红）。
+- 本轮 CI 相关提交：`b1e9886`（web glue 门控 + `web-bridge-js` 产物 → build matrix 全绿，`39005238205` 33 成功/1 失败(host-jsc)/3 skipped）、`78289a6`（jsc `-0.0` + 字典缺键读取）。
