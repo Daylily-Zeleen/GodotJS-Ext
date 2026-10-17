@@ -41,6 +41,11 @@ static bool is_strict_integer_in_range(const JSContextRef ctx, const JSValueRef 
 	if (!std::isfinite(number) || std::trunc(number) != number) {
 		return false;
 	}
+	// `-0.0` 的位表示不是 0：v8 实测 `IsInt32()`/`IsUint32()` 对它都返回 false（于是
+	// `eval_source("-0")` 归到 Variant::FLOAT）。范围比较对 `-0.0` 与 `0.0` 同真，必须显式排除。
+	if (number == 0.0 && std::signbit(number)) {
+		return false;
+	}
 	return number >= min && number <= max;
 }
 

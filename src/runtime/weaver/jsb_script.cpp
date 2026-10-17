@@ -321,9 +321,13 @@ TypedArray<Dictionary> GodotJSScript::_get_documentation() const {
 	if (!loaded_ || !is_valid_internal()) return {};
 
 	const Dictionary class_basic_info = GodotJSScriptLanguage::get_singleton()->_get_global_class_name(get_path());
-	String base_type = class_basic_info["base_type"];
+	// 该字典在"没有编辑器插件 / 解析不出全局类"时是空的（见 `jsb_script_language.cpp` 的
+	// `_get_global_class_name`），所以只能用 `get()`：`operator[]` 缺键会触发引擎
+	// "Bug: Dictionary::operator[] used when there was no value..." 并留下 nil Variant
+	// （单测里能看到该报错与退出时的 Variant 泄漏告警）。
+	const String base_type = class_basic_info.get("base_type", String());
 	Dictionary class_doc;
-	class_doc["name"] = class_basic_info["class"];
+	class_doc["name"] = class_basic_info.get("class", StringName());
 	class_doc["inherits"] = base_type.is_empty() ? Variant("Object") : Variant(base_type);
 	class_doc["is_script_doc"] = true;
 	class_doc["brief_description"] = script_class_info_.doc.brief_description;
