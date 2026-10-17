@@ -691,9 +691,19 @@ generate_jsb_gen_header()
 
 # Generate the web glue header: EM_JS carriers so the extension side module ships its own
 # web bridge + jsbi_* implementations (see misc/build/generate_web_glue_header.py).
-web_glue_script = os.path.join("misc", "build", "generate_web_glue_header.py")
-if os.path.exists(web_glue_script):
-    subprocess.run([sys.executable, web_glue_script, src_dir], check=True)
+# 只有 web 腿会编译 `src/runtime/impl/web/*`（`JSB_WITH_WEB` 仅在 platform==web 时定义），
+# 所以只有它需要这份 glue——其它平台不该因此依赖 JS 工具链（CI 的 build matrix 不装 pnpm，
+# 靠 `scripts-out` + `web-bridge-js` 产物）。缺输入时给出可执行的提示，而不是 Python 堆栈。
+if is_defined("JSB_WITH_WEB"):
+    web_glue_script = os.path.join("misc", "build", "generate_web_glue_header.py")
+    if os.path.exists(web_glue_script):
+        bridge_js = os.path.join(src_dir, "runtime", "impl", "web", "js", "jsbb.impl.js")
+        if not os.path.exists(bridge_js):
+            raise SystemExit(
+                "[jsb] web 腿需要 JS 桥产物 '%s'，但它不存在。\n"
+                "      先构建桥：pnpm -C src/runtime/impl/web/bridge build\n"
+                "      （CI 里由 `web-bridge-js` 产物提供，见 .github/workflows/ci.yml）" % bridge_js)
+        subprocess.run([sys.executable, web_glue_script, src_dir], check=True)
 
 # Use absolute paths to ensure compile_commands.json has correct include paths
 # NOTE: no /FS here anymore. Debug-info writes go through /Z7 (see

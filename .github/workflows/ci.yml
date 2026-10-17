@@ -117,6 +117,15 @@ jobs:
           path: ${{github.workspace}}/scripts/out
           retention-days: 1
 
+      # web 腿的 SConstruct 用桥的 tsc 产物（src/runtime/impl/web/js/jsbb.impl.js）生成
+      # jsb_web_glue.gen.h；build matrix 里没有 pnpm，所以把它一并交给 matrix 下载。
+      - name: Upload web bridge output
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-bridge-js
+          path: ${{github.workspace}}/src/runtime/impl/web/js
+          retention-days: 1
+
   # Static-vs-dynamic binding benchmark (manual trigger only).
   #
   # Split like a normal build leg: benchmark-build produces one extension per
@@ -601,6 +610,14 @@ jobs:
         with:
           name: scripts-out
           path: scripts/out
+
+      # 只有 web 腿需要桥产物（见 SConstruct 里按 JSB_WITH_WEB 门控的 glue 生成）
+      - name: Download web bridge output
+        if: matrix.engine == 'web'
+        uses: actions/download-artifact@v8
+        with:
+          name: web-bridge-js
+          path: src/runtime/impl/web/js
 
       # Fast path for dependency iteration: pull the per-platform bundles from a
       # GodotJS-Dependencies run's ci-<run id> release, so a dependency fix can be
