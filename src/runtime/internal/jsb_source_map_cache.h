@@ -65,7 +65,7 @@ private:
 	SourceMap *find_source_map(const String &p_filename);
 
 	Ref<RegEx> source_map_match1_;
-#	if JSB_WITH_V8
+#	if JSB_WITH_V8 || JSB_WITH_WEB
 	Ref<RegEx> source_map_match2_;
 #	endif
 	HashMap<String, SourceMap> cached_source_maps_;

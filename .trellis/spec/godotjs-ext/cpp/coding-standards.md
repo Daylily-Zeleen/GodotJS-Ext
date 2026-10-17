@@ -34,3 +34,11 @@ class MyClass { std::string name; };
 `third/` 下的库（godot-cpp、quickjs、quickjs-ng、v8、lws、doctest）是**外部依赖子模块**，原则上**只读**；如需适配，在 `src/` 侧（runtime / compat / bridge）写兼容层，不直接改第三方源码。例外须用户明确确认。
 
 godot-cpp 的具体使用约束（`_` 前缀虚函数、`godot::` 类型、接口表初始化）见 [godot-cpp-usage.md](./godot-cpp-usage.md)。
+
+## 注释语言
+
+- **新增注释一律用简短中文**（源码、测试、构建脚本同样适用）；一句话能说清就不写三行。
+- 只有定论值得留：说清「为什么」或「与直觉相反的点」，不复述代码在做什么。
+- 存量英文注释不强制改写；改到附近时顺手中文化。
+- 标识符、API 名、专有名词保留原文；`NOTE` / `TODO` 等标记词保留英文。
+- commit message 仍用英文（见仓库根 `AGENTS.md`）。

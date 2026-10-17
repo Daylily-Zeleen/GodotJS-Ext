@@ -357,7 +357,7 @@ Vector<String> get_api_data_files(bool p_exclude_editor_types, bool p_extension_
 #endif // DISABLED_DEPRECATED
 			 }) {
 			const String dir_path = base_dir.path_join(folder);
-			for (const String &file : DirAccess::get_files_at(classes_dir_path)) {
+			for (const String &file : DirAccess::get_files_at(dir_path)) {
 				result.push_back(dir_path.path_join(file));
 			}
 		}

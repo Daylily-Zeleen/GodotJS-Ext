@@ -41,7 +41,8 @@ class Helper {
 public:
 	// deleter for valuetype optimization (no ObjectHandle needed)
 	static void SetDeleter(Variant *p_pointer, const v8::Local<v8::Object> value, const v8::WeakCallbackInfo<void>::Callback callback, void *deleter_data) {
-		//TODO [web.impl] SetDeleter: not tested
+		// 浏览器 GC 回收该对象时由 jsni_gc_callback() 消费该 payload
+		// （对象把 internal data 注册进了桥的 FinalizationRegistry）
 		v8::Isolate *isolate = value->GetIsolate();
 		const jsb::impl::StackPosition sp = value->stack_pos_;
 		const jsb::impl::InternalDataID index = (jsb::impl::InternalDataID)(uintptr_t)jsbi_GetOpaque(isolate->rt(), sp);

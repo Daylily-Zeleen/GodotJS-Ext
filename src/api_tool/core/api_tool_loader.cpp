@@ -88,7 +88,7 @@ void ApiLoader::update_base_dir() {
 	if (singleton) {
 		ProjectSettings *ps = ProjectSettings::get_singleton();
 		bool use_hidden = ps->get_setting_with_override("application/config/use_hidden_project_data_directory");
-		singleton->base_dir_ = ps->globalize_path(vformat("res://%sgodot/.api_dumping", use_hidden ? "." : ""));
+		singleton->base_dir_ = vformat("res://%sgodot/.api_dumping", use_hidden ? "." : "");
 	}
 }
 

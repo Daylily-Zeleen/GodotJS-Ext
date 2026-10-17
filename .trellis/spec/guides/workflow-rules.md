@@ -114,4 +114,4 @@
 
 ## 文档语言
 
-项目自述类文档（spec、任务、归档、知识文档）一律用**中文**书写；代码注释与 commit message 惯例不变（commit message 英文）。
+项目自述类文档（spec、任务、归档、知识文档）一律用**中文**书写；代码新增注释用**简短中文**（规范见 `godotjs-ext/cpp/coding-standards.md` 的「注释语言」节）；commit message 英文。

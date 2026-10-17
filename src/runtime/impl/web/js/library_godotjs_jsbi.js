@@ -174,12 +174,14 @@ const GodotJSBrowserInterface = {
     },
     "jsbi_IsInt32": function (engine_id, stack_pos) {
         const val = _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos);
-        return typeof val === "number" && Number.isInteger(val);
+        // v8 取值范围语义：超出 Int32 的整数值不是 Int32。这里报 true 会让所有 64 位整数
+        // （含 ObjectID）走 JS->Godot 的 Int32 分支而被截断。
+        return typeof val === "number" && Number.isInteger(val) && val >= -2147483648 && val <= 2147483647;
     },
     // not really supported
     "jsbi_IsUint32": function (engine_id, stack_pos) {
         const val = _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos);
-        return typeof val === "number" && Number.isInteger(val);
+        return typeof val === "number" && Number.isInteger(val) && val >= 0 && val <= 4294967295;
     },
 
     "jsbi_IsPromise": function (engine_id, stack_pos) { return _jsbb_.GetEngine(engine_id).stack.GetValue(stack_pos) instanceof Promise; },

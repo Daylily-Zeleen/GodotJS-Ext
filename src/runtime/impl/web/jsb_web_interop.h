@@ -69,6 +69,9 @@ enum {
 } //namespace jsb::impl
 
 // global init
+// evaluates the embedded web bridge + jsbi_* library in the main module scope (idempotent)
+JSBROWSER_API void jsb_web_glue_ensure();
+
 JSBROWSER_API void jsbi_init(
 		jsb::impl::FunctionPointer gc_callback,
 		jsb::impl::FunctionPointer unhandled_rejection,

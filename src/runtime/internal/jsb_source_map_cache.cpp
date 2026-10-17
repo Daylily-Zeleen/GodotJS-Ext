@@ -72,7 +72,8 @@ bool SourceMapCache::match(const String &p_line, MatchResult &r_result) {
 	return true;
 #	else // V8 / quickjs-ng
 	if (source_map_match1_.is_null()) source_map_match1_ = RegEx::create_from_string(R"(\s+at\s(.+)\s\((.+\.js):(\d+):(\d+)\))"); // e.g. at xxx (file.js:1:2)
-#		if JSB_WITH_V8
+#		if JSB_WITH_V8 || JSB_WITH_WEB
+	// web 腿的 JS 引擎就是浏览器 V8：匿名帧同样没有括号（`at file.js:1:2`），需要第二个模式
 	if (source_map_match2_.is_null()) source_map_match2_ = RegEx::create_from_string(R"(\s+at\s(.+\.js):(\d+):(\d+))"); // e.g. at file.js:1:2
 	const Ref<RegEx> &regex = p_line.contains("(") && p_line.contains(")")
 			? source_map_match1_

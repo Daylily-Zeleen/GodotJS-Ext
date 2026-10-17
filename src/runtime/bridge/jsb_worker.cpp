@@ -255,7 +255,11 @@ public:
 		const v8::MaybeLocal<v8::Value> rval = callback.As<v8::Function>()->Call(context, context_obj, 1, argv);
 		jsb_unused(rval);
 		if (try_catch.has_caught()) {
-			JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			// 加载路径已把失败转发给 master；用户 `onmessage` 里的抛错也要走同一条路，
+			// 否则宿主 onerror 不会触发（cross-environment 用例断言了这一点）。
+			if (!env_->forward_error_to_master(try_catch.get_exception_value(), Environment::ErrorForwardMode::Async)) {
+				JSB_WORKER_LOG(Error, "%s", BridgeHelper::get_exception(try_catch));
+			}
 		}
 	}
 
@@ -354,6 +358,8 @@ public:
 
 #if JSB_WITH_WEB
 		impl->pthread_id_ = pthread_self();
+		// worker 线程有自己的 JS global，桥必须按线程初始化.
+		impl::GlobalInitialize::init();
 #else
 		const OS *os = OS::get_singleton();
 		uint64_t last_ticks = Time::get_singleton()->get_ticks_msec();

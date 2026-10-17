@@ -134,10 +134,10 @@ TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 		CHECK(result.col == 39);
 	}
 
-#	if JSB_WITH_V8
-	// V8-only: a frame with no function name loses the parentheses too, i.e. the bare
+#		if JSB_WITH_V8
+	// V8 (含 web 腿的浏览器 V8): a frame with no function name loses the parentheses too, i.e. the bare
 	// `at <filename>:<line>:<col>` form. quickjs/quickjs-ng never emit this - they always
-	// keep the parentheses (filling the name with `<anonymous>`), so `match2_` is V8-only.
+	// keep the parentheses (filling the name with `<anonymous>`).
 	// V8 style without function name: at <filename>:<line>:<col>
 	{
 		CHECK(cache.match("    at F:\\中文路径\\testScript.js:91:26", result));
@@ -146,13 +146,12 @@ TEST_CASE("[runtime] [jsb.sourcemap] match one-based to zero-based") {
 		CHECK(result.line == 90);
 		CHECK(result.col == 25);
 	}
-#	endif // JSB_WITH_V8
+#		endif // JSB_WITH_V8
 
 	// a line without any stack frame should not match
 	{
 		CHECK(!cache.match("TypeError: Cannot read properties of undefined (reading 'name')", result));
 	}
-
 }
 #	else // classic quickjs (no column)
 TEST_CASE("[runtime] [jsb.sourcemap] classic quickjs match without column") {

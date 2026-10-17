@@ -280,6 +280,12 @@ void PromiseRejectCallback_(v8::PromiseRejectMessage message) {
 	v8::Isolate *isolate = promise->GetIsolate();
 
 	const String str = impl::Helper::to_string_without_side_effect(isolate, message.GetValue());
+
+	if (Environment *env = Environment::wrap(isolate)) {
+		if (env->forward_error_to_master(message.GetValue(), Environment::ErrorForwardMode::Async)) {
+			return;
+		}
+	}
 	JSB_LOG(Error, "unhandled promise rejection: %s", str);
 }
 } //namespace

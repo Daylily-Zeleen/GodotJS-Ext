@@ -43,4 +43,12 @@ void Broker::SetWeakCallback(v8::Isolate *isolate, HandleID value, void *paramet
 JSRuntime Broker::get_engine(v8::Isolate *isolate) {
 	return isolate->rt();
 }
+
+bool Broker::owns_current_thread(v8::Isolate *isolate) {
+	return isolate->owns_current_thread();
+}
+
+void Broker::proxy_release_handle(v8::Isolate *isolate, HandleID value, bool weak) {
+	isolate->proxy_release_handle(value, weak);
+}
 } //namespace jsb::impl

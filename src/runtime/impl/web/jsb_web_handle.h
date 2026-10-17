@@ -205,6 +205,16 @@ public:
 	void Reset() {
 		if (!isolate_) return;
 
+		// 跨线程：本线程可能拿着**别的 realm**（别的 pthread）的句柄槽。典型来源：Godot 从任意线程
+		// 销毁带 instance binding 的对象 → `InstanceBindingCallbacks::free_callback` →
+		// `Environment::free_object()`，而那个 Environment 属于别的线程。web 上一个 pthread 只能访问
+		// 自己的 JS global，所以槽的释放必须推回属主线程执行（web shim 内自洽，不牵动 bridge）。
+		if (!jsb::impl::Broker::owns_current_thread(isolate_)) {
+			jsb::impl::Broker::proxy_release_handle(isolate_, value_, weak_type_ != WeakType::kStrong);
+			_clear();
+			return;
+		}
+
 		switch (weak_type_) {
 			case WeakType::kStrong: {
 				// release if strong referenced
@@ -224,9 +234,7 @@ public:
 				break;
 		}
 
-		isolate_ = nullptr;
-		value_ = -1;
-		weak_type_ = WeakType::kStrong;
+		_clear();
 	}
 
 	void Reset(Isolate *isolate, Local<T> value) {
