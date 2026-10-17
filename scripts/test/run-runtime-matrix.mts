@@ -28,7 +28,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, Server as HttpServer } from "node:http";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename: string = fileURLToPath(import.meta.url);
@@ -41,7 +41,10 @@ const testsBinDir: string = join(moduleRoot, "tests/bin");
 // Engine source root for scons builds (web templates only). The *host* engine is
 // never built or copied here — it is resolved from PATH as `godot`.
 const godotBuildDir: string = join(godotRoot, "bin");
-const godotExecutable: string = "godot";
+// 本机 `bin/` 常有多个引擎版本共存，PATH 里的 `godot` 未必是目标版本（甚至可能是
+// 非 Windows 可执行的转发脚本）。用 `GODOT_BIN` 显式指定引擎（绝对路径或 PATH 中的
+// 文件名）来覆盖；不设时回落到 `godot`。
+const godotExecutable: string = process.env.GODOT_BIN || "godot";
 const testSentinel: string = "GODOTJS_TEST_PROJECT_COMPLETED";
 const testFailureSentinelPrefix: string = "GODOTJS_TEST_PROJECT_FAILED:";
 const hostFailurePatterns: RegExp[] = [
@@ -199,11 +202,20 @@ function runCommand(label: string, command: string, args: string[], options: Run
 }
 
 /**
- * 解析宿主引擎：始终用 PATH 中的 `godot`。
+ * 解析宿主引擎：
+ * - `GODOT_BIN` 给出绝对路径时直接采用（本机 `bin/` 多版本共存时用它钉住版本）；
+ * - 否则按名字在 PATH 中查找（`where`/`which`）。
  * 不再扫描 `<repo>/../../bin/`、不再按平台正则找最新文件、不再拷进 `tests/bin`——
- * 引擎由调用方（CI 或本地环境）提供并置于 PATH。
+ * 引擎由调用方（CI 或本地环境）提供。
  */
 function resolveGodotExecutable(): string {
+    if (isAbsolute(godotExecutable)) {
+        if (!existsSync(godotExecutable)) {
+            throw new Error(`host engine "${godotExecutable}" does not exist`);
+        }
+        return godotExecutable;
+    }
+
     const probe = spawnSync(isWindows ? "where" : "which", [godotExecutable], { encoding: "utf-8" });
 
     if (probe.status !== 0) {
