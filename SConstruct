@@ -67,6 +67,9 @@ third_dir = third_folder_name
 # _get_api_file), and our static-binding codegen uses the very same file below.
 # Keep it in sync with the .gdextension compatibility_minimum.
 API_VERSION = "4.7"
+
+# 强制重新生成godot-cpp绑定，防止本地跨平台/架构编译测试时使用了错误的生成结果
+env["generate_bindings"] = True
 env = SConscript("third/godot-cpp/SConstruct", {"env": env, "customs": customs, "api_version": API_VERSION})
 
 # godot-cpp sets SHLIBPREFIX="" only on Windows; on Linux/macOS the default is

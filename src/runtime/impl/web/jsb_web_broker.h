@@ -39,5 +39,11 @@ public:
 	static void SetWeakCallback(v8::Isolate *isolate, HandleID value, void *parameter, void *callback);
 
 	static JSRuntime get_engine(v8::Isolate *isolate);
+
+	// web：一个 pthread 只能访问自己的 JS global，句柄槽存在该 realm 的 JS 堆里，
+	// 因此只能由属主线程释放。跨线程的 `Global::Reset()` 经这里把释放投递回属主线程。
+	// （放在 Broker 是为了避开 `Global` 头文件里 `Isolate` 是不完整类型的限制。）
+	static bool owns_current_thread(v8::Isolate *isolate);
+	static void proxy_release_handle(v8::Isolate *isolate, HandleID value, bool weak);
 };
 } //namespace jsb::impl

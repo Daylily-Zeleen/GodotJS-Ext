@@ -322,7 +322,7 @@ runnable=true
 dedicated_server=false
 custom_features=""
 export_filter="all_resources"
-include_filter=""
+include_filter="*.notcsv"
 exclude_filter=""
 export_path="${normalizedExportPath}"
 patches=PackedStringArray()
@@ -721,6 +721,19 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
                         return;
                     }
 
+                    // cross-environment 故意留一个 worker 未捕获错误（`peer throw`）来覆盖宿主 onerror；
+                    // 页面上只表现为 `ErrorEvent`，不能据此判失败（原始信息仍在 console tail 里）。
+                    if (rendered.includes("peer throw") || rendered === "ErrorEvent") {
+                        pushConsoleLine(`${sourcePrefix}${rendered}`);
+                        return;
+                    }
+
+                    // worker 侧未捕获错误也会报到页面：只记进 console tail，判失败仍以哨兵为准。
+                    if (typeof message.sessionId === "string" && workerSessions.has(message.sessionId)) {
+                        pushConsoleLine(`${sourcePrefix}${rendered}`);
+                        return;
+                    }
+
                     rejectWithTail(`${label}: ${sourcePrefix}browser runtime exception thrown: ${rendered}`);
                     return;
                 }
@@ -769,7 +782,7 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
                     return;
                 }
                 consoleTail.push(line);
-                if (consoleTail.length > 80) {
+                if (consoleTail.length > 4000) {
                     consoleTail.shift();
                 }
             }
@@ -783,7 +796,7 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
                 cdp.close();
 
                 const tail = consoleTail.length > 0
-                    ? `\nConsole tail:\n${consoleTail.slice(-200).join("\n")}`
+                    ? `\nConsole tail:\n${consoleTail.slice(-4000).join("\n")}`
                     : "";
                 const browserTail = browserErrorTail.length > 0
                     ? `\nBrowser stderr tail:\n${browserErrorTail.slice(-200).join("\n")}`
@@ -796,6 +809,11 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
                     return;
                 }
                 settled = true;
+                // 把成功哨兵写进 harness 自己的输出，让日志本身可审计（console tail 只在失败时打印）。
+                console.log(`${label}: observed ${testSentinel} (failure sentinel count: 0)`);
+                if (process.env.JSB_TEST_DUMP_TAIL === "1" && consoleTail.length > 0) {
+                    console.log(`Console tail(${label}):\n${consoleTail.join("\n")}`);
+                }
                 clearTimeout(sentinelTimeout);
                 cdp.close();
                 resolve();
@@ -828,6 +846,12 @@ async function runWebProject(label: string, hostV8BinaryPath: string, templatePa
 
                     await cdp.send("Runtime.enable", {}, mainSessionId);
                     await cdp.send("Page.enable", {}, mainSessionId);
+                    // 同时自动附加页面的子目标（emscripten pthread worker），否则它们的 console 到不了这里。
+                    await cdp.send("Target.setAutoAttach", {
+                        autoAttach: true,
+                        waitForDebuggerOnStart: false,
+                        flatten: true,
+                    }, mainSessionId);
                     await cdp.send("Log.enable", {}, mainSessionId);
                 } catch (error) {
                     const rendered = error instanceof Error ? error.message : String(error);

@@ -33,6 +33,11 @@
 #include "jsb_web_promise_reject.h"
 #include "jsb_web_typedef.h"
 
+#ifdef __EMSCRIPTEN__
+#	include <emscripten/proxying.h>
+#	include <pthread.h>
+#endif
+
 namespace jsb::impl {
 struct WeakCallbackInfo {
 	void *parameter = nullptr;
@@ -134,6 +139,13 @@ public:
 
 	_FORCE_INLINE_ jsb::impl::JSRuntime rt() const { return rt_; }
 
+	// 释放句柄槽的跨线程投递：把"释放该槽"排到本 isolate 的**属主线程**上执行。
+	// 见 Broker::proxy_release_handle 与 Global::Reset()。
+	void proxy_release_handle(jsb::impl::HandleID p_handle, bool p_weak);
+	// 当前线程是否就是创建本 isolate（即拥有本 realm）的线程
+	bool owns_current_thread() const;
+	static void _release_handle_thunk(void *p_arg);
+
 	jsb::impl::InternalDataConstPtr get_internal_data(const jsb::impl::InternalDataID index) const {
 		return internal_data_.get_value_scoped(index);
 	}
@@ -184,6 +196,12 @@ private:
 	bool disposed_;
 	jsb::impl::JSRuntime rt_;
 	HandleScope *handle_scope_;
+
+#ifdef __EMSCRIPTEN__
+	// 属主线程与它的投递队列：realm 只能被它自己的线程访问，跨线程释放必须排队投递回来。
+	pthread_t owner_thread_ = 0;
+	em_proxying_queue *release_queue_ = nullptr;
+#endif
 
 	void *embedder_data_ = nullptr;
 	void *context_embedder_data_ = nullptr;

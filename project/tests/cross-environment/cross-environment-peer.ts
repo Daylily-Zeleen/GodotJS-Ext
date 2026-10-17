@@ -115,6 +115,7 @@ function assertDeepMixedGraph(payload: FullPayloadMessage['payload']) {
 	}
 }
 
+let controlObject: Node | null = null;
 let objectTransferObject: GodotObject | null = null;
 
 // Worker and transferable shadow realms expose the same message protocol.
@@ -146,7 +147,9 @@ if (messageParent) {
 					const response: ObjectTransferMessage = { type: MessageType.ObjectTransfer, action: message.action };
 					if (message.action === 'control') {
 						// Never transferred: its deletion proves the peer entered native teardown.
-						response.controlId = new Node().get_instance_id();
+						// 必须持有引用：临时包装对象随时可被回收，web 上这个 id 会立刻失效。
+						controlObject = new Node();
+						response.controlId = controlObject.get_instance_id();
 					} else if (message.action === 'singleton') {
 						if (!message.singletonName) fail('missing object-transfer singleton name');
 						// Use the actual Proxy, not an interop namespace copy, to exercise first access.

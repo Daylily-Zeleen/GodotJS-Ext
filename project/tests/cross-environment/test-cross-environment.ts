@@ -345,7 +345,20 @@ export default class TestCrossEnvironment extends Node {
 			// backend; each backend supplies its own isolated peer.
 			const errorReportingActions: readonly ThrowAction[] = ['onmessage-throw', 'timer-throw'];
 			if (selectedCase !== undefined && !objectTransferCases.includes(selectedCase)) fail(`unknown object-transfer case: ${selectedCase}`);
-			const backends: readonly CrossEnvironmentBackend[] = selectedBackend ? [selectedBackend] : ['worker', 'shadow'];
+			// ShadowRealm 是实验特性，部分腿编译期关闭（web 的 JSB_SHADOW_REALM_ENABLED 为 0，
+			// `godot.shadowRealm` 根本没注册）：跳过该后端并说明原因，而不是判失败。
+			const shadowRealmAvailable = (() => {
+				try {
+					require('godot.shadowRealm');
+					return true;
+				} catch (error) {
+					console.log(`[cross-environment-test] shadowRealm backend unavailable (skipped): ${String(error)}`);
+					return false;
+				}
+			})();
+			const backends: readonly CrossEnvironmentBackend[] = selectedBackend
+				? [selectedBackend]
+				: (shadowRealmAvailable ? ['worker', 'shadow'] : ['worker']);
 			for (const backend of backends) {
 				console.log(`[cross-environment-test] ${backend}:start`);
 				for (const scenario of selectedCase ? [selectedCase] : objectTransferCases) {
@@ -505,10 +518,14 @@ export default class TestCrossEnvironment extends Node {
 		let objectId: Numeric64 | undefined;
 		let childId: Numeric64 | undefined;
 		let resourceObserver: GodotWeakRef | undefined;
+		const sharedObjectDb = !OS.has_feature('web');
+		const synchronousGc = !OS.has_feature('web');
 		const nativeHolder = new Node();
 		try {
 			const control = await this.objectTransferRequest(peer, { type: MessageType.ObjectTransfer, action: 'control' });
-			if (control.controlId === undefined || !is_instance_id_valid(control.controlId)) fail('missing peer teardown control');
+			// web worker 跑独立的 Godot 实例（各自 ObjectDB），对端的 ObjectID 在本侧解析不了；
+			// web 只校验 control id 是否存在，共享 ObjectDB 的腿仍做严格校验。
+			if (control.controlId === undefined || (sharedObjectDb && !is_instance_id_valid(control.controlId))) fail('missing peer teardown control');
 			let object: GodotObject = scenario === 'owned' ? new Node()
 				: scenario === 'native-owned' ? this.createNativeObject()
 				: new Resource();
@@ -525,7 +542,8 @@ export default class TestCrossEnvironment extends Node {
 			}
 			for (let round = 0; round < 3; round++) {
 				const held = await this.objectTransferRequest(peer, { type: MessageType.ObjectTransfer, action: 'hold', object, objectId });
-				if (objectId !== undefined && (held.objectId !== objectId || !is_instance_id_valid(objectId))) {
+				// 同上的 web 限制：对象属于对端实例，这里只能比较携带的身份，不校验本侧有效性。
+				if (objectId !== undefined && (held.objectId !== objectId || (sharedObjectDb && !is_instance_id_valid(objectId)))) {
 					fail(`${scenario}: transfer lost native identity (sent=${String(objectId)}, received=${String(held.objectId)})`);
 				}
 				// Deliberately create the receiving binding BEFORE the return message.
@@ -597,7 +615,9 @@ export default class TestCrossEnvironment extends Node {
 			}
 			globalThis.gc();
 			await this.get_tree().process_frame.as_promise();
-			if (resourceObserver.get_ref() !== null) fail('refcounted: Resource survived native holder release and GC');
+			// 浏览器无法强制 JS 回收：`globalThis.gc()` 存在但不同步回收（用普通对象 WeakRef 对照实测），
+			// 该断言只在提供同步 GC 的运行时上成立。
+			if (synchronousGc && resourceObserver.get_ref() !== null) fail('refcounted: Resource survived native holder release and GC');
 		}
 	}
 

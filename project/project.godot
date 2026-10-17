@@ -36,3 +36,7 @@ test_input_action={
 "deadzone": 0.5,
 "events": []
 }
+
+[audio]
+
+driver/driver="Dummy"

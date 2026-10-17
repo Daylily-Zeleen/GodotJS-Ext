@@ -380,6 +380,8 @@ class jsbb_Registry {
     private _count = 0;
     private engine_opaque: Pointer;
     private watcher: FinalizationRegistry<FinalizationRegistryCallbackInfo>;
+    // 注销令牌：引擎释放时用它一次性撤销本引擎的全部登记，此后 finalizer 不会再被调用
+    private _token = {};
 
     get count() { return this._count; }
 
@@ -398,8 +400,14 @@ class jsbb_Registry {
 
         // opaque saved in obj[opaque.symbol] for GetOpaque(), it's never changed.
         obj[jsbb_opaque] = internal_data;
-        this.watcher.register(obj, internal_data);
+        this.watcher.register(obj, internal_data, this._token);
         ++this._count;
+    }
+
+    Dispose(): void {
+        // 引擎已释放（FreeEngine），其 opaque 悬空：撤销全部登记，之后不会再有 gc 回调进来
+        this.watcher.unregister(this._token);
+        this._count = 0;
     }
 }
 
@@ -423,6 +431,8 @@ class jsbb_Engine {
     private _handles: jsbb_Handles;
     private _registry: jsbb_Registry;
     private _atoms: Array<string>;
+    // 注册到浏览器 realm 的监听器，Release() 时成对移除（匿名函数无法移除）
+    private _host_event_hooks: Array<[string, EventListener]> = [];
 
     private _opaque: IntPtr = 0;
 
@@ -444,7 +454,8 @@ class jsbb_Engine {
         this._stack.SetValue(jsbb_StackPos.Error, value);
     }
 
-    private _throw_trivial(value: any) {
+    /** 与 jsc/quickjs 的 `MarkExceptionAsTrivial` 对齐：框架级失败只记日志，不写入错误槽。 */
+    private _throw_trivial(value: unknown) {
         jsbb_console.trace("removed a trivial exception:", typeof value, value);
     }
 
@@ -484,7 +495,19 @@ class jsbb_Engine {
         _jsbb_.i32[offset + 2] = this._registry.count;
     }
 
+    private _clear_host_event_hooks(): void {
+        for (const [type, handler] of this._host_event_hooks) {
+            globalThis.removeEventListener(type, handler);
+        }
+        this._host_event_hooks.length = 0;
+    }
+
     Release() {
+        // 引擎释放后 opaque 指针悬空：先撤销本引擎在 JS 侧的全部注册，
+        // 迟到的 gc finalizer 与浏览器事件就不会再进原生侧，无需在回调里逐次判活。
+        this._clear_host_event_hooks();
+        this._registry.Dispose();
+
         // this._global = <any>undefined;
         this._handles = <any>undefined;
         this._stack = <any>undefined;
@@ -493,11 +516,8 @@ class jsbb_Engine {
 
     SetHostPromiseRejectionTracker(cb: FunctionPointer, data: Pointer) {
         const self = this;
-        globalThis.addEventListener("unhandledrejection", function (event: Event) {
-            if (!self._stack) {
-                return;
-            }
 
+        const on_unhandled_rejection = (event: Event) => {
             const ev = event as PromiseRejectionEvent;
             jsbb_console.warn("unhandled_rejection", ev.promise, ev.reason);
             const stack = self._stack;
@@ -509,7 +529,29 @@ class jsbb_Engine {
                 jsbb_console.error("unexpected error", err);
             }
             stack.ExitScope();
-        })
+        };
+
+        // 浏览器 realm 没有别的失败上报入口：未捕获错误走同一原生通道，worker 才能到达宿主 onerror
+        const on_error = (event: Event) => {
+            const ev = event as ErrorEvent;
+            const reason = ev.error ?? new Error(ev.message || "uncaught error");
+            jsbb_console.warn("uncaught_error", reason);
+            const stack = self._stack;
+            stack.EnterScope();
+            try {
+                _jsbb_.interop.unhandled_rejection(self._opaque, cb, stack.Push(undefined), stack.Push(reason));
+            } catch (err) {
+                jsbb_console.error("unexpected error", err);
+            }
+            stack.ExitScope();
+        };
+
+        this._host_event_hooks = [
+            ["unhandledrejection", on_unhandled_rejection],
+            ["error", on_error],
+        ];
+        globalThis.addEventListener("unhandledrejection", on_unhandled_rejection);
+        globalThis.addEventListener("error", on_error);
     }
 
     static GetStringHash(val: string): number {
@@ -951,7 +993,7 @@ class jsbb_Engine {
             if (names instanceof Array) {
                 return this._stack.Push(names);
             }
-            this._throw(new TypeError("GetOwnPropertyDescriptor: unexpected"));
+            this._throw(new TypeError("GetOwnPropertyNames: unexpected"));
             return jsbb_StackPos.Error;
         } catch (err) {
             this._throw(err);
@@ -964,11 +1006,12 @@ class jsbb_Engine {
             const key = this._stack.GetValue(key_sp);
             const obj = this._stack.GetValue(obj_sp);
             const desc = Object.getOwnPropertyDescriptor(obj, key);
-            if (typeof desc === "object") {
-                return this._stack.Push(desc);
+            // v8 语义：属性不存在时返回 undefined，而不是抛错（脚本解析器会故意探测缺失成员，
+            // 见 `_parse_script_class_iterate`）
+            if (typeof desc !== "object" || desc === null) {
+                return jsbb_StackPos.Undefined;
             }
-            this._throw(new TypeError("GetOwnPropertyDescriptor: unexpected"));
-            return jsbb_StackPos.Error;
+            return this._stack.Push(desc);
         } catch (err) {
             this._throw(err);
             return jsbb_StackPos.Error;
@@ -1524,7 +1567,9 @@ class _jsbb_ {
     }
 
     static get i64(): BigInt64Array {
-        if (wasmMemory.buffer != HEAP8.buffer) {
+        // `_i64`/`_u64` 初始为 undefined：视图只在内存增长时创建，堆没长过就永远不建，
+        // 于是所有 64 位转换（含 ObjectID）都会读到 undefined。
+        if (!this._i64 || wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();
             this._i64 = new BigInt64Array(wasmMemory.buffer);
         }
@@ -1532,7 +1577,7 @@ class _jsbb_ {
     }
 
     static get u64(): BigUint64Array {
-        if (wasmMemory.buffer != HEAP8.buffer) {
+        if (!this._u64 || wasmMemory.buffer != HEAP8.buffer) {
             updateMemoryViews();
             this._u64 = new BigUint64Array(wasmMemory.buffer);
         }
@@ -1554,7 +1599,12 @@ class _jsbb_ {
             jsbb_console.error("invalid interop");
         }
         if (typeof this.interop !== "undefined") {
-            jsbb_console.error("Already initialized, do not call it twice");
+            // realm 比 engine / pthread 活得久：同一 realm（线程的 JS global）被线程池里的新
+            // pthread 复用时，C++ 侧按线程的 `GlobalInitialize::init()`（tls guard 已随新线程
+            // 重置）会再进来一次。这里安装的是 **realm 级**的 C++ 回调表，同一个 wasm 实例里
+            // 指针不变，所以重复安装直接返回：realm 级守卫就是这里的 `this.interop`，
+            // 而 `tls_js_bridge_initialized` 只是 pthread 级的快速路径。
+            return;
         }
         try {
             this.interop = {
@@ -1587,8 +1637,13 @@ class _jsbb_ {
             return -1;
         }
 
-        // currectly, engine_id is hardcoded.
-        // only one single engine is supported to new simultaneously
+        // engine_id 是"**本 realm 的那一个 engine**"的地址（保持上游形态：恒为 0）。
+        // 每个线程一个 JS realm（worker = 一个 Web Worker = 一个 globalThis），各有各的 `_jsbb_`，
+        // 因此"同一时刻只支持一个 engine"= 一个 realm 一个，多线程 worker 天然满足。
+        // 它的前提不变量是：一个 isolate（及其 Global/句柄）只在创建它的线程/realm 上使用
+        // —— 这也是 v8 对 v8::Global 的语义要求（参见 jsb_environment.cpp 里 free_object 的跨线程处理）。
+        // 注意：正因为 id 按 realm 解析，"跨线程误用句柄"在上游形态下无法被发现，只会静默命中
+        // 本 realm 的同号句柄；如需把这种误用变成可见错误，可把 id 改成 isolate opaque 并校验归属。
         this.engine = new jsbb_Engine(0, opaque);
         this.flush_pending_worker_messages();
         return 0;
@@ -1617,7 +1672,7 @@ class _jsbb_ {
     }
 
     static free(ptr: Pointer): void {
-        this.wasmop._free(ptr);
+        _jsbb_.wasmop._free(ptr);
     }
 
     static debugbreak(): void{
