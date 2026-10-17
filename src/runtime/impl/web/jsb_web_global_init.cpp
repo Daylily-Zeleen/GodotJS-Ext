@@ -213,6 +213,8 @@ void GlobalInitialize::init() {
 	}
 }
 
+void GlobalInitialize::shutdown() {}
+
 } //namespace jsb::impl
 
 #else
