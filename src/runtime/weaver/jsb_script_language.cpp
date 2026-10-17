@@ -1461,7 +1461,7 @@ void GodotJSScriptLanguage::populate_string_names_replacements() {
 	}
 
 	PackedStringArray singleton_list = Engine::get_singleton()->get_singleton_list(); // 单例可以在编辑器过程中被动态增减，如何动态刷新？
-	for (const StringName &singleton_name : singleton_list) {
+	for (const String &singleton_name : singleton_list) {
 		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(singleton_name);
 		if (exposed_name != singleton_name) {
 			names.add_replacement(singleton_name, exposed_name);
