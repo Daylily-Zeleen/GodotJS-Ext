@@ -68,6 +68,13 @@ enum class DescriptorType {
 };
 
 bool _request_codegen(const String &p_script_path, const Dictionary &p_request, Dictionary &p_result) {
+	// 非 TS 脚本不得送进 JS codegen：场景/资源节点可以挂别的语言的脚本（测试项目里有 GDScript 的 .gd），
+	// 把那种路径喂给 require() 会让模块解析器把 GDScript 源码当 JS 编译，报
+	// "SyntaxError: Unexpected token 'extends'" + "Codegen failed for script '...gd' (error 36)"。
+	// 非 TS 脚本按构造就没有 codegen() 钩子，直接跳过、回落通用描述符即可。
+	if (p_script_path.get_extension().to_lower() != "ts") {
+		return false;
+	}
 	GodotJSScriptLanguage *lang = GodotJSScriptLanguage::get_singleton();
 	if (lang == nullptr || !lang->is_initialized()) {
 		JSB_LOG(Warning, "Codegen failed: the script language is not available.");
@@ -342,6 +349,11 @@ Dictionary get_resource_type_descriptor(const String &p_path) {
 		descriptor["type"] = (int32_t)DescriptorType::Godot;
 		descriptor["name"] = "PackedScene";
 		descriptor["arguments"] = generic_arguments;
+
+		// 只是临时实例化来问类型，取完即还：节点没挂进树，`queue_free()` 由
+		// `SceneTree::finalize()` 的 `_flush_delete_queue()` 在本帧结束后回收
+		// （这一支以前从不释放，每个 `.tres`/`.tscn` 都漏一个场景实例）。
+		instantiated_scene->queue_free();
 
 		return descriptor;
 	}
