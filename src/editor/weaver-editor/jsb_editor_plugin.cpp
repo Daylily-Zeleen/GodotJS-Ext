@@ -255,6 +255,13 @@ void GodotJSEditorPlugin::_notification(int p_what) {
 				}
 			}
 
+			// `--godotjs-install-project-files`：headless 下强制安装预设文件。
+			// 菜单入口走 `try_install_project_files()`，它在 headless 只打日志跳过安装，
+			// 导致纯命令行流程拿不到 `.godot/*.cjs` 工具脚本。
+			if (OS::get_singleton()->get_cmdline_args().find("--godotjs-install-project-files") >= 0) {
+				callable_mp(this, &GodotJSEditorPlugin::_install_project_files_from_cmdline).call_deferred();
+			}
+
 #if JSB_USE_TYPESCRIPT
 			// 编辑器就绪即生成/刷新路径映射与签名清单（输入摘要未变化时为空操作）
 			_regenerate_paths_mapping();
@@ -315,18 +322,20 @@ void GodotJSEditorPlugin::_generate_types_from_cmdline() {
 	// native `process_frame` signal (one invocation per iteration, equivalent
 	// of the old TS `await frame_step()`); this godot-cpp generation exposes
 	// no typed SceneTree signal/timer API, so go through the base Object API.
-	if (EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem()) {
-		if (efs->is_scanning()) {
-			SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
-			if (scene_tree == nullptr) {
-				CRASH_NOW_MSG("Cannot get SceneTree.");
-			}
-			scene_tree->connect("process_frame", callable_mp(this, &GodotJSEditorPlugin::_await_scan_then_generate_from_cmdline));
-			return;
+	//
+	// 还要等 filesystem 对象本身存在：冷启动（无 `.godot`）时它可能仍是 nullptr，
+	// 只判 `is_scanning()` 会让等待整个被跳过，在首次扫描中途就生成并退出。
+	EditorFileSystem *efs = EditorInterface::get_singleton()->get_resource_filesystem();
+	if (efs == nullptr || efs->is_scanning()) {
+		SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+		if (scene_tree == nullptr) {
+			CRASH_NOW_MSG("Cannot get SceneTree.");
 		}
+		scene_tree->connect("process_frame", callable_mp(this, &GodotJSEditorPlugin::_await_scan_then_generate_from_cmdline));
+		return;
 	}
 
-	generate_types([](auto success) {
+	generate_types([this](auto success) {
 		if (success) {
 			JSB_LOG(Log, "Type generation complete.");
 		} else {
@@ -334,18 +343,31 @@ void GodotJSEditorPlugin::_generate_types_from_cmdline() {
 		}
 
 		if (DisplayServer::get_singleton()->get_name() == "headless") {
-			if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-				// The exit code has to carry the outcome: a caller that only ran us
-				// to produce typings (CI does) cannot otherwise tell a skipped
-				// generation from a real one, and `--generate-types` already exits
-				// non-zero on its own shutdown crash, so "zero" is the only signal
-				// that currently means "the files were written".
-				scene_tree->quit(success ? EXIT_SUCCESS : EXIT_FAILURE);
-			} else {
-				CRASH_NOW_MSG("Cannot get SceneTree.");
-			}
+			_quit(success ? EXIT_SUCCESS : EXIT_FAILURE);
 		}
 	});
+}
+
+void GodotJSEditorPlugin::_quit(int p_exit_code) {
+	// 先释放自有资源再退出：工具进程的读取线程持有 `Process` 裸指针（见 `EditorToolClient::stop()`）。
+#if JSB_USE_TYPESCRIPT
+	if (tool_client_) {
+		tool_client_->stop();
+		tool_client_.reset();
+	}
+#endif // JSB_USE_TYPESCRIPT
+
+	if (tsc_) {
+		tsc_->stop();
+		tsc_.reset();
+	}
+
+	// 退出码要带上结果：调用方（如 CI）只能靠它区分"跳过"和"真的生成了"。
+	SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+	if (scene_tree == nullptr) {
+		CRASH_NOW_MSG("Cannot get SceneTree.");
+	}
+	scene_tree->quit(p_exit_code);
 }
 
 void GodotJSEditorPlugin::_await_scan_then_generate_from_cmdline() {
@@ -366,9 +388,24 @@ void GodotJSEditorPlugin::_generate_api_tool_data_from_cmdline(const String &p_e
 		JSB_LOG(Log, "[API Tool] Api data generated successfully.");
 	}
 	if (DisplayServer::get_singleton()->get_name() == "headless") {
-		if (SceneTree *scene_tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop())) {
-			scene_tree->quit(err == OK ? EXIT_SUCCESS : EXIT_FAILURE);
-		}
+		_quit(err == OK ? EXIT_SUCCESS : EXIT_FAILURE);
+	}
+}
+
+void GodotJSEditorPlugin::_install_project_files_from_cmdline() {
+	// 同步装包（headless 下 `OS::execute`）由 `ensure_tsc_installed()` 负责，见该函数。
+	// 这里显式调一次：`try_install_project_files()` 在"预设文件都已存在"时走的是
+	// `on_successfully_installed()` 早退分支，不会进 `install_project_files()`，
+	// 那样就漏掉 npm 安装。重复调用是安全的（内部有 once 守卫）。
+	ensure_tsc_installed();
+
+	// `force = true` 绕过确认框，在 headless 下真正执行安装。
+	// 不靠 `complete` 回调判成败：预设全部已存在时它不会被调用。
+	try_install_project_files({}, true);
+	JSB_LOG(Log, "Install project files: command line request completed.");
+
+	if (DisplayServer::get_singleton()->get_name() == "headless") {
+		_quit(EXIT_SUCCESS);
 	}
 }
 
@@ -1416,6 +1453,30 @@ void GodotJSEditorPlugin::ensure_tsc_installed() {
 	const String exe_path = OS::get_singleton()->get_name() != "Windows" ? "npm" : "npm.cmd";
 	PackedStringArray args;
 	args.push_back("install");
+
+	// headless（命令行 `--godotjs-install-project-files`）下**阻塞**装完再返回：
+	// 紧接着的 `generate_types()` 会起工具进程 `require('typescript')`，命令结束后调用方还会
+	// 直接在项目根跑 `node node_modules/typescript/bin/tsc`；异步 `create_process` 来不及。
+	// `OS::execute()` 返回子进程退出码且不弹控制台，正是这里的同步语义。
+	if (DisplayServer::get_singleton()->get_name() == "headless") {
+		// 同一次安装流程里本函数可能被调用多次（菜单/命令行/REPL），只装一次。
+		static bool installed = false;
+		if (installed) return;
+
+		Array output;
+		const int32_t exit_code = OS::get_singleton()->execute(exe_path, args, output, true);
+		if (exit_code != 0) {
+			JSB_LOG(Error, "`npm install` failed (exit %d), please ensure that node.js has been installed properly, and run it manually in the project root path.", exit_code);
+			for (int i = 0; i < output.size(); i++) {
+				JSB_LOG(Error, "  %s", String(output[i]));
+			}
+			return; // 失败不置位，下一次调用会重试
+		}
+		JSB_LOG(Log, "`npm install` finished");
+		installed = true;
+		return;
+	}
+
 	const int32_t pid = OS::get_singleton()->create_process(exe_path, args, true);
 	if (pid == -1) {
 		JSB_LOG(Error, "Failed to execute `npm install`, please ensure that node.js has been installed properly, and run it manually in the project root path.");

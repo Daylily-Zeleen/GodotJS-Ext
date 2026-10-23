@@ -104,6 +104,8 @@ private:
 	// (see _generate_types_from_cmdline); disconnects itself once scanning ends.
 	void _await_scan_then_generate_from_cmdline();
 	void _generate_api_tool_data_from_cmdline(const String &p_extension_api_json);
+	void _install_project_files_from_cmdline();
+	void _quit(int p_exit_code);
 
 	static bool _is_path_matchn(const PackedStringArray &p_wildcards, const String &p_path);
 	// 这批路径列表**刻意保持** `Vector<String>`，不改成 `PackedStringArray`：

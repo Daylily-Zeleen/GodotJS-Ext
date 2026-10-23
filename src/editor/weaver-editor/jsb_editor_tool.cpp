@@ -145,8 +145,23 @@ void EditorToolClient::_on_line(const String &p_line) {
 
 /** @return true = 这一行是一条合法的应答报文（已配对）。 */
 bool EditorToolClient::_queue_response(const String &p_line) {
-	// `parse_string` 是静态入口（`parse` 需要实例）。解析失败返回 nil，直接当非协议行。
-	const Variant parsed = JSON::parse_string(p_line);
+	// 协议行必是单行 JSON object；其余（堆栈、警告、缩进多行的 JSON）是诊断行。
+	// 两头都查：只查 `{` 的话，一行孤立的 `{`（工具若打印缩进 JSON 的首行）会进解析并触发引擎的
+	// "Parse JSON failed" ERROR。这两次比较只是廉价预筛。
+	const String trimmed = p_line.strip_edges();
+	if (!trimmed.begins_with("{") || !trimmed.ends_with("}")) {
+		return false;
+	}
+
+	// 用实例 `parse()` 而不是静态 `parse_string()`：后者内部 `ERR_FAIL_COND_V_MSG` 会对每次失败
+	// 打一条 ERROR（`core/io/json.cpp:629`），而实例版只返回 Error 码（`:603-612`），失败静默。
+	// 我们要的正是"不是协议行就当诊断行"，不需要引擎替我们报错。
+	Ref<JSON> json;
+	json.instantiate();
+	if (json->parse(trimmed) != OK) {
+		return false;
+	}
+	const Variant parsed = json->get_data();
 	if (parsed.get_type() != Variant::DICTIONARY) {
 		return false;
 	}
