@@ -26,6 +26,13 @@
 
 **两腿同标准，node 不豁免。** 判断一个 DLL 是否干净卸载，就看它持有的 godot-cpp 类名有没有被判 orphan。
 
+### 测量口径（2026-10-22 实测，勿再踩）
+
+orphan 的逐条打印与 `StringName: N unclaimed string names at exit.` 汇总**都要求 `--verbose`**
+（`core/string/string_name.cpp:96-106` 走 `is_stdout_verbose()` / `print_verbose`）。
+**不加 `--verbose` 时一行都不打印——「没有输出」会被误读成 orphan=0。**
+所有 orphan 计数必须带 `--verbose`。
+
 ### 自查命令
 
 两腿分别 `scons`（产物字节不同）→ 分别核对 md5 → 再跑。**不要凭记忆判断当前部署的是哪条腿**。
@@ -36,6 +43,18 @@ grep -c "Orphan StringName" ../.agent_tmp/out.log            # 必须 0
 grep -c "GODOTJS_TEST_PROJECT_COMPLETED" ../.agent_tmp/out.log # 必须 1
 grep -c "GODOTJS_TEST_PROJECT_FAILED" ../.agent_tmp/out.log    # 必须 0
 ```
+
+### 已定位的上游修法（2026-10-22 实测，补丁见任务 report §55）
+
+90 条 orphan 的两个持有者都在 godot-cpp，且都能在 **`deinitialize_extensions(CORE)`**
+（`main.cpp` → `unregister_core_extensions()`，早于 `StringName::cleanup()`）之前释放：
+
+1. `ClassDB::instance_binding_callbacks.clear()`；
+2. 各 wrapper `get_class_static()` 的函数局部 `static StringName` 需可重置
+   （根因：三处宏用的是 `static const`，析构只在 DLL 卸载期发生）；
+3. `ClassDB::engine_singletons.clear()`（否则剩 6 条：`OS/Engine/Time/ClassDB/ResourceLoader/ResourceSaver`）。
+
+**不要**在 SERVERS 级做这些清理：实测会 `0xC0000374`（此时仍有代码取类名）。
 
 ### 机制：orphan 是"DLL 没卸载"的症状，不是类名清单问题
 
@@ -142,6 +161,11 @@ grep -c "GODOTJS_TEST_PROJECT_FAILED" ../.agent_tmp/out.log    # 必须 0
 - `.paths_mapping` 在 `project/.godot/godotjs_ext/` 下（与编译产物同目录），由**编辑器**插件写（`PathsMapping::generate_from_tsconfig`），运行时在 `GodotJSScriptLanguage::init` 里 **eager 加载一次**
 - 该目录一旦整体缺失，`FileAccess` 不会创建父目录 → 写入静默失败（日志仅 `cannot open ... Can't open file`）。`rm -rf project/.godot`（CI 的 Linux 诊断步骤会做）即触发该形态
 - 判别日志：`unknown module: @tests/...` + `failed to attach module res://.../tests/start.js`
+- **反过来也会丢**：`--godotjs-install-project-files` 安装预设时会**覆盖** `res://tsconfig.json`。
+  预设里 `paths` 若处于注释态，装完就没有别名 → `PathsMapping::generate_from_tsconfig`
+  走「无 paths → 删除映射文件」分支 → 目录在但 `.paths_mapping` 不生成，与上面「目录整体缺失」
+  症状相同（`unknown module: @tests/...`）。预设 `scripts/presets/tsconfig.json.txt` 必须带上
+  项目在用的 `paths`；`project/tsconfig.json` 是 git 跟踪文件，被覆盖后从 git 看不出来丢了什么
 
 **判别挂死而非慢**：`timeout 60 <engine> --audio-driver Dummy --headless --path project`，rc=124 即挂死。正常整轮约 1.5 分钟。
 
@@ -165,6 +189,30 @@ terminate called after throwing an instance of 'std::system_error'  what():  Res
 
 **修复方向**：用 `IsWeak()` 守卫 DECREF 分支的 `SetWeak`（shim 需补 `IsWeak()`——`v8::Global` 本就有，三个 shim 原先都缺）。不要改 `jsb_check` 或降级为告警。
 
+## 陷阱：子进程 stderr 的每一行都会变成一条 ERROR
+
+**症状**：编辑器工具进程一崩，日志里立刻多出上百条
+`ERROR: Parse JSON failed. Error at line 0: ...`，每条对应 stack trace 的一行——真正的
+崩溃原因被淹掉。
+
+**机制**：`EditorToolClient::_queue_response` 把工具进程吐出的**每一行**都交给
+`JSON::parse_string`，而引擎对非 JSON 行自己打 ERROR。堆栈、警告、空行全都命中。
+
+**修复方向**：先按形状筛——协议行必然是单行 JSON object，trim 后不以 `{` 开头就不可能是
+应答，直接当诊断行（`VeryVerbose` 记录），不要送进 parser。
+
+## 陷阱：`_validate` 的 `functions` 条目必须是 `"<name>:<line>"`
+
+**症状**：编辑器里每打开/扫描一个脚本就打三条
+`ERROR: Index p_line = -1 is out of bounds`（`text_edit.cpp` 的 gutter metadata / icon / clickable）。
+
+**机制**：引擎按 `"<name>:<line>"` 解析该数组
+（`script_text_editor.cpp` 的 `get_slicec(':', 1).to_int() - 1`，用于放连接/覆写 gutter 图标）。
+只 push 裸名字时 `to_int()` 得 0 → `line = -1` → `TextEdit` 越界。这是**契约**不是风格：
+`ScriptLanguageExtension::_validate` 的文档只说返回函数名，格式要求只在编辑器消费点可见。
+
+**判别**：`functions` 数组里有不含 `:` 的条目即命中。
+
 ## 质量检查（所有测试通用）
 
 - [ ] 验收：exit code == 0、无资源泄漏（无未释放 Resource、无 Orphan StringName）
@@ -172,3 +220,25 @@ terminate called after throwing an instance of 'std::system_error'  what():  Res
 - [ ] 临时日志/脚本在 `.agent_tmp/`，未污染项目
 - [ ] **覆盖守卫必须断言数量，不能只打印**：把期望计数插进日志（`calls=${EXPECTED}`）不构成覆盖证明——独立删掉一行后测试仍会绿。补 `if (rows.length !== EXPECTED) fail(...)` 形式断言
 - [ ] **新守卫要负向验证**：断言写完立刻人为削减一次（删一个成员/一行组合）确认它 `FAILED`，再还原确认绿；没失败过的守卫不授权"覆盖完整"的结论
+
+## 七步流水线的引擎要求（2026-10-22 定稿）
+
+跑通冷/热七步需要**带以下两处引擎补丁**的 4.7.2 构建（官方二进制缺这两处，会让冷轮 `step2` 与 `step4`/`step6`
+以 `0xC0000005` 退出；两处都已被证明是引擎侧缺陷，不是本扩展的生命周期问题）：
+
+1. `EditorHelp::_gen_extensions_docs()` 的 `doc` 空指针防护（首扫加载任意 GDExtension 时，
+   `extensions_reloaded` 触发的迟到文档生成会以 deferred 调用形式落到 `cleanup_doc()` 之后）；
+2. `GDExtension::close_library()` 必须在 `loader->close_library()` **之前**归还本扩展注册的 instance binding
+   （否则引擎会在库卸载后回调扩展的 `free_callback`）。
+
+**反向证据（2026-10-23 实测，勿再移除补丁 2）**：把 `core/extension/gdextension.cpp` 那处补丁从
+`godot-4.7.2-patched` 移除（`git status` 只剩 `editor/doc/editor_help.cpp`）后，冷轮 step4 / step6 立刻
+回到 `0xC0000005`（dump 中 fault module 为 `<none>` = 崩点不在任何已加载模块内）；
+`git apply --include=core/extension/gdextension.cpp <patch>` + 重建（30.7s）后 step4 `exit=0`。
+**扩展侧无法替代**：在 SERVERS 结语里调 `godot::ClassDB::deinitialize(GDEXTENSION_INITIALIZATION_CORE)`
+（清 `engine_singletons`）实测无效——崩照旧，因为它覆盖不到非单例对象上的 instance binding，已移除。
+
+补丁文件：`.agent_tmp/engine_patches/godot-4.8-dev-extension-unload-and-doc-guard.patch`
+（在官方 4.7.2 的 commit `ed1daf0bf` 上 `git apply` 干净通过）。
+参考构建：`D:/Dev/godot/godot-4.7.2-patched`（独立工作树，`scons platform=windows target=editor use_llvm=yes debug_symbols=yes -j16`）。
+`.agent_tmp/run_pipeline.py` 的引擎路径可用环境变量 `JSB_GODOT` 覆盖，默认指向该构建。

@@ -35,6 +35,38 @@ class MyClass { std::string name; };
 
 godot-cpp 的具体使用约束（`_` 前缀虚函数、`godot::` 类型、接口表初始化）见 [godot-cpp-usage.md](./godot-cpp-usage.md)。
 
+## 容器存值优先，避免「map 存指针 + 并行容器手工所有权」
+
+**What**：要按名索引一批结构体时，直接 `HashMap<String, XDecl>` 存值。不要写
+`HashMap<String, XDecl *>` + `Vector<XDecl *> owned_*` 双登记 + 手工析构函数来配对。
+
+**Why**：
+- godot-cpp 的 `HashMap` entry 是**逐个堆分配**的节点；重哈希只重建索引数组并复用节点指针，
+  Robin Hood 冲突交换的是指针槽而不是节点内容；迭代顺序就是插入顺序
+  （`third/godot-cpp/include/godot_cpp/templates/hash_map.hpp`）。所以常见顾虑
+  「值会随重哈希搬家、`getptr()` 悬空」在这里**不成立**。
+- 双登记会漂移，所有权靠人记：本项目就发生过漏写析构 ⇒ 每次 `--generate-types` 漏掉整份 decl
+  （`PagedAllocator: VariantPools` 两条 ERROR + 一批对象泄漏）。改成值语义后，这套手工释放路径
+  连同它的 bug 一起消失。
+- 顺带省掉每项一次 `memnew` 与一层间接访问。
+
+**唯一要守的规程**（`HashMap::insert` 只有 `const TValue&` 重载，会深拷贝整份值）：
+
+```cpp
+// key 先算好；跳过/校验分支必须前置（operator[] 会默认插入）
+if (p_api_class == nullptr) continue;
+const String key = NamingUtil::get_class_name(p_api_class->name);
+ClassDecl &decl = classes[key];        // 原地默认构造，无拷贝
+decl.super = p_api_class->inherits;
+```
+
+- **不要** `classes.insert(key, decl)`——深拷贝整份 decl（含所有 `LocalVector`）。
+- 不要指望 `operator[]` 帮你判重：重复 key 会**累加**进同一份 decl，而 `insert` 是**覆盖**，
+  两者产物不同；发现 key 可能撞名时先做重复检测。
+
+**实例**：`src/editor/codegen/jsb_codegen_type_db.h/.cpp`、`jsb_codegen_docs.h/.cpp`
+（2026-10-23 从指针版改成值语义，同输入 A/B 差分证明产物零影响）。
+
 ## 注释语言
 
 - **新增注释一律用简短中文**（源码、测试、构建脚本同样适用）；一句话能说清就不写三行。

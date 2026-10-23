@@ -274,3 +274,63 @@ worker 与 transferable shadow realm 共用 `void Environment::prepare_transfer_
 - 错：EnvironmentRef 只检查控制块非空。正确：同时检查控制块中的 env，析构 reset 后旧引用必须为假。
 - 错：guest isolate 销毁后才析构持有其 Global 的宿主 impl。正确：`ShadowRealmImpl::finish` 在 guest isolate 存活时调用派生 `dispose_environment` 清空 `context_obj_handle_`，再 terminate/dispose/reset；显式 terminate 和宿主 GC 走同一路径。
 - `test_jsb_shadow_realm.h` 的 `GuestInstanceCleanup` 是夹具清理，不是转移断言：guest 保存测试 Node，C++ 作用域退出先在 guest 中 free，再由较早构造的 initer 销毁环境；REQUIRE 提前退出也会清理。原测试仍只验证 guest 创建的脚本实例绑定到 guest 而非主环境。doctest SUCCESS 不替代进程 exit 0 与泄漏检查。
+
+
+## 扩展 DLL 卸载生命周期：`0xC0000005` 与"退出即崩但产物完整"
+
+**现象**：headless CLI 跑 `--generate-types` / `--godotjs-install-project-files` 时，
+功能全部正常、产物完整，但进程退出码是 `3221225477`（`0xC0000005`）。
+
+**不是** `OS::_exit_code` 被写坏。全引擎 `set_exit_code` 只有三处
+（`main/main.cpp:3151/5170/5175`）且全传 `EXIT_FAILURE`；崩溃处理器
+`platform/windows/crash_handler_windows_seh.cpp:258` 明确 `return EXCEPTION_CONTINUE_SEARCH`
+（注释原文 "Pass the exception to the OS"）。**Windows 对因未处理异常终止的进程，
+以异常码本身作为进程退出码** —— `0xC0000005` 就是 `EXCEPTION_ACCESS_VIOLATION`。
+
+**根因**：本扩展创建的 `Resource`（`GodotJSScript`）由引擎持有。引擎 `Main::cleanup()`
+的顺序是 **先 `deinitialize_extensions()`（`FreeLibrary` 卸掉扩展 DLL）、之后才销毁
+这些对象**；那一刻它们的 godot-cpp binding free callback
+（`godot::Resource::_gde_binding_free_callback`）已随 DLL 失效 → 访问违例。
+
+已实测的支撑数据（见 `tasks/10-18-clean-project-pipeline/report.md` 追加 11–17）：
+- `~GodotJSScriptLanguage`（DLL 仍映射时）实测**卸载前仍有 21 个 `GodotJSScript` 存活**
+  （引用计数 1~4）
+- `ResourceCache` **不持有引用**（`core/io/resource.h:201` 是 `HashMap<String, Resource *>`），
+  所以"摘缓存"不解决问题；`set_path("")` 只影响缓存表项
+- 对照组：**不装任何插件的全新空项目**跑 `--dump-extension-api-with-docs` 同样
+  3/3 以 `0xC0000005` 退出 —— 该步属引擎自身行为，spec 早已按
+  "退出即崩但产物完整"处理（见 [../test/codegen-baseline.md](../test/codegen-baseline.md)）
+
+### 处置（2026-10-23 定稿）：断开延长链，禁止钉住 DLL
+
+**PIN 已废**：`GetModuleHandleExW(..._FLAG_PIN)` 这类「拦住卸载」的手段已从代码中移除
+（用户判定不可接受），也不得再用——它让退出期统计变成假绿（DLL 常驻 ⇒ 其 godot-cpp 类名必被判 orphan）。
+
+**真实机制（实测，见 `tasks/10-18-clean-project-pipeline/report.md` §57）**：不退出的 V8 默认平台
+worker 线程会让「线程入口所在模块」的模块引用不归零（MSVC UCRT `_beginthreadex` 为该模块各持 1 个引用），
+引擎那次 `FreeLibrary` 只减计数 ⇒ DLL 活过 `StringName::cleanup()` ⇒ 其 godot-cpp 类名被判 orphan（实测 90 条）。
+
+**处置分两层**：
+
+1. **平台线程**：`jsb::impl::GlobalInitialize::shutdown()` 必须 `v8::V8::Dispose()` →
+   `V8::DisposePlatform()` → `platform.reset()`（并 `jsb_check(platform == nullptr)`）。线程随后退出、
+   模块引用归零，DLL 在引擎 `FreeLibrary` 处按时卸载 ⇒ `Orphan StringName` 0（实测 3/3）。
+   前提：此刻已无存活的 V8 isolate（各 `Environment` 已在 `_finish()` 阶段析构）。
+2. **扩展自己创建、却被引擎侧强引用的对象**：卸载前必须断开（否则对象活过 `FreeLibrary`，
+   之后析构要调本 DLL 的 godot-cpp binding free callback ⇒ 访问违例）。已实修的三条链：
+   `PlaceholderScriptInstance`（构造参数是 `Ref<GodotJSScript>`）与 `GodotJSScript::base`（派生类持基类 `Ref`）
+   在 `GodotJSScriptLanguage::_finish()` 里释放；`eval_source_with_arg` 用完把 JS 全局 `__jsb_arg`
+   复位成 `undefined`（否则传进去的 `Ref<Resource>` 被 JS 永久持有）；`~GodotJSScriptLanguage` 对
+   `script_list_` 逐个 `set_path(String())` 摘掉 `ResourceCache` 表项。
+
+**引擎侧仍需一处补丁（这一步扩展修不了）**：`GDExtension::close_library()` 必须在
+`loader->close_library()` **之前**清扫本扩展注册的 instance binding。instance binding 是扩展经公开接口
+正常登记的，引擎却先卸载库再回调 ⇒ 必然跳到已解除映射的代码。**反向证据（2026-10-23 实测）**：
+把该补丁从 `godot-4.7.2-patched` 移除后，冷轮 step4/step6 立刻回到 `0xC0000005`
+（dump 中 fault module 为 `<none>`，即崩点不在任何已加载模块内）；恢复补丁 + 重建后 step4 `exit=0`。
+同一时期试过的**扩展侧替代**——在 SERVERS 结语里调 `godot::ClassDB::deinitialize(CORE)` 清扫
+`engine_singletons`——**实测无效**（crash 照旧，因为它覆盖不到非单例对象上的 binding），已移除。
+
+**判读纪律**：`N resources still in use at exit` / `StringName: N unclaimed string names at exit.` /
+`PagedAllocator` 泄漏统计只在「进程活到退出清理阶段」时才打印。对比前后数字前先确认两边日志
+**走到了同一步**（钉住 DLL 时这些统计全是假绿）。

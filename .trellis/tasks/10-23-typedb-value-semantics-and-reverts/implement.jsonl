@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/godotjs-ext/cpp/index.md", "reason": "C++ 层开发前检查单与质量检查（必须遵守）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/coding-standards.md", "reason": "头文件禁 using、临时文件位置、注释语言（新增注释用中文）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/godot-cpp-usage.md", "reason": "godot-cpp 使用约束（子模块只读、优先 godot:: 类型）"}
+{"file": ".trellis/spec/godotjs-ext/cpp/architecture-constraints.md", "reason": "GDExtension 生命周期 / 卸载期 instance binding / PIN 已废的处置路线"}
+{"file": ".trellis/spec/godotjs-ext/test/codegen-baseline.md", "reason": "codegen 基线校验流程、headless 触发链、api store 未生成时的上报口径"}
+{"file": ".trellis/spec/godotjs-ext/test/index.md", "reason": "Orphan StringName 判据、七步流水线的引擎要求、测试质量检查"}
+{"file": ".trellis/spec/godotjs-ext/build/index.md", "reason": "SCons 强制命令、dll 双位部署验证、进程与工作区状态纪律"}
+{"file": ".trellis/spec/guides/workflow-rules.md", "reason": "git/临时文件/后台 job/汇报硬约束"}
