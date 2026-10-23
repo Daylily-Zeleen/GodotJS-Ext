@@ -102,10 +102,16 @@ Error ApiLoader::initialize() {
 	update_base_dir();
 
 	loaded_ = false;
+	header_ = {};
 
 	// Try to load header
 	String header_path = base_dir_ + "/" + FILE_HEADER;
 	Error err = ApiStoreReader::read_header(header_path, header_);
+
+	if (err == ERR_FILE_NOT_FOUND) {
+		return err;
+	}
+
 	ERR_FAIL_COND_V_MSG(err, err, vformat("[API Tool] Initialize error (%s), failed to read header: %s ", UtilityFunctions::error_string(err), header_path));
 	loaded_ = true;
 

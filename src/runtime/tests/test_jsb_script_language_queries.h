@@ -165,18 +165,24 @@ TEST_CASE("[runtime] [jsb.lang] validate reports declared functions, and no bogu
 	// the outline
 	REQUIRE(result.has("functions"));
 	const PackedStringArray functions = result["functions"];
-	CHECK(functions.has("bar"));
-	CHECK(functions.has("baz"));
-	CHECK(functions.has("prop"));
-	CHECK(!functions.has("not_a_declaration"));
-	// a repeated declaration is listed once (it matches `_find_function`, which
-	// resolves a name to its first declaration)
-	// counted by hand: `PackedStringArray::count` needs the builtin method bindings,
-	// which are not initialised this early in the test run.
+	// 条目是 `名称:行号`：引擎按 ':' 切分定位 gutter，裸名会得到 -1 而越界。
+	CHECK(functions.has("bar:2"));
+	CHECK(functions.has("baz:3"));
+	CHECK(functions.has("prop:6"));
+	for (const String &entry : functions) {
+		// 不允许裸名条目，行号必须 >= 1
+		CHECK(entry.contains(":"));
+		CHECK(entry.get_slicec(':', 1).to_int() >= 1);
+	}
+	int not_declared_count = 0;
 	int bar_count = 0;
-	for (const String &name : functions) {
+	for (const String &entry : functions) {
+		const String name = entry.get_slicec(':', 0);
+		if (name == "not_a_declaration") ++not_declared_count;
 		if (name == "bar") ++bar_count;
 	}
+	CHECK(not_declared_count == 0);
+	// 同名重复声明只列一次（与 `_find_function` 取首次声明一致）
 	CHECK(bar_count == 1);
 
 	// no `functions` requested -> no key, so the engine does no work

@@ -139,10 +139,18 @@ jsb::JSValueMove GodotJSScriptLanguage::eval_source_with_arg(const String &p_cod
 		r_err = ERR_INVALID_PARAMETER;
 		return {};
 	}
-	context->Global()->Set(context, jsb::impl::Helper::new_string_ascii(isolate, "__jsb_arg"), arg_value).Check();
+	const v8::Local<v8::String> arg_key = jsb::impl::Helper::new_string_ascii(isolate, "__jsb_arg");
+	context->Global()->Set(context, arg_key, arg_value).Check();
 
 	const CharString src_utf8 = p_code.utf8();
-	return environment_->eval_source(src_utf8.get_data(), src_utf8.length(), "eval_source_with_arg", r_err);
+	jsb::JSValueMove result = environment_->eval_source(src_utf8.get_data(), src_utf8.length(), "eval_source_with_arg", r_err);
+
+	// 用完即清：`__jsb_arg` 是挂在 JS 全局上的属性，不清掉的话，传进来的 Variant 会一直被
+	// JS 侧持有。codegen 传入的请求字典里含 `Ref<Resource>`（如 `.tres` 资源），于是每处理一个
+	// 就永久泄漏一个 Resource —— 它们会活过扩展 DLL 卸载，之后析构时调用已失效的 godot-cpp
+	// free callback ⇒ 访问违例（0xC0000005）。这里把它复位成 undefined，让引用随本次调用结束而释放。
+	context->Global()->Set(context, arg_key, v8::Undefined(isolate)).Check();
+	return result;
 }
 
 #if JSB_DEBUG
@@ -395,6 +403,7 @@ static PackedStringArray collect_declared_functions(const Ref<RegEx> &p_matcher,
 	}
 
 	int begin = 0;
+	int line_number = 1;
 	while (begin <= p_source.length()) {
 		const int end = p_source.find("\n", begin);
 		const String row = end < 0 ? p_source.substr(begin) : p_source.substr(begin, end - begin);
@@ -406,10 +415,23 @@ static PackedStringArray collect_declared_functions(const Ref<RegEx> &p_matcher,
 			const String name = match->get_string(1);
 			// `_find_function` returns the FIRST declaration of a name; the outline
 			// must therefore list each name once, at that same position.
-			if (!functions.has(name)) {
-				functions.push_back(name);
+			//
+			// 条目是 `名称:行号`（1 基），引擎取 `get_slicec(':', 1).to_int() - 1` 定位 gutter 图标；
+			// 只给裸名会得到 -1，TextEdit 报 "Index p_line = -1 is out of bounds"。
+			// 同名前缀去重按名称部分比较。
+			bool already_listed = false;
+			for (const String &listed : functions) {
+				if (listed.get_slicec(':', 0) == name) {
+					already_listed = true;
+					break;
+				}
+			}
+			if (!already_listed) {
+				functions.push_back(String(name) + String(":") + String(itos(line_number)));
 			}
 		}
+
+		++line_number;
 
 		if (end < 0) {
 			break;
@@ -464,6 +486,14 @@ Dictionary GodotJSScriptLanguage::_validate(const String &p_script, const String
 		valid = jsb::impl::Helper::validate_source(isolate, context, resolved_path, source, &message, &line, &column);
 	}
 	result["valid"] = valid;
+
+	// V8 拿不到位置时会给 -1，编辑器直接用它索引 gutter 会越界报错；这里兜底到 1 基最小值。
+	if (line < 1) {
+		line = 1;
+	}
+	if (column < 1) {
+		column = 1;
+	}
 
 	if (!valid && p_validate_errors) {
 		// Shape required by ScriptLanguageExtension::validate (line/column/message are
@@ -1448,15 +1478,23 @@ void GodotJSScriptLanguage::populate_string_names_replacements() {
 	// Populate StringNames replacement list so that classes can be lazily loaded by their exposed class name.
 	jsb::internal::StringNames &names = jsb::internal::StringNames::get_singleton();
 
-	LocalVector<StringName> exposed_class_list;
-	// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
-	jsb::internal::ClassVisibility::get_exposed_original_class_list(exposed_class_list, false);
+	// **api 数据未生成时不要调 api_tool**：`has_class()` 会对每个类都返回 false，替换表会被整表留空。
+	// 这里只补与 api 数据无关的部分（单例、保留字），并明确警告；本进程内不再补齐
+	// （store 通常由另一个进程生成，之后的进程 `_init()` 会一次性填对）。
+	const bool api_ready = api_tool::has_generated_data();
+	if (!api_ready) {
+		WARN_PRINT("[jsb] api data is not generated yet: class / utility / global-constant name replacements are skipped.");
+	} else {
+		LocalVector<StringName> exposed_class_list;
+		// 不排除被忽略的类，它们只是不生成 .d.ts 声明代码，仍然可能从其他接口中获得这些类的对象并获得绑定，因此类名映射仍然是必须的。
+		jsb::internal::ClassVisibility::get_exposed_original_class_list(exposed_class_list, false);
 
-	for (const StringName &class_name : exposed_class_list) {
-		StringName exposed_name = jsb::internal::NamingUtil::get_class_name(class_name);
+		for (const StringName &class_name : exposed_class_list) {
+			StringName exposed_name = jsb::internal::NamingUtil::get_class_name(class_name);
 
-		if (class_name != exposed_name) {
-			names.add_replacement(class_name, exposed_name);
+			if (class_name != exposed_name) {
+				names.add_replacement(class_name, exposed_name);
+			}
 		}
 	}
 
@@ -1469,6 +1507,11 @@ void GodotJSScriptLanguage::populate_string_names_replacements() {
 	}
 
 	PackedStringArray reserved_words = GodotJSScriptLanguage::get_singleton()->_get_reserved_words();
+
+	if (!api_ready) {
+		// api 相关的两类替换同样依赖 store，留到补齐那一次再做（见函数头注释）。
+		return;
+	}
 
 	for (const StringName &func_name : api_tool::list_utility_functions()) {
 		StringName exposed_name = func_name;

@@ -60,6 +60,10 @@ public:
 		}
 		r_error = FileAccess::get_open_error();
 
+		if (r_error == ERR_FILE_NOT_FOUND) {
+			WARN_PRINT(vformat("api store file is not generated yet (missing %s); run '--godotjs-api-generate' to create it.", p_path));
+			return nullptr;
+		}
 		ERR_FAIL_COND_V_MSG(file.is_null(), nullptr, vformat("Open paly load file failed(%s): %s", UtilityFunctions::error_string(r_error), p_path));
 		return std::move(std::make_unique<ApiToolPayload>(file));
 	}
