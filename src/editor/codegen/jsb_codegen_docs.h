@@ -67,17 +67,11 @@ public:
 	const ClassDocEntry *find_doc(const String &p_class_name, const String &p_original_name);
 
 private:
-	HashMap<String, ClassDocEntry *> docs_; // class name -> entry (positive cache only)
+	// 值语义：map 直接持有 entry（缓存持续填充，entry 地址按 godot-cpp HashMap
+	// 的稳定节点保证在后续 find_doc() 调用后仍然有效）。
+	HashMap<String, ClassDocEntry> docs_; // class name -> entry (positive cache only)
 	HashSet<String> missing_docs_; // negative cache (TS: cached `false`)
-
-	void destroy();
-
-	// free function access (destroy_doc_cache)
-	friend void destroy_doc_cache(DocCache &p_cache);
 };
-
-// releases all cached documents owned by `p_cache`
-void destroy_doc_cache(DocCache &p_cache);
 
 } // namespace codegen
 } // namespace jsb

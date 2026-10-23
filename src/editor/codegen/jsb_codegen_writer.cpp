@@ -811,7 +811,8 @@ String FileWriter::resolve_import(const String &p_destination) const {
 // ---------------------------------------------------------------------------
 FileSplitter::FileSplitter(TypeDB *p_types, const String &p_path) {
 	file_ = FileAccess::open(p_path, FileAccess::WRITE);
-	toplevel_ = memnew(ModuleWriter(memnew(FileWriter(p_path, p_types, file_)), "godot"));
+	file_writer_ = memnew(FileWriter(p_path, p_types, file_));
+	toplevel_ = memnew(ModuleWriter(file_writer_, "godot"));
 
 	file_->store_line("// AUTO-GENERATED");
 	file_->store_line("");

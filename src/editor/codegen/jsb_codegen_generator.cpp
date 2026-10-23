@@ -165,49 +165,50 @@ bool GodotTSDGenerator::emit(bool p_skip_static_types) {
 	emit_aliases();
 
 	// singletons
-	// NOTE: iterate in *load order* (the order the old EditorUtilityFuncs
-	// getters returned), NOT alphabetically - the TS pipeline relied on JS
-	// object key iteration (insertion order), and shard boundaries depend on
-	// it. TypeDB's owned_* vectors preserve that order.
+	// NOTE: iterate the map in *load order* (godot-cpp HashMap iteration ==
+	// insertion order, the order the old EditorUtilityFuncs getters returned),
+	// NOT alphabetically - the TS pipeline relied on JS object key iteration
+	// (insertion order), and shard boundaries depend on it.
 	{
-		for (const SingletonDecl *decl : types_.ordered_singletons()) {
+		for (const KeyValue<String, SingletonDecl> &kv : types_.singletons) {
 			ModuleWriter &cg = split();
-			emit_singleton(*decl);
+			emit_singleton(kv.value);
 		}
 	}
 
 	// classes (skip those already emitted as singletons)
 	{
-		for (const ClassDecl *cls : types_.ordered_classes()) {
-			if (types_.singletons.has(cls->name)) {
+		for (const KeyValue<String, ClassDecl> &kv : types_.classes) {
+			const ClassDecl &cls = kv.value;
+			if (types_.singletons.has(cls.name)) {
 				continue;
 			}
 			ModuleWriter &cg = split();
-			emit_godot_class(cg, *cls, false);
+			emit_godot_class(cg, cls, false);
 		}
 	}
 
 	// primitive types
 	{
-		for (const PrimitiveClassDecl *decl : types_.ordered_primitives()) {
+		for (const KeyValue<String, PrimitiveClassDecl> &kv : types_.primitive_types) {
 			ModuleWriter &cg = split();
-			emit_godot_primitive(cg, *decl);
+			emit_godot_primitive(cg, kv.value);
 		}
 	}
 
 	// globals
 	{
-		for (const GlobalConstantDecl *decl : types_.ordered_globals()) {
+		for (const KeyValue<String, GlobalConstantDecl> &kv : types_.globals) {
 			ModuleWriter &cg = split();
-			emit_global(*decl);
+			emit_global(kv.value);
 		}
 	}
 
 	// utility functions
 	{
-		for (const MethodDecl *decl : types_.ordered_utilities()) {
+		for (const KeyValue<String, MethodDecl> &kv : types_.utilities) {
 			ModuleWriter &cg = split();
-			emit_utility(*decl);
+			emit_utility(kv.value);
 		}
 	}
 

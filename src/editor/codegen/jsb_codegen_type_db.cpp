@@ -77,13 +77,12 @@ TypeDB::TypeDB() {
 }
 
 const ClassDecl *TypeDB::find_class(const String &p_name) const {
-	const ClassDecl *const *it = classes.getptr(p_name);
-	return it ? *it : nullptr;
+	// 值语义下 getptr 直接给出节点内 decl 的地址（七步流水线要求返回类型不变）
+	return classes.getptr(p_name);
 }
 
 const PrimitiveClassDecl *TypeDB::find_primitive(const String &p_name) const {
-	const PrimitiveClassDecl *const *it = primitive_types.getptr(p_name);
-	return it ? *it : nullptr;
+	return primitive_types.getptr(p_name);
 }
 
 bool TypeDB::has_variant_name(const String &p_name) const { return variant_names_.has(p_name); }
@@ -167,16 +166,21 @@ void TypeDB::load_classes() {
 			continue;
 		}
 
-		ClassDecl *decl = memnew(ClassDecl);
-		owned_classes_.push_back(decl);
-
-		decl->name = NamingUtil::get_class_name(api_class->name);
-		decl->internal_name = api_class->name;
-		decl->super = api_class->inherits;
+		// 值语义：key（暴露名）先算好，跳过分支已在上面处理；取槽位会默认插入，
+		// 所以必须先确认 api_class 存在再取，之后原地填字段。
+		const String declared_name = NamingUtil::get_class_name(api_class->name);
+		// 值语义下 operator[] 对重复 key 是**累加**进同一份 decl（HEAD 的 insert 是覆盖
+		// 但 owned_* 仍留两份，产物会重复输出），两者产物不同；dev 构建下断言唯一性。
+		jsb_checkf(!classes.has(declared_name), "duplicate class key: %s", declared_name);
 
 #if JSB_EXCLUDE_GETSET_METHODS
 		HashSet<StringName> omitted_methods;
 #endif
+
+		ClassDecl &decl = classes[declared_name];
+		decl.name = declared_name;
+		decl.internal_name = api_class->name;
+		decl.super = api_class->inherits;
 
 		for (const auto &api_prop : api_class->properties) {
 			if (internal::NamingUtil::is_ignored_name(api_prop.property.name)) continue;
@@ -190,7 +194,7 @@ void TypeDB::load_classes() {
 			prop.info = api_prop.property;
 			prop.info.name = NamingUtil::get_member_name(prop.info.name);
 			prop.info.class_name = NamingUtil::get_class_name(prop.info.class_name);
-			decl->properties.push_back(prop);
+			decl.properties.push_back(prop);
 
 #if JSB_EXCLUDE_GETSET_METHODS
 			// Regular named properties (index < 0) drop their getter/setter
@@ -228,9 +232,9 @@ void TypeDB::load_classes() {
 			build_method_decl(md, api_method, defaults, (uint16_t)default_count);
 
 			if (is_virtual) {
-				decl->virtual_methods.push_back(md);
+				decl.virtual_methods.push_back(md);
 			} else {
-				decl->methods.push_back(md);
+				decl.methods.push_back(md);
 			}
 		}
 
@@ -246,14 +250,14 @@ void TypeDB::load_classes() {
 				const int narrowed = static_cast<int>(value.value);
 				enum_decl.literals.push_back({ value.name, narrowed });
 			}
-			decl->enums.push_back(enum_decl);
+			decl.enums.push_back(enum_decl);
 		}
 
 		for (const auto &constant : api_class->constants) {
 			ConstantDecl constant_decl;
 			constant_decl.name = NamingUtil::get_constant_name(constant.name);
 			constant_decl.value = constant.value;
-			decl->constants.push_back(constant_decl);
+			decl.constants.push_back(constant_decl);
 		}
 
 		for (const auto &api_signal : api_class->signals) {
@@ -278,13 +282,11 @@ void TypeDB::load_classes() {
 				info.class_name = NamingUtil::get_class_name(info.class_name);
 				md.args.push_back(info);
 			}
-			decl->signals.push_back(signal);
+			decl.signals.push_back(signal);
 
 			// NOTE: keep a placeholder so ordering matches the TS version when
 			// emitting __RPCMap/__NameMap interfaces.
 		}
-
-		classes.insert(decl->name, decl);
 	}
 }
 
@@ -307,21 +309,23 @@ void TypeDB::load_primitive_types() {
 	_load_primitive_type(Variant::get_type_name(Variant::STRING), Variant::STRING, true /* utilities_mode */);
 }
 
-PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode) {
+void TypeDB::_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode) {
 	const api_tool::ApiBuiltinClass *builtin_class = api_tool::find_builtin_class(p_type_name);
 	jsb_checkf(builtin_class, "builtin class not found: %s", p_type_name);
 
-	PrimitiveClassDecl *decl = memnew(PrimitiveClassDecl);
-	owned_primitives_.push_back(decl);
-
-	decl->name = NamingUtil::get_class_name(p_type_name);
-	decl->type = p_type;
+	// 值语义：key（暴露名）先算好、jsb_checkf 已在取槽位前；utilities 早退分支与
+	// 函数末尾的两个登记点合并为这里一次取槽位（取槽位会默认插入空条目）。
+	const String declared_name = NamingUtil::get_class_name(p_type_name);
+	jsb_checkf(!primitive_types.has(declared_name), "duplicate primitive key: %s", declared_name);
+	PrimitiveClassDecl &decl = primitive_types[declared_name];
+	decl.name = declared_name;
+	decl.type = p_type;
 
 	if (builtin_class->has_indexing_return_type) {
-		decl->has_element_type = true;
-		decl->element_type = builtin_class->indexing_type;
+		decl.has_element_type = true;
+		decl.element_type = builtin_class->indexing_type;
 	}
-	decl->is_keyed = builtin_class->is_keyed;
+	decl.is_keyed = builtin_class->is_keyed;
 
 	// methods
 	for (const auto &api_method : builtin_class->methods) {
@@ -348,7 +352,7 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 			md.is_static = true;
 		}
 
-		decl->methods.push_back(md);
+		decl.methods.push_back(md);
 	}
 
 	// enums
@@ -364,7 +368,7 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 			const int narrowed = static_cast<int>(value.value);
 			enum_decl.literals.push_back({ value.name, narrowed });
 		}
-		decl->enums.push_back(enum_decl);
+		decl.enums.push_back(enum_decl);
 	}
 
 	// constants
@@ -392,14 +396,13 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 			default:
 				break;
 		}
-		decl->constants.push_back(constant);
+		decl.constants.push_back(constant);
 	}
 
 	if (p_utilities_mode) {
 		// 工具类跳过 构造函数、操作符、属性成员相关的代码生成。
 		// 因为以工具类进行绑定的类型通常与 js 内置类型等价，仅补充。常量，枚举，并将函数统一补充为静态工具函数。
-		primitive_types.insert(decl->name, decl);
-		return decl;
+		return;
 	}
 
 	// constructors
@@ -408,7 +411,7 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		for (const PropertyInfo &argument : api_constructor.arguments) {
 			ctor.arguments.push_back({ NamingUtil::get_parameter_name(argument.name), argument.type });
 		}
-		decl->constructors.push_back(ctor);
+		decl.constructors.push_back(ctor);
 	}
 
 	// operators
@@ -422,7 +425,7 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		// (==/!=/%); classify by op code, not by right_type.
 		op_decl.is_unary = op.op == Variant::OP_NEGATE || op.op == Variant::OP_POSITIVE
 				|| op.op == Variant::OP_NOT || op.op == Variant::OP_BIT_NEGATE;
-		decl->operators.push_back(op_decl);
+		decl.operators.push_back(op_decl);
 	}
 
 	// properties (getset)
@@ -430,11 +433,8 @@ PrimitiveClassDecl *TypeDB::_load_primitive_type(const StringName &p_type_name, 
 		PrimitiveGetSetDecl member;
 		member.name = NamingUtil::get_member_name(api_member.name);
 		member.type = api_member.type;
-		decl->properties.push_back(member);
+		decl.properties.push_back(member);
 	}
-
-	primitive_types.insert(decl->name, decl);
-	return decl;
 }
 
 void TypeDB::load_singletons() {
@@ -443,15 +443,17 @@ void TypeDB::load_singletons() {
 		const StringName singleton_name = singleton_list[i];
 		Object *singleton = Engine::get_singleton()->get_singleton(singleton_name);
 
-		SingletonDecl *decl = memnew(SingletonDecl);
-		owned_singletons_.push_back(decl);
+		// 值语义：key（暴露名）先算好，无跳过分支。singleton 即便查不到也照旧登记
+		// （HEAD 行为：class_name 退化为运行时类名或空串）。
+		const String declared_name = NamingUtil::get_class_name(singleton_name);
+		jsb_checkf(!singletons.has(declared_name), "duplicate singleton key: %s", declared_name);
+		SingletonDecl &decl = singletons[declared_name];
 
 		const api_tool::ApiSingleton *api_singleton = api_tool::find_singleton(singleton_name);
 		const String class_name_str = api_singleton ? String(api_singleton->type)
 													: (singleton ? String(singleton->get_class()) : String());
-		decl->name = NamingUtil::get_class_name(singleton_name);
-		decl->class_name = NamingUtil::get_class_name(class_name_str);
-		singletons.insert(decl->name, decl);
+		decl.name = declared_name;
+		decl.class_name = NamingUtil::get_class_name(class_name_str);
 	}
 }
 
@@ -462,27 +464,29 @@ void TypeDB::load_globals() {
 		const api_tool::ApiConstantInfo *api_global_constant = api_tool::find_global_constant(constant_name);
 		jsb_check(api_global_constant);
 
-		GlobalConstantDecl *decl = memnew(GlobalConstantDecl);
-		owned_globals_.push_back(decl);
-		decl->name = NamingUtil::get_enum_value_name(constant_name);
+		// 值语义：key 先算好、跳过分支（jsb_check）在前，再取槽位填字段。
+		const String declared_name = NamingUtil::get_enum_value_name(constant_name);
+		jsb_checkf(!globals.has(declared_name), "duplicate global key: %s", declared_name);
+		GlobalConstantDecl &decl = globals[declared_name];
+		decl.name = declared_name;
 		// Old pipeline passed the value through a v8 Number (double), rounding
 		// |values| >= 2^53 (INT64_MIN/MAX). Keep the rounding for baseline parity.
-		decl->value = static_cast<int64_t>(static_cast<double>(api_global_constant->value));
-		globals.insert(decl->name, decl);
+		decl.value = static_cast<int64_t>(static_cast<double>(api_global_constant->value));
 	}
 
 	for (const StringName &enum_name : api_tool::list_global_enums()) {
 		const api_tool::ApiEnumInfo *enum_info = api_tool::find_global_enum(enum_name);
 		jsb_check(enum_info);
 
-		GlobalConstantDecl *decl = memnew(GlobalConstantDecl);
-		owned_globals_.push_back(decl);
-		decl->name = NamingUtil::get_enum_name(enum_name);
-		decl->is_enum = true;
+		// 同上：key 先算好，jsb_check 在前，再取槽位。
+		const String declared_name = NamingUtil::get_enum_name(enum_name);
+		jsb_checkf(!globals.has(declared_name), "duplicate global key: %s", declared_name);
+		GlobalConstantDecl &decl = globals[declared_name];
+		decl.name = declared_name;
+		decl.is_enum = true;
 		for (const auto &api_enum : enum_info->values) {
-			decl->values.push_back({ NamingUtil::get_enum_value_name(api_enum.name), api_enum.value });
+			decl.values.push_back({ NamingUtil::get_enum_value_name(api_enum.name), api_enum.value });
 		}
-		globals.insert(decl->name, decl);
 	}
 }
 
@@ -493,13 +497,16 @@ void TypeDB::load_utilities() {
 			continue;
 		}
 
-		MethodDecl *md = memnew(MethodDecl);
-		owned_utilities_.push_back(md);
+		// 值语义：key 与 `build_method_decl` 写入 `r_decl.name` 的表达式必须是同一份
+		// （都是 `NamingUtil::get_member_name(...)`）——两处要同步修改，
+		// 否则 map key 与 decl.name 漂移，emit 阶段按 name 查文档/去重会失配。
+		const String declared_name = NamingUtil::get_member_name(utility_func->get_name());
+		jsb_checkf(!utilities.has(declared_name), "duplicate utility key: %s", declared_name);
+		MethodDecl &md = utilities[declared_name];
 		// utility functions never carry default values (none of the 114 entries
 		// in extension_api.json declares one), and ApiUtilityFunction has no
 		// default_count accessor at all.
-		build_method_decl(*md, *utility_func, nullptr, 0);
-		utilities.insert(md->name, md);
+		build_method_decl(md, *utility_func, nullptr, 0);
 	}
 }
 
@@ -963,42 +970,6 @@ String TypeDB::make_literal_value(const MethodDecl::DefaultValue &p_value) {
 	}
 
 	return String();
-}
-
-void destroy_typedb(TypeDB &p_db) {
-	// decls are owned by the TypeDB and must be freed explicitly (mirrors the
-	// TS objects being garbage-collected).
-	for (ClassDecl *decl : p_db.owned_classes_) {
-		memdelete(decl);
-	}
-	p_db.owned_classes_.clear();
-	p_db.classes.clear();
-
-	for (PrimitiveClassDecl *decl : p_db.owned_primitives_) {
-		memdelete(decl);
-	}
-	p_db.owned_primitives_.clear();
-	p_db.primitive_types.clear();
-
-	for (SingletonDecl *decl : p_db.owned_singletons_) {
-		memdelete(decl);
-	}
-	p_db.owned_singletons_.clear();
-	p_db.singletons.clear();
-
-	for (GlobalConstantDecl *decl : p_db.owned_globals_) {
-		memdelete(decl);
-	}
-	p_db.owned_globals_.clear();
-	p_db.globals.clear();
-
-	for (MethodDecl *decl : p_db.owned_utilities_) {
-		memdelete(decl);
-	}
-	p_db.owned_utilities_.clear();
-	p_db.utilities.clear();
-
-	destroy_doc_cache(p_db.docs_);
 }
 
 } // namespace codegen

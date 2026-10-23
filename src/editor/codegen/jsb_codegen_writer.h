@@ -421,6 +421,13 @@ private:
 class FileSplitter final {
 public:
 	FileSplitter(TypeDB *p_types, const String &p_path);
+	// 释放本类创建的两个堆 writer（`Writer` 约定：作用域 writer 由调用方 delete，基类不持有所有权）。
+	// 不删就会每个分片漏一条 writer 链，其中的 `FileWriter` 持有 `file_` 的一份 `Ref<FileAccess>`
+	// ⇒ 退出时每个分片报一个 FileAccess 泄漏（实测 11 个分片 = 11 条）。
+	~FileSplitter() {
+		memdelete(toplevel_);
+		memdelete(file_writer_);
+	}
 
 	void close();
 	ModuleWriter *get_writer() const { return toplevel_; }
@@ -430,6 +437,7 @@ public:
 private:
 	Ref<FileAccess> file_;
 	ModuleWriter *toplevel_ = nullptr;
+	FileWriter *file_writer_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------

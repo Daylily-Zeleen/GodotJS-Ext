@@ -189,11 +189,13 @@ class TypeDB {
 public:
 	TypeDB();
 
-	HashMap<String, ClassDecl *> classes;
-	HashMap<String, PrimitiveClassDecl *> primitive_types;
-	HashMap<String, SingletonDecl *> singletons;
-	HashMap<String, GlobalConstantDecl *> globals;
-	HashMap<String, MethodDecl *> utilities;
+	// 值语义：map 直接持有 decl（entry 是独立堆节点，重哈希复用节点、迭代即插入序），
+	// 因此不再需要 `owned_*` 双登记与手工析构。
+	HashMap<String, ClassDecl> classes;
+	HashMap<String, PrimitiveClassDecl> primitive_types;
+	HashMap<String, SingletonDecl> singletons;
+	HashMap<String, GlobalConstantDecl> globals;
+	HashMap<String, MethodDecl> utilities;
 
 	HashSet<String> ignored_classes; // name -> nothing (base recorded separately below)
 	struct IgnoredClassEntry {
@@ -228,13 +230,8 @@ public:
 		return primitive_type_name_as_input(p_type);
 	}
 
-	// ordered (load-order) views for the generator emit loops - the TS pipeline
-	// relied on JS object insertion order, so shard boundaries depend on it.
-	const Vector<ClassDecl *> &ordered_classes() const { return owned_classes_; }
-	const Vector<PrimitiveClassDecl *> &ordered_primitives() const { return owned_primitives_; }
-	const Vector<SingletonDecl *> &ordered_singletons() const { return owned_singletons_; }
-	const Vector<GlobalConstantDecl *> &ordered_globals() const { return owned_globals_; }
-	const Vector<MethodDecl *> &ordered_utilities() const { return owned_utilities_; }
+	// 生成器的 emit 循环直接遍历上面的 map：godot-cpp `HashMap` 迭代即插入序，
+	// 与 TS 管线依赖的 JS 对象 key 顺序（分片边界）逐条等价。
 
 	// replace_var_name()
 	static String replace_var_name(const String &p_name) {
@@ -253,7 +250,7 @@ private:
 	void load_utilities();
 
 	void build_method_decl(MethodDecl &r_decl, const api_tool::ApiMethodBase &p_method, const godot::Variant *p_defaults, uint16_t p_default_count);
-	PrimitiveClassDecl *_load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode);
+	void _load_primitive_type(const StringName &p_type_name, Variant::Type p_type, bool p_utilities_mode);
 
 	// get_primitive_type_name_as_input()
 	String primitive_type_name_as_input(Variant::Type p_type) const;
@@ -262,17 +259,8 @@ private:
 	HashMap<String, Variant::Type> variant_names_;
 	HashMap<Variant::Type, String> variant_type_names_;
 
-	// memory ownership for the decls
-	Vector<ClassDecl *> owned_classes_;
-	Vector<PrimitiveClassDecl *> owned_primitives_;
-	Vector<SingletonDecl *> owned_singletons_;
-	Vector<GlobalConstantDecl *> owned_globals_;
-	Vector<MethodDecl *> owned_utilities_;
-
 	// TS: `class_docs` map - lazily populated class document cache
 	DocCache docs_;
-
-	friend void destroy_typedb(TypeDB &p_db);
 };
 
 } // namespace codegen
