@@ -78,11 +78,14 @@ XCFRAMEWORK_SUFFIX = ".xcframework"
 # packed only because the build directory was copied wholesale.
 LINK_JUNK_SUFFIXES = (".a", ".lib", ".exp", ".pdb", ".ilk")
 
-# The uploaded zips are distribution artifacts: strip embedded debug info from
-# the loadable libraries (MinGW PE and ELF builds carry full DWARF -
-# a debug_symbols=yes editor DLL was 282 MiB shipped as-is). `--strip-debug`
-# keeps the symbol table (useful in crash traces) and removes the DWARF bulk.
-STRIP_FLAG = "--strip-debug"
+# The uploaded zips are distribution artifacts: strip the loadable libraries.
+# MinGW PE and ELF builds carry full DWARF (a debug_symbols=yes editor DLL was
+# 282 MiB shipped as-is) *and* a symbol/string table that survives
+# `--strip-debug` - measured at 22.1 MiB of the 38.6 MiB shipped Windows DLL
+# and 5.1 MiB of the 21.5 MiB shipped Linux .so. `--strip-all` removes both;
+# exported symbols (PE export table, ELF dynsym, Mach-O export trie) are
+# separate and stay intact.
+STRIP_FLAG = "--strip-all"
 
 
 # ---------------------------------------------------------------------------
