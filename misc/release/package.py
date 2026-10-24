@@ -73,10 +73,12 @@ LIBRARY_SUFFIXES = (".dll", ".so", ".dylib", ".wasm")
 XCFRAMEWORK_SUFFIX = ".xcframework"
 
 # Linker by-products that end users can never use: static archives (MinGW `.a`),
-# import libraries / export files (`.lib`/`.exp`), debug sidecars (`.pdb`) and
-# incremental-link leftovers (`.ilk`). The engine loads none of them; they were
-# packed only because the build directory was copied wholesale.
-LINK_JUNK_SUFFIXES = (".a", ".lib", ".exp", ".pdb", ".ilk")
+# import libraries / export files (`.lib`/`.exp`), debug sidecars (`.pdb`),
+# incremental-link leftovers (`.ilk`) and module-definition files (`.def`, the
+# N-API export lists consumed when linking `node.dll`/`godotjs-ext.exe`). The
+# engine loads none of them; they were packed only because the build directory
+# was copied wholesale.
+LINK_JUNK_SUFFIXES = (".a", ".lib", ".exp", ".pdb", ".ilk", ".def")
 
 # The uploaded zips are distribution artifacts: strip the loadable libraries.
 # MinGW PE and ELF builds carry full DWARF (a debug_symbols=yes editor DLL was
