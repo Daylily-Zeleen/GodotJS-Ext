@@ -935,10 +935,15 @@ jobs:
           # from debug symbols.
           profile: ${{ startsWith(matrix.target, 'template_') && 'release' || 'editor' }}
           # The manually selected binding mode applies to the desktop legs,
-          # which the `test` job can actually run. Mobile/web stay on the scons
-          # default (shared): they are template-only and never run the runtime
-          # tests, so overriding them would only multiply build time.
-          flags: ${{ (inputs.binding_mode != '' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos')) && format('binding_mode={0}', inputs.binding_mode) || '' }}
+          # which the `test` job can actually run. Mobile stays on the scons
+          # default (shared): template-only, never runs the runtime tests.
+          #
+          # Web ALWAYS builds with `binding_mode=dynamic`: the static-binding
+          # tables and thunks are a large share of a wasm bundle, and the web
+          # legs are download-on-click artifacts where that shows up directly.
+          # Dynamic reflection is a supported mode (the benchmark legs build
+          # and run it), it just trades throughput for size.
+          flags: ${{ (matrix.platform == 'web' && 'binding_mode=dynamic') || (inputs.binding_mode != '' && (matrix.platform == 'windows' || matrix.platform == 'linux' || matrix.platform == 'macos') && format('binding_mode={0}', inputs.binding_mode)) || '' }}
           scons-cache: ${{ matrix.platform != 'windows' && format('{0}/.scons-cache', github.workspace) || '' }}
 
       - name: Upload GDExtension artifact
