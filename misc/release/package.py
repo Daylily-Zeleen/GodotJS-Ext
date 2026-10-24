@@ -34,6 +34,7 @@ unreferenced; a mismatch fails the run loudly.
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -67,10 +68,21 @@ ZIP_STEM = "godotjs-ext"
 GEXTENSION = "godotjs-ext.gdextension"
 
 # A packaged file is a loadable library when it carries the extension for its
-# platform. Static archives (.a/.lib), import libraries (.exp/.lib) and debug
-# sidecars (.pdb/.ilk) are shipped as-is but never declared.
+# platform.
 LIBRARY_SUFFIXES = (".dll", ".so", ".dylib", ".wasm")
 XCFRAMEWORK_SUFFIX = ".xcframework"
+
+# Linker by-products that end users can never use: static archives (MinGW `.a`),
+# import libraries / export files (`.lib`/`.exp`), debug sidecars (`.pdb`) and
+# incremental-link leftovers (`.ilk`). The engine loads none of them; they were
+# packed only because the build directory was copied wholesale.
+LINK_JUNK_SUFFIXES = (".a", ".lib", ".exp", ".pdb", ".ilk")
+
+# The uploaded zips are distribution artifacts: strip embedded debug info from
+# the loadable libraries (MinGW PE and ELF builds carry full DWARF -
+# a debug_symbols=yes editor DLL was 282 MiB shipped as-is). `--strip-debug`
+# keeps the symbol table (useful in crash traces) and removes the DWARF bulk.
+STRIP_FLAG = "--strip-debug"
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +202,72 @@ def package_name(engine, legs):
     return f"{ZIP_STEM}-" + "-".join(tokens)
 
 
+def _skip_link_junk(directory, names):
+    """shutil.copytree ignore= hook: keep linker by-products out of the package."""
+    return [name for name in names if Path(name).suffix.lower() in LINK_JUNK_SUFFIXES]
+
+
+def _strip_tool_candidates():
+    """Strip binaries we can actually use on this runner.
+
+    `llvm-strip` (multi-target: ELF/PE/Mach-O) is preferred - GNU `strip` cannot
+    read Mach-O, so the macOS/iOS dylibs need LLVM. Both may be version-suffixed
+    on the runner images.
+    """
+    tools = []
+    for name in ("llvm-strip",):
+        found = shutil.which(name)
+        if found:
+            tools.append(found)
+    for pattern in ("/usr/bin/llvm-strip-*", "/usr/lib/llvm-*/bin/llvm-strip"):
+        tools.extend(sorted(glob.glob(pattern), reverse=True))
+    found = shutil.which("strip")
+    if found:
+        tools.append(found)
+    return tools
+
+
+def _strip_libraries(bin_dir: Path):
+    """Remove embedded debug info from the packaged loadable libraries.
+
+    The CI editor profile builds with `debug_symbols=yes`; MinGW/ELF builds embed
+    the DWARF in the binary, so a shipped editor DLL reached 282 MiB. Stripping is
+    best-effort: a file whose format no available tool understands stays as-is
+    (reported), it never fails the release.
+    """
+    tools = _strip_tool_candidates()
+    if not tools:
+        print("  strip: no llvm-strip/strip on PATH; shipping libraries as-is")
+        return
+    targets = [
+        path
+        for path in sorted(bin_dir.rglob("*"))
+        if path.is_file() and path.suffix.lower() in (".dll", ".so", ".dylib")
+    ]
+    if not targets:
+        return
+    print(f"  strip: {len(targets)} library file(s) using {Path(tools[0]).name}")
+    for path in targets:
+        before = path.stat().st_size
+        for tool in tools:
+            if path.suffix.lower() == ".dylib" and "llvm-strip" not in Path(tool).name:
+                # GNU strip cannot read Mach-O; do not corrupt the file trying.
+                continue
+            proc = subprocess.run(
+                [tool, STRIP_FLAG, str(path)],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode == 0:
+                break
+        else:
+            print(f"  strip: {path.name} left as-is (no tool accepted it)")
+            continue
+        after = path.stat().st_size
+        rel = path.relative_to(bin_dir).as_posix()
+        print(f"  strip: {rel} {before / 1048576:.1f} -> {after / 1048576:.1f} MiB")
+
+
 def merge_leg(artifact_dir: Path, bin_dir: Path, pkg_dir: Path):
     """Merge one leg's artifact tree into the package.
 
@@ -205,11 +283,14 @@ def merge_leg(artifact_dir: Path, bin_dir: Path, pkg_dir: Path):
             target = bin_dir / entry.name
             target.mkdir(parents=True, exist_ok=True)
             for item in sorted(entry.iterdir()):
+                if item.is_file() and item.suffix.lower() in LINK_JUNK_SUFFIXES:
+                    print(f"  drop {item.name} (linker by-product)")
+                    continue
                 dest = target / item.name
                 if item.is_dir():
                     if dest.exists():
                         shutil.rmtree(dest)
-                    shutil.copytree(item, dest)
+                    shutil.copytree(item, dest, ignore=_skip_link_junk)
                 else:
                     shutil.copy2(item, dest)
         elif entry.name == "LICENSE" or (entry.name == "addons" and entry.is_dir()):
@@ -404,6 +485,7 @@ def assemble(engine, artifacts_dir: Path, out_dir: Path, version=None):
         print(f"  merge {artifact}")
         merge_leg(artifacts_dir / artifact, bin_dir, pkg_dir)
     _drop_superseded_ios_dylibs(bin_dir, legs)
+    _strip_libraries(bin_dir)
 
     # Each packaged library key is derived from a leg that really produced it:
     # no "supported platform" is declared without its binary in the box, and -
@@ -500,9 +582,12 @@ def verify_package(pkg_dir: Path, written: Path, entries, dependencies, icons=()
 
 
 def zip_package(pkg_dir: Path, zip_path: Path):
+    # The archive's inner root is the plain addon name: the platform/engine
+    # suffixes belong to the asset file name, not to the folder users drop into
+    # their project.
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(pkg_dir.rglob("*")):
-            arcname = (Path(pkg_dir.name) / path.relative_to(pkg_dir)).as_posix()
+            arcname = (Path(ZIP_STEM) / path.relative_to(pkg_dir)).as_posix()
             if path.is_dir():
                 info = zipfile.ZipInfo(arcname + "/")
                 info.external_attr = (0o40755 << 16) | 0x10

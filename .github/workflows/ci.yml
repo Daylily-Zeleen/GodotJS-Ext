@@ -583,6 +583,79 @@ jobs:
             arch: arm64
             target: editor
             engine: jsc
+
+          # --- Desktop template_release legs -----------------------------
+          # A package must be usable in exported games, not only in the
+          # editor: the engine picks the library by feature tags, so a desktop
+          # export (features `windows`, `release`, `x86_64`, ...) can never
+          # load a `*.debug.editor.*` entry. These legs mirror every desktop
+          # editor leg one-to-one (same toolchain quirks: MinGW for qjs-ng,
+          # gcc-12 for node, universal for qjs-ng on macOS) so each shipped
+          # platform/arch gets its `release` key in the generated
+          # `.gdextension`. Mobile/web are already template_release-only.
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_release
+            engine: v8
+            windows-compiler: msvc
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_release
+            engine: qjs-ng
+            windows-compiler: mingw
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_release
+            engine: node
+            windows-compiler: msvc
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: qjs-ng
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_release
+            engine: node
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_release
+            engine: qjs-ng
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: v8
+          - platform: macos
+            os: macos-latest
+            arch: universal
+            target: template_release
+            engine: qjs-ng
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: node
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_release
+            engine: jsc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
