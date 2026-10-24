@@ -399,7 +399,8 @@ struct ReflectConstructorCall<Vector2> : ReflectConstructorCallValueBinder<Vecto
 		// const NativeClassID class_id = (NativeClassID) info.Data().As<v8::Uint32>()->Value();
 
 		if (v8_argc == 0) {
-			static const Vector2 zero;
+			// 值初始化：Vector2 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector2 zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -451,7 +452,8 @@ struct ReflectConstructorCall<Vector2i> : ReflectConstructorCallValueBinder<Vect
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Vector2i zero;
+			// 值初始化：Vector2i 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector2i zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -503,7 +505,8 @@ struct ReflectConstructorCall<Vector3> : ReflectConstructorCallValueBinder<Vecto
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Vector3 zero;
+			// 值初始化：Vector3 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector3 zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -560,7 +563,8 @@ struct ReflectConstructorCall<Vector3i> : ReflectConstructorCallValueBinder<Vect
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Vector3i zero;
+			// 值初始化：Vector3i 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector3i zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -617,7 +621,8 @@ struct ReflectConstructorCall<Vector4> : ReflectConstructorCallValueBinder<Vecto
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Vector4 zero;
+			// 值初始化：Vector4 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector4 zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -679,7 +684,8 @@ struct ReflectConstructorCall<Vector4i> : ReflectConstructorCallValueBinder<Vect
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Vector4i zero;
+			// 值初始化：Vector4i 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Vector4i zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -741,7 +747,8 @@ struct ReflectConstructorCall<Rect2> : ReflectConstructorCallValueBinder<Rect2> 
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Rect2 zero;
+			// 值初始化：Rect2 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Rect2 zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
@@ -817,7 +824,8 @@ struct ReflectConstructorCall<Rect2i> : ReflectConstructorCallValueBinder<Rect2i
 		v8::Local<v8::Object> self = info.This();
 		const int v8_argc = info.Length();
 		if (v8_argc == 0) {
-			static const Rect2i zero;
+			// 值初始化：Rect2i 默认构造是 `= default` 且成员无初始化器，const 对象默认初始化是 ill-formed（NDK clang 直接报错）。
+			static const Rect2i zero{};
 			bind_valuetype(isolate, self, zero);
 			return;
 		} else if (v8_argc == 1) {
