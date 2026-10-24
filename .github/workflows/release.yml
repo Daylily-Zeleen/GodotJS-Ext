@@ -110,18 +110,9 @@ jobs:
       ref: ${{ github.event.workflow_run.head_sha }}
     secrets: inherit
 
-  upload:
-    name: Upload Release Assets
-    needs: [should-publish, publish]
-    if: >-
-      needs.should-publish.outputs.publish == 'true' &&
-      needs.publish.result == 'success'
-    permissions:
-      actions: read
-      contents: write
-    uses: ./.github/workflows/misc_release.yml
-    with:
-      mode: upload-only
-      version: ${{ needs.should-publish.outputs.version }}
-      run_id: ${{ github.event.workflow_run.id }}
-    secrets: inherit
+  # NOTE: no second `misc_release.yml` pass with mode=upload-only here. `mode=full`
+  # already uploads every package (its upload matrix runs after the release job);
+  # re-running upload-only afterwards re-uploaded the same asset names and failed
+  # every Upload job with `ReleaseAsset already_exists`, marking the whole release
+  # run as failure although the release was complete. For a manual re-upload after
+  # the fact, dispatch `upload_assets.yml` instead.
