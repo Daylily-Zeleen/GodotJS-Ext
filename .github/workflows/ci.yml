@@ -656,6 +656,138 @@ jobs:
             arch: arm64
             target: template_release
             engine: jsc
+
+          # --- template_debug legs ---------------------------------------
+          # One debug mirror for every template_release leg above. `debug` is
+          # a feature of *debug template* builds only (`template_release`
+          # builds advertise `release` instead), so without these the engine
+          # cannot match any library for a debug export - on any platform,
+          # including desktop. The debug flavor differs from release only in
+          # `target=template_debug` (DEBUG_ENABLED): the workflow builds every
+          # template leg with profile=release (no debug symbols, no dev build,
+          # no tests) and packaging strips/verifies the rest.
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_debug
+            engine: v8
+            windows-compiler: msvc
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_debug
+            engine: qjs-ng
+            windows-compiler: mingw
+          - platform: windows
+            os: windows-latest
+            arch: x86_64
+            target: template_debug
+            engine: node
+            windows-compiler: msvc
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_debug
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_debug
+            engine: qjs-ng
+          - platform: linux
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_debug
+            engine: node
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_debug
+            engine: v8
+          - platform: linux
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_debug
+            engine: qjs-ng
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: v8
+          - platform: macos
+            os: macos-latest
+            arch: universal
+            target: template_debug
+            engine: qjs-ng
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: node
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: jsc
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_debug
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: arm64
+            target: template_debug
+            engine: qjs-ng
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_debug
+            engine: v8
+          - platform: android
+            os: ubuntu-22.04
+            arch: x86_64
+            target: template_debug
+            engine: qjs-ng
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: v8
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: qjs-ng
+          - platform: ios
+            os: macos-latest
+            arch: arm64
+            target: template_debug
+            engine: jsc
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_debug
+            engine: web
+            threads: true
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_debug
+            engine: qjs-ng
+            threads: true
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_debug
+            engine: web
+            threads: false
+          - platform: web
+            os: ubuntu-22.04
+            arch: wasm32
+            target: template_debug
+            engine: qjs-ng
+            threads: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -796,6 +928,12 @@ jobs:
           engine: ${{ matrix.engine }}
           windows-compiler: ${{ matrix.windows-compiler || 'msvc' }}
           threads: ${{ matrix.threads }}
+          # Template legs are distribution artifacts: the `editor` profile's
+          # `debug_symbols=yes dev_build=yes tests=yes` would put debug info and
+          # the C++ test harness into them (the editor legs keep it). The debug
+          # *flavor* comes from `target=template_debug` (DEBUG_ENABLED), not
+          # from debug symbols.
+          profile: ${{ startsWith(matrix.target, 'template_') && 'release' || 'editor' }}
           # The manually selected binding mode applies to the desktop legs,
           # which the `test` job can actually run. Mobile/web stay on the scons
           # default (shared): they are template-only and never run the runtime
