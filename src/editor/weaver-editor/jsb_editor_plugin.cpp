@@ -1232,6 +1232,13 @@ void GodotJSEditorPlugin::get_all_resources(EditorFileSystemDirectory *p_dir, Ve
 		if (path.begins_with("res://install/") || path.begins_with("res://node_modules/")) {
 			continue;
 		}
+		// `.gdextension` 是插件清单：加载它会拿到 GDExtension 资源对象，该对象由
+		// GDExtensionManager 持有到引擎收尾（本 DLL 卸载之后才析构）。godot-cpp 为它
+		// 建的 instance binding 那时才触发 free_callback ⇒ 0xC0000005。它的类型描述符
+		// 对 TS 生成也没有意义，直接跳过。
+		if (path.ends_with(".gdextension")) {
+			continue;
+		}
 
 		if (!path.is_empty() && ResourceLoader::get_singleton()->exists(path) && !GodotJSExportPlugin::get_ignored_paths().has(path)) {
 			r_list.push_back(p_dir->get_file_path(i));

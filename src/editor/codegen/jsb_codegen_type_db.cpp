@@ -34,6 +34,7 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/gdextension_interface_loader.hpp>
 
 // NamingUtil (member/parameter/class/enum name mapping)
 #include <internal/jsb_format.h>
@@ -441,17 +442,27 @@ void TypeDB::load_singletons() {
 	PackedStringArray singleton_list = Engine::get_singleton()->get_singleton_list();
 	for (int i = 0; i < singleton_list.size(); i++) {
 		const StringName singleton_name = singleton_list[i];
-		Object *singleton = Engine::get_singleton()->get_singleton(singleton_name);
 
 		// 值语义：key（暴露名）先算好，无跳过分支。singleton 即便查不到也照旧登记
-		// （HEAD 行为：class_name 退化为运行时类名或空串）。
 		const String declared_name = NamingUtil::get_class_name(singleton_name);
 		jsb_checkf(!singletons.has(declared_name), "duplicate singleton key: %s", declared_name);
 		SingletonDecl &decl = singletons[declared_name];
 
 		const api_tool::ApiSingleton *api_singleton = api_tool::find_singleton(singleton_name);
-		const String class_name_str = api_singleton ? String(api_singleton->type)
-													: (singleton ? String(singleton->get_class()) : String());
+		String class_name_str;
+		if (api_singleton) {
+			class_name_str = String(api_singleton->type);
+		} else {
+			// NOTE: 不使用 Engine::get_singleton(name) 来获取单例对象，那会产生该一个包装对象，原始对象是单例，其绑定可能会延后到该 GDExtension 卸载之后导致进程退出时崩溃（ResourceUID/IP）。
+			// 此处直接使用 gdextension_interface 提供的 C 接口来实现等价功能，避免产生包装对象。
+			GDExtensionObjectPtr raw = godot::gdextension_interface::global_get_singleton(singleton_name._native_ptr());
+			if (raw != nullptr) {
+				StringName raw_class_name;
+				if (godot::gdextension_interface::object_get_class_name(raw, godot::gdextension_interface::library, reinterpret_cast<GDExtensionStringNamePtr>(raw_class_name._native_ptr()))) {
+					class_name_str = String(raw_class_name);
+				}
+			}
+		}
 		decl.name = declared_name;
 		decl.class_name = NamingUtil::get_class_name(class_name_str);
 	}

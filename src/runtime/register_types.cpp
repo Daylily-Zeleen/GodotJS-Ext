@@ -29,6 +29,7 @@
 #	include "../tests/jsb_test_runner.h"
 #endif
 #include "api_tool/api_tool.h"
+#include "bridge/jsb_godot_module_loader.h"
 #include "weaver/jsb_weaver.h"
 #include <compat/jsb_compat.h>
 #include <internal/jsb_runtime_settings.h>
@@ -98,6 +99,13 @@ void jsb_uninitialize_module(ModuleInitializationLevel p_level) {
 			jsb_check(resource_saver_js.is_valid());
 			ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_js);
 			resource_saver_js.unref();
+		} break;
+		case MODULE_INITIALIZATION_LEVEL_CORE: {
+			// 归还 require 到引擎单例时挂上的 instance binding（见
+			// jsb_godot_module_loader.cpp 的登记）。必须在本终结器内完成：
+			// 它先于 godot-cpp `ClassDB::deinitialize(CORE)` 的盲释放循环执行，
+			// 且此刻本 DLL 仍在映射内。
+			jsb::release_engine_singleton_bindings();
 		} break;
 		default:
 			break;
