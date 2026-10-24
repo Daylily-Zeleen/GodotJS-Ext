@@ -806,8 +806,20 @@ if v8_support is not None and node_support is None:
     if jsb_platform == "windows":
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "v8_monolith.lib"))])
         env.Append(LINKFLAGS=["winmm.lib", "Dbghelp.lib", "advapi32.lib"])
-    elif jsb_platform in ("linux", "macos", "ios"):
+    elif jsb_platform in ("linux", "macos", "ios", "android"):
+        # `android` MUST be in this list: a shared-library link is allowed to
+        # keep undefined symbols (unlike an executable), so a missing monolith
+        # does not fail the build - it silently produced a ~10 MiB .so with
+        # undefined `v8::` symbols and no engine inside, which cannot load on
+        # a device. Kept as a plain tuple, no per-platform special case, so a
+        # new platform is either listed here or reviewed on purpose.
         env.Append(LIBS=[File(os.path.join(third_dir, "v8", v8_basename, "libv8_monolith.a"))])
+        if jsb_platform == "android":
+            # v8's android logging path references `__android_log_write` /
+            # `__android_log_vprint`; declare liblog explicitly so DT_NEEDED
+            # carries it instead of relying on the host app having it in the
+            # global namespace.
+            env.Append(LIBS=["log"])
     env.Append(CPPDEFINES=["V8_COMPRESS_POINTERS"])
 
 # Add node (libnode) include/library path

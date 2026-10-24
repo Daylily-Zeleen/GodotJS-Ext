@@ -210,6 +210,83 @@ def _skip_link_junk(directory, names):
     return [name for name in names if Path(name).suffix.lower() in LINK_JUNK_SUFFIXES]
 
 
+# Namespaces this project ships itself. The OS can never provide them, so an
+# undefined symbol in one of these families means the library is missing a
+# static archive it was supposed to link.
+ENGINE_SYMBOL_PREFIXES = ("_ZN2v8", "_ZN3jsb", "_ZN5godot", "_ZN6godot")
+# Mach-O adds one more leading underscore to the Itanium-mangled name.
+_MACHO_PREFIXES = tuple("_" + p for p in ENGINE_SYMBOL_PREFIXES)
+
+
+def _nm_tool_candidates():
+    tools = []
+    found = shutil.which("llvm-nm")
+    if found:
+        tools.append(found)
+    for pattern in ("/usr/bin/llvm-nm-*", "/usr/lib/llvm-*/bin/llvm-nm"):
+        tools.extend(sorted(glob.glob(pattern), reverse=True))
+    found = shutil.which("nm")
+    if found:
+        tools.append(found)
+    return tools
+
+
+def _undefined_engine_symbols(path: Path, tool: str):
+    """Undefined symbols of `path` that belong to an engine namespace we ship.
+
+    Returns None when the tool cannot read this file (caller tries the next
+    candidate); an empty list means "read fine, nothing suspicious".
+    """
+    prefixes = ENGINE_SYMBOL_PREFIXES + _MACHO_PREFIXES
+    for args in (["-D", "-u"], ["-u"], ["--dynamic", "--undefined-only"]):
+        proc = subprocess.run([tool, *args, str(path)], capture_output=True, text=True)
+        if proc.returncode != 0:
+            continue
+        names = []
+        for line in proc.stdout.splitlines():
+            parts = line.split()
+            if parts and parts[-1].startswith(prefixes):
+                names.append(parts[-1])
+        return names
+    return None
+
+
+def verify_no_unresolved_engine_symbols(bin_dir: Path):
+    """Refuse a package whose shared libraries reference engine symbols nothing provides.
+
+    A shared-library link is allowed to keep undefined symbols (unlike an
+    executable), so a missing `libv8_monolith.a` does not fail the build - it
+    silently produces a library with no engine inside that cannot be dlopen'ed.
+    That is exactly how the android v8 package shipped a 10 MiB `.so` with 144
+    undefined `v8::` symbols. `llvm-nm -D -u` catches it before packing.
+    """
+    tools = _nm_tool_candidates()
+    if not tools:
+        print("  verify: no llvm-nm/nm on PATH; skipping the unresolved-symbol check")
+        return
+    problems = []
+    for path in sorted(bin_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in (".so", ".dylib"):
+            continue
+        for tool in tools:
+            names = _undefined_engine_symbols(path, tool)
+            if names is None:
+                continue
+            if names:
+                problems.append((path, names))
+            break
+    if problems:
+        details = "\n  ".join(
+            f"{path.relative_to(bin_dir).as_posix()}: {len(names)} undefined engine symbol(s), "
+            f"e.g. {names[0]}"
+            for path, names in problems
+        )
+        raise AssembleError(
+            f"libraries reference engine symbols that nothing provides "
+            f"({len(problems)} file(s)); they cannot be loaded:\n  {details}"
+        )
+
+
 def _strip_tool_candidates():
     """Strip binaries we can actually use on this runner.
 
@@ -582,6 +659,8 @@ def verify_package(pkg_dir: Path, written: Path, entries, dependencies, icons=()
     match = re.search(r'^\s*entry_symbol\s*=\s*"([^"]+)"', text, re.M)
     if match is None:
         raise AssembleError(f"{written.name}: entry_symbol missing from [configuration]")
+
+    verify_no_unresolved_engine_symbols(pkg_dir / "bin")
 
 
 def zip_package(pkg_dir: Path, zip_path: Path):
