@@ -165,7 +165,6 @@ TEST_CASE("[runtime] [jsb] BindingObjectDB remove while handle alive") {
 	CHECK(!object_db.has_object(object_id));
 }
 
-// TODO: Build with Node has different path to create isolate and context.
 #if !JSB_WITH_NODE
 TEST_CASE("[runtime] [jsb] raw isolate essential tests") {
 	ArrayBufferAllocator allocator;

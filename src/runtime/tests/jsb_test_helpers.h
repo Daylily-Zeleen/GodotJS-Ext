@@ -72,7 +72,7 @@ private:
 public:
 	static void reset() {
 		static CurrentWorkingDirectory env;
-		// CHECK(OS::get_singleton()->set_cwd(env.original_working_dir) == OK); // TODO: gde 没办法改变当前的工作目录
+		// CHECK(OS::get_singleton()->set_cwd(env.original_working_dir) == OK); // NOTE: gde 没办法改变当前的工作目录
 	}
 };
 
