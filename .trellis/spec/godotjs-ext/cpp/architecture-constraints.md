@@ -301,36 +301,30 @@ worker 与 transferable shadow realm 共用 `void Environment::prepare_transfer_
   3/3 以 `0xC0000005` 退出 —— 该步属引擎自身行为，spec 早已按
   "退出即崩但产物完整"处理（见 [../test/codegen-baseline.md](../test/codegen-baseline.md)）
 
-### 处置（2026-10-23 定稿）：断开延长链，禁止钉住 DLL
+### 处置（2026-10-23 最终版）：扩展自建登记表 + 卸载前归还，不需要引擎补丁
 
-**PIN 已废**：`GetModuleHandleExW(..._FLAG_PIN)` 这类「拦住卸载」的手段已从代码中移除
-（用户判定不可接受），也不得再用——它让退出期统计变成假绿（DLL 常驻 ⇒ 其 godot-cpp 类名必被判 orphan）。
+**`core/extension/gdextension.cpp` 的 `close_library()` 清扫补丁已撤除**（用户要求）。
+替代实现全部在扩展侧（`src/runtime/bridge/jsb_library_binding_sweeper.{h,cpp}`）：
 
-**真实机制（实测，见 `tasks/10-18-clean-project-pipeline/report.md` §57）**：不退出的 V8 默认平台
-worker 线程会让「线程入口所在模块」的模块引用不归零（MSVC UCRT `_beginthreadex` 为该模块各持 1 个引用），
-引擎那次 `FreeLibrary` 只减计数 ⇒ DLL 活过 `StringName::cleanup()` ⇒ 其 godot-cpp 类名被判 orphan（实测 90 条）。
+1. **入口登记**：SERVERS 初始化最前面钩住接口表的 `object_get_instance_binding`；
+   凡以**库 token** 建立的 binding（godot-cpp 给引擎对象建的包装，`Engine`/`Time`/
+   `ResourceUID`/`GDExtensionManager`/`ResourceFormatLoader`×7/`ResourceImporter*`×16+
+   `ResourceFormatSaver`×3 等），按 `ObjectID`（全局单调、带校验位）记入登记表。
+   `Environment*` token 的 JS 绑定不在其内——它们由 `Environment::dispose()` 自行归还。
+2. **归还**：`jsb_uninitialize_module(SERVERS)` 的**最后一步**（所有环境/运行时资源拆除后、
+   引擎 `FreeLibrary` 前）调 `jsb::bridge::release_library_bindings()`：逐个
+   `object_get_instance_from_id(id)` 校验存活后 `object_free_instance_binding(raw, 库token)`。
+   引擎摘掉 binding 后，之后销毁这些对象时查不到回调，自然不会再跳进已解除映射的代码。
 
-**处置分两层**：
+实测（无 `gdextension.cpp` 补丁的引擎，重编验证）：冷轮 + 热轮七步全绿，step4/step6 exit 0；
+step7 `--verbose` COMPLETED=1 / FAILED=0 / Orphan StringName=0 / 无泄漏统计；doctest 96|96 + 1437|1437。
 
-1. **平台线程**：`jsb::impl::GlobalInitialize::shutdown()` 必须 `v8::V8::Dispose()` →
-   `V8::DisposePlatform()` → `platform.reset()`（并 `jsb_check(platform == nullptr)`）。线程随后退出、
-   模块引用归零，DLL 在引擎 `FreeLibrary` 处按时卸载 ⇒ `Orphan StringName` 0（实测 3/3）。
-   前提：此刻已无存活的 V8 isolate（各 `Environment` 已在 `_finish()` 阶段析构）。
-2. **扩展自己创建、却被引擎侧强引用的对象**：卸载前必须断开（否则对象活过 `FreeLibrary`，
-   之后析构要调本 DLL 的 godot-cpp binding free callback ⇒ 访问违例）。已实修的三条链：
-   `PlaceholderScriptInstance`（构造参数是 `Ref<GodotJSScript>`）与 `GodotJSScript::base`（派生类持基类 `Ref`）
-   在 `GodotJSScriptLanguage::_finish()` 里释放；`eval_source_with_arg` 用完把 JS 全局 `__jsb_arg`
-   复位成 `undefined`（否则传进去的 `Ref<Resource>` 被 JS 永久持有）；`~GodotJSScriptLanguage` 对
-   `script_list_` 逐个 `set_path(String())` 摘掉 `ResourceCache` 表项。
+**已实测失败并放弃的替代**（勿重试，证据在任务 report [33]/[34]/[41]/[42]）：
+- `godot::ClassDB::deinitialize(CORE)`：只清 godot-cpp 记录过的 `engine_singletons`，仍崩。
+- 按 `Engine::get_singleton_list()` 枚举并释放：堆损坏 0xC0000374（`get_singleton()` 返回的
+  就是那个包装，释放回调析构它 ⇒ 遍历中悬空）。
+- 接口钩子 + **静态析构**清扫：`DLL_PROCESS_DETACH` 内调 `ObjectDB`/`free_instance_binding`
+  会让 `FreeLibrary` 失败（DLL 留驻 ⇒ Orphan 90）且破坏堆。归还必须在 SERVERS 反初始化内完成。
 
-**引擎侧仍需一处补丁（这一步扩展修不了）**：`GDExtension::close_library()` 必须在
-`loader->close_library()` **之前**清扫本扩展注册的 instance binding。instance binding 是扩展经公开接口
-正常登记的，引擎却先卸载库再回调 ⇒ 必然跳到已解除映射的代码。**反向证据（2026-10-23 实测）**：
-把该补丁从 `godot-4.7.2-patched` 移除后，冷轮 step4/step6 立刻回到 `0xC0000005`
-（dump 中 fault module 为 `<none>`，即崩点不在任何已加载模块内）；恢复补丁 + 重建后 step4 `exit=0`。
-同一时期试过的**扩展侧替代**——在 SERVERS 结语里调 `godot::ClassDB::deinitialize(CORE)` 清扫
-`engine_singletons`——**实测无效**（crash 照旧，因为它覆盖不到非单例对象上的 binding），已移除。
-
-**判读纪律**：`N resources still in use at exit` / `StringName: N unclaimed string names at exit.` /
-`PagedAllocator` 泄漏统计只在「进程活到退出清理阶段」时才打印。对比前后数字前先确认两边日志
-**走到了同一步**（钉住 DLL 时这些统计全是假绿）。
+**判读纪律**（保留）：`N resources still in use` / `StringName: N unclaimed` / `PagedAllocator`
+统计只在进程活到退出清理阶段才打印；对比前后数字先确认两边日志走到了同一步。

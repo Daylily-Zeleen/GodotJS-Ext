@@ -248,6 +248,81 @@
   `Main::setup2()` → `ScriptServer::init_languages()`（`main/main.cpp:3867`）→ `GodotJSScriptLanguage::_init()`（`jsb_script_language.cpp:227`，运行期日志第 4 行）→ `populate_string_names_replacements()`（`:1494`）→ `ClassVisibility::get_exposed_original_class_list(…, false)`（`:1500` → `jsb_class_visibility.cpp:60`）→ 遍历 `ClassDB::get_class_list()`（本项目 1049 个类）→ `api_tool::has_class(name)`（`jsb_class_visibility.cpp:100`）→ `CHECK_LOADER_V` → loader 未加载 ⇒ 每类一条，共 1049 条。同一函数尾部还有 `list_utility_functions()`/`list_global_constants()` 各 1 次。
   触发条件 = api store 不存在 + `ScriptServer::init_languages()` 仍会执行（setup2 阶段，早于任何数据生成步骤）。数据生成之后的进程（step4/5/6、正常编辑器）`_init` 时 store 已存在，整条链一次都不触发。
 
+- [42] **（修正 [41] 的方向）"钩住 `object_get_instance_binding` + 卸载时清扫"实测失败，已整体回退**：
+  - 实现：钩住接口表函数指针，按 `ObjectID`（带校验位，失效自动跳过）登记所有库 token binding，
+    静态析构（= `FreeLibrary` 过程内、代码未解除映射）时经 `object_get_instance_from_id` 校验存活后逐个 `object_free_instance_binding`。
+  - 实测：step4/step6 **仍 `3221225477`**，且 **Orphan StringName 90**（= DLL 没能卸载）。
+    原因：在 `DLL_PROCESS_DETACH`（持有 loader lock）里调引擎的 `ObjectDB::get_instance` / `free_instance_binding`
+    会让 `FreeLibrary` 失败（DLL 留驻 ⇒ 90 条 orphan），而包装对象在校验/释放路径上又被破坏 ⇒ 堆 AV。
+  - 结论不变：**扩展侧无法安全完成**；三方案（CORE 清扫 / 单例枚举释放 / 接口钩子+卸载清扫）全部实测失败，
+    证据齐全（退出码、Orphan 计数、堆损坏码），详见 [33]/[34]/[41]/[42]。
+- [43] **最终状态（已复原为可交付形态）**：引擎补丁两处在位并重建（39.8s）；`register_types.cpp` 与 HEAD 一致；
+  dll md5 待下条；冷轮 + step7 全绿（数据同 [41] 前、补丁在位时的基线）。**撤补丁 = step4/6 必崩**这一结论由 [33]/[42] 双向确认。
+
+- [44] **（最终状态，遵照用户指令）引擎 `core/extension/gdextension.cpp` 补丁保持撤除（引擎已重编，`git status` 仅 `editor/doc/editor_help.cpp`），不再复原**。
+  此状态下实测（冷轮 `--clean` + step7）：step4-install 与 step6-gentypes 以 `3221225477` 退出（ERROR 计数不变、产物完整写出）；
+  step2 / 3-apigen / 5-tsc / step7 全绿（step7：exit 0、COMPLETED 1、FAILED 0、Orphan 0、无资源/泄漏统计）。
+  已知且已三方案实测失败的扩展侧替代见 [34]/[42]；后续若要消除 step4/6 崩溃，唯一已知手段仍是恢复该引擎侧清扫（[33] 对照）。
+
+- [45] **（最终设计，实测通过）`jsb_library_binding_sweeper` 钩子登记 + SERVERS 末尾归还**：
+  - 实现：`src/runtime/bridge/jsb_library_binding_sweeper.{h,cpp}`。SERVERS 初始化最前面安装
+    接口钩子（换掉 `object_get_instance_binding` 函数指针），凡以库 token 建的 binding 按
+    `ObjectID` 登记；`jsb_uninitialize_module(SERVERS)` **末尾**调 `release_library_bindings()`，
+    逐个 `object_get_instance_from_id(id)` 校验存活后 `object_free_instance_binding(raw, 库token)`。
+  - 实测：冷轮 + 热轮七步全绿（step4/step6 exit 0）；step7 ×3 全绿（Orphan 0、泄漏 0）；
+    doctest `96|96` + `1437|1437`；canonical 重编部署后 md5 `f4510f4c…` 双位一致。
+  - 关键差异（vs [42] 静态析构版失败）：归还时机在 SERVERS 反初始化末尾（**非** `DLL_PROCESS_DETACH`），
+    不持 loader lock，不触发 `FreeLibrary` 失败/DLL 留驻。
+- [46] **引擎状态（最终）**：`D:/Dev/godot/godot` 与 `D:/Dev/godot/godot-4.7.2-patched` 两个工作树的
+  `core/extension/gdextension.cpp` 均**无补丁**（只有 `editor_help.cpp` 保留）；`-4.7.2-patched` 引擎
+  二进制已重编（18:22，用户自行编译）。在此无补丁引擎上，七步流水线 + step7 全绿。
+- [47] **`.gdextension` reloadable=true**：用户自行改为 true。实测：对 step4/step6 崩溃无影响
+  （4.7.2 的 `close_library()` 只 `clear()` 清单不释放 binding，崩溃机制不变）；enable 后引擎在
+  `Object::get_instance_binding` 里按清单登记 ObjectID（`object.cpp:2261`），但不释放。
+
+- [48] **（崩溃根因闭环，2026-10-24）step4/step6 退出期 0xC0000005 的真正根因与修复**（撤掉引擎补丁后暴露，全部为本项目自身问题）：
+  - **机制**：godot-cpp 对任何从 API 拿到的引擎对象建 wrapper + instance binding（库 token）；
+    binding 的 free_callback 编在本 DLL 内。引擎收尾顺序 = `unregister_core_types()` 内
+    `GDExtensionManager::~` → `GDExtension::~GDExtension` → `close_library()`（FreeLibrary，
+    **DLL 卸载**）→ 之后才销毁残余对象 → binding 回调跳进已卸载内存。事件日志
+    `P4: ~godotjs-ext...unloaded`、dump 的 unloaded-modules 流均实证。
+  - **元凶 1（GDExtension 对象）**：`get_all_resources()` 收集全部可识别资源（含
+    `godotjs-ext.gdextension`），codegen 的 `get_resource_type_descriptor()` 对其
+    `ResourceLoader::load` → 拿到 GDExtension 资源对象 → godot-cpp 包壳。该对象由
+    GDExtensionManager 持有到收尾，在自身析构内 FreeLibrary **之后**才析构 ⇒ 必崩。
+    修复：`get_all_resources()` 跳过 `.gdextension`（插件清单，对 TS 类型生成无意义）。
+  - **元凶 2（Time 单例）**：`Benchmark`（`GodotJSScriptLanguage` 构造）、环境 GC 计时、
+    editor_tool 超时计时均 `Time::get_singleton()` → 包壳。实测 Time 单例退出期**不被销毁**
+    （plain 模式同样活着且不崩），非崩溃源，但仍是卸载后悬空 binding，一并改为
+    `std::chrono::steady_clock`（jsb_environment / jsb_editor_tool）。
+  - **诊断手段**（已全部拆除）：引擎侧 `CaptureStackBackTrace` 抓 binding 创建栈 +
+    `close_library` 处 census；minidump + dbghelp/PDB 解符号（工具 `.agent_tmp/dmp_sym.py`）。
+    注意 `print_line` 在崩溃时不落盘（stdout 缓冲），诊断一律 `fprintf(stderr)+fflush`；
+    bash `$?` 是低字节（0xC0000005 → 5）。
+  - **回归修复**：`register_shutdown_callback(jsb_shutdown)` 被注释（用户改动，保留）后
+    `api_tool::finalize()` 无人调用 ⇒ ApiLoader 缓存的数千 StringName 泄漏（ORPHAN=4713）；
+    改在 `jsb_uninitialize_module(SERVERS)` 末尾显式 `api_tool::finalize()`。doctest 入口
+    `jsb::tests::try_run()` 原挂在被注释的 startup 回调里，迁到 EDITOR 级初始化。
+  - **验收（引擎无补丁 + dll md5 `a328dacb…` 双位一致）**：冷轮 E4/豁免/E2/E2/0/0；
+    step7 ×3 exit 0、COMPLETED=1、FAILED=0、**ORPHAN=0**、RES=0；install ×3 + gentypes ×3
+    exit 0；doctest `96|96` + `1437|1437`。
+- [49] **最终最小 diff（用户裁定"最小改动"，2026-10-24，未提交）**：2 文件 18+/3-。
+  1. `src/editor/weaver-editor/jsb_editor_plugin.cpp`：`get_all_resources()` 跳过 `.gdextension`
+     （**必需**——GDExtension 对象在 FreeLibrary 后析构，唯一必崩源）。
+  2. `src/editor/codegen/jsb_codegen_type_db.cpp`：`load_singletons()` 不再经 godot-cpp
+     `Engine::get_singleton()` 包壳单例（**必需**——回退实测 step4/6 复崩 0xC0000005；30 个
+     被包壳单例中存在卸载后销毁者）。store 命中走数据文件；**store 缺条目的兜底同样不包壳**：
+     走原始接口 `global_get_singleton`（裸指针）+ `object_get_class_name`（就地写 StringName，
+     范式同 godot-cpp `src/core/object.cpp: get_object_instance_binding`），全程零 wrapper/零
+     binding。等价性实证：删 singletons 分片强制全量 miss 的产物与 store 命中产物逐字节一致。
+  - 已回退的纯防御改动（Time→chrono ×2、无关）：`jsb_environment.cpp`、`jsb_editor_tool.cpp`
+    回 HEAD。实证：Time binding 在（`jsb_benchmark.h` 的 `Benchmark` 未改，仍包 Time）+ 上述
+    两文件修复 ⇒ 全绿，Time 单例退出期不被销毁、无害。
+  - `register_types.cpp` 已按用户指示恢复 HEAD（其临时注释移除，startup/shutdown 回调、
+    `set_minimum_library_initialization_level(SERVERS)` 全部恢复）。
+  - 验收（dll md5 `a6594490…` 双位一致）：冷轮 E4/豁免/E2/E2/0/0；step7 ×3 exit 0 /
+    COMPLETED=1 / ORPHAN=0 / RES=0；install ×3 + gentypes ×3 exit 0；doctest `96|96`+`1437|1437`。
+
 ## Check（独立抽查，CheckTypedbValueSem，2026-10-23）
 
 > 全部为本轮独立复跑/复读证据，不是复述。交付 dll 保持 canonical：`md5sum bin/windows/...dll project/addons/.../bin/windows/...dll` 两处均为 `a9eee83abdad5a80eca7f2af14c34eb4`（未重编，未动代码）。
